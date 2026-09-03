@@ -10,10 +10,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 @Dao
 interface ChatRoomV2Dao {
 
-    @Query("SELECT * FROM chats_v2 ORDER BY updated_at DESC")
+    @Query("SELECT * FROM chats_v2 ORDER BY is_favorite DESC, updated_at DESC")
     suspend fun getChatRooms(): List<ChatRoomV2>
 
-    @Query("SELECT * FROM chats_v2 WHERE title LIKE '%' || :query || '%' ORDER BY updated_at DESC")
+    @Query("SELECT * FROM chats_v2 WHERE title LIKE '%' || :query || '%' ORDER BY is_favorite DESC, updated_at DESC")
     suspend fun searchChatRoomsByTitle(query: String): List<ChatRoomV2>
 
     @Insert
@@ -21,6 +21,9 @@ interface ChatRoomV2Dao {
 
     @Update
     suspend fun editChatRoom(chatRoom: ChatRoomV2)
+
+    @Query("UPDATE chats_v2 SET is_favorite = :isFavorite WHERE chat_id = :chatId")
+    suspend fun updateFavorite(chatId: Int, isFavorite: Boolean)
 
     @Delete
     suspend fun deleteChatRooms(vararg chatRooms: ChatRoomV2)

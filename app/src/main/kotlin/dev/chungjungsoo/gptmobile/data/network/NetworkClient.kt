@@ -33,7 +33,11 @@ class NetworkClient @Inject constructor(
 
             install(SSE)
 
-            install(HttpTimeout)
+            install(HttpTimeout) {
+                requestTimeoutMillis = 180_000L
+                connectTimeoutMillis = 30_000L
+                socketTimeoutMillis = 60_000L
+            }
 
             install(Logging) {
                 logger = Logger.DEFAULT

@@ -603,6 +603,7 @@ class ChatViewModel @Inject constructor(
         toolTraceLabels: ToolTraceLabels = ToolTraceLabels.Default,
         legacyOrderNotice: String = LEGACY_ORDER_NOTICE
     ): Pair<String, String> {
+        val platformNames = _platformsInApp.value.associate { it.uid to it.name }
         // Build the chat history in Markdown format
         val chatHistoryMarkdown = buildString {
             appendLine("# Chat Export: \"${chatRoom.value.title}\"")
@@ -619,9 +620,7 @@ class ChatViewModel @Inject constructor(
                 appendLine()
 
                 _groupedMessages.value.assistantMessages[i].forEach { message ->
-                    val platformName = message.platformType
-                        ?.let { _platformsInApp.value.getPlatformName(it) }
-                        ?: "Unknown"
+                    val platformName = message.platformType?.let { platformNames[it] } ?: "Unknown"
                     append(formatAssistantExport(platformName, message, _toolEventsByRun.value, toolTraceLabels, legacyOrderNotice))
                 }
             }

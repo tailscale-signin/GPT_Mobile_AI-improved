@@ -273,10 +273,13 @@ class ChatRepositoryImpl @Inject constructor(
         val allChatRooms = chatRoomV2Dao.getChatRooms()
         val messageMatches = allChatRooms.filter { it.id in messageMatchChatIds }
 
-        // Combine results and remove duplicates, maintaining order by updatedAt
+        // Combine results and remove duplicates, maintaining favorite-first and updatedAt order
         return (titleMatches + messageMatches)
             .distinctBy { it.id }
-            .sortedByDescending { it.updatedAt }
+            .sortedWith(
+                compareByDescending<ChatRoomV2> { it.isFavorite }
+                    .thenByDescending { it.updatedAt }
+            )
     }
 
     override suspend fun fetchMessages(chatId: Int): List<Message> = messageDao.loadMessages(chatId)
@@ -408,6 +411,10 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String) {
         chatRoomV2Dao.editChatRoom(chatRoom.copy(title = title.replace('\n', ' ').take(50)))
+    }
+
+    override suspend fun setChatFavoriteV2(chatId: Int, isFavorite: Boolean) {
+        chatRoomV2Dao.updateFavorite(chatId, isFavorite)
     }
 
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {

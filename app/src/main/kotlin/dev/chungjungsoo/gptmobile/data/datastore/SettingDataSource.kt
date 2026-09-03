@@ -1,10 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.datastore
 
+import androidx.datastore.preferences.core.Preferences
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 
 interface SettingDataSource {
+    suspend fun getPreferencesSnapshot(): Preferences
     suspend fun updateDynamicTheme(theme: DynamicTheme)
     suspend fun updateThemeMode(themeMode: ThemeMode)
     suspend fun updateStatus(apiType: ApiType, status: Boolean)

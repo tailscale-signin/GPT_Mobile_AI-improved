@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
+import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSourceImpl
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ApiType
@@ -21,37 +22,73 @@ class SettingRepositoryImpl @Inject constructor(
     private val secretVault: SecretVault
 ) : SettingRepository {
 
-    override suspend fun fetchPlatforms(): List<Platform> = ApiType.entries.map { apiType ->
-        val status = settingDataSource.getStatus(apiType)
-        val apiUrl = when (apiType) {
-            ApiType.OPENAI -> settingDataSource.getAPIUrl(apiType) ?: ModelConstants.OPENAI_API_URL
-            ApiType.ANTHROPIC -> settingDataSource.getAPIUrl(apiType) ?: ModelConstants.ANTHROPIC_API_URL
-            ApiType.GOOGLE -> settingDataSource.getAPIUrl(apiType) ?: ModelConstants.GOOGLE_API_URL
-            ApiType.GROQ -> settingDataSource.getAPIUrl(apiType) ?: ModelConstants.GROQ_API_URL
-            ApiType.OLLAMA -> settingDataSource.getAPIUrl(apiType) ?: ""
-        }
-        val token = resolveLegacyToken(apiType)
-        val model = settingDataSource.getModel(apiType)
-        val temperature = settingDataSource.getTemperature(apiType)
-        val topP = settingDataSource.getTopP(apiType)
-        val systemPrompt = when (apiType) {
-            ApiType.OPENAI -> settingDataSource.getSystemPrompt(ApiType.OPENAI) ?: ModelConstants.OPENAI_PROMPT
-            ApiType.ANTHROPIC -> settingDataSource.getSystemPrompt(ApiType.ANTHROPIC) ?: ModelConstants.DEFAULT_PROMPT
-            ApiType.GOOGLE -> settingDataSource.getSystemPrompt(ApiType.GOOGLE) ?: ModelConstants.DEFAULT_PROMPT
-            ApiType.GROQ -> settingDataSource.getSystemPrompt(ApiType.GROQ) ?: ModelConstants.DEFAULT_PROMPT
-            ApiType.OLLAMA -> settingDataSource.getSystemPrompt(ApiType.OLLAMA) ?: ModelConstants.DEFAULT_PROMPT
-        }
+    override suspend fun fetchPlatforms(): List<Platform> {
+        val pref = settingDataSource.getPreferencesSnapshot()
+        val dsImpl = settingDataSource as? SettingDataSourceImpl
 
-        Platform(
-            name = apiType,
-            enabled = status == true,
-            apiUrl = apiUrl,
-            token = token,
-            model = model,
-            temperature = temperature,
-            topP = topP,
-            systemPrompt = systemPrompt
-        )
+        return ApiType.entries.map { apiType ->
+            val status = if (dsImpl != null) {
+                pref[dsImpl.apiStatusMap[apiType]!!]
+            } else {
+                settingDataSource.getStatus(apiType)
+            }
+
+            val rawUrl = if (dsImpl != null) {
+                pref[dsImpl.apiUrlMap[apiType]!!]
+            } else {
+                settingDataSource.getAPIUrl(apiType)
+            }
+
+            val apiUrl = when (apiType) {
+                ApiType.OPENAI -> rawUrl ?: ModelConstants.OPENAI_API_URL
+                ApiType.ANTHROPIC -> rawUrl ?: ModelConstants.ANTHROPIC_API_URL
+                ApiType.GOOGLE -> rawUrl ?: ModelConstants.GOOGLE_API_URL
+                ApiType.GROQ -> rawUrl ?: ModelConstants.GROQ_API_URL
+                ApiType.OLLAMA -> rawUrl ?: ""
+            }
+
+            val token = resolveLegacyToken(apiType)
+
+            val model = if (dsImpl != null) {
+                pref[dsImpl.apiModelMap[apiType]!!]
+            } else {
+                settingDataSource.getModel(apiType)
+            }
+
+            val temperature = if (dsImpl != null) {
+                pref[dsImpl.apiTemperatureMap[apiType]!!]
+            } else {
+                settingDataSource.getTemperature(apiType)
+            }
+
+            val topP = if (dsImpl != null) {
+                pref[dsImpl.apiTopPMap[apiType]!!]
+            } else {
+                settingDataSource.getTopP(apiType)
+            }
+
+            val rawPrompt = if (dsImpl != null) {
+                pref[dsImpl.apiSystemPromptMap[apiType]!!]
+            } else {
+                settingDataSource.getSystemPrompt(apiType)
+            }
+
+            val systemPrompt = when (apiType) {
+                ApiType.OPENAI -> rawPrompt ?: ModelConstants.OPENAI_PROMPT
+                else -> rawPrompt ?: ModelConstants.DEFAULT_PROMPT
+            }
+
+            Platform(
+                name = apiType,
+                enabled = status == true,
+                apiUrl = apiUrl,
+                token = token,
+                model = model,
+                temperature = temperature,
+                topP = topP,
+                systemPrompt = systemPrompt
+            )
+        }
     }
 
     override suspend fun fetchPlatformV2s(): List<PlatformV2> = platformV2Dao.getPlatforms().map { platform ->

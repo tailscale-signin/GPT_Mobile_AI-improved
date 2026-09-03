@@ -15,8 +15,8 @@ import kotlinx.serialization.json.Json
 
 data class AgentRunLimits(
     val runTimeoutMillis: Long = 15 * 60 * 1000L,
-    val maxRounds: Int = 8,
-    val maxToolCalls: Int = 24,
+    val maxRounds: Int = Int.MAX_VALUE,
+    val maxToolCalls: Int = Int.MAX_VALUE,
     val maxConcurrentTools: Int = 4,
     val toolTimeoutMillis: Long = 60 * 1000L,
     val maxToolOutputBytes: Int = 64 * 1024

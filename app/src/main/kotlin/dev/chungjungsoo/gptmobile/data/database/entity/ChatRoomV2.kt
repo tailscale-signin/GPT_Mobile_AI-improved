@@ -28,7 +28,10 @@ data class ChatRoomV2(
     val createdAt: Long = System.currentTimeMillis() / 1000,
 
     @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis() / 1000
+    val updatedAt: Long = System.currentTimeMillis() / 1000,
+
+    @ColumnInfo(name = "is_favorite", defaultValue = "0")
+    val isFavorite: Boolean = false
 ) : Parcelable
 
 class StringListConverter {

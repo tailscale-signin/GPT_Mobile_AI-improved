@@ -21,9 +21,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -221,7 +223,20 @@ fun HomeScreen(
                             )
                         }
                     },
-                    supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
+                    supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) },
+                    trailingContent = {
+                        if (!chatListState.isSelectionMode) {
+                            IconButton(onClick = { homeViewModel.toggleFavorite(chatRoom) }) {
+                                Icon(
+                                    imageVector = if (chatRoom.isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                    contentDescription = stringResource(
+                                        if (chatRoom.isFavorite) R.string.unfavorite else R.string.favorite
+                                    ),
+                                    tint = if (chatRoom.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 )
             }
         }

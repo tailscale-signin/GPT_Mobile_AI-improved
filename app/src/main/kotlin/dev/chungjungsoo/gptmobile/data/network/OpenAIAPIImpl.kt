@@ -128,18 +128,16 @@ class OpenAIAPIImpl @Inject constructor(
                 val channel = response.bodyAsChannel()
                 while (!channel.isClosedForRead) {
                     val line = channel.readLine() ?: break
+                    val data = SseUtils.extractSseData(line) ?: continue
 
-                    if (line.startsWith("data: ")) {
-                        val data = line.removePrefix("data: ").trim()
-                        // OpenAI sends "[DONE]" as final message
-                        if (data == "[DONE]") break
+                    // OpenAI sends "[DONE]" as final message
+                    if (data == "[DONE]") break
 
-                        try {
-                            val chunk = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
-                            emit(chunk)
-                        } catch (_: Exception) {
-                            // Skip malformed chunks
-                        }
+                    try {
+                        val chunk = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                        emit(chunk)
+                    } catch (_: Exception) {
+                        // Skip malformed chunks
                     }
                 }
             }
@@ -200,17 +198,15 @@ class OpenAIAPIImpl @Inject constructor(
                 val channel = response.bodyAsChannel()
                 while (!channel.isClosedForRead) {
                     val line = channel.readLine() ?: break
+                    val data = SseUtils.extractSseData(line) ?: continue
 
-                    if (line.startsWith("data: ")) {
-                        val data = line.removePrefix("data: ").trim()
-                        if (data == "[DONE]") break
+                    if (data == "[DONE]") break
 
-                        try {
-                            val streamEvent = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
-                            emit(streamEvent)
-                        } catch (_: Exception) {
-                            emit(UnknownEvent)
-                        }
+                    try {
+                        val streamEvent = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
+                        emit(streamEvent)
+                    } catch (_: Exception) {
+                        emit(UnknownEvent)
                     }
                 }
             }

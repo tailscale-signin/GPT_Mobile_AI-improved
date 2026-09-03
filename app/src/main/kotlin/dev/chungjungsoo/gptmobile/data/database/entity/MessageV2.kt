@@ -18,7 +18,10 @@ import kotlinx.serialization.Serializable
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["chat_id"])]
+    indices = [
+        Index(value = ["chat_id"]),
+        Index(value = ["chat_id", "created_at", "message_id"])
+    ]
 )
 data class MessageV2(
     @PrimaryKey(autoGenerate = true)

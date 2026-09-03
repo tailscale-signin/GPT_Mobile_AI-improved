@@ -154,6 +154,36 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Flips the favorite flag of the chat at [chatRoomIdx] and reloads the list so the row
+     * moves into (or out of) the pinned favorites section right away.
+     */
+    fun toggleFavorite(chatRoomIdx: Int) {
+        val chatRoom = _chatListState.value.chats.getOrNull(chatRoomIdx) ?: return
+
+        viewModelScope.launch {
+            chatRepository.setChatFavoriteV2(chatRoom.id, !chatRoom.isFavorite)
+            reloadChatsForCurrentMode()
+        }
+    }
+
+    // Reloading through the active mode's query keeps a favorite toggle from silently
+    // replacing filtered search results with the full chat list.
+    private suspend fun reloadChatsForCurrentMode() {
+        val chats = if (_chatListState.value.isSearchMode) {
+            chatRepository.searchChatsV2(_searchQuery.value)
+        } else {
+            chatRepository.fetchChatListV2()
+        }
+
+        _chatListState.update { state ->
+            state.copy(
+                chats = chats,
+                selectedChats = List(chats.size) { false }
+            )
+        }
+    }
+
     fun disableSelectionMode() {
         _chatListState.update {
             it.copy(

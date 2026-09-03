@@ -75,9 +75,8 @@ class GroqAPIImpl @Inject constructor(
                 val channel = response.bodyAsChannel()
                 while (!channel.isClosedForRead) {
                     val line = channel.readLine() ?: break
-                    if (!line.startsWith("data:")) continue
+                    val data = SseUtils.extractSseData(line) ?: continue
 
-                    val data = line.removePrefix("data:").trim()
                     if (data == "[DONE]") break
 
                     try {

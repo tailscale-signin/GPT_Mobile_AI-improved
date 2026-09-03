@@ -141,15 +141,13 @@ class AnthropicAPIImpl @Inject constructor(
                 val channel = response.bodyAsChannel()
                 while (!channel.isClosedForRead) {
                     val line = channel.readLine() ?: break
+                    val data = SseUtils.extractSseData(line) ?: continue
 
-                    if (line.startsWith("data: ")) {
-                        val data = line.removePrefix("data: ").trim()
-                        try {
-                            val chunk = json.decodeFromString<MessageResponseChunk>(data)
-                            emit(chunk)
-                        } catch (_: Exception) {
-                            // Skip malformed chunks
-                        }
+                    try {
+                        val chunk = json.decodeFromString<MessageResponseChunk>(data)
+                        emit(chunk)
+                    } catch (_: Exception) {
+                        // Skip malformed chunks
                     }
                 }
             }

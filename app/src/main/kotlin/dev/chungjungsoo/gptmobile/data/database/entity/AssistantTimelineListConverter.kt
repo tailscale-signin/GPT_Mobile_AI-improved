@@ -5,22 +5,31 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
 class AssistantTimelineListConverter {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
+    companion object {
+        private val json = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     }
 
     @TypeConverter
-    fun fromString(value: String): List<AssistantTimelineItem> = if (value.isBlank()) {
-        emptyList()
-    } else {
-        try {
-            json.decodeFromString(value)
+    fun fromString(value: String): List<AssistantTimelineItem> {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty() || trimmed == "[]") {
+            return emptyList()
+        }
+        return try {
+            json.decodeFromString(trimmed)
         } catch (_: SerializationException) {
             emptyList()
         }
     }
 
     @TypeConverter
-    fun fromList(value: List<AssistantTimelineItem>): String = json.encodeToString(value)
+    fun fromList(value: List<AssistantTimelineItem>): String {
+        if (value.isEmpty()) {
+            return "[]"
+        }
+        return json.encodeToString(value)
+    }
 }

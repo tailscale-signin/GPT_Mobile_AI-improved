@@ -17,54 +17,70 @@ class ContextBuilder @Inject constructor() {
     ): List<ConversationTurn> {
         if (userMessages.isEmpty()) return emptyList()
 
-        val rawTurns = userMessages.mapIndexed { index, userMessage ->
-            val assistantCandidates = assistantMessages.getOrNull(index).orEmpty()
-                .filter { it.platformType == platform.uid }
+        val lastUserIndex = userMessages.lastIndex
+        val rawTurns = ArrayList<RawConversationTurn>(userMessages.size)
+
+        for (index in userMessages.indices) {
+            val userMessage = userMessages[index]
+            val candidates = assistantMessages.getOrNull(index)
+            val assistantCandidates = if (candidates.isNullOrEmpty()) {
+                emptyList()
+            } else {
+                candidates.filter { it.platformType == platform.uid }
+            }
             val assistantMessage = assistantCandidates.firstValidAssistantCandidate(platform.uid)
 
-            RawConversationTurn(
+            val turn = RawConversationTurn(
                 userMessage = userMessage,
                 assistantMessage = assistantMessage,
                 hasAssistantError = assistantMessage == null &&
                     assistantCandidates.any { candidate ->
                         isAssistantErrorMessage(sanitizeAssistantMessageForContext(candidate).content)
                     },
-                isCurrentTurn = index == userMessages.lastIndex
+                isCurrentTurn = index == lastUserIndex
             )
-        }
 
-        val filteredTurns = rawTurns.filter { turn ->
-            when {
-                turn.isCurrentTurn -> true
-                turn.hasAssistantError -> false
-                else -> true
+            // Filter out history turns that have assistant errors directly
+            if (turn.isCurrentTurn || !turn.hasAssistantError) {
+                rawTurns.add(turn)
             }
         }
 
-        if (filteredTurns.isEmpty()) return emptyList()
+        if (rawTurns.isEmpty()) return emptyList()
 
-        val currentTurn = filteredTurns.lastOrNull { it.isCurrentTurn }
-        val historyTurns = filteredTurns
-            .filterNot { it.isCurrentTurn }
-            .takeLast(policy.recentTurnWindow)
+        val currentTurn = rawTurns.lastOrNull { it.isCurrentTurn }
+        val historyTurns = if (currentTurn != null) {
+            val historyCount = rawTurns.size - 1
+            val startIndex = maxOf(0, historyCount - policy.recentTurnWindow)
+            rawTurns.subList(startIndex, historyCount)
+        } else {
+            val startIndex = maxOf(0, rawTurns.size - policy.recentTurnWindow)
+            rawTurns.subList(startIndex, rawTurns.size)
+        }
 
-        val selectedTurns = buildList {
-            addAll(historyTurns)
-            currentTurn?.let { add(it) }
+        val selectedTurns = ArrayList<RawConversationTurn>(historyTurns.size + (if (currentTurn != null) 1 else 0))
+        selectedTurns.addAll(historyTurns)
+        if (currentTurn != null) {
+            selectedTurns.add(currentTurn)
         }
 
         return applyAttachmentWindow(selectedTurns, policy)
     }
 
-    private fun List<MessageV2>.firstValidAssistantCandidate(platformUid: String): MessageV2? = firstNotNullOfOrNull { message ->
-        if (message.platformType != platformUid) return@firstNotNullOfOrNull null
+    private fun List<MessageV2>.firstValidAssistantCandidate(platformUid: String): MessageV2? {
+        for (i in indices) {
+            val message = this[i]
+            if (message.platformType != platformUid) continue
 
-        val sanitizedMessage = sanitizeAssistantMessageForContext(message)
-        when {
-            sanitizedMessage.effectiveContent().isBlank() && sanitizedMessage.attachments.isEmpty() -> null
-            isAssistantErrorMessage(sanitizedMessage.content) -> null
-            else -> sanitizedMessage
+            val sanitizedMessage = sanitizeAssistantMessageForContext(message)
+            val isValid = when {
+                sanitizedMessage.effectiveContent().isBlank() && sanitizedMessage.attachments.isEmpty() -> false
+                isAssistantErrorMessage(sanitizedMessage.content) -> false
+                else -> true
+            }
+            if (isValid) return sanitizedMessage
         }
+        return null
     }
 
     private fun applyAttachmentWindow(
@@ -74,28 +90,34 @@ class ContextBuilder @Inject constructor() {
         if (turns.isEmpty()) return emptyList()
 
         val lastIndex = turns.lastIndex
-        return turns.mapIndexed { index, turn ->
+        val result = ArrayList<ConversationTurn>(turns.size)
+
+        for (index in turns.indices) {
+            val turn = turns[index]
             val shouldKeepAttachments = (lastIndex - index) <= policy.historicalImageTurnWindow
-            val userMessage = if (shouldKeepAttachments) {
-                turn.userMessage
-            } else {
-                turn.userMessage.copy(attachments = emptyList())
+
+            val userMessage = when {
+                shouldKeepAttachments || turn.userMessage.attachments.isEmpty() -> turn.userMessage
+                else -> turn.userMessage.copy(attachments = emptyList())
             }
 
             val assistantMessage = turn.assistantMessage?.let { message ->
-                if (shouldKeepAttachments) {
-                    message
-                } else {
-                    message.copy(attachments = emptyList())
+                when {
+                    shouldKeepAttachments || message.attachments.isEmpty() -> message
+                    else -> message.copy(attachments = emptyList())
                 }
             }
 
-            ConversationTurn(
-                userMessage = userMessage,
-                assistantMessage = assistantMessage,
-                isCurrentTurn = turn.isCurrentTurn
+            result.add(
+                ConversationTurn(
+                    userMessage = userMessage,
+                    assistantMessage = assistantMessage,
+                    isCurrentTurn = turn.isCurrentTurn
+                )
             )
         }
+
+        return result
     }
 
     private fun sanitizeAssistantMessageForContext(message: MessageV2): MessageV2 {

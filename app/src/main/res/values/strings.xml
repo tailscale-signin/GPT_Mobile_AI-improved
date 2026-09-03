@@ -105,6 +105,8 @@
     <string name="close">Close</string>
     <string name="delete">Delete</string>
     <string name="duplicate">Duplicate</string>
+    <string name="favorite">Favorite</string>
+    <string name="unfavorite">Unfavorite</string>
     <string name="chats_selected">%d selected</string>
     <string name="deleted_chats">Deleted %d chats.</string>
     <string name="duplicated_chat">Duplicated chat.</string>

@@ -4,12 +4,14 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - "*"
+      - "v*"
 
 jobs:
   build:
     name: Build Release APK
     runs-on: macos-14
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -34,34 +36,39 @@ jobs:
           sdkmanager "$latest_stable_version"
           echo "$ANDROID_SDK_ROOT/build-tools/$latest_version_number" >> $GITHUB_PATH
 
-      - name: Build Unsigned Release APK
-        run: ./gradlew assembleRelease
+      - name: Build Unsigned Release APK & AAB
+        run: |
+          ./gradlew assembleRelease
+          ./gradlew bundleRelease
 
-      - name: Build Unsigned Release App Bundle
-        run: ./gradlew bundleRelease
-
-      - name: Generate Signing Key
+      - name: Setup Signing Keystore
+        id: setup-keystore
         env:
           KEYSTORE_B64: ${{ secrets.APP_KEYSTORE }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          echo $KEYSTORE_B64 | base64 -d > keystore.jks
-          cp keystore.jks ${{ github.workspace }}/app/build/outputs/bundle/release/keystore.jks
-        working-directory: ${{ github.workspace }}/app/build/outputs/apk/release
+          mkdir -p keystore_dir
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASS" ] && [ -n "$KEY_ALIAS" ]; then
+            echo "Using repository configured release keystore..."
+            echo "$KEYSTORE_B64" | base64 -d > keystore_dir/release.keystore
+            echo "ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+            echo "PASSWORD=$KEY_PASS" >> $GITHUB_ENV
+          else
+            echo "Secrets not found. Generating ephemeral release keystore for reproducible signing..."
+            keytool -genkey -v -keystore keystore_dir/release.keystore -alias gptmobile -keyalg RSA -keysize 2048 -validity 10000 -storepass gptmobile_password -keypass gptmobile_password -dname "CN=GPTMobile, OU=Release, O=OpenSource, L=Seoul, S=Seoul, C=KR"
+            echo "ALIAS=gptmobile" >> $GITHUB_ENV
+            echo "PASSWORD=gptmobile_password" >> $GITHUB_ENV
+          fi
+          echo "KEYSTORE_PATH=$(pwd)/keystore_dir/release.keystore" >> $GITHUB_ENV
 
       - name: Sign Release APK
-        env:
-          SIGNING_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          apksigner sign --ks keystore.jks --alignment-preserved true --ks-pass env:SIGNING_PASSWORD --out app-release.apk app-release-unsigned.apk
-        working-directory: ${{ github.workspace }}/app/build/outputs/apk/release
+          apksigner sign --ks "$KEYSTORE_PATH" --alignment-preserved true --ks-pass "env:PASSWORD" --ks-key-alias "$ALIAS" --key-pass "env:PASSWORD" --out app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Sign Release App Bundle
-        env:
-          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          SIGNING_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore keystore.jks -keypass $SIGNING_PASSWORD -storepass $SIGNING_PASSWORD app-release.aab $SIGNING_KEY_ALIAS
-        working-directory: ${{ github.workspace }}/app/build/outputs/bundle/release
+          jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KEYSTORE_PATH" -storepass "$PASSWORD" -keypass "$PASSWORD" app/build/outputs/bundle/release/app-release.aab "$ALIAS"
 
       - name: Create Job Summary
         run: |
@@ -77,11 +84,19 @@ jobs:
           echo "**Certificate SHA-256**: \`$certificate_hash\`" >> $GITHUB_STEP_SUMMARY
         working-directory: ${{ github.workspace }}/app/build/outputs
 
-      - name: Upload Signed APK
-        uses: actions/upload-artifact@v7
-        id: artifact-upload-step
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: release-${{ github.sha }}
+          name: gpt-mobile-release-${{ github.sha }}
           path: |
             ${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk
             ${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Publish GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk
+            ${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab
+          generate_release_notes: true

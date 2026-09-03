@@ -20,6 +20,7 @@ object FileUtils {
     private const val MAX_IMAGE_UPLOAD_DIMENSION = 2048
     private const val MAX_IMAGE_DIRECT_UPLOAD_SIZE_BYTES = 8L * 1024 * 1024
     private const val IMAGE_UPLOAD_QUALITY = 95
+    private const val DEFAULT_STREAM_BUFFER_SIZE = 8192
 
     data class EncodedImage(
         val mimeType: String,
@@ -119,7 +120,8 @@ object FileUtils {
             }
             val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOptions) ?: return rawBytes
             try {
-                val output = ByteArrayOutputStream()
+                // Pre-size output buffer to avoid frequent reallocations
+                val output = ByteArrayOutputStream(rawBytes.size.coerceAtLeast(DEFAULT_STREAM_BUFFER_SIZE))
                 if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                     output.toByteArray()
                 } else {
@@ -342,8 +344,19 @@ object FileUtils {
 
     internal fun shouldPreserveAlpha(mimeType: String): Boolean = mimeType.contains("png") || mimeType.contains("webp")
 
-    internal fun encodeToBase64(writeBytes: (OutputStream) -> Boolean): String? {
-        val outputStream = ByteArrayOutputStream()
+    internal fun calculateBase64EncodedSize(inputSizeBytes: Long): Int {
+        if (inputSizeBytes <= 0) return 0
+        val encodedSize = ((inputSizeBytes + 2) / 3) * 4
+        return encodedSize.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    internal fun encodeToBase64(estimatedInputSize: Long = -1L, writeBytes: (OutputStream) -> Boolean): String? {
+        val initialCapacity = if (estimatedInputSize in 1..MAX_UPLOAD_SIZE_BYTES) {
+            calculateBase64EncodedSize(estimatedInputSize)
+        } else {
+            DEFAULT_STREAM_BUFFER_SIZE
+        }
+        val outputStream = ByteArrayOutputStream(initialCapacity)
         val success = Base64.getEncoder().wrap(outputStream).use { base64Stream ->
             writeBytes(base64Stream)
         }
@@ -430,7 +443,13 @@ object FileUtils {
     }
 
     private fun encodeFileToBase64(context: Context, uriString: String): String? {
-        val outputStream = ByteArrayOutputStream()
+        val fileSize = getFileSize(context, uriString)
+        val initialCapacity = if (fileSize in 1..MAX_UPLOAD_SIZE_BYTES) {
+            calculateBase64EncodedSize(fileSize)
+        } else {
+            DEFAULT_STREAM_BUFFER_SIZE
+        }
+        val outputStream = ByteArrayOutputStream(initialCapacity)
         getInputStreamFromUri(context, uriString)?.use { inputStream ->
             Base64.getEncoder().wrap(outputStream).use { base64Stream ->
                 inputStream.copyTo(base64Stream)

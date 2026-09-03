@@ -375,6 +375,18 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    // Keep the DEFAULT 0 in sync with ChatRoomV2.isFavorite's `defaultValue = "0"`,
+    // otherwise Room's schema validation rejects the migrated database.
+    val CHAT_FAVORITE_COLUMN_MIGRATIONS = listOf(
+        "ALTER TABLE `chats_v2` ADD COLUMN `is_favorite` INTEGER NOT NULL DEFAULT 0"
+    )
+
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            CHAT_FAVORITE_COLUMN_MIGRATIONS.forEach(db::execSQL)
+        }
+    }
+
     val MIGRATION_7_8 = object : Migration(7, 8) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE `messages_v2` ADD COLUMN `timeline` TEXT NOT NULL DEFAULT '[]'")

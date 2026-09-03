@@ -269,9 +269,12 @@ class ChatRepositoryImpl @Inject constructor(
         // Search by message content and get chat IDs
         val messageMatchChatIds = messageV2Dao.searchMessagesByContent(query)
 
-        // Get all chat rooms and filter by message match IDs
-        val allChatRooms = chatRoomV2Dao.getChatRooms()
-        val messageMatches = allChatRooms.filter { it.id in messageMatchChatIds }
+        // Query only the matched chat rooms directly from DB by ID instead of fetching all chat rooms into memory
+        val messageMatches = if (messageMatchChatIds.isEmpty()) {
+            emptyList()
+        } else {
+            chatRoomV2Dao.getChatRoomsByIds(messageMatchChatIds)
+        }
 
         // Combine results and remove duplicates, maintaining order by updatedAt
         return (titleMatches + messageMatches)

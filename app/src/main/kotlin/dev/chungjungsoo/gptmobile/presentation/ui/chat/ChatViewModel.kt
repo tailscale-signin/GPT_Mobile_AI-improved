@@ -1086,7 +1086,7 @@ class ChatViewModel @Inject constructor(
                     _indexStates.update { current ->
                         List(groupedMessages.assistantMessages.size) { index -> current.getOrElse(index) { 0 } }
                     }
-                    syncLoadingStates(_agentRunsById.value.values.toList())
+                    syncLoadingStates(_agentRunsById.value)
                     _isLoaded.update { true }
                 }
         }
@@ -1103,7 +1103,8 @@ class ChatViewModel @Inject constructor(
                     if (chatId > 0) chatRepository.observeAgentRuns(chatId) else flowOf(emptyList())
                 }
                 .collect { runs ->
-                    _agentRunsById.update { runs.associateBy(AgentRun::runId) }
+                    val runsById = runs.associateBy(AgentRun::runId)
+                    _agentRunsById.update { runsById }
                     _runNoticesById.update { current ->
                         pruneTransientChatRunNotices(
                             current,
@@ -1111,7 +1112,7 @@ class ChatViewModel @Inject constructor(
                             activeRunIds = agentRunCoordinator.activeRuns.value.keys
                         )
                     }
-                    syncLoadingStates(runs)
+                    syncLoadingStates(runsById)
                 }
         }
     }
@@ -1128,13 +1129,12 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             agentRunCoordinator.activeRuns.collect {
-                syncLoadingStates(_agentRunsById.value.values.toList())
+                syncLoadingStates(_agentRunsById.value)
             }
         }
     }
 
-    private fun syncLoadingStates(runs: List<AgentRun>) {
-        val runsById = runs.associateBy(AgentRun::runId)
+    private fun syncLoadingStates(runsById: Map<String, AgentRun>) {
         val activeRunIds = agentRunCoordinator.activeRuns.value.keys
         val latestAssistantRow = _groupedMessages.value.assistantMessages.lastOrNull()
         _loadingStates.update {
@@ -1145,6 +1145,10 @@ class ChatViewModel @Inject constructor(
                 activeRunIds = activeRunIds
             )
         }
+    }
+
+    private fun syncLoadingStates(runs: List<AgentRun>) {
+        syncLoadingStates(runs.associateBy(AgentRun::runId))
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -1395,17 +1399,30 @@ internal fun formatAssistantExport(
 }
 
 internal fun persistableMessages(groupedMessages: ChatViewModel.GroupedMessages): List<MessageV2> {
-    val merged = groupedMessages.userMessages + groupedMessages.assistantMessages.flatten()
-    return merged
-        .filter {
-            it.effectiveContent().isNotBlank() ||
-                it.effectiveThoughts().isNotBlank() ||
-                it.effectiveTimeline().isNotEmpty() ||
-                it.attachments.isNotEmpty() ||
-                it.currentRunId != null
+    val estimatedSize = groupedMessages.userMessages.size + groupedMessages.assistantMessages.sumOf { it.size }
+    val result = ArrayList<MessageV2>(estimatedSize)
+    for (msg in groupedMessages.userMessages) {
+        if (isPersistableMessage(msg)) {
+            result.add(msg)
         }
-        .sortedBy { it.createdAt }
+    }
+    for (row in groupedMessages.assistantMessages) {
+        for (msg in row) {
+            if (isPersistableMessage(msg)) {
+                result.add(msg)
+            }
+        }
+    }
+    result.sortBy { it.createdAt }
+    return result
 }
+
+private fun isPersistableMessage(message: MessageV2): Boolean =
+    message.effectiveContent().isNotBlank() ||
+        message.effectiveThoughts().isNotBlank() ||
+        message.effectiveTimeline().isNotEmpty() ||
+        message.attachments.isNotEmpty() ||
+        message.currentRunId != null
 
 internal fun createEmptyAssistantMessage(chatId: Int, platformUid: String): MessageV2 = MessageV2(
     chatId = chatId,

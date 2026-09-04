@@ -3,10 +3,12 @@ package dev.chungjungsoo.gptmobile.data.database
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevisionListConverter
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatAttachmentListConverter
+import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -201,6 +203,26 @@ class ChatDatabaseV2MigrationsTest {
                 """.trimIndent()
             ),
             ChatDatabaseV2Migrations.LOCAL_MODEL_TABLE_MIGRATIONS
+        )
+    }
+
+    @Test
+    fun `new chat room defaults favorite to false`() {
+        val chatRoom = ChatRoomV2(
+            title = "Test Chat",
+            enabledPlatform = listOf("uid-1")
+        )
+
+        assertFalse(chatRoom.isFavorite)
+    }
+
+    @Test
+    fun `version eleven migration adds chat favorite column with default false`() {
+        assertEquals(
+            listOf(
+                "ALTER TABLE `chats_v2` ADD COLUMN `is_favorite` INTEGER NOT NULL DEFAULT 0"
+            ),
+            ChatDatabaseV2Migrations.CHAT_FAVORITE_COLUMN_MIGRATIONS
         )
     }
 }

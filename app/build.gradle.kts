@@ -59,7 +59,8 @@ extensions.configure<ApplicationExtension> {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             vcsInfo.include = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

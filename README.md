@@ -83,7 +83,7 @@ Cross platform updates are supported. However, GitHub Releases will be the faste
 
 ## Contributions
 
-Contributions are welcome! The contribution guideline is not yet available, but I will be happy to review it! 💯
+Contributions are welcome! Please check out the [Contribution Guidelines](CONTRIBUTING.md) to get started with building, testing, and submitting pull requests. 💯
 
 For translations, we are using [Hosted Weblate](https://hosted.weblate.org/engage/gptmobile/). If you want your language supported, help us translate the app!
 

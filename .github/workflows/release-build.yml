@@ -28,11 +28,15 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: "platforms;android-36 build-tools;35.0.0"
 
-      - name: Accept Android licenses & install platform SDK
+      - name: Accept Android licenses
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
 
       - name: Build Unsigned Release APK & AAB
         run: |
@@ -61,7 +65,6 @@ jobs:
 
       - name: Sign Release APK
         run: |
-          $ANDROID_HOME/build-tools/36.0.0/apksigner sign --ks "$KEYSTORE_PATH" --alignment-preserved true --ks-pass "env:PASSWORD" --ks-key-alias "$ALIAS" --key-pass "env:PASSWORD" --out app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/app-release-unsigned.apk || \
           $ANDROID_HOME/build-tools/35.0.0/apksigner sign --ks "$KEYSTORE_PATH" --alignment-preserved true --ks-pass "env:PASSWORD" --ks-key-alias "$ALIAS" --key-pass "env:PASSWORD" --out app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/app-release-unsigned.apk || \
           apksigner sign --ks "$KEYSTORE_PATH" --alignment-preserved true --ks-pass "env:PASSWORD" --ks-key-alias "$ALIAS" --key-pass "env:PASSWORD" --out app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/app-release-unsigned.apk
 
@@ -74,7 +77,7 @@ jobs:
           unsigned_hash=$(md5sum ./apk/release/app-release-unsigned.apk | cut -d' ' -f1)
           signed_hash=$(md5sum ./apk/release/app-release.apk | cut -d' ' -f1)
           signed_aab_hash=$(md5sum ./bundle/release/app-release.aab | cut -d' ' -f1)
-          certificate_hash=($($ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || $ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || apksigner verify --print-certs ./apk/release/app-release.apk) | grep "SHA-256" | awk -F': ' '{print $2}')
+          certificate_hash=($($ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || apksigner verify --print-certs ./apk/release/app-release.apk) | grep "SHA-256" | awk -F': ' '{print $2}')
           echo "### Release Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Unsigned APK md5**: \`$unsigned_hash\`" >> $GITHUB_STEP_SUMMARY

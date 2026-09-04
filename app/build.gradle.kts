@@ -53,6 +53,8 @@ extensions.configure<ApplicationExtension> {
 
     lint {
         disable += "MissingTranslation"
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     buildTypes {

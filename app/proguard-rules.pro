@@ -19,17 +19,30 @@
 -dontwarn org.apache.log4j.**
 -dontwarn org.apache.logging.log4j.**
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Ktor & Coroutines
+-dontwarn io.ktor.**
+-keep class io.ktor.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Model Context Protocol Kotlin SDK
+-dontwarn io.modelcontextprotocol.**
+-keep class io.modelcontextprotocol.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# LiteRT-LM runtime
+-dontwarn com.google.ai.edge.**
+-keep class com.google.ai.edge.** { *; }
+
+# Kotlinx Serialization
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.SerializationKt
+-keepclassmembers class * {
+    @kotlinx.serialization.Serializable <fields>;
+}
+-keepclassmembers class * {
+    companion object *;
+}
+-keepclasseswithmembers class * {
+    public static *** Companion;
+}
+
+# Preserve line numbers and source files for release stack traces
+-keepattributes SourceFile,LineNumberTable

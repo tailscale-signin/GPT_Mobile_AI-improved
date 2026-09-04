@@ -15,7 +15,6 @@
   <a href="https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/latest/"><img alt="GitHub Releases (latest by date)" src="https://img.shields.io/github/v/release/tailscale-signin/GPT_Mobile_AI-improved?color=black&label=Stable&logo=github"/></a>
 </p>
 
-
 </div>
 
 

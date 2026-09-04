@@ -22,13 +22,16 @@ data class ChatRoomV2(
     val title: String,
 
     @ColumnInfo(name = "enabled_platform")
-    val enabledPlatform: List<String>,
+    val enabledPlatform: List<String> = emptyList(),
 
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis() / 1000,
 
     @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis() / 1000
+    val updatedAt: Long = System.currentTimeMillis() / 1000,
+
+    @ColumnInfo(name = "is_favorite", defaultValue = "0")
+    val isFavorite: Boolean = false
 ) : Parcelable
 
 class StringListConverter {

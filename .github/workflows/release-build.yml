@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - trigger-release-build
     tags:
       - "v*"
 
@@ -109,9 +108,13 @@ jobs:
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.release-tag.outputs.tag_name }}
           name: ${{ steps.release-tag.outputs.release_name }}
+          target_commitish: ${{ github.sha }}
+          make_latest: "true"
           files: |
             ${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk
             ${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab

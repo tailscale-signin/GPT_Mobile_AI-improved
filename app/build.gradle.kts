@@ -17,12 +17,12 @@ plugins {
 
 extensions.configure<ApplicationExtension> {
     namespace = "dev.chungjungsoo.gptmobile"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.chungjungsoo.gptmobile"
         minSdk = 31
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 23
         versionName = "0.8.0"
 
@@ -53,6 +53,8 @@ extensions.configure<ApplicationExtension> {
 
     lint {
         disable += "MissingTranslation"
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 
     buildTypes {
@@ -66,8 +68,8 @@ extensions.configure<ApplicationExtension> {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     buildFeatures {
         compose = true

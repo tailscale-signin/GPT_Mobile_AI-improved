@@ -10,8 +10,8 @@ assignees: ''
 
 # DO NOT USE THIS TEMPLATE
 
-If your request is not a bug, got to discussions tab and create discussion about it. 
+If your request is not a bug, go to the discussions tab and create a discussion about it. 
 
 Issues that are not related to bug reports will be instantly closed. Thank you.
 
-[Go to discussions](https://github.com/Taewan-P/gpt_mobile/discussions)
+[Go to discussions](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/discussions)

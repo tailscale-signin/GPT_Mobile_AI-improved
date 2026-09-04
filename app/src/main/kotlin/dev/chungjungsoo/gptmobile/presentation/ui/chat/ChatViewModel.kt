@@ -1205,6 +1205,7 @@ internal fun applyChatRunNotice(
     return noticesByRunId + (runId to (current + ChatRunNotice(message, persistent)))
 }
 
+@JvmName("pruneTransientChatRunNoticesByStatus")
 internal fun pruneTransientChatRunNotices(
     noticesByRunId: Map<String, List<ChatRunNotice>>,
     runStatuses: Map<String, String>,

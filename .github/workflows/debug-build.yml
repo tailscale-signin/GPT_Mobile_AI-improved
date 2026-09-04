@@ -1,54 +1,48 @@
-name: Debug build APK
+name: Generate Debug Version
 
 on:
-  pull_request_target:
+  workflow_dispatch:
+  pull_request:
     branches:
-      - "main"
-    paths-ignore:
-      - ".gitignore"
-      - "**.md"
-      - "LICENSE"
-      - ".idea/**"
-      - ".github/**"
-      - ".editorconfig"
-      - "images/**"
-      - "metadata/**"
+      - main
+      - master
+  push:
+    branches:
+      - trigger-debug-build
 
 jobs:
-  run:
+  build:
     name: Build debug APK
-    runs-on: macos-14
-
-    permissions:
-      pull-requests: write
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
 
-      - name: Setup JDK
+      - name: Setup JDK 21
         uses: actions/setup-java@v5
         with:
-          distribution: "oracle"
-          java-version: "17"
+          distribution: "temurin"
+          java-version: "21"
           cache: "gradle"
 
-      - name: Build debug APK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platforms;android-36 build-tools;35.0.0"
+
+      - name: Accept Android licenses
         run: |
-          ./gradlew assembleDebug
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v7
-        id: artifact-upload-step
-        with:
-          name: debug-${{ github.sha }}
-          path: ${{ github.workspace }}/app/build/outputs/apk/debug/app-debug.apk
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
 
-      - name: Comment APK Link
-        uses: thollander/actions-comment-pull-request@v3
+      - name: Build Debug APK
+        run: |
+          ./gradlew assembleDebug --no-daemon --info 2>&1 | tee gradle-build.log || (echo "=== GRADLE FAILURE LOG ===" && tail -n 120 gradle-build.log && exit 1)
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
         with:
-          comment_tag: apk
-          message: |
-            Build complete! Here's the debug APK: ${{ steps.artifact-upload-step.outputs.artifact-url }}
+          name: gpt-mobile-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/app-debug.apk

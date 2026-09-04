@@ -3,6 +3,8 @@ name: Generate Release Version
 on:
   workflow_dispatch:
   push:
+    branches:
+      - trigger-release-build
     tags:
       - "v*"
 

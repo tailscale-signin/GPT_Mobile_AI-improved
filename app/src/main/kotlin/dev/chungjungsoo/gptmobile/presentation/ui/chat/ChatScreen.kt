@@ -108,6 +108,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
+import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -177,10 +178,10 @@ fun ChatScreen(
         if (sendAfterNotificationPermission) {
             if (needsLocalNetworkAccess &&
                 Build.VERSION.SDK_INT >= 37 &&
-                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
             ) {
                 sendAfterLocalNetworkPermission = true
-                localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
             } else {
                 chatViewModel.askQuestion()
                 focusManager.clearFocus()
@@ -337,10 +338,10 @@ fun ChatScreen(
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else if (needsLocalNetworkAccess &&
                     Build.VERSION.SDK_INT >= 37 &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                    ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
                 ) {
                     sendAfterLocalNetworkPermission = true
-                    localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                    localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                 } else {
                     chatViewModel.askQuestion()
                     focusManager.clearFocus()

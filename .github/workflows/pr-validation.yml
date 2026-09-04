@@ -33,5 +33,10 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      - name: Run Unit Tests & Lint
-        run: ./gradlew :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Run Unit Tests
+        run: |
+          ./gradlew :app:testDebugUnitTest --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+
+      - name: Run Android Lint
+        run: |
+          ./gradlew :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)

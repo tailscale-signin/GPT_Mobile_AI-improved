@@ -5,6 +5,9 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
+-dontwarn **
+-ignorewarnings
+
 # Keep reactive streams dependencies
 -keep class reactor.** { *; }
 -keep class io.micrometer.** { *; }

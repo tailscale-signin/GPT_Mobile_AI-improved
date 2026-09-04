@@ -43,7 +43,7 @@ jobs:
 
       - name: Build Unsigned Release APK & AAB
         run: |
-          ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
+          ./gradlew assembleRelease bundleRelease --no-daemon --console=plain
 
       - name: Setup Signing Keystore
         id: setup-keystore

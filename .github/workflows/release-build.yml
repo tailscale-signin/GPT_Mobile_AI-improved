@@ -8,6 +8,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Release APK
@@ -106,16 +109,19 @@ jobs:
             echo "release_name=v${VERSION}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Publish GitHub Release via gh CLI
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.release-tag.outputs.tag_name }}
-          name: ${{ steps.release-tag.outputs.release_name }}
-          target_commitish: ${{ github.sha }}
-          make_latest: "true"
-          files: |
-            ${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk
-            ${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab
-          generate_release_notes: true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.release-tag.outputs.tag_name }}
+          RELEASE_NAME: ${{ steps.release-tag.outputs.release_name }}
+        run: |
+          echo "Creating release $TAG_NAME ($RELEASE_NAME)..."
+          gh release view "$TAG_NAME" || gh release create "$TAG_NAME" \
+            --target "${{ github.sha }}" \
+            --title "$RELEASE_NAME" \
+            --generate-notes \
+            --latest
+          gh release upload "$TAG_NAME" \
+            "${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk#app-release.apk" \
+            "${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab#app-release.aab" \
+            --clobber

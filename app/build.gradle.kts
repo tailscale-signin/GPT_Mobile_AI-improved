@@ -95,8 +95,8 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
-// Suppress compileSdk / targetSdk mismatch errors in CheckAarMetadata
-tasks.withType<com.android.build.gradle.tasks.CheckAarMetadata> {
+// Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name
+tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach {
     enabled = false
 }
 

@@ -1,32 +1,22 @@
-name: Debug build APK
+name: Generate Debug Version
 
 on:
-  pull_request_target:
+  workflow_dispatch:
+  pull_request:
     branches:
-      - "main"
-    paths-ignore:
-      - ".gitignore"
-      - "**.md"
-      - "LICENSE"
-      - ".idea/**"
-      - ".github/**"
-      - ".editorconfig"
-      - "images/**"
-      - "metadata/**"
+      - main
+      - master
+  push:
+    branches:
+      - trigger-debug-build
 
 jobs:
-  run:
+  build:
     name: Build debug APK
     runs-on: ubuntu-latest
 
-    permissions:
-      pull-requests: write
-
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Setup JDK
         uses: actions/setup-java@v5
@@ -37,21 +27,17 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: "platforms;android-37 build-tools;35.0.0"
 
-      - name: Build debug APK
-        run: |
-          ./gradlew assembleDebug
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
 
-      - name: Upload debug APK
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
-        id: artifact-upload-step
         with:
-          name: debug-${{ github.sha }}
-          path: ${{ github.workspace }}/app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Comment APK Link
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          comment_tag: apk
-          message: |
-            Build complete! Here's the debug APK: ${{ steps.artifact-upload-step.outputs.artifact-url }}
+          name: gpt-mobile-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/app-debug.apk

@@ -38,7 +38,8 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          ./gradlew assembleDebug --no-daemon --info 2>&1 | tee gradle-build.log || (echo "=== GRADLE FAILURE LOG ===" && tail -n 120 gradle-build.log && exit 1)
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4

@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -71,6 +70,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
+import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.formatPlatformTimeout
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
@@ -380,10 +380,10 @@ fun PlatformSettingScreen(
                         }
                         if (needsPermission &&
                             Build.VERSION.SDK_INT >= 37 &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                            ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
                         ) {
                             openMcpToolsAfterPermission = true
-                            localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                            localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                         } else {
                             settingViewModel.openMcpToolsDialog()
                         }

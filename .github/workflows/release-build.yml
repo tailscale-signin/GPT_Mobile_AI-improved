@@ -115,13 +115,20 @@ jobs:
           TAG_NAME: ${{ steps.release-tag.outputs.tag_name }}
           RELEASE_NAME: ${{ steps.release-tag.outputs.release_name }}
         run: |
-          echo "Creating release $TAG_NAME ($RELEASE_NAME)..."
-          gh release view "$TAG_NAME" || gh release create "$TAG_NAME" \
-            --target "${{ github.sha }}" \
-            --title "$RELEASE_NAME" \
-            --generate-notes \
-            --latest
-          gh release upload "$TAG_NAME" \
-            "${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk#app-release.apk" \
-            "${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab#app-release.aab" \
-            --clobber
+          echo "Creating or uploading release for $TAG_NAME ($RELEASE_NAME)..."
+          if gh release view "$TAG_NAME" > /dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists, uploading release assets..."
+            gh release upload "$TAG_NAME" \
+              "${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk#app-release.apk" \
+              "${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab#app-release.aab" \
+              --clobber
+          else
+            echo "Creating new release $TAG_NAME with assets..."
+            gh release create "$TAG_NAME" \
+              "${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk#app-release.apk" \
+              "${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab#app-release.aab" \
+              --target "${{ github.sha }}" \
+              --title "$RELEASE_NAME" \
+              --generate-notes \
+              --latest
+          fi

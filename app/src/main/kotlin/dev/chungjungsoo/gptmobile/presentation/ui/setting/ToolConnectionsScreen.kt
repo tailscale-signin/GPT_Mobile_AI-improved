@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -70,6 +69,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
+import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
 
@@ -150,10 +150,10 @@ fun ToolConnectionsScreen(
                         val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
                         if (needsPermission &&
                             Build.VERSION.SDK_INT >= 37 &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                            ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
                         ) {
                             pendingOAuthConnection = connection
-                            localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                            localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                         } else {
                             viewModel.startOAuth(connection.connectionUid)
                         }

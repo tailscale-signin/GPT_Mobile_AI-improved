@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.util
 import java.net.URI
 import kotlinx.coroutines.CancellationException
 
+const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+
 internal fun requiresLocalNetworkAccess(url: String): Boolean {
     val host = runCatching { URI(normalizeEndpointForHostCheck(url)).host }
         .getOrNull()

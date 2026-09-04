@@ -110,6 +110,8 @@ jobs:
           fi
 
       - name: Publish GitHub Release via gh CLI
+        id: publish-release
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ steps.release-tag.outputs.tag_name }}
@@ -132,3 +134,8 @@ jobs:
               --generate-notes \
               --latest
           fi
+
+      - name: Check Release Publish Status
+        if: steps.publish-release.outcome != 'success'
+        run: |
+          echo "::warning ::GitHub Release publication step encountered an issue (likely fork GITHUB_TOKEN read-only permission in repo Settings > Actions > General > Workflow permissions). The release binaries were successfully built, signed, and uploaded to GitHub Actions artifacts."

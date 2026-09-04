@@ -1,15 +1,33 @@
-This is an Material3 style chat app that supports answers from multiple LLMs at once.
+A modern Material 3 chat application that supports answers from multiple LLMs simultaneously, autonomous agent workflows, tool execution via Model Context Protocol (MCP), and secure local storage.
 
-Supported Platforms
-- OpenAI GPT (GPT-4o, turbo, etc)
-- Anthropic Claude (3.5 Sonnet, 3 Opus, etc)
-- Google Gemini (1.5 Pro, Flash, etc)
-- Groq (Fast inference server for various models)
-- Ollama (Your own server)
+✨ Key Features
 
-Local chat history
-Chat history is only saved locally. The app only sends to official API servers while chatting. NOT SHARED anywhere else.
+Multi-LLM Conversations
+- Chat simultaneously with multiple AI providers side-by-side.
+- Compare responses in real-time.
 
-Custom API address and custom model name supported. Also, adjust system prompt, top p, temperature, and more!
+Autonomous AI Agents & MCP Extensibility
+- Autonomous multi-step problem solving with tool-calling capabilities.
+- Model Context Protocol (MCP) support: connect to MCP servers for extensible tooling (web search, custom APIs, external knowledge).
+- Built-in tools including DuckDuckGo web search, calculator, and device utilities.
 
-Note that some platforms may not be supported in some countries.
+Supported AI Platforms
+- OpenAI (GPT-4o, GPT-4o-mini, o1, turbo, and custom models)
+- Anthropic Claude (Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku)
+- Google Gemini (Gemini 1.5 Pro, Flash, Gemini 2.0)
+- DeepSeek (DeepSeek-V3, DeepSeek-R1 reasoning models)
+- Groq (Ultra-fast inference for Llama, Mistral, and more)
+- Ollama (Run local models on your own self-hosted server)
+
+Privacy & Security First
+- Hardware-backed Android Keystore credential vault for secure API key storage.
+- 100% local chat history stored using Room SQLite on your device.
+- Zero tracking or intermediary data collection: requests are sent directly to official provider APIs.
+
+Customization & Control
+- Custom API endpoints and model identifiers.
+- Fine-tune system prompts, temperature, top-p, and max tokens.
+- Bookmark and favorite important messages for quick reference.
+- Export and import chat sessions.
+
+Note: Service availability depends on regional access to respective provider APIs.

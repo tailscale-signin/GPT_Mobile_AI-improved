@@ -60,9 +60,20 @@ data class LocalConversationConfig(
     val toolExecutor: LocalToolExecutor? = null
 )
 
+/** Performance and generation telemetry emitted during local model execution. */
+data class LocalInferenceMetrics(
+    val timeToFirstTokenMs: Long = 0L,
+    val totalDurationMs: Long = 0L,
+    val totalChunks: Int = 0,
+    val totalCharacters: Int = 0,
+    val estimatedTokens: Int = 0,
+    val tokensPerSecond: Double = 0.0
+)
+
 sealed interface LocalRuntimeEvent {
     data class TextDelta(val text: String) : LocalRuntimeEvent
     data class ThinkingDelta(val text: String) : LocalRuntimeEvent
+    data class Metrics(val metrics: LocalInferenceMetrics) : LocalRuntimeEvent
     data object Done : LocalRuntimeEvent
     data class Error(val message: String, val cause: Throwable? = null) : LocalRuntimeEvent
 }

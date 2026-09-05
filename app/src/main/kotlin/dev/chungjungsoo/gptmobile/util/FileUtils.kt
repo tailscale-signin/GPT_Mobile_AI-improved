@@ -104,35 +104,49 @@ object FileUtils {
     }
 
     fun readImageBytesForLocalInference(context: Context, filePath: String): ByteArray? {
-        val rawBytes = try {
-            getInputStreamFromUri(context, filePath)?.use { inputStream -> inputStream.readBytes() }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to read image bytes for local inference: $filePath", e)
-            null
-        } ?: return null
+        // First pass: inspect dimensions directly from stream to avoid loading entire image into memory
+        val dimensions = getImageDimensions(context, filePath)
 
-        return try {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return rawBytes
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = calculateImageInSampleSize(bounds.outWidth, bounds.outHeight)
+        // If dimensions cannot be inspected or are within normal bounds without downsampling, read directly
+        val sampleSize = if (dimensions != null && (dimensions.first > MAX_IMAGE_UPLOAD_DIMENSION || dimensions.second > MAX_IMAGE_UPLOAD_DIMENSION)) {
+            calculateImageInSampleSize(dimensions.first, dimensions.second, MAX_IMAGE_UPLOAD_DIMENSION)
+        } else {
+            1
+        }
+
+        // Fast path: if no downsampling needed, read and return bytes directly
+        if (sampleSize <= 1) {
+            return try {
+                getInputStreamFromUri(context, filePath)?.use { inputStream -> inputStream.readBytes() }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to read image bytes for local inference: $filePath", e)
+                null
             }
-            val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOptions) ?: return rawBytes
+        }
+
+        // Downsampled decode directly from stream to minimize peak memory consumption
+        return try {
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val bitmap = getInputStreamFromUri(context, filePath)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, decodeOptions)
+            } ?: return getInputStreamFromUri(context, filePath)?.use { it.readBytes() }
+
             try {
-                // Pre-size output buffer to avoid frequent reallocations
-                val output = ByteArrayOutputStream(rawBytes.size.coerceAtLeast(DEFAULT_STREAM_BUFFER_SIZE))
+                val output = ByteArrayOutputStream(DEFAULT_STREAM_BUFFER_SIZE)
                 if (bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                     output.toByteArray()
                 } else {
-                    rawBytes
+                    getInputStreamFromUri(context, filePath)?.use { it.readBytes() }
                 }
             } finally {
                 bitmap.recycle()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to convert image bytes for local inference: $filePath", e)
-            rawBytes
+            getInputStreamFromUri(context, filePath)?.use { it.readBytes() }
         }
     }
 

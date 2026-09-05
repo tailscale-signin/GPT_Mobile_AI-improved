@@ -41,6 +41,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ApiType
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
@@ -137,7 +138,8 @@ class ChatRepositoryImpl @Inject constructor(
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
         platform: PlatformV2,
-        runId: String
+        runId: String,
+        chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = flow {
         emit(ApiState.Loading)
         try {
@@ -146,7 +148,7 @@ class ChatRepositoryImpl @Inject constructor(
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
-            val resolvedTools = agentToolResolver.resolve(platform.uid)
+            val resolvedTools = agentToolResolver.resolve(platform.uid, chatToolConfig)
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, platform)
 

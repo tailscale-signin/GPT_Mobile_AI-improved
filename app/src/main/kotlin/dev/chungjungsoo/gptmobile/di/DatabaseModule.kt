@@ -46,7 +46,7 @@ object DatabaseModule {
                 db.execSQL("PRAGMA foreign_keys = ON;")
             }
         })
-        .fallbackToDestructiveMigrationOnDowngrade()
+        .fallbackToDestructiveMigrationOnDowngrade(false)
         .build()
 
     @Provides

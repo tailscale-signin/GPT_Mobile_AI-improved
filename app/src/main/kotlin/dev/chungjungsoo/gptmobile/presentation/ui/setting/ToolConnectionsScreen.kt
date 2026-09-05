@@ -23,7 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -65,12 +65,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.catalog.McpPreset
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
-import dev.chungjungsoo.gptmobile.presentation.common.McpMarketplaceDialog
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
@@ -82,6 +80,7 @@ fun ToolConnectionsScreen(
     modifier: Modifier = Modifier,
     viewModel: ToolConnectionsViewModel = hiltViewModel(),
     onLaunchOAuth: (String) -> Unit = {},
+    onMarketplaceClick: () -> Unit = {},
     onAddConnectionClick: () -> Unit,
     onEditConnectionClick: (String) -> Unit,
     onNavigationClick: () -> Unit
@@ -93,7 +92,6 @@ fun ToolConnectionsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var deletingConnection by remember { mutableStateOf<ToolConnection?>(null) }
     var pendingOAuthConnection by remember { mutableStateOf<ToolConnection?>(null) }
-    var showMarketplace by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
@@ -129,7 +127,7 @@ fun ToolConnectionsScreen(
             ToolConnectionsTopBar(
                 scrollBehavior = scrollBehavior,
                 onNavigationClick = onNavigationClick,
-                onMarketplaceClick = { showMarketplace = true },
+                onMarketplaceClick = onMarketplaceClick,
                 onAddClick = onAddConnectionClick
             )
         }
@@ -139,6 +137,38 @@ fun ToolConnectionsScreen(
                 .padding(innerPadding)
                 .verticalScroll(scrollState)
         ) {
+            // Marketplace Discover Banner
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                headlineContent = {
+                    Text(
+                        text = "Browse MCP Marketplace",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = "Discover pre-configured MCP tools categorized into Free, Free with sign up, and Paid.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Filled.Storefront,
+                        contentDescription = "MCP Marketplace",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                trailingContent = {
+                    TextButton(onClick = onMarketplaceClick) {
+                        Text("Explore")
+                    }
+                }
+            )
+
             if (uiState.connections.isEmpty()) {
                 Text(
                     text = stringResource(R.string.no_tool_connections),
@@ -167,33 +197,6 @@ fun ToolConnectionsScreen(
                 )
             }
         }
-    }
-
-    if (showMarketplace) {
-        val installedAliases = remember(uiState.connections) {
-            uiState.connections.map { it.alias }.toSet()
-        }
-        val mcpProvider = remember {
-            ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP }
-        }
-        McpMarketplaceDialog(
-            installedAliases = installedAliases,
-            onInstallPreset = { preset: McpPreset ->
-                viewModel.saveConnection(
-                    existing = null,
-                    provider = mcpProvider,
-                    name = preset.name,
-                    alias = preset.alias,
-                    endpointUrl = preset.defaultEndpoint,
-                    authType = preset.suggestedAuthType,
-                    credential = "",
-                    oauthClientId = "",
-                    allowCleartext = preset.defaultEndpoint.startsWith("http://", ignoreCase = true),
-                    clearCredential = false
-                )
-            },
-            onDismissRequest = { showMarketplace = false }
-        )
     }
 
     deletingConnection?.let { connection ->
@@ -507,7 +510,7 @@ private fun ToolConnectionsTopBar(
             IconButton(
                 onClick = onMarketplaceClick
             ) {
-                Icon(imageVector = Icons.Filled.ShoppingCart, contentDescription = "MCP Marketplace")
+                Icon(imageVector = Icons.Filled.Storefront, contentDescription = "MCP Marketplace")
             }
             IconButton(
                 onClick = onAddClick

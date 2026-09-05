@@ -219,10 +219,12 @@ fun HomeScreen(
                         state = listState
                     ) {
                         if (!chatListState.isSearchMode) {
-                            item { ChatsTitle(scrollBehavior) }
+                            item(key = "home-chats-title", contentType = "header") {
+                                ChatsTitle(scrollBehavior)
+                            }
                         }
                         if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
-                            item {
+                            item(key = "home-chats-empty", contentType = "empty-notice") {
                                 Text(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -234,7 +236,11 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        itemsIndexed(chatListState.chats, key = { _, it -> it.id }) { idx, chatRoom ->
+                        itemsIndexed(
+                            items = chatListState.chats,
+                            key = { _, it -> it.id },
+                            contentType = { _, _ -> "chat-room-item" }
+                        ) { idx, chatRoom ->
                             val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
                             ListItem(
                                 modifier = Modifier
@@ -376,7 +382,11 @@ fun FavoritesList(
             LazyColumn(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(favorites, key = { it.id }) { message ->
+                items(
+                    items = favorites,
+                    key = { it.id },
+                    contentType = { "favorite-message-item" }
+                ) { message ->
                     val platformName = message.platformType?.let { platformState.getPlatformName(it) }
                         ?: stringResource(R.string.unknown)
                     FavoriteMessageItem(

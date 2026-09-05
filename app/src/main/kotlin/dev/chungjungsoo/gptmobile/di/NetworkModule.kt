@@ -36,8 +36,9 @@ object NetworkModule {
     fun provideNetworkClient(
         @ApplicationContext context: Context
     ): NetworkClient {
+        val isHighRam = isHighRamDevice(context)
         val engine = CIO.create {
-            if (isHighRamDevice(context)) {
+            if (isHighRam) {
                 // High-performance concurrency pool for 12GB+ RAM multi-core devices
                 maxConnectionsCount = 1000
                 endpoint {
@@ -45,6 +46,14 @@ object NetworkModule {
                     pipelineMaxSize = 20
                     keepAliveTime = 5000
                     connectTimeout = 5000
+                }
+            } else {
+                maxConnectionsCount = 250
+                endpoint {
+                    maxConnectionsPerRoute = 25
+                    pipelineMaxSize = 5
+                    keepAliveTime = 5000
+                    connectTimeout = 10000
                 }
             }
         }

@@ -32,7 +32,7 @@ object ModelConstants {
         ApiType.ANTHROPIC -> ANTHROPIC_API_URL
         ApiType.GOOGLE -> GOOGLE_API_URL
         ApiType.GROQ -> GROQ_API_URL
-        ApiType.OLLAMA -> ""
+        ApiType.OLLAMA -> OLLAMA_API_URL
     }
 
     fun normalizeLegacyAPIUrl(apiUrl: String): String = when (apiUrl.trim()) {

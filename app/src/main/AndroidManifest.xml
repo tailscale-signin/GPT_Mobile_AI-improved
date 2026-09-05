@@ -50,7 +50,7 @@
             android:name="libcdsprpc.so"
             android:required="false" />
         <!-- AppAuth merges RedirectUriReceiverActivity using appAuthRedirectScheme.
-             Register a scheme distinct from the MCP callback (dev.chungjungsoo.gptmobile://oauth/mcp/). -->
+             Register a scheme distinct from the MCP callback (dev.chungjungsoo.gptmobile.improved://oauth/mcp/). -->
         <activity
             android:name=".presentation.ui.main.MainActivity"
             android:exported="true"
@@ -70,7 +70,7 @@
                 <data
                     android:host="oauth"
                     android:pathPrefix="/mcp/"
-                    android:scheme="dev.chungjungsoo.gptmobile" />
+                    android:scheme="dev.chungjungsoo.gptmobile.improved" />
             </intent-filter>
         </activity>
         <provider

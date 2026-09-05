@@ -202,10 +202,10 @@ class ReadUrlTool(
     )
 
     private companion object {
-        const val MAX_BODY_BYTES = 1024 * 1024
-        const val MAX_OUTPUT_BYTES = 64 * 1024
-        const val ERROR_BYTES = 240
-        const val MAX_REDIRECTS = 5
+        const val MAX_BODY_BYTES = 100 * 1024 * 1024 // 100 MB
+        const val MAX_OUTPUT_BYTES = 50 * 1024 * 1024 // 50 MB
+        const val ERROR_BYTES = 2000
+        const val MAX_REDIRECTS = 50
         val REDIRECT_STATUSES = setOf(301, 302, 303, 307, 308)
     }
 }
@@ -270,7 +270,7 @@ internal object SpecialUseAddress {
         return bytes.copyOfRange(12, 16)
     }
 
-    private fun sixToFourIpv4(bytes: ByteArray): ByteArray? {
+    sixToFourIpv4(bytes: ByteArray): ByteArray? {
         if (!bytes.matchesPrefix(0x20, 0x02)) return null
         return bytes.copyOfRange(2, 6)
     }

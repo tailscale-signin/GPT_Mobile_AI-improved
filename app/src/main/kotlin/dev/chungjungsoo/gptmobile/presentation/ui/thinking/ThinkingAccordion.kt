@@ -37,7 +37,25 @@ data class ParsedReasoningContent(
     val thinkingText: String?,
     val mainContent: String,
     val isStillThinking: Boolean = false
-)
+) {
+    val thinking: String
+        get() = thinkingText ?: ""
+
+    val displayContent: String
+        get() = mainContent
+
+    val response: String
+        get() = mainContent
+
+    val hasThinking: Boolean
+        get() = !thinkingText.isNullOrBlank()
+
+    val isThinkingInProgress: Boolean
+        get() = isStillThinking
+
+    val isThinking: Boolean
+        get() = isStillThinking
+}
 
 object ThinkingParser {
     private val THINK_REGEX = Regex("(?s)<think>(.*?)(?:</think>|$)", RegexOption.DOT_MATCHES_ALL)
@@ -65,6 +83,11 @@ object ThinkingParser {
             isStillThinking = isStillThinking
         )
     }
+
+    /**
+     * Alias for ChatBubble and legacy callers.
+     */
+    fun extractThinking(rawText: String): ParsedReasoningContent = parse(rawText)
 }
 
 /**

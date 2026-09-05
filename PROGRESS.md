@@ -16,26 +16,41 @@ Welcome to the progress and build tracking dashboard for **GPT Mobile Improved**
 
 ---
 
-## 📋 Shipped Improvements & Milestones
+## 📋 Shipped Improvements & Upstream Parity
 
-### 1. Side-by-Side Coexistence & Deterministic Keystore
+### 1. Full Parity with Recent `gpt_mobile` Features
+- **Reasoning & Thinking Blocks (`ThinkingParser` & `ThinkingAccordion`)**:
+  - Implemented real-time `<think>...</think>` block extraction with `ThinkingParser`.
+  - Added collapsible Jetpack Compose `ThinkingAccordion` with in-progress pulse indicators and full copy support.
+  - Comprehensive unit test suite in `ThinkingParserTest.kt`.
+- **MCP Marketplace**:
+  - In-app marketplace dialog (`McpMarketplaceDialog`) with dynamic search and category filtering (`SEARCH`, `DEVELOPMENT`, `DATABASE`, `PRODUCTIVITY`, `SYSTEM`, `BROWSER`).
+  - One-tap installation of presets from `McpPresetCatalog` (Brave Search, GitHub, Puppeteer, PostgreSQL, Filesystem, Memory, Fetch).
+- **Per-Chat Tool Configuration**:
+  - Per-chat MCP and built-in tool toggling via `ChatToolSelectionBottomSheet`.
+  - Persisted activation states in `ChatMcpToolConfig`.
+- **Device Location Tool**:
+  - Built-in `DeviceLocationTool` and `DeviceLocationProvider` for contextual device-aware queries with runtime permission handling.
+
+### 2. Side-by-Side Coexistence & Deterministic Keystore
 - Isolated Application ID (`dev.chungjungsoo.gptmobile.improved`) allows direct side-by-side usage with upstream GPT Mobile without uninstalls.
 - Persistent signing configuration ensures all subsequent updates install directly in-place without keystore mismatch errors.
 
-### 2. Autonomous Agent Architecture
+### 3. Autonomous Agent Architecture
 - Removed loops, tool call counts, and execution timeout ceilings (`Int.MAX_VALUE` / `Long.MAX_VALUE`).
 - Supported up to 32 parallel tool executions with expanded output buffers for deep reasoning agent sessions.
+- Foreground execution support via `AgentRunForegroundService` and `AgentRunCoordinator`.
 
-### 3. High-Capacity Tooling
+### 4. High-Capacity Tooling
 - **ReadUrl**: Expanded to 100 MB max body size, 50 MB output buffer, and 50 redirects.
 - **WebSearch**: Scaled up to 100 results per query across Firecrawl, Perplexity, and Exa.
 - **MCP Client**: Uncapped discovery and tool registry pagination.
 
-### 4. Configuration Backup & Restore
+### 5. Configuration Backup & Restore
 - Full JSON export and import for provider profiles, custom endpoints, model parameters, and preferences.
 - Android Keystore (`SecretVault`) integration with re-encryption upon restore.
 
-### 5. Favorited Messages & Searchable Star Tab
+### 6. Favorited Messages & Searchable Star Tab
 - Star any AI response across providers.
 - Instant search across saved responses with one-tap deep navigation to the original chat.
 

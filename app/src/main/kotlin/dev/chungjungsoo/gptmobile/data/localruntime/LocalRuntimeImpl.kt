@@ -193,28 +193,15 @@ class LocalRuntimeImpl(
     private fun backendFor(accelerator: String): Backend = when (LocalAccelerators.normalize(accelerator)) {
         LocalAccelerators.GPU -> Backend.GPU()
         LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
-        else -> Backend.CPU(
-            numThreads = resolveCpuThreads()
-        )
+        else -> Backend.CPU()
     }
 
     private fun visionBackendFor(spec: LocalEngineSpec): Backend? {
         if (!spec.isVisionEnabled) return null
         return when (LocalAccelerators.normalize(spec.accelerator)) {
-            LocalAccelerators.CPU -> Backend.CPU(
-                numThreads = resolveCpuThreads()
-            )
+            LocalAccelerators.CPU -> Backend.CPU()
             LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
             else -> Backend.GPU()
-        }
-    }
-
-    private fun resolveCpuThreads(): Int? {
-        val cores = Runtime.getRuntime().availableProcessors()
-        return when {
-            isHighRamDevice -> cores.coerceIn(4, 8)
-            isMidRamDevice -> cores.coerceIn(2, 4)
-            else -> null
         }
     }
 

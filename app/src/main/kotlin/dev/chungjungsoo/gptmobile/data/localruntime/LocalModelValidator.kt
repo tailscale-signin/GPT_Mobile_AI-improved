@@ -1,9 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
-import android.util.Log
 import java.io.File
 import java.io.FileInputStream
-import java.io.InputStream
 import java.security.MessageDigest
 
 /**
@@ -36,8 +34,6 @@ sealed interface ModelValidationResult {
  * Validates local model weights before initialization by LiteRT-LM to avoid native crashes (SIGSEGV).
  */
 object LocalModelValidator {
-    private const val TAG = "LocalModelValidator"
-
     // Most quantized LLM weights are at least 50MB. A file smaller than 10MB is almost certainly
     // an incomplete download, an HTML error page, or a truncated file.
     const val DEFAULT_MIN_SIZE_BYTES = 10L * 1024L * 1024L // 10 MB
@@ -55,23 +51,19 @@ object LocalModelValidator {
         val file = File(modelPath)
 
         if (!file.exists()) {
-            Log.w(TAG, "Validation failed: File does not exist at $modelPath")
             return ModelValidationResult.Invalid(file, ModelValidationResult.Invalid.Reason.NOT_FOUND, "File does not exist: $modelPath")
         }
 
         if (!file.isFile) {
-            Log.w(TAG, "Validation failed: Path is not a regular file at $modelPath")
             return ModelValidationResult.Invalid(file, ModelValidationResult.Invalid.Reason.NOT_A_FILE, "Path is not a regular file")
         }
 
         if (!file.canRead()) {
-            Log.w(TAG, "Validation failed: Cannot read file at $modelPath")
             return ModelValidationResult.Invalid(file, ModelValidationResult.Invalid.Reason.CANNOT_READ, "File is not readable")
         }
 
         val size = file.length()
         if (size < minSizeBytes) {
-            Log.w(TAG, "Validation failed: File size ($size bytes) is less than minimum ($minSizeBytes bytes)")
             return ModelValidationResult.Invalid(
                 file,
                 ModelValidationResult.Invalid.Reason.FILE_TOO_SMALL,
@@ -95,7 +87,6 @@ object LocalModelValidator {
             }.getOrDefault(false)
 
             if (!headerValid) {
-                Log.w(TAG, "Validation failed: TFLite header verification failed for $modelPath")
                 return ModelValidationResult.Invalid(
                     file,
                     ModelValidationResult.Invalid.Reason.CORRUPTED_HEADER,
@@ -108,7 +99,6 @@ object LocalModelValidator {
         if (!expectedSha256.isNullOrBlank()) {
             calculatedSha256 = computeSha256(file)
             if (!calculatedSha256.equals(expectedSha256.trim(), ignoreCase = true)) {
-                Log.w(TAG, "Validation failed: SHA256 mismatch for $modelPath. Expected: $expectedSha256, got: $calculatedSha256")
                 return ModelValidationResult.Invalid(
                     file,
                     ModelValidationResult.Invalid.Reason.CHECKSUM_MISMATCH,

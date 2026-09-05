@@ -1,8 +1,18 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import android.util.LruCache
+
 private const val INLINE_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_INLINE_"
 private const val INLINE_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"
 private const val MAX_FENCE_INDENT = 3
+
+/**
+ * In-memory LRU cache for parsed markdown structures.
+ * On high-RAM devices and during active streaming or fast list scrolling, parsing
+ * complex markdown AST and math delimiters on every recomposition induces garbage collection
+ * and CPU thrash. Caching the parsed result by content string key eliminates redundant parsing.
+ */
+private val markdownParseCache = LruCache<String, ParsedChatMarkdown>(500)
 
 data class ParsedChatMarkdown(
     val blocks: List<ChatMarkdownBlock>,
@@ -21,6 +31,8 @@ data class InlineMathToken(
 )
 
 fun parseChatMarkdown(content: String): ParsedChatMarkdown {
+    markdownParseCache.get(content)?.let { return it }
+
     val blocks = mutableListOf<ChatMarkdownBlock>()
     val inlineMath = mutableListOf<InlineMathToken>()
     val markdownBuffer = StringBuilder()
@@ -61,7 +73,9 @@ fun parseChatMarkdown(content: String): ParsedChatMarkdown {
     }
 
     flushMarkdownBuffer(markdownBuffer, blocks, inlineMath)
-    return ParsedChatMarkdown(blocks = blocks, inlineMath = inlineMath)
+    val parsed = ParsedChatMarkdown(blocks = blocks, inlineMath = inlineMath)
+    markdownParseCache.put(content, parsed)
+    return parsed
 }
 
 fun containsInlineMathPlaceholder(text: String): Boolean = text.contains(INLINE_MATH_PLACEHOLDER_PREFIX)

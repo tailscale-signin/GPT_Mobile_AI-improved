@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -124,12 +125,16 @@ fun OpponentChatBubble(
         disabledContainerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.38f)
     )
 
-    val noticeMessages = visibleChatRunNotices(
-        stored = runNotices,
-        timelineNotices = timelineNoticeMessages(timeline),
-        isRunActive = isLoading
-    )
-    val contentTimeline = timeline.filter { it.type != AssistantTimelineItemType.NOTICE }
+    val noticeMessages = remember(runNotices, timeline, isLoading) {
+        visibleChatRunNotices(
+            stored = runNotices,
+            timelineNotices = timelineNoticeMessages(timeline),
+            isRunActive = isLoading
+        )
+    }
+    val contentTimeline = remember(timeline) {
+        timeline.filter { it.type != AssistantTimelineItemType.NOTICE }
+    }
 
     Column(modifier = modifier) {
         RunNoticeChips(
@@ -142,12 +147,14 @@ fun OpponentChatBubble(
         )
 
         Column {
-            val hasUnavailableOrder = hasUnavailableAssistantOrder(
-                timeline = contentTimeline,
-                content = text,
-                thoughts = thoughts,
-                hasToolEvents = toolEvents.isNotEmpty()
-            )
+            val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
+                hasUnavailableAssistantOrder(
+                    timeline = contentTimeline,
+                    content = text,
+                    thoughts = thoughts,
+                    hasToolEvents = toolEvents.isNotEmpty()
+                )
+            }
             if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
                 AssistantTimelineContent(
                     timeline = contentTimeline,
@@ -245,7 +252,9 @@ private fun AssistantTimelineContent(
     isLoading: Boolean,
     contentIdentity: Any
 ) {
-    val toolEventsBySequence = toolEvents.associateBy(ToolEvent::sequence)
+    val toolEventsBySequence = remember(toolEvents) {
+        toolEvents.associateBy(ToolEvent::sequence)
+    }
     timeline.forEachIndexed { index, item ->
         when (item.type) {
             AssistantTimelineItemType.THINKING -> ThinkingBlock(
@@ -493,7 +502,9 @@ internal fun MessageFileThumbnailRow(
     usePrimaryColors: Boolean = true
 ) {
     // Filter out empty strings and check if we have valid files
-    val validFiles = files.filter { it.isNotEmpty() && it.isNotBlank() }
+    val validFiles = remember(files) {
+        files.filter { it.isNotEmpty() && it.isNotBlank() }
+    }
 
     if (validFiles.isEmpty()) {
         return
@@ -519,8 +530,8 @@ private fun MessageFileThumbnail(
     filePath: String,
     usePrimaryColors: Boolean
 ) {
-    val file = File(filePath)
-    val isImage = isImageFile(file.extension)
+    val file = remember(filePath) { File(filePath) }
+    val isImage = remember(file.extension) { isImageFile(file.extension) }
     val containerColor = if (usePrimaryColors) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
     } else {

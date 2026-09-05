@@ -216,6 +216,40 @@ fun ChatScreen(
         }
     }
 
+    val onFileSelectedLambda = remember<(String) -> Unit>(chatViewModel) {
+        { filePath -> chatViewModel.addSelectedFile(filePath) }
+    }
+    val onFileRemovedLambda = remember<(String) -> Unit>(chatViewModel) {
+        { filePath -> chatViewModel.removeSelectedFile(filePath) }
+    }
+    val onCancelButtonClickLambda = remember<() -> Unit>(chatViewModel) {
+        { chatViewModel.cancelActiveRuns() }
+    }
+    val onOpenUserMessageEditLambda = remember<(MessageV2) -> Unit>(chatViewModel) {
+        { message -> chatViewModel.openUserMessageEditDialog(message) }
+    }
+    val onOpenAssistantMessageEditLambda = remember<(Int, Int) -> Unit>(chatViewModel) {
+        { msgIdx, platIdx -> chatViewModel.openAssistantMessageEditDialog(msgIdx, platIdx) }
+    }
+    val onUpdatePlatformIndexLambda = remember<(Int, Int) -> Unit>(chatViewModel) {
+        { msgIdx, platIdx -> chatViewModel.updateChatPlatformIndex(msgIdx, platIdx) }
+    }
+    val onOpenSelectTextLambda = remember<(String) -> Unit>(chatViewModel) {
+        { text -> chatViewModel.openSelectTextSheet(text) }
+    }
+    val onRetryLambda = remember<(Int, Int) -> Unit>(chatViewModel) {
+        { msgIdx, platIdx -> chatViewModel.retryChat(msgIdx, platIdx) }
+    }
+    val onShowPreviousRevisionLambda = remember<(Int, Int) -> Unit>(chatViewModel) {
+        { msgIdx, platIdx -> chatViewModel.showPreviousAssistantRevision(msgIdx, platIdx) }
+    }
+    val onShowNextRevisionLambda = remember<(Int, Int) -> Unit>(chatViewModel) {
+        { msgIdx, platIdx -> chatViewModel.showNextAssistantRevision(msgIdx, platIdx) }
+    }
+    val onToggleFavoriteLambda = remember<(Int, Int) -> Unit>(chatViewModel) {
+        { msgIdx, platIdx -> chatViewModel.toggleMessageFavorite(msgIdx, platIdx) }
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         chatViewModel.refreshLocalNetworkRequirement()
     }
@@ -310,15 +344,15 @@ fun ChatScreen(
                             isActiveMessage = index == lastMessageIndex,
                             maximumUserChatBubbleWidth = maximumUserChatBubbleWidth,
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
-                            onEditQuestion = chatViewModel::openUserMessageEditDialog,
-                            onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
+                            onEditQuestion = onOpenUserMessageEditLambda,
+                            onEditAssistant = onOpenAssistantMessageEditLambda,
                             onCopyText = onCopyTextLambda,
-                            onPlatformClick = chatViewModel::updateChatPlatformIndex,
-                            onSelectText = chatViewModel::openSelectTextSheet,
-                            onRetry = chatViewModel::retryChat,
-                            onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
-                            onShowNextRevision = chatViewModel::showNextAssistantRevision,
-                            onFavoriteClick = { pIdx -> chatViewModel.toggleMessageFavorite(index, pIdx) }
+                            onPlatformClick = onUpdatePlatformIndexLambda,
+                            onSelectText = onOpenSelectTextLambda,
+                            onRetry = onRetryLambda,
+                            onShowPreviousRevision = onShowPreviousRevisionLambda,
+                            onShowNextRevision = onShowNextRevisionLambda,
+                            onFavoriteClick = { pIdx -> onToggleFavoriteLambda(index, pIdx) }
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
@@ -350,9 +384,9 @@ fun ChatScreen(
                 sendButtonEnabled = isIdle,
                 isRunning = !isIdle,
                 selectedAttachments = selectedAttachments,
-                onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
-                onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
-                onCancelButtonClick = chatViewModel::cancelActiveRuns
+                onFileSelected = onFileSelectedLambda,
+                onFileRemoved = onFileRemovedLambda,
+                onCancelButtonClick = onCancelButtonClickLambda
             ) {
                 if (!requestedNotificationPermission &&
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -511,6 +545,16 @@ private fun ChatMessagePair(
         loadingStates.getOrElse(platformIndexState) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
+    val userAttachments = remember(message.attachments) {
+        message.attachments.map { it.filePathForDisplay }
+    }
+    val assistantAttachments = remember(selectedAssistantMessage?.attachments) {
+        selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay }
+    }
+    val runNotices = remember(selectedRunId, runNoticesById) {
+        selectedRunId?.let(runNoticesById::get).orEmpty()
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -522,7 +566,7 @@ private fun ChatMessagePair(
                 UserChatBubble(
                     modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
                     text = message.content,
-                    files = message.attachments.map { it.filePathForDisplay },
+                    files = userAttachments,
                     onLongPress = { isDropDownMenuExpanded = true }
                 )
                 ChatBubbleDropdownMenu(
@@ -579,9 +623,9 @@ private fun ChatMessagePair(
                 text = assistantContent,
                 thoughts = assistantThoughts,
                 timeline = assistantTimeline,
-                attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
+                attachments = assistantAttachments,
                 agentRun = agentRun,
-                runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
+                runNotices = runNotices,
                 toolEvents = toolEvents,
                 contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
                 revisionIndexLabel = selectedAssistantMessage?.let { assistantMessage ->

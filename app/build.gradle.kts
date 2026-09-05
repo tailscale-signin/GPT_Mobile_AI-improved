@@ -20,7 +20,7 @@ extensions.configure<ApplicationExtension> {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.chungjungsoo.gptmobile"
+        applicationId = "dev.chungjungsoo.gptmobile.improved"
         minSdk = 31
         targetSdk = 36
         versionCode = 24

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import android.app.ActivityManager
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
@@ -67,6 +68,23 @@ class AgentRunCoordinator @Inject constructor(
     private val interruptingRunIds = ConcurrentHashMap.newKeySet<String>()
     private val _activeRuns = MutableStateFlow<Map<String, ActiveAgentRun>>(emptyMap())
     private val _notices = MutableSharedFlow<AgentRunNotice>(extraBufferCapacity = 8)
+
+    // On high-RAM (>= 10GB) flagship devices with 120Hz/144Hz displays, streaming database and UI
+    // dispatch can be throttled from 250ms down to 40ms (~25 FPS) for butter-smooth live token streaming
+    // without starving CPU/IO, while conserving disk IO on lower memory devices.
+    private val isHighMemoryDevice by lazy {
+        try {
+            val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            actManager?.getMemoryInfo(memInfo)
+            memInfo.totalMem >= 10L * 1024 * 1024 * 1024
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private val publishIntervalMillis: Long
+        get() = if (isHighMemoryDevice) 40L else 250L
 
     val activeRuns = _activeRuns.asStateFlow()
     val notices = _notices.asSharedFlow()
@@ -229,7 +247,7 @@ class AgentRunCoordinator @Inject constructor(
                 onNotice = { notice, persistent ->
                     _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
                 },
-                publishIntervalMillis = 250L
+                publishIntervalMillis = publishIntervalMillis
             )
             val terminal = outcome.toTerminalUpdate()
             val completedAt = currentEpochSeconds()

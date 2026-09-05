@@ -27,16 +27,24 @@ This repository (**`GPT_Mobile_AI-improved`**) is an advanced, high-performance 
    - Re-namespaced Application ID allows you to install and use this version **directly alongside the original app** with zero conflicts, no uninstallation needed, and separate data isolation.
 2. **Persistent Deterministic Signing**:
    - Replaced ephemeral per-build CI keystores with persistent, deterministic signing. Once installed, **all future releases install seamlessly in-place over this app** without prompting for uninstall or wiping chat history.
-3. **Uncapped Autonomous Agent Engine**:
+3. **DeepSeek / Reasoning Thinking Accordion**:
+   - Built-in `ThinkingAccordion` and parser for reasoning models (DeepSeek R1, OpenAI o-series, etc.). Automatically extracts `<think>...</think>` tokens, collapses traces cleanly in chat bubbles, displays animated indicators during active thought generation, and allows one-tap copy of reasoning traces.
+4. **Curated MCP Marketplace & Presets**:
+   - Integrated in-app MCP marketplace with category filter chips (`Search`, `Development`, `Database`, `Productivity`, `System`, `Browser`) and instant search to discover and install community Model Context Protocol servers in one tap.
+5. **Per-Chat Granular Tool Selection**:
+   - Select and customize active tools (WebSearch, ReadUrl, CurrentDate, DeviceLocation, and connected MCP servers) specifically per chat room using the tool selection bottom sheet.
+6. **Built-in Device Location Agent Tool**:
+   - On-device location provider allowing agents to answer location-sensitive prompts with runtime permission safety.
+7. **Uncapped Autonomous Agent Engine**:
    - Loops, tool calling limits, and run timeouts are uncapped (`Int.MAX_VALUE` / `Long.MAX_VALUE`), enabling fully autonomous deep-reasoning multi-round agent workflows without artificial round terminations.
    - Up to 32 concurrent parallel tool executions with uncapped buffer output limits.
-4. **Enhanced Web & MCP Tool Scalability**:
+8. **Enhanced Web & MCP Tool Scalability**:
    - **ReadUrl**: Expanded to 100 MB body limit, 50 MB output buffer, and 50 redirect hops.
    - **WebSearch**: Uncapped result ceiling up to 100 results per call (via Firecrawl, Perplexity, or Exa).
    - **MCP Client**: Uncapped discovered tool limits and pagination for extensive Model Context Protocol server registries.
-5. **Full Configuration Backup & Restore**:
+9. **Full Configuration Backup & Restore**:
    - Export and restore all provider configurations, custom endpoints, model parameters, and preferences as JSON with integrated Android Keystore credential re-encryption.
-6. **Favorites & Searchable Starred AI Responses**:
+10. **Favorites & Searchable Starred AI Responses**:
    - Star any response across any provider and quickly search through your favorites library on the dedicated Star tab.
 
 ---
@@ -58,13 +66,20 @@ Track build milestones, recent updates, and download artifacts:
 
 ## Features
 
+- **DeepSeek & Reasoning Model Support**
+  - Live collapsible thinking accordions for models outputting `<think>` reasoning traces
+  - Expand/collapse thinking blocks, copy reasoning steps, and view animated thinking state during generation
+- **MCP Marketplace & Per-Chat Tools**
+  - Built-in MCP Marketplace dialog with search & category filtering (Search, Dev, DB, Productivity, System, Browser)
+  - Per-chat tool selection bottom sheet to tailor active MCP servers & built-in tools per conversation
+  - On-device `device_location` tool for accurate localized answers with permission awareness
 - **Chat with Multiple Models Simultaneously**
   - Query multiple models simultaneously in side-by-side or tabbed multi-turn conversations
   - Supported platforms:
-    - OpenAI GPT (including custom endpoints)
+    - OpenAI GPT & Reasoning (o1, o3-mini)
     - Anthropic Claude
     - Google Gemini
-    - Groq
+    - Groq & DeepSeek R1
     - Ollama (local or remote instances)
     - OpenAI-compatible third-party APIs
   - Customizable temperature, top_p (nucleus sampling), and system prompts

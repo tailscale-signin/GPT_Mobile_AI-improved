@@ -36,8 +36,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.maxLength
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -116,6 +118,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val MAX_CHAT_INPUT_CHARACTERS = 100_000
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -826,6 +830,7 @@ fun ChatInputBox(
             state = inputState,
             modifier = Modifier.fillMaxWidth(),
             enabled = chatEnabled,
+            inputTransformation = InputTransformation.maxLength(MAX_CHAT_INPUT_CHARACTERS),
             textStyle = mergedStyle,
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             lineLimits = chatInputLineLimits,

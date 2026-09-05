@@ -191,10 +191,10 @@ class McpClientManager internal constructor(
     private companion object {
         const val CLIENT_NAME = "gpt-mobile"
         const val CLIENT_VERSION = "0.8.0"
-        const val MAX_TOOL_PAGES = 100
-        const val MAX_DISCOVERED_TOOLS = 512
-        const val MAX_ENDPOINT_LENGTH = 4 * 1024
-        const val MAX_AUTHORIZATION_HEADER_LENGTH = 32 * 1024
+        const val MAX_TOOL_PAGES = Int.MAX_VALUE
+        const val MAX_DISCOVERED_TOOLS = Int.MAX_VALUE
+        const val MAX_ENDPOINT_LENGTH = 32 * 1024
+        const val MAX_AUTHORIZATION_HEADER_LENGTH = 128 * 1024
     }
 }
 

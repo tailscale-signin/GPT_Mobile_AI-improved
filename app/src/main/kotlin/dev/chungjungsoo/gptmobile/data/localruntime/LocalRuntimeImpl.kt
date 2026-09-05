@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -17,6 +19,9 @@ import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.tool
 import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
@@ -40,11 +45,14 @@ class LocalRuntimeImpl(
     private var loadedAccelerator: String = LocalAccelerators.CPU
     private var loadedSpec: LocalEngineSpec? = null
 
+    private val activityManager: ActivityManager? by lazy {
+        context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+    }
+
     private val deviceRamGb: Long by lazy {
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val memoryInfo = ActivityManager.MemoryInfo()
         if (activityManager != null) {
-            activityManager.getMemoryInfo(memoryInfo)
+            activityManager?.getMemoryInfo(memoryInfo)
             memoryInfo.totalMem / (1024L * 1024L * 1024L)
         } else {
             4L
@@ -59,21 +67,75 @@ class LocalRuntimeImpl(
         deviceRamGb >= 6L
     }
 
+    private fun getAvailableMemoryMb(): Long {
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager?.getMemoryInfo(memoryInfo)
+        return memoryInfo.availMem / (1024L * 1024L)
+    }
+
+    private fun isLowMemoryDevice(): Boolean {
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager?.getMemoryInfo(memoryInfo)
+        return memoryInfo.lowMemory || (memoryInfo.availMem / (1024L * 1024L) < 500L)
+    }
+
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         withContext(Dispatchers.IO) {
-            loadedAccelerator = spec.accelerator
-            val engineConfig = EngineConfig(
-                modelPath = spec.modelPath,
-                backend = backendFor(spec.accelerator),
-                visionBackend = visionBackendFor(spec),
-                audioBackend = null,
-                maxNumTokens = spec.maxTokens,
-                maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null
-            )
-            val nextEngine = Engine(engineConfig)
-            nextEngine.initialize()
-            engine = nextEngine
-            loadedSpec = spec
+            // Apply memory safety guardrail: if device is under memory pressure, throttle maxNumTokens
+            val effectiveMaxTokens = if (isLowMemoryDevice() && spec.maxTokens > 1024) {
+                Log.w(TAG, "Device low memory detected; throttling maxTokens from ${spec.maxTokens} to 1024")
+                1024
+            } else {
+                spec.maxTokens
+            }
+
+            // Try loading with the requested accelerator first; if it fails (e.g. driver issue with GPU/NPU),
+            // gracefully cascade fallback to CPU.
+            val acceleratorsToAttempt = buildList {
+                add(spec.accelerator)
+                val normalized = LocalAccelerators.normalize(spec.accelerator)
+                if (normalized == LocalAccelerators.NPU) {
+                    add(LocalAccelerators.GPU)
+                    add(LocalAccelerators.CPU)
+                } else if (normalized == LocalAccelerators.GPU) {
+                    add(LocalAccelerators.CPU)
+                }
+            }.distinct()
+
+            var lastError: Throwable? = null
+            var initializedEngine: Engine? = null
+            var actualAccelerator = spec.accelerator
+
+            for (candidateAccelerator in acceleratorsToAttempt) {
+                try {
+                    Log.i(TAG, "Attempting to initialize LiteRT-LM engine with accelerator: $candidateAccelerator")
+                    val engineConfig = EngineConfig(
+                        modelPath = spec.modelPath,
+                        backend = backendFor(candidateAccelerator),
+                        visionBackend = visionBackendFor(spec.copy(accelerator = candidateAccelerator)),
+                        audioBackend = null,
+                        maxNumTokens = effectiveMaxTokens,
+                        maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null
+                    )
+                    val nextEngine = Engine(engineConfig)
+                    nextEngine.initialize()
+                    initializedEngine = nextEngine
+                    actualAccelerator = candidateAccelerator
+                    Log.i(TAG, "Successfully initialized LiteRT-LM engine with accelerator: $candidateAccelerator")
+                    break
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Failed initializing LiteRT-LM engine with accelerator $candidateAccelerator: ${t.message}")
+                    lastError = t
+                }
+            }
+
+            if (initializedEngine == null) {
+                throw lastError ?: IllegalStateException("Failed to initialize LiteRT-LM engine with any accelerator")
+            }
+
+            engine = initializedEngine
+            loadedAccelerator = actualAccelerator
+            loadedSpec = spec.copy(accelerator = actualAccelerator, maxTokens = effectiveMaxTokens)
         }
     }
 
@@ -91,8 +153,6 @@ class LocalRuntimeImpl(
                 conversation = currentEngine.createConversation(
                     ConversationConfig(
                         systemInstruction = config.systemPrompt?.takeIf { it.isNotBlank() }?.let { Contents.of(it) },
-                        // LiteRT-LM 0.11.0 Message.user/model(Contents) accept Content.ImageBytes,
-                        // so rebuilds re-seed prior image turns instead of dropping them to text-only.
                         initialMessages = config.initialMessages.map { message ->
                             when (message.role) {
                                 LocalHistoryRole.USER -> Message.user(contentsOf(message.text, message.images))
@@ -125,20 +185,50 @@ class LocalRuntimeImpl(
             return@callbackFlow
         }
 
+        val startTimeMs = SystemClock.elapsedRealtime()
+        val firstTokenTimeMs = AtomicLong(0L)
+        val chunkCount = AtomicInteger(0)
+        val totalCharacters = AtomicInteger(0)
+        val hasEmittedAny = AtomicBoolean(false)
+
         activeConversation.sendMessageAsync(
             contentsOf(text, images),
             object : MessageCallback {
                 override fun onMessage(message: Message) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (firstTokenTimeMs.compareAndSet(0L, now)) {
+                        hasEmittedAny.set(true)
+                    }
+
                     message.channels[THOUGHT_CHANNEL]?.takeIf { it.isNotEmpty() }?.let { thought ->
                         trySend(LocalRuntimeEvent.ThinkingDelta(thought))
                     }
                     val visibleText = message.visibleText()
                     if (visibleText.isNotEmpty()) {
+                        chunkCount.incrementAndGet()
+                        totalCharacters.addAndGet(visibleText.length)
                         trySend(LocalRuntimeEvent.TextDelta(visibleText))
                     }
                 }
 
                 override fun onDone() {
+                    val finishTimeMs = SystemClock.elapsedRealtime()
+                    val totalDuration = finishTimeMs - startTimeMs
+                    val ttft = if (firstTokenTimeMs.get() > 0L) firstTokenTimeMs.get() - startTimeMs else totalDuration
+                    val chars = totalCharacters.get()
+                    // Rough approximation: ~4 characters per token for English/general text
+                    val estimatedTokens = (chars / 4).coerceAtLeast(chunkCount.get())
+                    val tps = if (totalDuration > 0) (estimatedTokens.toDouble() / (totalDuration.toDouble() / 1000.0)) else 0.0
+
+                    val metrics = LocalInferenceMetrics(
+                        timeToFirstTokenMs = ttft,
+                        totalDurationMs = totalDuration,
+                        totalChunks = chunkCount.get(),
+                        totalCharacters = chars,
+                        estimatedTokens = estimatedTokens,
+                        tokensPerSecond = tps
+                    )
+                    trySend(LocalRuntimeEvent.Metrics(metrics))
                     trySend(LocalRuntimeEvent.Done)
                     close()
                 }
@@ -228,6 +318,7 @@ class LocalRuntimeImpl(
     }
 
     private companion object {
+        const val TAG = "LocalRuntimeImpl"
         const val THOUGHT_CHANNEL = "thought"
         const val MAX_IMAGES_PER_MESSAGE = 10
     }

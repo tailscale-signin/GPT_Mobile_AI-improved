@@ -15,6 +15,7 @@ import dagger.hilt.android.HiltAndroidApp
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.backup.SanitizedChatBackup
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
@@ -93,6 +94,15 @@ class GPTMobileApp :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        val hasActiveRuns = runCatching {
+            startupDependencies().agentRunCoordinator().activeRuns.value.isNotEmpty()
+        }.getOrDefault(false)
+
+        // Never unload engine while background generation or agent runs are currently executing
+        if (hasActiveRuns) {
+            return
+        }
+
         // On devices with 10GB+ RAM, do not prematurely unload local model weights on moderate
         // background/running-low signals (TRIM_MEMORY_RUNNING_LOW/TRIM_MEMORY_RUNNING_CRITICAL/TRIM_MEMORY_UI_HIDDEN).
         // Only unload when the system is under genuine severe pressure (TRIM_MEMORY_COMPLETE).
@@ -134,6 +144,7 @@ interface StartupDependencies {
     fun agentRunDao(): AgentRunDao
     fun agentPersistenceDao(): AgentPersistenceDao
     fun localRuntime(): LocalRuntime
+    fun agentRunCoordinator(): AgentRunCoordinator
 }
 
 object StartupRecoveryGate {

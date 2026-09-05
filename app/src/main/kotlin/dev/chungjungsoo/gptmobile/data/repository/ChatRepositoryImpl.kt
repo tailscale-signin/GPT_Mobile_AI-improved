@@ -52,6 +52,9 @@ import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
@@ -242,7 +245,16 @@ class ChatRepositoryImpl @Inject constructor(
         messages: List<MessageV2>,
         platform: PlatformV2
     ): List<MessageV2> {
-        val updatedMessages = messages.map { attachmentUploadCoordinator.ensureMessageAttachmentsForPlatform(it, platform) }
+        if (messages.none { it.attachments.isNotEmpty() }) {
+            return messages
+        }
+
+        val updatedMessages = coroutineScope {
+            messages.map { message ->
+                async { attachmentUploadCoordinator.ensureMessageAttachmentsForPlatform(message, platform) }
+            }.awaitAll()
+        }
+
         val changedMessages = updatedMessages
             .zip(messages)
             .mapNotNull { (updated, original) -> updated.takeIf { it != original } }

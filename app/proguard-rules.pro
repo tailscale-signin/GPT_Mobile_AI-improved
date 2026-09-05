@@ -54,6 +54,10 @@
 -keep class com.google.ai.edge.** { *; }
 -keep class com.google.android.gms.tflite.** { *; }
 -dontwarn com.google.android.gms.tflite.**
+# Don't optimize LiteRT-LM native binding JNI classes
+-keepclasseswithmembernames,includedescriptorclasses class com.google.ai.edge.** {
+    native <methods>;
+}
 
 # -------------------------------------------------------------
 # Hilt / Dagger & WorkManager

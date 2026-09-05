@@ -12,9 +12,9 @@ An enhanced, high-performance, open-source Android client for interacting with L
 ## 🌟 Key Features
 
 - **Multi-Provider Support**: Seamlessly connect with OpenAI, Anthropic Claude, Google Gemini, Groq, Ollama, OpenRouter, Custom OpenAI-compatible endpoints, and on-device execution via LiteRT (MediaPipe/TFLite LLM).
-- **Agentic Workflows & Tool Calling**: Built-in agent runner supporting MCP (Model Context Protocol), local tools, web browsing (`read_url`), and calculator execution.
+- **Agentic Workflows & Tool Calling**: Built-in autonomous agent runner supporting Model Context Protocol (MCP), local system tools (`current_date`, `device_location`), safe mathematical evaluation (`calculate_expression`), and web navigation (`read_url`, `web_search`).
 - **Deep Mobile Optimization**: Built from the ground up for minimal battery usage, low memory footprint, and smooth 120Hz scrolling on mobile devices.
-- **Privacy First**: Direct device-to-provider connections with zero intermediary tracking servers. Local inference capabilities with LiteRT.
+- **Privacy First**: Direct device-to-provider connections with zero intermediary tracking servers. Android Keystore AES-GCM credential encryption and on-device local inference capabilities with LiteRT.
 
 ---
 
@@ -38,7 +38,8 @@ This repository incorporates comprehensive optimizations covering Android packag
 - **Exponential Backoff & Jitter**: Transient network failures and rate limits automatically retry with exponential backoff and jitter.
 - **Robust SSE Line Buffering**: Chunk-safe Server-Sent Events parsing with `SseUtils` handles arbitrary chunk fragmentation and carriage return line endings (`\r\n` / `\n`) across all LLM providers.
 
-### 4. Context & Memory Safeguards
+### 4. Context, Agent & Memory Safeguards
+- **Autonomous Agent Tool Runtime**: Default built-in safe mathematical expression parsing (`calculate_expression`), local time/date resolution (`current_date`), and location context (`device_location`).
 - **Sliding-Window Token & Character Compactor**: `ContextBuilder` dynamically enforces a sliding-window character budget tailored to each client tier (e.g. 64k for Cloud LLMs, 24k for Groq, 20k for Ollama) while preserving the active turn.
 - **Bounded Streaming Memory**: Tool execution and agent network operations (such as `ReadUrlTool`) enforce bounded byte streaming (1 MB read cap, 64 KB text output cap) and restricted redirect hops to prevent OutOfMemory (OOM) errors and Android Low Memory Killer (LMK) terminations.
 

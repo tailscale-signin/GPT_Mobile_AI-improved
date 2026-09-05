@@ -294,7 +294,8 @@ fun ChatScreen(
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
-                            onShowNextRevision = chatViewModel::showNextAssistantRevision
+                            onShowNextRevision = chatViewModel::showNextAssistantRevision,
+                            onFavoriteClick = { pIdx -> chatViewModel.toggleMessageFavorite(index, pIdx) }
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
@@ -453,7 +454,8 @@ private fun ChatMessagePair(
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
-    onShowNextRevision: (Int, Int) -> Unit
+    onShowNextRevision: (Int, Int) -> Unit,
+    onFavoriteClick: (Int) -> Unit = {}
 ) {
     val selectedAssistantMessage = assistantMessages.getOrNull(platformIndexState)
     val assistantContent = selectedAssistantMessage?.effectiveContent() ?: ""
@@ -539,6 +541,7 @@ private fun ChatMessagePair(
                 canRetry = canUseChat && isActiveMessage && !isCurrentPlatformLoading,
                 isLoading = isActiveMessage && isCurrentPlatformLoading,
                 isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
+                isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                 text = assistantContent,
                 thoughts = assistantThoughts,
                 timeline = assistantTimeline,
@@ -567,6 +570,7 @@ private fun ChatMessagePair(
                 canShowNextRevision = canShowNextRevision,
                 onCopyClick = { onCopyText(assistantContent) },
                 onSelectClick = { onSelectText(assistantContent) },
+                onFavoriteClick = { onFavoriteClick(platformIndexState) },
                 onRetryClick = { onRetry(messageIndex, platformIndexState) },
                 onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
                 onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },

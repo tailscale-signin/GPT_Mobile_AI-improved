@@ -37,6 +37,9 @@ object NetworkModule {
     ): NetworkClient {
         val ramGb = getDeviceRamGb(context)
         val engine = CIO.create {
+            https {
+                serverName = null
+            }
             when {
                 ramGb >= 10L -> {
                     // High-performance concurrency pool for 10GB+ RAM multi-core devices

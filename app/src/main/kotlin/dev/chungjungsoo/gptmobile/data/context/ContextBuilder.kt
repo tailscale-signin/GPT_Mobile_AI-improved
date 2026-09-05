@@ -54,13 +54,41 @@ class ContextBuilder @Inject constructor() {
             rawTurns.subList(startIndex, rawTurns.size)
         }
 
-        val selectedTurns = ArrayList<RawConversationTurn>(historyTurns.size + (if (currentTurn != null) 1 else 0))
-        selectedTurns.addAll(historyTurns)
+        // Apply sliding-window budget compactor if maxHistoryCharBudget is set
+        val budgetedHistoryTurns = applyCharacterBudget(historyTurns, policy.maxHistoryCharBudget)
+
+        val selectedTurns = ArrayList<RawConversationTurn>(budgetedHistoryTurns.size + (if (currentTurn != null) 1 else 0))
+        selectedTurns.addAll(budgetedHistoryTurns)
         if (currentTurn != null) {
             selectedTurns.add(currentTurn)
         }
 
         return applyAttachmentWindow(selectedTurns, policy)
+    }
+
+    /**
+     * Compacts history turns from most recent backwards until character budget is reached.
+     */
+    private fun applyCharacterBudget(
+        turns: List<RawConversationTurn>,
+        budget: Int?
+    ): List<RawConversationTurn> {
+        if (budget == null || turns.isEmpty()) return turns
+
+        var currentChars = 0
+        var startIndex = turns.size
+
+        for (i in turns.indices.reversed()) {
+            val turn = turns[i]
+            val turnChars = turn.userMessage.content.length + (turn.assistantMessage?.content?.length ?: 0)
+            if (currentChars + turnChars > budget && startIndex < turns.size) {
+                break
+            }
+            currentChars += turnChars
+            startIndex = i
+        }
+
+        return if (startIndex == 0) turns else turns.subList(startIndex, turns.size)
     }
 
     private fun List<MessageV2>.firstValidAssistantCandidate(platformUid: String): MessageV2? {

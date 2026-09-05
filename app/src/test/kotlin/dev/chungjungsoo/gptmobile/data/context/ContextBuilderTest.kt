@@ -40,6 +40,44 @@ class ContextBuilderTest {
     }
 
     @Test
+    fun `history turns compact when exceeding character budget`() {
+        val platform = PlatformV2(
+            uid = "profile",
+            name = "Provider",
+            compatibleType = ClientType.OPENAI,
+            apiUrl = "https://api.openai.com/v1",
+            model = "gpt-4o"
+        )
+
+        val policy = ProviderContextPolicy(
+            recentTurnWindow = 10,
+            historicalImageTurnWindow = 1,
+            maxHistoryCharBudget = 50
+        )
+
+        val turns = ContextBuilder().build(
+            userMessages = listOf(
+                MessageV2(content = "Old turn with lots of text that should be trimmed out completely", platformType = null),
+                MessageV2(content = "Short turn", platformType = null),
+                MessageV2(content = "Current prompt", platformType = null)
+            ),
+            assistantMessages = listOf(
+                listOf(MessageV2(content = "Long reply from old turn", platformType = platform.uid)),
+                listOf(MessageV2(content = "Short reply", platformType = platform.uid)),
+                emptyList()
+            ),
+            platform = platform,
+            policy = policy
+        )
+
+        // Old turn is trimmed by the 50 char budget, leaving only Short turn and Current prompt
+        assertEquals(2, turns.size)
+        assertEquals("Short turn", turns[0].userMessage.content)
+        assertEquals("Current prompt", turns[1].userMessage.content)
+        assertTrue(turns[1].isCurrentTurn)
+    }
+
+    @Test
     fun `litert lm keeps the full persisted history beyond ten turns`() {
         val platform = localPlatform()
         val userMessages = (0 until 12).map { index ->

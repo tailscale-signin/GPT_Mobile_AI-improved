@@ -77,10 +77,11 @@ jobs:
 
       - name: Create Job Summary
         run: |
-          unsigned_hash=$(md5sum ./apk/release/app-release-unsigned.apk | cut -d' ' -f1)
-          signed_hash=$(md5sum ./apk/release/app-release.apk | cut -d' ' -f1)
-          signed_aab_hash=$(md5sum ./bundle/release/app-release.aab | cut -d' ' -f1)
-          certificate_hash=($($ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || apksigner verify --print-certs ./apk/release/app-release.apk) | grep "SHA-256" | awk -F': ' '{print $2}')
+          unsigned_hash=$(md5sum ./apk/release/app-release-unsigned.apk 2>/dev/null | cut -d' ' -f1 || echo "N/A")
+          signed_hash=$(md5sum ./apk/release/app-release.apk 2>/dev/null | cut -d' ' -f1 || echo "N/A")
+          signed_aab_hash=$(md5sum ./bundle/release/app-release.aab 2>/dev/null | cut -d' ' -f1 || echo "N/A")
+          cert_out=$($ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || true)
+          certificate_hash=$(echo "$cert_out" | grep "SHA-256" | head -n 1 | awk -F': ' '{print $2}' || echo "N/A")
           echo "### Release Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Unsigned APK md5**: \`$unsigned_hash\`" >> $GITHUB_STEP_SUMMARY

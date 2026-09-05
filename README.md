@@ -12,6 +12,7 @@
   <a href="https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/workflows/release-build.yml"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/tailscale-signin/GPT_Mobile_AI-improved/release-build.yml?branch=main&label=Release%20Build"/></a>
   <a href="https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/"><img alt="GitHub Releases Total Downloads" src="https://img.shields.io/github/downloads/tailscale-signin/GPT_Mobile_AI-improved/total?label=Downloads&logo=github"/></a>
   <a href="https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/latest/"><img alt="GitHub Releases (latest by date)" src="https://img.shields.io/github/v/release/tailscale-signin/GPT_Mobile_AI-improved?color=black&label=Latest%20Release&logo=github"/></a>
+  <a href="./PROGRESS.md"><img alt="Progress" src="https://img.shields.io/badge/Status-Progress%20Page-brightgreen.svg"/></a>
 </p>
 
 </div>
@@ -37,6 +38,13 @@ This repository (**`GPT_Mobile_AI-improved`**) is an advanced, high-performance 
    - Export and restore all provider configurations, custom endpoints, model parameters, and preferences as JSON with integrated Android Keystore credential re-encryption.
 6. **Favorites & Searchable Starred AI Responses**:
    - Star any response across any provider and quickly search through your favorites library on the dedicated Star tab.
+
+---
+
+## 📊 Build & Progress Tracking
+
+Track build milestones, recent updates, and download artifacts:
+👉 **[View the Progress & Build Log (PROGRESS.md)](./PROGRESS.md)**
 
 ---
 
@@ -92,6 +100,9 @@ This repository (**`GPT_Mobile_AI-improved`**) is an advanced, high-performance 
 Pre-built signed release APKs and Android App Bundles (AAB) are automatically generated on every release build:
 
 [<img height="80" alt='Get it on GitHub' src='https://raw.githubusercontent.com/Kunzisoft/Github-badge/main/get-it-on-github.png'/>](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases)
+
+- **Latest Release**: [v0.8.1 Release Assets](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.1)
+- **Targeting Version**: `0.8.2` (Version Code `25`)
 
 > **Install Note:** Because this app uses `dev.chungjungsoo.gptmobile.improved` and deterministic release signing, you can install it without removing the upstream app, and all future updates from this repository will update in-place smoothly!
 

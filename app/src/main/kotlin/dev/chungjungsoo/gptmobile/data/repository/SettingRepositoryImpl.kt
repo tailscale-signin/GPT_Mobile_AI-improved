@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -31,6 +32,13 @@ class SettingRepositoryImpl @Inject constructor(
         ignoreUnknownKeys = true
         prettyPrint = true
         encodeDefaults = true
+    }
+
+    // High-performance thread-safe in-memory cache for resolved PlatformV2 list
+    private val platformV2Cache = AtomicReference<List<PlatformV2>?>(null)
+
+    private fun invalidatePlatformCache() {
+        platformV2Cache.set(null)
     }
 
     override suspend fun fetchPlatforms(): List<Platform> {
@@ -102,8 +110,15 @@ class SettingRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun fetchPlatformV2s(): List<PlatformV2> = platformV2Dao.getPlatforms().map { platform ->
-        resolvePlatformToken(platform)
+    override suspend fun fetchPlatformV2s(): List<PlatformV2> {
+        val cached = platformV2Cache.get()
+        if (cached != null) return cached
+
+        val resolved = platformV2Dao.getPlatforms().map { platform ->
+            resolvePlatformToken(platform)
+        }
+        platformV2Cache.set(resolved)
+        return resolved
     }
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(
@@ -146,6 +161,7 @@ class SettingRepositoryImpl @Inject constructor(
                 )
             )
         }
+        invalidatePlatformCache()
     }
 
     override suspend fun migrateSecrets(): List<SecretMigrationError> = buildList {
@@ -171,6 +187,7 @@ class SettingRepositoryImpl @Inject constructor(
                 add(SecretMigrationError(source, error.message ?: "Credential migration failed."))
             }
         }
+        invalidatePlatformCache()
     }
 
     override suspend fun updatePlatforms(platforms: List<Platform>) {
@@ -201,6 +218,7 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun addPlatformV2(platform: PlatformV2) {
         platformV2Dao.addPlatform(securePlatform(platform))
+        invalidatePlatformCache()
     }
 
     override suspend fun updatePlatformV2(platform: PlatformV2) {
@@ -211,6 +229,7 @@ class SettingRepositoryImpl @Inject constructor(
         if (previousSecretRef != securedPlatform.secretRef) {
             previousSecretRef?.let { secretVault.delete(it) }
         }
+        invalidatePlatformCache()
     }
 
     override suspend fun deletePlatformV2(platform: PlatformV2) {
@@ -219,10 +238,18 @@ class SettingRepositoryImpl @Inject constructor(
         chatPlatformModelV2Dao.deleteByPlatformUid(platform.uid)
         platformV2Dao.deletePlatform(platform)
         secretRef?.let { secretVault.delete(it) }
+        invalidatePlatformCache()
     }
 
-    override suspend fun getPlatformV2ById(id: Int): PlatformV2? = platformV2Dao.getPlatform(id)?.let { platform ->
-        resolvePlatformToken(platform)
+    override suspend fun getPlatformV2ById(id: Int): PlatformV2? {
+        val cached = platformV2Cache.get()
+        if (cached != null) {
+            val hit = cached.firstOrNull { it.id == id }
+            if (hit != null) return hit
+        }
+        return platformV2Dao.getPlatform(id)?.let { platform ->
+            resolvePlatformToken(platform)
+        }
     }
 
     override suspend fun exportConfigurationJson(): String {
@@ -329,6 +356,7 @@ class SettingRepositoryImpl @Inject constructor(
             importedCount++
         }
 
+        invalidatePlatformCache()
         importedCount
     }
 

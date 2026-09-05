@@ -48,7 +48,6 @@ import dev.chungjungsoo.gptmobile.util.AttachmentPayloadCache
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.determineLocalNetworkAccessRequirement
-import dev.chungjungsoo.gptmobile.util.getPlatformName
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
 import java.util.UUID
 import javax.inject.Inject

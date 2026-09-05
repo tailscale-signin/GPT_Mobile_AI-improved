@@ -72,10 +72,11 @@ jobs:
       - name: Build Release APK and Bundle
         run: |
           echo "Building Release APK..."
-          ./gradlew assembleRelease --no-daemon 2>&1 | tee gradle-apk.log || (echo "=== GRADLE APK FAILURE LOG ===" && tail -n 120 gradle-apk.log && exit 1)
+          set -e
+          ./gradlew assembleRelease --stacktrace --no-daemon
           
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --no-daemon 2>&1 | tee gradle-bundle.log || (echo "=== GRADLE BUNDLE FAILURE LOG ===" && tail -n 120 gradle-bundle.log && exit 1)
+          ./gradlew bundleRelease --stacktrace --no-daemon
 
       - name: Sign APK with apksigner
         run: |
@@ -83,8 +84,10 @@ jobs:
           ls -la app/build/outputs/apk/release/ || true
 
           # Find the built release APK
-          RAW_APK=$(find app/build/outputs/apk/release/ -name "*.apk" ! -name "*-signed.apk" | head -n 1)
+          RAW_APK=$(find app/build/outputs/apk/release/ -name "*.apk" ! -name "*-signed.apk" 2>/dev/null | head -n 1)
           if [ -z "$RAW_APK" ]; then
+            echo "Searching entire build tree for release APKs:"
+            find . -name "*.apk" || true
             echo "ERROR: No release APK found to sign!"
             exit 1
           fi
@@ -107,7 +110,7 @@ jobs:
           echo "Locating built AAB in app/build/outputs/bundle/release/:"
           ls -la app/build/outputs/bundle/release/ || true
 
-          RAW_AAB=$(find app/build/outputs/bundle/release/ -name "*.aab" | head -n 1)
+          RAW_AAB=$(find app/build/outputs/bundle/release/ -name "*.aab" 2>/dev/null | head -n 1)
           if [ -n "$RAW_AAB" ]; then
             jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
               -keystore "$KEYSTORE_PATH" \

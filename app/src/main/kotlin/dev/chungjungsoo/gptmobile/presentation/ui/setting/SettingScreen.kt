@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -11,11 +13,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,10 +28,14 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -47,6 +56,7 @@ import dev.chungjungsoo.gptmobile.util.getClientTypeDisplayName
 import dev.chungjungsoo.gptmobile.util.getDynamicThemeTitle
 import dev.chungjungsoo.gptmobile.util.getThemeModeTitle
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +76,21 @@ fun SettingScreen(
     )
     val platformState by settingViewModel.platformState.collectAsStateWithLifecycle()
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        settingViewModel.uiEvent.collectLatest { event ->
+            when (event) {
+                is SettingViewModelV2.UiEvent.RestoreSuccess -> {
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.restore_configuration_success, event.count),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -96,6 +121,8 @@ fun SettingScreen(
                 .verticalScroll(scrollState)
         ) {
             ThemeSetting { settingViewModel.openThemeDialog() }
+
+            BackupRestoreSetting { settingViewModel.openBackupRestoreDialog() }
 
             // Add Platform button
             SettingItem(
@@ -145,6 +172,27 @@ fun SettingScreen(
             if (dialogState.isDeleteDialogOpen) {
                 DeletePlatformDialog(settingViewModel)
             }
+
+            if (dialogState.isBackupRestoreDialogOpen) {
+                BackupRestoreOptionsDialog(settingViewModel)
+            }
+
+            if (dialogState.isExportDialogOpen) {
+                ExportConfigurationDialog(
+                    exportedJson = dialogState.exportedConfigJson,
+                    onDismiss = settingViewModel::closeExportDialog
+                )
+            }
+
+            if (dialogState.isRestoreDialogOpen) {
+                RestoreConfigurationDialog(
+                    inputJson = dialogState.restoreJsonInput,
+                    errorMessage = dialogState.restoreErrorMessage,
+                    onInputChanged = settingViewModel::onRestoreJsonInputChanged,
+                    onConfirm = settingViewModel::restoreConfiguration,
+                    onDismiss = settingViewModel::closeRestoreDialog
+                )
+            }
         }
     }
 }
@@ -187,6 +235,19 @@ fun ThemeSetting(
     SettingItem(
         title = stringResource(R.string.theme_settings),
         description = stringResource(R.string.theme_description),
+        onItemClick = onItemClick,
+        showTrailingIcon = false,
+        showLeadingIcon = false
+    )
+}
+
+@Composable
+fun BackupRestoreSetting(
+    onItemClick: () -> Unit
+) {
+    SettingItem(
+        title = stringResource(R.string.backup_and_restore),
+        description = stringResource(R.string.backup_and_restore_description),
         onItemClick = onItemClick,
         showTrailingIcon = false,
         showLeadingIcon = false
@@ -261,6 +322,159 @@ fun ThemeSettingDialog(
                 onClick = settingViewModel::closeThemeDialog
             ) {
                 Text(stringResource(R.string.confirm))
+            }
+        }
+    )
+}
+
+@Composable
+fun BackupRestoreOptionsDialog(
+    settingViewModel: SettingViewModelV2 = hiltViewModel()
+) {
+    AlertDialog(
+        title = {
+            Text(stringResource(R.string.backup_and_restore))
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = settingViewModel::openExportDialog
+                ) {
+                    Text(stringResource(R.string.export_configuration))
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = settingViewModel::openRestoreDialog
+                ) {
+                    Text(stringResource(R.string.restore_configuration))
+                }
+            }
+        },
+        onDismissRequest = settingViewModel::closeBackupRestoreDialog,
+        confirmButton = {
+            TextButton(onClick = settingViewModel::closeBackupRestoreDialog) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+fun ExportConfigurationDialog(
+    exportedJson: String,
+    onDismiss: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    AlertDialog(
+        title = {
+            Text(stringResource(R.string.backup_configuration_dialog_title))
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.backup_configuration_dialog_description),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = exportedJson,
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    textStyle = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Row {
+                Button(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(exportedJson))
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.copied_to_clipboard),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                ) {
+                    Text(stringResource(R.string.copy_to_clipboard))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
+}
+
+@Composable
+fun RestoreConfigurationDialog(
+    inputJson: String,
+    errorMessage: String?,
+    onInputChanged: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        title = {
+            Text(stringResource(R.string.restore_configuration_dialog_title))
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.restore_configuration_dialog_description),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = inputJson,
+                    onValueChange = onInputChanged,
+                    placeholder = { Text(stringResource(R.string.paste_configuration_hint)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    isError = errorMessage != null
+                )
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = inputJson.isNotBlank()
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
             }
         }
     )

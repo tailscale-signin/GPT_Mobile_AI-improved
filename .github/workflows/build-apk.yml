@@ -2,8 +2,6 @@ name: Build Android APK
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   pull_request:
@@ -80,28 +78,24 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: ignore
 
-      - name: Determine Release Tag
+      - name: Extract Release Tag
         id: tag_name
-        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=v0.1.0-build.$(date +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
-          fi
+          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         with:
           tag_name: ${{ steps.tag_name.outputs.tag }}
           name: Release ${{ steps.tag_name.outputs.tag }}
           draft: false
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          prerelease: false
           files: |
             app/build/outputs/apk/debug/*.apk
           body: |
-            Automated build for commit ${{ github.sha }}.
+            Automated tag build for ${{ steps.tag_name.outputs.tag }}.
             
             ### Artifacts
             - `app-debug.apk`: Debug build of GPT Mobile AI

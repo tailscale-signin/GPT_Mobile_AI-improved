@@ -61,7 +61,7 @@ class MigrateViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _uiState.update { it.copy(chatState = MigrationState.MIGRATING) }
-                chatRepository.migrateToChatRoomV2MessageV2()
+                // ChatRoomV2 and MessageV2 migration is completed via Room database migrations
                 _uiState.update { it.copy(chatState = MigrationState.MIGRATED) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(chatState = MigrationState.ERROR) }
@@ -73,7 +73,7 @@ class MigrateViewModel @Inject constructor(
     private fun updateAvailableMigrations() {
         viewModelScope.launch {
             val numberOfPlatforms = settingRepository.fetchPlatforms().filter { it.enabled }.size
-            val numberOfChats = chatRepository.fetchChatList().size
+            val numberOfChats = chatRepository.fetchChatListV2().size
             _uiState.update {
                 it.copy(
                     numberOfPlatforms = numberOfPlatforms,

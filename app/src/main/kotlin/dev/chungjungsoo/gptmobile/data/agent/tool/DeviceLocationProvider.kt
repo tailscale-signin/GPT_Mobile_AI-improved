@@ -6,12 +6,15 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.Executors
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -27,7 +30,7 @@ data class DeviceLocation(
 
 @Singleton
 class DeviceLocationProvider @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     fun hasPermission(): Boolean {
         val fineLocation = ContextCompat.checkSelfPermission(
@@ -88,47 +91,87 @@ class DeviceLocationProvider @Inject constructor(
         return bestLocation
     }
 
+    @Suppress("DEPRECATION")
     private suspend fun requestSingleUpdate(locationManager: LocationManager): Location? =
         suspendCancellableCoroutine { continuation ->
-            val listener = object : LocationListener {
-                override fun onLocationChanged(location: Location) {
-                    locationManager.removeUpdates(this)
-                    if (continuation.isActive) {
-                        continuation.resume(location)
-                    }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val cancellationSignal = CancellationSignal()
+                continuation.invokeOnCancellation {
+                    cancellationSignal.cancel()
                 }
 
-                @Deprecated("Deprecated in Java")
-                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-                override fun onProviderEnabled(provider: String) = Unit
-                override fun onProviderDisabled(provider: String) = Unit
-            }
-
-            try {
-                var requested = false
-                val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
-                for (provider in providers) {
-                    if (locationManager.isProviderEnabled(provider)) {
-                        locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper())
-                        requested = true
-                        break
-                    }
+                val executor = Executors.newSingleThreadExecutor()
+                val provider = when {
+                    locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                    locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                    else -> null
                 }
-                if (!requested) {
-                    if (continuation.isActive) {
-                        continuation.resume(null)
-                    }
-                }
-            } catch (_: SecurityException) {
-                if (continuation.isActive) continuation.resume(null)
-            } catch (_: IllegalArgumentException) {
-                if (continuation.isActive) continuation.resume(null)
-            }
 
-            continuation.invokeOnCancellation {
+                if (provider == null) {
+                    executor.shutdown()
+                    if (continuation.isActive) continuation.resume(null)
+                    return@suspendCancellableCoroutine
+                }
+
                 try {
-                    locationManager.removeUpdates(listener)
-                } catch (_: Exception) {
+                    locationManager.getCurrentLocation(
+                        provider,
+                        cancellationSignal,
+                        executor
+                    ) { location ->
+                        executor.shutdown()
+                        if (continuation.isActive) {
+                            continuation.resume(location)
+                        }
+                    }
+                } catch (_: SecurityException) {
+                    executor.shutdown()
+                    if (continuation.isActive) continuation.resume(null)
+                } catch (_: IllegalArgumentException) {
+                    executor.shutdown()
+                    if (continuation.isActive) continuation.resume(null)
+                }
+            } else {
+                val listener = object : LocationListener {
+                    override fun onLocationChanged(location: Location) {
+                        locationManager.removeUpdates(this)
+                        if (continuation.isActive) {
+                            continuation.resume(location)
+                        }
+                    }
+
+                    @Deprecated("Deprecated in Java")
+                    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+                    override fun onProviderEnabled(provider: String) = Unit
+                    override fun onProviderDisabled(provider: String) = Unit
+                }
+
+                try {
+                    var requested = false
+                    val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+                    for (p in providers) {
+                        if (locationManager.isProviderEnabled(p)) {
+                            locationManager.requestSingleUpdate(p, listener, Looper.getMainLooper())
+                            requested = true
+                            break
+                        }
+                    }
+                    if (!requested) {
+                        if (continuation.isActive) {
+                            continuation.resume(null)
+                        }
+                    }
+                } catch (_: SecurityException) {
+                    if (continuation.isActive) continuation.resume(null)
+                } catch (_: IllegalArgumentException) {
+                    if (continuation.isActive) continuation.resume(null)
+                }
+
+                continuation.invokeOnCancellation {
+                    try {
+                        locationManager.removeUpdates(listener)
+                    } catch (_: Exception) {
+                    }
                 }
             }
         }

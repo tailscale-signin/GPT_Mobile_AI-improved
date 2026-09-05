@@ -42,8 +42,7 @@ class OpenAIAPIImpl @Inject constructor(
         mimeType: String,
         config: ProviderRequestConfig
     ): UploadedProviderFile {
-        val apiUrl = config.apiUrl
-        val endpoint = if (apiUrl.endsWith("/")) "${apiUrl}files" else "$apiUrl/files"
+        val endpoint = config.buildEndpoint("files")
         val responseBody = networkClient().preparePost(endpoint) {
             config.token?.let { bearerAuth(it) }
             setBody(
@@ -72,8 +71,7 @@ class OpenAIAPIImpl @Inject constructor(
     }
 
     override suspend fun isFileAvailable(fileId: String, config: ProviderRequestConfig): Boolean {
-        val apiUrl = config.apiUrl
-        val endpoint = if (apiUrl.endsWith("/")) "${apiUrl}files/$fileId" else "$apiUrl/files/$fileId"
+        val endpoint = config.buildEndpoint("files/$fileId")
         return try {
             networkClient().prepareGet(endpoint) {
                 config.token?.let { bearerAuth(it) }
@@ -91,8 +89,7 @@ class OpenAIAPIImpl @Inject constructor(
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
         try {
-            val apiUrl = config.apiUrl
-            val endpoint = if (apiUrl.endsWith("/")) "${apiUrl}chat/completions" else "$apiUrl/chat/completions"
+            val endpoint = config.buildEndpoint("chat/completions")
 
             networkClient().preparePost(endpoint) {
                 applyPlatformStreamingTimeout(timeoutSeconds)
@@ -169,8 +166,7 @@ class OpenAIAPIImpl @Inject constructor(
         config: ProviderRequestConfig
     ): Flow<ResponsesStreamEvent> = flow {
         try {
-            val apiUrl = config.apiUrl
-            val endpoint = if (apiUrl.endsWith("/")) "${apiUrl}responses" else "$apiUrl/responses"
+            val endpoint = config.buildEndpoint("responses")
 
             networkClient().preparePost(endpoint) {
                 applyPlatformStreamingTimeout(timeoutSeconds)

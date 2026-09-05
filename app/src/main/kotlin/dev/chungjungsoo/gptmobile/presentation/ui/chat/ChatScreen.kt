@@ -66,6 +66,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -153,8 +154,15 @@ fun ChatScreen(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
-    val canUseChat = (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
-    val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
+    val canUseChat = remember(chatViewModel.enabledPlatformsInChat, appEnabledPlatforms) {
+        (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
+    }
+    val isIdle by remember {
+        derivedStateOf { loadingStates.all { it == ChatViewModel.LoadingState.Idle } }
+    }
+    val showScrollToBottom by remember {
+        derivedStateOf { listState.canScrollForward }
+    }
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
     var requestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
@@ -191,6 +199,14 @@ fun ChatScreen(
     }
 
     val scope = rememberCoroutineScope()
+
+    val onCopyTextLambda = remember<(String) -> Unit>(clipboardManager, scope) {
+        { copiedText ->
+            scope.launch {
+                clipboardManager.setClipEntry(ClipEntry(ClipData.newPlainText(copiedText, copiedText)))
+            }
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         chatViewModel.refreshLocalNetworkRequirement()
@@ -285,11 +301,7 @@ fun ChatScreen(
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
-                            onCopyText = { copiedText ->
-                                scope.launch {
-                                    clipboardManager.setClipEntry(ClipEntry(ClipData.newPlainText(copiedText, copiedText)))
-                                }
-                            },
+                            onCopyText = onCopyTextLambda,
                             onPlatformClick = chatViewModel::updateChatPlatformIndex,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
@@ -305,7 +317,7 @@ fun ChatScreen(
                     }
                 }
 
-                if (listState.canScrollForward) {
+                if (showScrollToBottom) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()

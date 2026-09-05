@@ -16,6 +16,8 @@
     <application
         android:name=".presentation.GPTMobileApp"
         android:allowBackup="true"
+        android:largeHeap="true"
+        android:hardwareAccelerated="true"
         android:backupAgent=".data.backup.SanitizedChatBackupAgent"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"

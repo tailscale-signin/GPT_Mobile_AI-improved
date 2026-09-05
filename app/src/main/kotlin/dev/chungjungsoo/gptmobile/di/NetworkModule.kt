@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.di
 
+import android.app.ActivityManager
+import android.content.Context
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPIImpl
@@ -20,9 +23,55 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    private fun getDeviceRamGb(context: Context): Long {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return 0L
+        val memoryInfo = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memoryInfo)
+        return memoryInfo.totalMem / (1024L * 1024L * 1024L)
+    }
+
     @Provides
     @Singleton
-    fun provideNetworkClient(): NetworkClient = NetworkClient(CIO)
+    fun provideNetworkClient(
+        @ApplicationContext context: Context
+    ): NetworkClient {
+        val ramGb = getDeviceRamGb(context)
+        val engine = CIO.create {
+            when {
+                ramGb >= 10L -> {
+                    // High-performance concurrency pool for 10GB+ RAM multi-core devices
+                    maxConnectionsCount = 1000
+                    endpoint {
+                        maxConnectionsPerRoute = 100
+                        pipelineMaxSize = 20
+                        keepAliveTime = 5000
+                        connectTimeout = 5000
+                    }
+                }
+                ramGb >= 6L -> {
+                    // Optimized concurrency pool for 6GB-9GB mid-tier devices
+                    maxConnectionsCount = 500
+                    endpoint {
+                        maxConnectionsPerRoute = 50
+                        pipelineMaxSize = 10
+                        keepAliveTime = 5000
+                        connectTimeout = 7000
+                    }
+                }
+                else -> {
+                    // Standard conservative allocation for low memory devices
+                    maxConnectionsCount = 250
+                    endpoint {
+                        maxConnectionsPerRoute = 25
+                        pipelineMaxSize = 5
+                        keepAliveTime = 5000
+                        connectTimeout = 10000
+                    }
+                }
+            }
+        }
+        return NetworkClient(engine)
+    }
 
     @Provides
     @Singleton

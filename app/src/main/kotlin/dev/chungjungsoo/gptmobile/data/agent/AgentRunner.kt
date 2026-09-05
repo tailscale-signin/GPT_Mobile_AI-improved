@@ -17,10 +17,21 @@ data class AgentRunLimits(
     val runTimeoutMillis: Long = 15 * 60 * 1000L,
     val maxRounds: Int = 8,
     val maxToolCalls: Int = 24,
-    val maxConcurrentTools: Int = 4,
+    val maxConcurrentTools: Int = defaultMaxConcurrentTools(),
     val toolTimeoutMillis: Long = 60 * 1000L,
-    val maxToolOutputBytes: Int = 64 * 1024
-)
+    val maxToolOutputBytes: Int = defaultMaxToolOutputBytes()
+) {
+    companion object {
+        private fun isHighRamEnvironment(): Boolean {
+            val maxMemoryMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
+            return maxMemoryMb >= 512
+        }
+
+        fun defaultMaxConcurrentTools(): Int = if (isHighRamEnvironment()) 8 else 4
+
+        fun defaultMaxToolOutputBytes(): Int = if (isHighRamEnvironment()) 256 * 1024 else 64 * 1024
+    }
+}
 
 class AgentRunner(
     private val limits: AgentRunLimits = AgentRunLimits()

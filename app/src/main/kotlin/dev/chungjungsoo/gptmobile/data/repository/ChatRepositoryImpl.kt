@@ -52,6 +52,9 @@ import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
@@ -242,7 +245,16 @@ class ChatRepositoryImpl @Inject constructor(
         messages: List<MessageV2>,
         platform: PlatformV2
     ): List<MessageV2> {
-        val updatedMessages = messages.map { attachmentUploadCoordinator.ensureMessageAttachmentsForPlatform(it, platform) }
+        if (messages.none { it.attachments.isNotEmpty() }) {
+            return messages
+        }
+
+        val updatedMessages = coroutineScope {
+            messages.map { message ->
+                async { attachmentUploadCoordinator.ensureMessageAttachmentsForPlatform(message, platform) }
+            }.awaitAll()
+        }
+
         val changedMessages = updatedMessages
             .zip(messages)
             .mapNotNull { (updated, original) -> updated.takeIf { it != original } }
@@ -263,23 +275,38 @@ class ChatRepositoryImpl @Inject constructor(
             return chatRoomV2Dao.getChatRooms()
         }
 
-        // Search by title
-        val titleMatches = chatRoomV2Dao.searchChatRoomsByTitle(query)
-
-        // Search by message content and get chat IDs
-        val messageMatchChatIds = messageV2Dao.searchMessagesByContent(query)
+        // Search by title and message content concurrently on I/O dispatcher
+        val (titleMatches, messageMatchChatIds) = withContext(Dispatchers.IO) {
+            coroutineScope {
+                val titleJob = async { chatRoomV2Dao.searchChatRoomsByTitle(query) }
+                val contentJob = async { messageV2Dao.searchMessagesByContent(query) }
+                Pair(titleJob.await(), contentJob.await())
+            }
+        }
 
         // Query only the matched chat rooms directly from DB by ID instead of fetching all chat rooms into memory
         val messageMatches = if (messageMatchChatIds.isEmpty()) {
             emptyList()
         } else {
-            chatRoomV2Dao.getChatRoomsByIds(messageMatchChatIds)
+            withContext(Dispatchers.IO) {
+                chatRoomV2Dao.getChatRoomsByIds(messageMatchChatIds)
+            }
         }
 
         // Combine results and remove duplicates, maintaining order by updatedAt
-        return (titleMatches + messageMatches)
-            .distinctBy { it.id }
-            .sortedByDescending { it.updatedAt }
+        val titleMatchIds = HashSet<Int>(titleMatches.size)
+        val combined = ArrayList<ChatRoomV2>(titleMatches.size + messageMatches.size)
+        for (room in titleMatches) {
+            titleMatchIds.add(room.id)
+            combined.add(room)
+        }
+        for (room in messageMatches) {
+            if (titleMatchIds.add(room.id)) {
+                combined.add(room)
+            }
+        }
+        combined.sortByDescending { it.updatedAt }
+        return combined
     }
 
     override suspend fun fetchMessages(chatId: Int): List<Message> = messageDao.loadMessages(chatId)

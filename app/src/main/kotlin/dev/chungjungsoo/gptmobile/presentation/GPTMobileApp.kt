@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation
 
+import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
@@ -48,6 +49,15 @@ class GPTMobileApp :
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val isHighRamDevice: Boolean by lazy {
+        runCatching {
+            val actManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            actManager?.getMemoryInfo(memInfo)
+            memInfo.totalMem >= 10L * 1024 * 1024 * 1024 // 10 GB+
+        }.getOrDefault(false)
+    }
+
     override fun onCreate() {
         SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
@@ -83,7 +93,16 @@ class GPTMobileApp :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+        // On devices with 10GB+ RAM, do not prematurely unload local model weights on moderate
+        // background/running-low signals (TRIM_MEMORY_RUNNING_LOW/TRIM_MEMORY_RUNNING_CRITICAL/TRIM_MEMORY_UI_HIDDEN).
+        // Only unload when the system is under genuine severe pressure (TRIM_MEMORY_COMPLETE).
+        val shouldUnload = if (isHighRamDevice) {
+            level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE
+        } else {
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+        }
+
+        if (shouldUnload) {
             applicationScope.launch {
                 startupDependencies().localRuntime().unloadEngine()
             }

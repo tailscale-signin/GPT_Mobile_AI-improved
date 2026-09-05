@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -18,9 +19,10 @@ class DeviceLocationTool @Inject constructor(
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = BuiltInAgentTool.DEVICE_LOCATION,
         description = "Returns the user's current device location (latitude, longitude, accuracy, and altitude) when permission is granted and location services are enabled.",
-        parameters = buildJsonObject {
+        inputSchema = buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {})
+            put("additionalProperties", false)
         }
     )
 
@@ -28,8 +30,7 @@ class DeviceLocationTool @Inject constructor(
         if (!locationProvider.hasPermission()) {
             return AgentToolResult(
                 callId = callId,
-                name = definition.name,
-                content = "Location permission is not granted on this device.",
+                content = ToolResultContent.Text("Location permission is not granted on this device."),
                 isError = true
             )
         }
@@ -37,8 +38,7 @@ class DeviceLocationTool @Inject constructor(
         val location = locationProvider.getCurrentLocation()
             ?: return AgentToolResult(
                 callId = callId,
-                name = definition.name,
-                content = "Unable to determine device location at this time.",
+                content = ToolResultContent.Text("Unable to determine device location at this time."),
                 isError = true
             )
 
@@ -49,12 +49,11 @@ class DeviceLocationTool @Inject constructor(
             location.altitude?.let { put("altitude_meters", it) }
             put("timestamp", location.timestamp)
             location.provider?.let { put("provider", it) }
-        }.toString()
+        }
 
         return AgentToolResult(
             callId = callId,
-            name = definition.name,
-            content = responseJson,
+            content = ToolResultContent.Json(responseJson),
             isError = false
         )
     }

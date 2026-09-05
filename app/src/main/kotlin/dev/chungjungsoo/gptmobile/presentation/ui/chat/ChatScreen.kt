@@ -492,9 +492,21 @@ private fun ChatMessagePair(
     onFavoriteClick: (Int) -> Unit = {}
 ) {
     val selectedAssistantMessage = assistantMessages.getOrNull(platformIndexState)
-    val assistantContent = selectedAssistantMessage?.effectiveContent() ?: ""
-    val assistantThoughts = selectedAssistantMessage?.effectiveThoughts() ?: ""
-    val assistantTimeline = selectedAssistantMessage?.effectiveTimeline().orEmpty()
+    val assistantContent = remember(selectedAssistantMessage) {
+        selectedAssistantMessage?.effectiveContent() ?: ""
+    }
+    val assistantThoughts = remember(selectedAssistantMessage) {
+        selectedAssistantMessage?.effectiveThoughts() ?: ""
+    }
+    val assistantTimeline = remember(selectedAssistantMessage) {
+        selectedAssistantMessage?.effectiveTimeline().orEmpty()
+    }
+    val userAttachmentPaths = remember(message.attachments) {
+        message.attachments.map { it.filePathForDisplay }
+    }
+    val assistantAttachmentPaths = remember(selectedAssistantMessage?.attachments) {
+        selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay }
+    }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
     val toolEvents = selectedRunId?.let(toolEventsByRun::get).orEmpty()
@@ -522,7 +534,7 @@ private fun ChatMessagePair(
                 UserChatBubble(
                     modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
                     text = message.content,
-                    files = message.attachments.map { it.filePathForDisplay },
+                    files = userAttachmentPaths,
                     onLongPress = { isDropDownMenuExpanded = true }
                 )
                 ChatBubbleDropdownMenu(
@@ -579,7 +591,7 @@ private fun ChatMessagePair(
                 text = assistantContent,
                 thoughts = assistantThoughts,
                 timeline = assistantTimeline,
-                attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
+                attachments = assistantAttachmentPaths,
                 agentRun = agentRun,
                 runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
                 toolEvents = toolEvents,

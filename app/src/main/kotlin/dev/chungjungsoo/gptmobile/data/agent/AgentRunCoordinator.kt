@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome
@@ -41,7 +42,8 @@ data class AgentRunRequest(
     val assistantMessage: MessageV2,
     val platform: PlatformV2,
     val userMessages: List<MessageV2>,
-    val assistantMessages: List<List<MessageV2>>
+    val assistantMessages: List<List<MessageV2>>,
+    val chatToolConfig: ChatMcpToolConfig? = null
 )
 
 data class ActiveAgentRun(
@@ -234,7 +236,8 @@ class AgentRunCoordinator @Inject constructor(
                 request.userMessages,
                 request.assistantMessages,
                 request.platform,
-                request.runId
+                request.runId,
+                request.chatToolConfig
             ).collectApiStateUpdates(
                 onUpdate = { content, thoughts, timeline ->
                     assistantMessage = assistantMessage.copy(

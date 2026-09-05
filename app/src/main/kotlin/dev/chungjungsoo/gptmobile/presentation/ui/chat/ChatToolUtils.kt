@@ -42,7 +42,7 @@ object ChatToolUtils {
             AvailableChatTool(
                 id = conn.alias,
                 name = conn.name,
-                description = conn.endpointUrl,
+                description = conn.endpointUrl.orEmpty(),
                 source = if (conn.isWebSearch) "Search" else "MCP"
             )
         }

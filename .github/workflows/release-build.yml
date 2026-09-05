@@ -30,10 +30,14 @@ jobs:
       - name: Configure swap space for CI stability
         run: |
           echo "Setting up 4GB swap space to prevent runner OOM during release minification and dexing..."
-          sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo swapoff -a || true
+          sudo rm -f /swapfile_extra
+          sudo fallocate -l 4G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=4096
+          sudo chmod 600 /swapfile_extra
+          sudo mkswap /swapfile_extra
+          sudo swapon /swapfile_extra
+          if [ -f /swapfile ]; then sudo swapon /swapfile || true; fi
+          if [ -f /mnt/swapfile ]; then sudo swapon /mnt/swapfile || true; fi
           free -h
 
       - name: Setup JDK 21

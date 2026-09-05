@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -373,6 +374,78 @@ class AgentToolResolverTest {
         assertEquals(listOf("current_date", "read_url", "web_search"), resolved.map { it.modelToolName })
         assertEquals("search-a", resolved.single { it.modelToolName == "web_search" }.connectionUid)
         assertEquals(WebSearchProvider.FIRECRAWL, resolved.single { it.modelToolName == "web_search" }.tool.webSearchConfig().provider)
+    }
+
+    @Test
+    fun `resolve filters out tools disabled in chat tool config`() = runBlocking {
+        val dao = ResolverFakeToolConnectionDao()
+        val resolver = resolver(dao)
+        dao.bind(null, binding("profile-1", null, BuiltInAgentTool.READ_URL))
+
+        // When read_url is disabled in ChatMcpToolConfig
+        val disabledConfig = ChatMcpToolConfig(
+            tools = mapOf("read_url" to false)
+        )
+        val resolvedWithDisabled = resolver.resolve("profile-1", chatToolConfig = disabledConfig)
+        assertEquals(listOf("current_date"), resolvedWithDisabled.map { it.modelToolName })
+
+        // When read_url is explicitly enabled
+        val enabledConfig = ChatMcpToolConfig(
+            tools = mapOf("read_url" to true)
+        )
+        val resolvedWithEnabled = resolver.resolve("profile-1", chatToolConfig = enabledConfig)
+        assertEquals(listOf("current_date", "read_url"), resolvedWithEnabled.map { it.modelToolName })
+    }
+
+    @Test
+    fun `resolve filters out disabled MCP tools via connection-qualified name or real tool name`() = runBlocking {
+        McpClientManagerTest.McpFixtureServer().use { server ->
+            val dao = ResolverFakeToolConnectionDao()
+            val vault = ResolverFakeSecretVault()
+            val repository = ToolConnectionRepository(dao, vault)
+            val networkClient = NetworkClient(CIO)
+            val manager = McpClientManager(networkClient())
+            val resolver = AgentToolResolver(
+                repository,
+                vault,
+                networkClient,
+                manager,
+                McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+            )
+            dao.bind(
+                connection(
+                    uid = "mcp-1",
+                    type = ToolConnectionType.MCP,
+                    endpointUrl = server.url,
+                    authType = ToolConnectionAuthType.NONE,
+                    allowCleartext = true
+                ),
+                binding("profile-1", "mcp-1", "echo")
+            )
+
+            // Filter out by exact candidate ID "mcp-1:echo"
+            val config1 = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to false))
+            val resolved1 = resolver.resolve("profile-1", chatToolConfig = config1)
+            assertEquals(listOf("current_date"), resolved1.map { it.modelToolName })
+
+            // Filter out by modelToolName "mcp__mcp-1__echo"
+            val config2 = ChatMcpToolConfig(tools = mapOf("mcp__mcp-1__echo" to false))
+            val resolved2 = resolver.resolve("profile-1", chatToolConfig = config2)
+            assertEquals(listOf("current_date"), resolved2.map { it.modelToolName })
+
+            // Filter out by entire connection uid "mcp-1"
+            val config3 = ChatMcpToolConfig(tools = mapOf("mcp-1" to false))
+            val resolved3 = resolver.resolve("profile-1", chatToolConfig = config3)
+            assertEquals(listOf("current_date"), resolved3.map { it.modelToolName })
+
+            // Allowed when tool is enabled
+            val configEnabled = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to true))
+            val resolvedEnabled = resolver.resolve("profile-1", chatToolConfig = configEnabled)
+            assertEquals(listOf("current_date", "mcp__mcp-1__echo"), resolvedEnabled.map { it.modelToolName })
+
+            manager.closeAll()
+            networkClient().close()
+        }
     }
 
     private fun resolver(

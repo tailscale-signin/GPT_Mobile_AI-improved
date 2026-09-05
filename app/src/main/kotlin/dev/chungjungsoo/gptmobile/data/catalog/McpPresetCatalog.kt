@@ -10,14 +10,17 @@ enum class McpTransportType {
 }
 
 @Serializable
-enum class McpCategory {
-    SEARCH,
-    DEVELOPMENT,
-    SYSTEM,
-    DATABASE,
-    BROWSER,
-    PRODUCTIVITY
+enum class McpCategory(val displayName: String) {
+    SEARCH("Search"),
+    DEVELOPMENT("Development"),
+    SYSTEM("System"),
+    DATABASE("Database"),
+    BROWSER("Browser"),
+    PRODUCTIVITY("Productivity")
 }
+
+// Backward-compatibility alias for McpPresetCategory
+typealias McpPresetCategory = McpCategory
 
 @Serializable
 data class McpPreset(
@@ -29,10 +32,13 @@ data class McpPreset(
     val transportType: McpTransportType = McpTransportType.SSE,
     val headers: Map<String, String> = emptyMap(),
     val iconName: String = "extension",
-    val author: String = "Community"
+    val author: String = "Community",
+    val alias: String = id.replace("-", "_"),
+    val suggestedAuthType: String = "NONE"
 ) {
-    // Backward-compatibility aliases for McpServerPreset consumers
+    // Backward-compatibility aliases
     val url: String get() = commandOrUrl
+    val defaultEndpoint: String get() = commandOrUrl
 }
 
 typealias McpServerPreset = McpPreset
@@ -47,7 +53,8 @@ object McpPresetCatalog {
             commandOrUrl = "https://api.search.brave.com/res/v1",
             transportType = McpTransportType.SSE,
             iconName = "travel_explore",
-            author = "Brave Software"
+            author = "Brave Software",
+            suggestedAuthType = "BEARER"
         ),
         McpPreset(
             id = "github-mcp",
@@ -57,7 +64,8 @@ object McpPresetCatalog {
             commandOrUrl = "https://api.github.com/mcp",
             transportType = McpTransportType.SSE,
             iconName = "terminal",
-            author = "Model Context Protocol"
+            author = "Model Context Protocol",
+            suggestedAuthType = "BEARER"
         ),
         McpPreset(
             id = "filesystem-mcp",
@@ -111,9 +119,13 @@ object McpPresetCatalog {
         )
     )
 
-    val categories = listOf("All") + McpCategory.values().map { it.name }
+    val categories = listOf("All") + McpCategory.entries.map { it.name }
 
     fun findById(id: String): McpPreset? = presets.find { it.id == id }
+
+    fun getByCategory(category: McpCategory): List<McpPreset> {
+        return presets.filter { it.category == category }
+    }
 
     fun filterByCategory(category: McpCategory): List<McpPreset> {
         return presets.filter { it.category == category }

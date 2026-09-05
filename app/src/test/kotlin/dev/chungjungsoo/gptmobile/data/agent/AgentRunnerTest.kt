@@ -131,7 +131,7 @@ class AgentRunnerTest {
         val executions = AtomicInteger()
         val session = session { _, _ ->
             flow {
-                repeat(25) { emit(toolCall("call_$it")) }
+                repeat(7) { emit(toolCall("call_$it")) }
                 emit(ProviderEvent.Completed)
             }
         }
@@ -145,6 +145,10 @@ class AgentRunnerTest {
         assertEquals(0, executions.get())
         assertTrue(events.last() is AgentRunEvent.Provider)
         assertTrue((events.last() as AgentRunEvent.Provider).event is ProviderEvent.Failed)
+        assertEquals(
+            "Agent stopped before exceeding 6 tool calls.",
+            ((events.last() as AgentRunEvent.Provider).event as ProviderEvent.Failed).message
+        )
     }
 
     @Test

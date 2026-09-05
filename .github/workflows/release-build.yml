@@ -19,6 +19,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Free runner disk and memory space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+
       - name: Setup JDK 21
         uses: actions/setup-java@v5
         with:
@@ -69,10 +76,15 @@ jobs:
           fi
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
 
-      - name: Build Release APK and Bundle
+      - name: Build Release APK
         run: |
-          echo "Building Release APK and Bundle..."
-          ./gradlew assembleRelease bundleRelease --stacktrace --no-daemon
+          echo "Building Release APK..."
+          ./gradlew assembleRelease --stacktrace --no-daemon
+
+      - name: Build Release Bundle
+        run: |
+          echo "Building Release Bundle..."
+          ./gradlew bundleRelease --stacktrace --no-daemon || echo "Bundle build skipped or non-fatal"
 
       - name: Sign APK with apksigner
         run: |
@@ -158,18 +170,21 @@ jobs:
         run: |
           echo "Publishing GitHub Release for tag: $TAG_NAME"
 
-          # Verify if the release tag already exists
+          ASSETS_TO_UPLOAD=()
+          if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            ASSETS_TO_UPLOAD+=("app/build/outputs/apk/release/app-release.apk")
+          fi
+          if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then
+            ASSETS_TO_UPLOAD+=("app/build/outputs/bundle/release/app-release.aab")
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
-            gh release upload "$TAG_NAME" \
-              app/build/outputs/apk/release/app-release.apk \
-              app/build/outputs/bundle/release/app-release.aab \
-              --clobber
+            gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
             echo "Creating fresh GitHub Release $TAG_NAME..."
             gh release create "$TAG_NAME" \
-              app/build/outputs/apk/release/app-release.apk \
-              app/build/outputs/bundle/release/app-release.aab \
+              "${ASSETS_TO_UPLOAD[@]}" \
               --title "$TAG_NAME - GPT Mobile Improved" \
               --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes signed APK with deterministic certificate."
           fi

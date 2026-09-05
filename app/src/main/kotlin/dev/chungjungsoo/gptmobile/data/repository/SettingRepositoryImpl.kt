@@ -253,11 +253,10 @@ class SettingRepositoryImpl @Inject constructor(
                     stream = p.stream,
                     reasoning = p.reasoning,
                     timeout = p.timeout,
-                    geminiHarassmentThreshold = p.geminiHarassmentThreshold,
-                    geminiHateSpeechThreshold = p.geminiHateSpeechThreshold,
-                    geminiSexuallyExplicitThreshold = p.geminiSexuallyExplicitThreshold,
-                    geminiDangerousContentThreshold = p.geminiDangerousContentThreshold,
-                    geminiCivicIntegrityThreshold = p.geminiCivicIntegrityThreshold
+                    harassmentSafetyThreshold = p.harassmentSafetyThreshold,
+                    hateSpeechSafetyThreshold = p.hateSpeechSafetyThreshold,
+                    sexuallyExplicitSafetyThreshold = p.sexuallyExplicitSafetyThreshold,
+                    dangerousContentSafetyThreshold = p.dangerousContentSafetyThreshold
                 )
             }
         )
@@ -297,11 +296,10 @@ class SettingRepositoryImpl @Inject constructor(
                     stream = pDto.stream,
                     reasoning = pDto.reasoning,
                     timeout = pDto.timeout,
-                    geminiHarassmentThreshold = pDto.geminiHarassmentThreshold,
-                    geminiHateSpeechThreshold = pDto.geminiHateSpeechThreshold,
-                    geminiSexuallyExplicitThreshold = pDto.geminiSexuallyExplicitThreshold,
-                    geminiDangerousContentThreshold = pDto.geminiDangerousContentThreshold,
-                    geminiCivicIntegrityThreshold = pDto.geminiCivicIntegrityThreshold
+                    harassmentSafetyThreshold = pDto.harassmentSafetyThreshold,
+                    hateSpeechSafetyThreshold = pDto.hateSpeechSafetyThreshold,
+                    sexuallyExplicitSafetyThreshold = pDto.sexuallyExplicitSafetyThreshold,
+                    dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold
                 )
                 updatePlatformV2(updated)
             } else {
@@ -321,11 +319,10 @@ class SettingRepositoryImpl @Inject constructor(
                     stream = pDto.stream,
                     reasoning = pDto.reasoning,
                     timeout = pDto.timeout,
-                    geminiHarassmentThreshold = pDto.geminiHarassmentThreshold,
-                    geminiHateSpeechThreshold = pDto.geminiHateSpeechThreshold,
-                    geminiSexuallyExplicitThreshold = pDto.geminiSexuallyExplicitThreshold,
-                    geminiDangerousContentThreshold = pDto.geminiDangerousContentThreshold,
-                    geminiCivicIntegrityThreshold = pDto.geminiCivicIntegrityThreshold
+                    harassmentSafetyThreshold = pDto.harassmentSafetyThreshold,
+                    hateSpeechSafetyThreshold = pDto.hateSpeechSafetyThreshold,
+                    sexuallyExplicitSafetyThreshold = pDto.sexuallyExplicitSafetyThreshold,
+                    dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold
                 )
                 addPlatformV2(newPlatform)
             }

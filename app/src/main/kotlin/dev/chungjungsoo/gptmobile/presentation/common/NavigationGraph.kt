@@ -16,9 +16,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpMarketplaceScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.migrate.MigrateScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AboutScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AddPlatformScreen
@@ -239,9 +241,38 @@ fun NavGraphBuilder.settingNavigation(
                 viewModel = toolConnectionsViewModel,
                 onLaunchOAuth = onLaunchOAuth,
                 onNavigationClick = { navController.navigateUp() },
+                onMarketplaceClick = { navController.navigate(Route.MCP_MARKETPLACE) },
                 onAddConnectionClick = { navController.navigate(Route.ADD_TOOL_CONNECTION) },
                 onEditConnectionClick = { connectionUid ->
                     navController.navigate(Route.EDIT_TOOL_CONNECTION.replace("{connectionUid}", connectionUid))
+                }
+            )
+        }
+        composable(Route.MCP_MARKETPLACE) {
+            val uiState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
+            val installedAliases = remember(uiState.connections) {
+                uiState.connections.map { it.alias }.toSet()
+            }
+            val mcpProvider = remember {
+                ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP }
+            }
+            McpMarketplaceScreen(
+                installedAliases = installedAliases,
+                onNavigationClick = { navController.navigateUp() },
+                onInstallPresetWithConfig = { preset, name, alias, endpoint, authType, credential, allowCleartext ->
+                    toolConnectionsViewModel.saveConnection(
+                        existing = null,
+                        provider = mcpProvider,
+                        name = name,
+                        alias = alias,
+                        endpointUrl = endpoint,
+                        authType = authType,
+                        credential = credential,
+                        oauthClientId = "",
+                        allowCleartext = allowCleartext,
+                        clearCredential = false,
+                        onSuccess = { navController.navigateUp() }
+                    )
                 }
             )
         }

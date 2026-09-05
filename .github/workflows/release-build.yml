@@ -54,12 +54,17 @@ jobs:
         run: |
           mkdir -p keystore_dir
           if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASS" ] && [ -n "$KEY_ALIAS" ]; then
-            echo "Using repository configured release keystore..."
+            echo "Using repository secret configured release keystore..."
             echo "$KEYSTORE_B64" | base64 -d > keystore_dir/release.keystore
             echo "ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
             echo "PASSWORD=$KEY_PASS" >> $GITHUB_ENV
+          elif [ -f ".signing/release.jks" ]; then
+            echo "Using repository committed release keystore (.signing/release.jks)..."
+            cp .signing/release.jks keystore_dir/release.keystore
+            echo "ALIAS=gptmobile" >> $GITHUB_ENV
+            echo "PASSWORD=gptmobile_release_key" >> $GITHUB_ENV
           else
-            echo "Secrets not found. Generating ephemeral release keystore for reproducible signing..."
+            echo "Keystore not found. Generating ephemeral release keystore..."
             keytool -genkey -v -keystore keystore_dir/release.keystore -alias gptmobile -keyalg RSA -keysize 2048 -validity 10000 -storepass gptmobile_password -keypass gptmobile_password -dname "CN=GPTMobile, OU=Release, O=OpenSource, L=Seoul, S=Seoul, C=KR"
             echo "ALIAS=gptmobile" >> $GITHUB_ENV
             echo "PASSWORD=gptmobile_password" >> $GITHUB_ENV

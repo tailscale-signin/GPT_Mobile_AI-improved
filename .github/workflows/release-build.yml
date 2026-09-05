@@ -5,22 +5,19 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
+      - master
+      - release-*
 
 jobs:
   build:
-    name: Build Release APK
+    name: Build and Sign Release APK & AAB
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
       - name: Setup JDK 21
         uses: actions/setup-java@v5
@@ -38,152 +35,137 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Make Gradle wrapper executable
+      - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      - name: Build Unsigned Release APK & AAB
-        run: |
-          ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace 2>&1 | tee gradle-release-build.log || (echo "=== GRADLE RELEASE FAILURE LOG ===" && tail -n 200 gradle-release-build.log && exit 1)
-
-      - name: Setup Signing Keystore
+      - name: Set up Keystore
         id: setup-keystore
         env:
-          KEYSTORE_B64: ${{ secrets.APP_KEYSTORE }}
-          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          DETERMINISTIC_SEED: ${{ secrets.RELEASE_KEY_SEED }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          mkdir -p keystore_dir
-          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASS" ] && [ -n "$KEY_ALIAS" ]; then
-            echo "Using repository secret configured release keystore..."
-            echo "$KEYSTORE_B64" | base64 -d > keystore_dir/release.keystore
-            echo "ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
-            echo "PASSWORD=$KEY_PASS" >> $GITHUB_ENV
-          elif [ -f ".signing/release.jks" ]; then
-            echo "Using repository committed release keystore (.signing/release.jks)..."
-            cp .signing/release.jks keystore_dir/release.keystore
-            echo "ALIAS=gptmobile" >> $GITHUB_ENV
-            echo "PASSWORD=gptmobile_release_key" >> $GITHUB_ENV
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Using repository secret keystore"
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           else
-            echo "Using deterministic repository signing key..."
-            PASS="gptmobile_release_fixed_key_2026"
-            ALIAS="gptmobile"
-            if [ -n "$DETERMINISTIC_SEED" ]; then
-              PASS="$DETERMINISTIC_SEED"
-            fi
+            echo "Using deterministic release keystore configuration"
             keytool -genkeypair -v \
-              -keystore keystore_dir/release.keystore \
-              -alias "$ALIAS" \
+              -keystore release.keystore \
+              -alias gptmobile \
               -keyalg RSA \
               -keysize 2048 \
-              -validity 20000 \
-              -storepass "$PASS" \
-              -keypass "$PASS" \
-              -dname "CN=GPTMobileImproved, OU=Release, O=TailscaleSignin, L=Global, S=Global, C=US"
-            echo "ALIAS=$ALIAS" >> $GITHUB_ENV
-            echo "PASSWORD=$PASS" >> $GITHUB_ENV
+              -validity 10000 \
+              -storepass "gptmobile-deterministic-release-key" \
+              -keypass "gptmobile-deterministic-release-key" \
+              -dname "CN=GPT Mobile Improved, OU=Development, O=OpenSource, L=Global, ST=Global, C=XX"
+            echo "KEYSTORE_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=gptmobile" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
           fi
-          echo "KEYSTORE_PATH=$(pwd)/keystore_dir/release.keystore" >> $GITHUB_ENV
+          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
 
-      - name: Locate and Sign Release APK
+      - name: Build Release APK and Bundle
         run: |
-          echo "Locating APK artifacts in app/build/outputs/apk/release/..."
-          ls -la app/build/outputs/apk/release/
+          echo "Building Release APK..."
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee gradle-apk.log || (echo "=== GRADLE APK FAILURE LOG ===" && tail -n 120 gradle-apk.log && exit 1)
           
-          # Target unsigned or unaligned apk produced by assembleRelease
-          INPUT_APK=$(ls app/build/outputs/apk/release/*unsigned.apk 2>/dev/null | head -n 1)
-          if [ -z "$INPUT_APK" ]; then
-            INPUT_APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
+          echo "Building Release Bundle..."
+          ./gradlew bundleRelease --no-daemon 2>&1 | tee gradle-bundle.log || (echo "=== GRADLE BUNDLE FAILURE LOG ===" && tail -n 120 gradle-bundle.log && exit 1)
+
+      - name: Sign APK with apksigner
+        run: |
+          echo "Locating built APK in app/build/outputs/apk/release/:"
+          ls -la app/build/outputs/apk/release/ || true
+
+          # Find the built release APK
+          RAW_APK=$(find app/build/outputs/apk/release/ -name "*.apk" ! -name "*-signed.apk" | head -n 1)
+          if [ -z "$RAW_APK" ]; then
+            echo "ERROR: No release APK found to sign!"
+            exit 1
           fi
-          echo "Selected INPUT_APK: $INPUT_APK"
+          echo "Found APK: $RAW_APK"
 
           $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
             --ks "$KEYSTORE_PATH" \
-            --alignment-preserved true \
-            --ks-pass "env:PASSWORD" \
-            --ks-key-alias "$ALIAS" \
-            --key-pass "env:PASSWORD" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KEY_PASSWORD" \
             --out app/build/outputs/apk/release/app-release-signed.apk \
-            "$INPUT_APK" || \
-          apksigner sign \
-            --ks "$KEYSTORE_PATH" \
-            --alignment-preserved true \
-            --ks-pass "env:PASSWORD" \
-            --ks-key-alias "$ALIAS" \
-            --key-pass "env:PASSWORD" \
-            --out app/build/outputs/apk/release/app-release-signed.apk \
-            "$INPUT_APK"
+            "$RAW_APK"
 
-          cp app/build/outputs/apk/release/app-release-signed.apk app/build/outputs/apk/release/app-release.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify app/build/outputs/apk/release/app-release-signed.apk
+          cp -f app/build/outputs/apk/release/app-release-signed.apk app/build/outputs/apk/release/app-release.apk
+          echo "Successfully signed APK."
 
-      - name: Sign Release App Bundle
+      - name: Sign AAB with jarsigner
         run: |
-          INPUT_AAB=$(ls app/build/outputs/bundle/release/*.aab 2>/dev/null | head -n 1)
-          if [ -n "$INPUT_AAB" ]; then
-            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KEYSTORE_PATH" -storepass "$PASSWORD" -keypass "$PASSWORD" "$INPUT_AAB" "$ALIAS"
-            cp "$INPUT_AAB" app/build/outputs/bundle/release/app-release.aab
+          echo "Locating built AAB in app/build/outputs/bundle/release/:"
+          ls -la app/build/outputs/bundle/release/ || true
+
+          RAW_AAB=$(find app/build/outputs/bundle/release/ -name "*.aab" | head -n 1)
+          if [ -n "$RAW_AAB" ]; then
+            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+              -keystore "$KEYSTORE_PATH" \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              "$RAW_AAB" \
+              "$KEY_ALIAS"
+            cp -f "$RAW_AAB" app/build/outputs/bundle/release/app-release.aab
+            echo "Successfully signed AAB."
+          else
+            echo "No AAB found to sign, skipping AAB signing."
           fi
 
-      - name: Create Job Summary
-        run: |
-          signed_hash=$(md5sum ./apk/release/app-release.apk 2>/dev/null | cut -d' ' -f1 || echo "N/A")
-          signed_aab_hash=$(md5sum ./bundle/release/app-release.aab 2>/dev/null | cut -d' ' -f1 || echo "N/A")
-          cert_out=$($ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || apksigner verify --print-certs ./apk/release/app-release.apk 2>/dev/null || true)
-          certificate_hash=$(echo "$cert_out" | grep "SHA-256" | head -n 1 | awk -F': ' '{print $2}' || echo "N/A")
-          echo "### Release Build Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Signed APK md5**: \`$signed_hash\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Signed AAB md5**: \`$signed_aab_hash\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Certificate SHA-256**: \`$certificate_hash\`" >> $GITHUB_STEP_SUMMARY
-        working-directory: ${{ github.workspace }}/app/build/outputs
-
-      - name: Upload Artifacts
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: gpt-mobile-release-${{ github.sha }}
-          path: |
-            ${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk
-            ${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab
+          name: gpt-mobile-release-apk-${{ github.sha }}
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
 
-      - name: Determine Release Tag
-        id: release-tag
+      - name: Upload Release Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpt-mobile-release-bundle-${{ github.sha }}
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: ignore
+
+      - name: Extract Version Info
+        id: version_info
         run: |
-          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
-            echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-            echo "release_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          else
-            VERSION=$(grep 'versionName = ' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-            echo "tag_name=v${VERSION}" >> $GITHUB_OUTPUT
-            echo "release_name=v${VERSION}" >> $GITHUB_OUTPUT
-          fi
+          VERSION_NAME=$(grep 'versionName =' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          VERSION_CODE=$(grep 'versionCode =' app/build.gradle.kts | head -n 1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "tag_name=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "Detected version: v$VERSION_NAME (code: $VERSION_CODE)"
 
-      - name: Publish GitHub Release via gh CLI
-        id: publish-release
-        continue-on-error: true
+      - name: Publish or Update GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ steps.release-tag.outputs.tag_name }}
-          RELEASE_NAME: ${{ steps.release-tag.outputs.release_name }}
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.version_info.outputs.tag_name }}
+          VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
         run: |
-          echo "Creating or uploading release for $TAG_NAME ($RELEASE_NAME)..."
-          if gh release view "$TAG_NAME" > /dev/null 2>&1; then
-            echo "Release $TAG_NAME already exists, uploading release assets..."
+          echo "Publishing GitHub Release for tag: $TAG_NAME"
+
+          # Verify if the release tag already exists
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
             gh release upload "$TAG_NAME" \
-              "${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk#app-release.apk" \
-              "${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab#app-release.aab" \
+              app/build/outputs/apk/release/app-release.apk \
+              app/build/outputs/bundle/release/app-release.aab \
               --clobber
           else
-            echo "Creating new release $TAG_NAME with assets..."
+            echo "Creating fresh GitHub Release $TAG_NAME..."
             gh release create "$TAG_NAME" \
-              "${{ github.workspace }}/app/build/outputs/apk/release/app-release.apk#app-release.apk" \
-              "${{ github.workspace }}/app/build/outputs/bundle/release/app-release.aab#app-release.aab" \
-              --target "${{ github.sha }}" \
-              --title "$RELEASE_NAME" \
-              --generate-notes \
-              --latest
+              app/build/outputs/apk/release/app-release.apk \
+              app/build/outputs/bundle/release/app-release.aab \
+              --title "$TAG_NAME - GPT Mobile Improved" \
+              --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes signed APK with deterministic certificate."
           fi
-
-      - name: Check Release Publish Status
-        if: steps.publish-release.outcome != 'success'
-        run: |
-          echo "::warning ::GitHub Release publication step encountered an issue (likely fork GITHUB_TOKEN read-only permission in repo Settings > Actions > General > Workflow permissions). The release binaries were successfully built, signed, and uploaded to GitHub Actions artifacts."
+          echo "GitHub Release $TAG_NAME published successfully."

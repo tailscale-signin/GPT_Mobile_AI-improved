@@ -3,6 +3,16 @@
 
     <style name="Theme.GPTMobile" parent="android:Theme.Material.NoActionBar" />
 
+    <!-- Manifest theme compatibility aliases -->
+    <style name="Theme.Gptmobile" parent="Theme.GPTMobile" />
+
+    <style name="Theme.Gptmobile.Translucent" parent="Theme.Gptmobile">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
     <style name="Theme.GPTMobile.Starting" parent="Theme.SplashScreen.IconBackground">
         <item name="windowSplashScreenBackground">@color/ic_gpt_mobile_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_inset</item>

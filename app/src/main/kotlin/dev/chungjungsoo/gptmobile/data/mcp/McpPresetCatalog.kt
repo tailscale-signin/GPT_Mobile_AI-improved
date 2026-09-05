@@ -13,7 +13,8 @@ data class McpPreset(
     val args: List<String> = emptyList(),
     val env: Map<String, String> = emptyMap(),
     val iconUrl: String? = null,
-    val requiredEnvKeys: List<String> = emptyList()
+    val requiredEnvKeys: List<String> = emptyList(),
+    val builtInTools: List<McpBuiltinTool> = emptyList()
 )
 
 enum class McpCategory {
@@ -36,6 +37,16 @@ enum class McpTransportType {
  */
 object McpPresetCatalog {
     val presets: List<McpPreset> = listOf(
+        McpPreset(
+            id = "mcpsearch-android-termux",
+            name = "MCPSearch (Android / Termux)",
+            description = "Multi-engine web search, deep investigation agent, comparison, and trending tracker running locally via Termux.",
+            category = McpCategory.SEARCH,
+            transportType = McpTransportType.STDIO,
+            commandOrUrl = McpSearchToolSet.DEFAULT_LAUNCHER_PATH,
+            args = emptyList(),
+            builtInTools = McpSearchToolSet.tools
+        ),
         McpPreset(
             id = "brave-search",
             name = "Brave Search",

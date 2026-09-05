@@ -87,11 +87,15 @@ jobs:
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build Release APK
+        env:
+          GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release APK..."
           ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2
 
       - name: Build Release Bundle
+        env:
+          GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release Bundle..."
           ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build skipped or non-fatal"

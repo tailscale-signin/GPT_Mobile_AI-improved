@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-private const val STREAM_PUBLISH_INTERVAL_MILLIS = 50L
+private const val STREAM_PUBLISH_INTERVAL_MILLIS = 33L
 
 sealed interface ApiStateFlowOutcome {
     data object Completed : ApiStateFlowOutcome

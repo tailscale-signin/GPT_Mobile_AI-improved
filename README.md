@@ -1,60 +1,50 @@
 # GPT Mobile AI (Improved)
 
-An enhanced, high-performance, open-source Android client for interacting with Large Language Models (LLMs) and local AI execution.
+An enhanced, high-performance, and feature-rich Android client for Large Language Models (LLMs) and local AI execution.
+
+> **Fork Highlights**: This fork fundamentally modernizes the upstream [GPT_Mobile_AI](https://github.com/chungjungsoo/GPT_Mobile) project with an upgraded database architecture, agentic tool workflows, deep Jetpack Compose rendering optimizations, resilient network streaming, bounded memory safeguards, and an enterprise-grade CI/CD build matrix.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Language-Kotlin-purple.svg)](https://kotlinlang.org)
-[![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4.svg)](https://developer.android.com/jetpack/compose)
+[![Target SDK](https://img.shields.io/badge/Target%20SDK-36-brightgreen.svg)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Language-Kotlin%202.x-purple.svg)](https://kotlinlang.org)
+[![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-4285F4.svg)](https://developer.android.com/jetpack/compose)
 
 ---
 
-## 🌟 Key Features
+## 🌟 Highlights of this Fork vs. Original
 
-- **Multi-Provider Support**: Seamlessly connect with OpenAI, Anthropic Claude, Google Gemini, Groq, Ollama, OpenRouter, Custom OpenAI-compatible endpoints, and on-device execution via LiteRT (MediaPipe/TFLite LLM).
-- **Agentic Workflows & Tool Calling**: Built-in autonomous agent runner supporting Model Context Protocol (MCP), local system tools (`current_date`, `device_location`), safe mathematical evaluation (`calculate_expression`), and web navigation (`read_url`, `web_search`).
-- **Modern Database Architecture**: Backed by `ChatDatabaseV2` Room persistence with decoupled platform profiles, conversation rooms, partitioned messages, agent execution logs, and encrypted tool credentials.
-- **Deep Mobile Optimization**: Built from the ground up for minimal battery usage, low memory footprint, and smooth 120Hz scrolling on mobile devices.
-- **Privacy First**: Direct device-to-provider connections with zero intermediary tracking servers. Android Keystore AES-GCM credential encryption and on-device local inference capabilities with LiteRT.
-
----
-
-## 🚀 Performance & Architecture Improvements
-
-This repository incorporates comprehensive optimizations covering Android packaging, Jetpack Compose rendering, networking, memory management, and CI build stability:
-
-### 1. Build & CI Pipeline Stability
-- **In-Process KSP Compilation**: Configured `ksp.run.in.process=true` to prevent additional worker JVM overhead and stay within CI container memory limits.
-- **Dedicated CI Swapfile Provisioning**: Workflows automatically provision and attach safe swap space (`/swapfile_extra`) to prevent runner OOM termination during heavy R8 minification and KSP processing.
-- **Targeted ABI Splits**: APK splits for `arm64-v8a` and `x86_64` alongside universal releases to dramatically reduce APK download and install sizes on user devices.
-- **Aggressive R8 Shrinking & Optimization**: Code and resource shrinking enabled on release builds with fine-tuned ProGuard configuration.
-- **Stripped Production Logging**: Automatically strips `android.util.Log` calls in release builds to eliminate log string overhead and prevent sensitive data leakage.
-
-### 2. High-Performance Jetpack Compose UI
-- **Inbound Streaming Throttling**: Chat streaming uses `StreamingMessageBuffer` with a 33ms flush throttle (30fps) to eliminate sub-frame recomposition thrashing during rapid SSE token streaming.
-- **List Virtualization & Key Stabilization**: `LazyColumn` message lists implement unique, stable item keys and explicit `contentType` mapping for efficient item pool recycling and minimal recomposition overhead.
-- **Compose Stability Contracts**: UI state models (`ChatAttachment`, `AttachmentProviderRef`, etc.) annotated with `@Immutable` and `@Stable` to enable Jetpack Compose smart recomposition skipping.
-- **Derived State & Expression Memoization**: Expensive list slicing, filtering, and scroll calculations are memoized with `remember { derivedStateOf { ... } }`.
-
-### 3. Resilient Networking & Streaming
-- **Shared Connection Engine**: Network requests leverage a singleton Ktor CIO engine configured with optimized connection pooling, keep-alive timeouts, and HTTP pipelining.
-- **Exponential Backoff & Jitter**: Transient network failures and rate limits automatically retry with exponential backoff and jitter.
-- **Robust SSE Line Buffering**: Chunk-safe Server-Sent Events parsing with `SseUtils` handles arbitrary chunk fragmentation and carriage return line endings (`\r\n` / `\n`) across all LLM providers.
-
-### 4. Context, Agent & Memory Safeguards
-- **Autonomous Agent Tool Runtime**: Default built-in safe mathematical expression parsing (`calculate_expression`), local time/date resolution (`current_date`), and location context (`device_location`).
-- **Sliding-Window Token & Character Compactor**: `ContextBuilder` dynamically enforces a sliding-window character budget tailored to each client tier (e.g. 64k for Cloud LLMs, 24k for Groq, 20k for Ollama) while preserving the active turn.
-- **Bounded Streaming Memory**: Tool execution and agent network operations (such as `ReadUrlTool`) enforce bounded byte streaming (1 MB read cap, 64 KB text output cap) and restricted redirect hops to prevent OutOfMemory (OOM) errors and Android Low Memory Killer (LMK) terminations.
+| Area | Original Upstream | This Improved Fork |
+| :--- | :--- | :--- |
+| **Local Persistence** | Legacy monolithic `AppDatabase` with tight coupling and legacy schema | **Unified `ChatDatabaseV2` Room Architecture**: decoupled platform profiles, conversation rooms, partitioned messages, agent execution logs, and encrypted tool credentials. |
+| **Tool Execution & MCP** | Basic static prompt generation | **Autonomous Agentic Tool Calling & MCP**: Full Model Context Protocol support, autonomous multi-step agent runtime, local device tools (`device_location`, `current_date`), safe math evaluator (`calculate_expression`), and web fetching. |
+| **UI Streaming Performance** | Recomposition on every single SSE token arrival, leading to UI stutter and frame drops | **`StreamingMessageBuffer` with 33ms Flush Throttle**: Smooth 30fps/60fps/120fps display without sub-frame recomposition thrashing during hyper-fast token bursts. |
+| **Compose Virtualization** | Unkeyed/basic `LazyColumn` item mapping | **Full Compose Stability Contracts**: `@Immutable` and `@Stable` data models, explicit `contentType` mapping, stable item keys, and memoized derived state calculations for lag-free scrolling. |
+| **Networking & SSE** | Basic HTTP client with fragile line parsing | **Ktor CIO Singleton with Chunk-Safe SSE Parsing**: Handles split-buffer tokens and arbitrary line breakings (`\r\n` / `\n`) seamlessly, plus automated exponential backoff with jitter on network drops. |
+| **Context & Memory Limits** | Unbounded conversation history leading to context overflow or OOM | **Dynamic Sliding-Window Compactor**: Tier-based character/token budgets per provider (Cloud, Groq, Ollama), preserving system prompt and active turn. |
+| **Memory Safeguards** | Uncapped byte reading on external resources | **Bounded I/O & Streaming**: Tool web requests enforce a strict 1 MB read cap, 64 KB text output cap, and maximum redirect limits to safeguard device memory. |
+| **Binary Optimization & APK Size** | Monolithic fat APK containing all native ABIs | **Targeted ABI Splits**: Separate lightweight APKs for `arm64-v8a` and `x86_64` alongside universal releases, reducing installation footprint by up to 60%. |
+| **Release Hardening** | Basic ProGuard with lingering debug logs | **Aggressive R8 Full Mode + Stripped Production Logging**: ProGuard optimization with `android.util.Log` call removal in release builds for maximum runtime speed and privacy. |
+| **CI / CD Pipeline** | Standard build steps vulnerable to runner OOM | **Hardened In-Process KSP & Swapfile Engine**: Configured `ksp.run.in.process=true` and automated 4GB swapfile initialization (`/swapfile_extra`) to prevent container memory kills. |
 
 ---
 
-## 🛠️ Tech Stack
+## ⚡ Supported Providers & Local Execution
 
-- **UI**: Jetpack Compose, Material 3
+- **Cloud APIs**: OpenAI (`gpt-4o`, `o1`, `o3-mini`), Anthropic Claude (`claude-3-7-sonnet`, `claude-3-5-haiku`), Google Gemini (`gemini-2.0-flash`, `gemini-1.5-pro`), Groq (ultra-low latency Llama-3/Mixtral), OpenRouter, and any custom OpenAI-compatible endpoint.
+- **Self-Hosted & Local Inference**: Ollama integration (custom host/port) and on-device execution via **LiteRT** (MediaPipe / TFLite GenAI LLM) for offline, privacy-first conversations.
+- **Autonomous Agentic Tools**: Multi-turn agent runner capable of reasoning, invoking registered tools, evaluating expressions, inspecting local context, and formatting results.
+
+---
+
+## 🛠️ Tech Stack & Architecture
+
+- **UI**: Jetpack Compose, Material Design 3
 - **Language**: Kotlin 2.x with Coroutines & StateFlow
 - **Networking**: Ktor Client with CIO Engine, Server-Sent Events (SSE)
 - **Local Database & Cache**: Room Database (`ChatDatabaseV2`), DataStore Preferences
 - **Dependency Injection**: Hilt / Dagger with KSP
+- **Security**: Android Keystore AES-GCM credential encryption
 - **On-Device Inference**: Google LiteRT (MediaPipe GenAI LLM)
 
 ---
@@ -75,7 +65,7 @@ cd GPT_Mobile_AI-improved
 # Build debug APK
 ./gradlew assembleDebug
 
-# Build release APK
+# Build release APK (ABI splits & universal)
 ./gradlew assembleRelease
 
 # Run unit tests

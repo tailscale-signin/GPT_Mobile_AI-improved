@@ -219,10 +219,10 @@ fun HomeScreen(
                         state = listState
                     ) {
                         if (!chatListState.isSearchMode) {
-                            item { ChatsTitle(scrollBehavior) }
+                            item(contentType = "chats-header") { ChatsTitle(scrollBehavior) }
                         }
                         if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
-                            item {
+                            item(contentType = "no-search-results") {
                                 Text(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -234,7 +234,11 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        itemsIndexed(chatListState.chats, key = { _, it -> it.id }) { idx, chatRoom ->
+                        itemsIndexed(
+                            chatListState.chats,
+                            key = { _, it -> it.id },
+                            contentType = { _, _ -> "chat-room-item" }
+                        ) { idx, chatRoom ->
                             val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
                             ListItem(
                                 modifier = Modifier
@@ -376,7 +380,11 @@ fun FavoritesList(
             LazyColumn(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(favorites, key = { it.id }) { message ->
+                items(
+                    favorites,
+                    key = { it.id },
+                    contentType = { "favorite-message-item" }
+                ) { message ->
                     val platformName = message.platformType?.let { platformState.getPlatformName(it) }
                         ?: stringResource(R.string.unknown)
                     FavoriteMessageItem(

@@ -234,12 +234,12 @@ class SettingRepositoryImpl @Inject constructor(
             exportedAt = System.currentTimeMillis(),
             theme = ThemeBackupDto(
                 dynamicTheme = currentThemes.dynamicTheme == DynamicTheme.ON,
-                themeMode = currentThemes.themeMode.mode
+                themeMode = currentThemes.themeMode.ordinal
             ),
             platforms = currentPlatforms.map { p ->
                 PlatformBackupDto(
                     name = p.name,
-                    compatibleType = p.compatibleType.type,
+                    compatibleType = p.compatibleType.ordinal,
                     enabled = p.enabled,
                     apiUrl = p.apiUrl,
                     token = p.token ?: "",
@@ -269,7 +269,7 @@ class SettingRepositoryImpl @Inject constructor(
 
         backup.theme?.let { themeDto ->
             val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
-            val themeMode = ThemeMode.entries.firstOrNull { it.mode == themeDto.themeMode } ?: ThemeMode.SYSTEM
+            val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
             updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
         }
 
@@ -277,7 +277,7 @@ class SettingRepositoryImpl @Inject constructor(
         val existingPlatforms = platformV2Dao.getPlatforms()
 
         backup.platforms.forEach { pDto ->
-            val clientType = ClientType.entries.firstOrNull { it.type == pDto.compatibleType } ?: ClientType.OPENAI
+            val clientType = ClientType.entries.getOrNull(pDto.compatibleType) ?: ClientType.OPENAI
             val existing = existingPlatforms.firstOrNull { it.name.equals(pDto.name, ignoreCase = true) }
 
             if (existing != null) {

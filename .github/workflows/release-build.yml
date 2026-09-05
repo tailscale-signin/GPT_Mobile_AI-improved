@@ -43,7 +43,7 @@ jobs:
 
       - name: Build Unsigned Release APK & AAB
         run: |
-          ./gradlew assembleRelease bundleRelease --no-daemon --console=plain
+          ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace --info
 
       - name: Setup Signing Keystore
         id: setup-keystore
@@ -66,9 +66,6 @@ jobs:
             echo "PASSWORD=gptmobile_release_key" >> $GITHUB_ENV
           else
             echo "Using deterministic repository signing key..."
-            # A fixed keystore ensures that every release build of this repository
-            # is signed with the identical cryptographic signature, enabling in-place
-            # APK updates without uninstalling.
             PASS="gptmobile_release_fixed_key_2026"
             ALIAS="gptmobile"
             if [ -n "$DETERMINISTIC_SEED" ]; then

@@ -18,6 +18,7 @@ import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.tool
+import java.io.FileNotFoundException
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -81,6 +82,27 @@ class LocalRuntimeImpl(
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         withContext(Dispatchers.IO) {
+            // Pre-flight model integrity verification to avoid native hard crashes (SIGSEGV)
+            when (val validation = LocalModelValidator.validate(spec.modelPath)) {
+                is ModelValidationResult.Invalid -> {
+                    Log.e(TAG, "Model validation failed for path '${spec.modelPath}': ${validation.reason} (${validation.details})")
+                    when (validation.reason) {
+                        ModelValidationResult.Invalid.Reason.NOT_FOUND -> {
+                            throw FileNotFoundException("Model file not found at path: ${spec.modelPath}")
+                        }
+                        ModelValidationResult.Invalid.Reason.FILE_TOO_SMALL -> {
+                            throw IllegalStateException("Model file is truncated or incomplete: ${validation.details}")
+                        }
+                        else -> {
+                            throw IllegalStateException("Model file validation failed (${validation.reason}): ${validation.details}")
+                        }
+                    }
+                }
+                is ModelValidationResult.Valid -> {
+                    Log.i(TAG, "Model file verified: ${validation.file.name} (${validation.sizeBytes} bytes)")
+                }
+            }
+
             // Apply memory safety guardrail: if device is under memory pressure, throttle maxNumTokens
             val effectiveMaxTokens = if (isLowMemoryDevice() && spec.maxTokens > 1024) {
                 Log.w(TAG, "Device low memory detected; throttling maxTokens from ${spec.maxTokens} to 1024")

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.content.ClipData
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -71,6 +72,14 @@ private const val CLIPBOARD_LABEL_CODE = "code"
 private const val DISPLAY_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_DISPLAY_"
 private const val DISPLAY_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"
 private const val DISPLAY_MATH_PLACEHOLDER_TEST_NONCE = "test"
+
+/**
+ * LRU cache for syntax highlighted code spans.
+ * Tokenizing and parsing abstract syntax trees for programming languages (Python, Kotlin, JSON, etc.)
+ * during chat scrolling or recomposition is computationally heavy and causes frame drops.
+ * Caching the formatted AnnotatedString prevents repetitive parsing of identical code blocks.
+ */
+private val codeHighlightCache = LruCache<String, AnnotatedString>(400)
 
 @Composable
 fun ChatMarkdown(
@@ -144,7 +153,8 @@ fun ChatMarkdown(
                             code = code,
                             language = language,
                             style = style,
-                            highlightsBuilder = highlightsBuilder
+                            highlightsBuilder = highlightsBuilder,
+                            isDarkTheme = isDarkTheme
                         )
                     }
                 }
@@ -160,7 +170,8 @@ fun ChatMarkdown(
                             code = code,
                             language = language,
                             style = style,
-                            highlightsBuilder = highlightsBuilder
+                            highlightsBuilder = highlightsBuilder,
+                            isDarkTheme = isDarkTheme
                         )
                     }
                 }
@@ -273,16 +284,22 @@ private fun HighlightedCodeContent(
     code: String,
     language: String?,
     style: TextStyle,
-    highlightsBuilder: Highlights.Builder
+    highlightsBuilder: Highlights.Builder,
+    isDarkTheme: Boolean
 ) {
+    val cacheKey = "$isDarkTheme:$language:$code"
+    val cached = codeHighlightCache.get(cacheKey)
+
     val highlightedCode by produceState(
-        initialValue = AnnotatedString(code),
-        key1 = code,
-        key2 = language,
-        key3 = highlightsBuilder
+        initialValue = cached ?: AnnotatedString(code),
+        key1 = cacheKey
     ) {
-        value = withContext(Dispatchers.Default) {
-            buildHighlightedAnnotatedString(code, language, highlightsBuilder)
+        if (cached == null) {
+            val result = withContext(Dispatchers.Default) {
+                buildHighlightedAnnotatedString(code, language, highlightsBuilder)
+            }
+            codeHighlightCache.put(cacheKey, result)
+            value = result
         }
     }
 

@@ -69,14 +69,37 @@ class ToolTraceBlockTest {
     }
 
     @Test
-    fun toolTraceStatusSummary_prioritizesActiveAndDistinguishesPartialFailure() {
+    fun toolTraceStatusSummary_showsDescriptiveToolNameForSingleOrUniformTool() {
         assertEquals("0 tool calls", toolTraceStatusSummary(emptyList()))
-        assertEquals("2 tool calls - running", toolTraceStatusSummary(listOf(event("one", status = ToolEventStatus.COMPLETED), event("two", status = ToolEventStatus.RUNNING))))
-        assertEquals("2 tool calls - running", toolTraceStatusSummary(listOf(event("one", status = ToolEventStatus.FAILED), event("two", status = ToolEventStatus.PENDING))))
-        assertEquals("2 tool calls - failed", toolTraceStatusSummary(listOf(event("one", status = ToolEventStatus.FAILED), event("two", status = ToolEventStatus.COMPLETED, isError = true))))
-        assertEquals("2 tool calls - completed with errors", toolTraceStatusSummary(listOf(event("one", status = ToolEventStatus.COMPLETED), event("two", status = ToolEventStatus.FAILED))))
-        assertEquals("2 tool calls - canceled", toolTraceStatusSummary(listOf(event("one", status = ToolEventStatus.COMPLETED), event("two", status = ToolEventStatus.CANCELED))))
-        assertEquals("2 tool calls - completed", toolTraceStatusSummary(listOf(event("one", status = ToolEventStatus.COMPLETED), event("two", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Search tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "web_search", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Crawl tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "read_url", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Calculator tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "calculate_expression", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Location tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "device_location", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Date tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "current_date", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Search tool - running", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.RUNNING))))
+        assertEquals("Search tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.COMPLETED), event("two", toolName = "search", status = ToolEventStatus.COMPLETED))))
+    }
+
+    @Test
+    fun toolTraceStatusSummary_prioritizesActiveAndDistinguishesPartialFailure() {
+        assertEquals("2 tool calls - running", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.COMPLETED), event("two", toolName = "calculator", status = ToolEventStatus.RUNNING))))
+        assertEquals("2 tool calls - running", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.FAILED), event("two", toolName = "calculator", status = ToolEventStatus.PENDING))))
+        assertEquals("2 tool calls - failed", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.FAILED), event("two", toolName = "calculator", status = ToolEventStatus.COMPLETED, isError = true))))
+        assertEquals("2 tool calls - completed with errors", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.COMPLETED), event("two", toolName = "calculator", status = ToolEventStatus.FAILED))))
+        assertEquals("2 tool calls - canceled", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.COMPLETED), event("two", toolName = "calculator", status = ToolEventStatus.CANCELED))))
+        assertEquals("2 tool calls - completed", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.COMPLETED), event("two", toolName = "calculator", status = ToolEventStatus.COMPLETED))))
+    }
+
+    @Test
+    fun friendlyToolDisplayName_formatsSpecialAndGeneralTools() {
+        assertEquals("Search", friendlyToolDisplayName("web_search"))
+        assertEquals("Search", friendlyToolDisplayName("mcp__search"))
+        assertEquals("Crawl", friendlyToolDisplayName("read_url"))
+        assertEquals("Calculator", friendlyToolDisplayName("calculate_expression"))
+        assertEquals("Location", friendlyToolDisplayName("device_location"))
+        assertEquals("Date", friendlyToolDisplayName("current_date"))
+        assertEquals("Read File", friendlyToolDisplayName("read_file"))
+        assertEquals("Execute Command", friendlyToolDisplayName("execute_command"))
     }
 
     @Test

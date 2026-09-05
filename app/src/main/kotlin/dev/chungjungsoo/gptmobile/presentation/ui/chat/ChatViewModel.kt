@@ -384,6 +384,25 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun toggleMessageFavorite(turnIndex: Int, platformIndex: Int) {
+        val message = _groupedMessages.value.assistantMessages
+            .getOrNull(turnIndex)
+            ?.getOrNull(platformIndex)
+            ?: return
+
+        val newFavorite = !message.isFavorite
+        _groupedMessages.update {
+            updateAssistantSlot(it, turnIndex, platformIndex) { assistantMessage ->
+                assistantMessage.copy(isFavorite = newFavorite)
+            }
+        }
+        if (message.id > 0) {
+            viewModelScope.launch {
+                chatRepository.setMessageFavorite(message.id, newFavorite)
+            }
+        }
+    }
+
     fun updateChatTitle(title: String) {
         // Should be only used for changing chat title after the chatroom is created.
         if (_chatRoom.value.id > 0) {

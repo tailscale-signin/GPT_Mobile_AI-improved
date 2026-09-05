@@ -54,6 +54,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.hasUnavailableAssistantOrder
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
+import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import java.io.File
 
 @Composable
@@ -265,12 +266,24 @@ private fun AssistantTimelineContent(
             )
 
             AssistantTimelineItemType.TEXT -> {
-                val displayText = if (isLoading && index == timeline.lastIndex) item.content + "●" else item.content
-                ChatMarkdown(
-                    content = displayText,
-                    contentIdentity = "$contentIdentity:text:$index",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
+                val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
+                if (parsed.thinking.isNotBlank()) {
+                    ThinkingBlock(
+                        modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
+                        thoughts = parsed.thinking,
+                        contentIdentity = "$contentIdentity:parsed-thinking:$index",
+                        isLoading = isLoading && parsed.isThinking && index == timeline.lastIndex
+                    )
+                }
+                val actualText = parsed.response
+                val displayText = if (isLoading && index == timeline.lastIndex) actualText + "●" else actualText
+                if (displayText.isNotBlank()) {
+                    ChatMarkdown(
+                        content = displayText,
+                        contentIdentity = "$contentIdentity:text:$index",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
             }
 
             AssistantTimelineItemType.TOOL ->
@@ -302,7 +315,17 @@ private fun LegacyAssistantContent(
     contentIdentity: Any,
     showOrderNotice: Boolean
 ) {
-    val isThinking = isLoading && thoughts.isNotBlank() && text.isBlank()
+    val parsed = remember(text) {
+        if (thoughts.isBlank() && text.contains("<think", ignoreCase = true)) {
+            ThinkingParser.extractThinking(text)
+        } else {
+            null
+        }
+    }
+    val effectiveThoughts = parsed?.thinking ?: thoughts
+    val effectiveResponseText = parsed?.response ?: text
+    val isThinking = (isLoading && effectiveThoughts.isNotBlank() && effectiveResponseText.isBlank()) || (parsed?.isThinking == true)
+
     if (showOrderNotice) {
         Text(
             text = stringResource(R.string.legacy_assistant_order_unavailable),
@@ -311,10 +334,10 @@ private fun LegacyAssistantContent(
             modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp)
         )
     }
-    if (thoughts.isNotBlank()) {
+    if (effectiveThoughts.isNotBlank()) {
         ThinkingBlock(
             modifier = Modifier.padding(top = 16.dp, start = 8.dp, end = 8.dp),
-            thoughts = thoughts,
+            thoughts = effectiveThoughts,
             contentIdentity = contentIdentity,
             isLoading = isThinking
         )
@@ -330,7 +353,7 @@ private fun LegacyAssistantContent(
     ) {
         Column {
             ChatMarkdown(
-                content = if (isLoading) text + "●" else text,
+                content = if (isLoading) effectiveResponseText + "●" else effectiveResponseText,
                 contentIdentity = contentIdentity,
                 modifier = Modifier.padding(16.dp)
             )

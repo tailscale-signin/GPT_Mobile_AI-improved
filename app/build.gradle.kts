@@ -45,6 +45,11 @@ extensions.configure<ApplicationExtension> {
             "HF_OAUTH_REDIRECT_URI",
             "\"REPLACE_WITH_YOUR_REDIRECT_URI_IN_HUGGINGFACE_APP\""
         )
+
+        ndk {
+            // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     androidResources {
@@ -81,6 +86,10 @@ extensions.configure<ApplicationExtension> {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/INDEX.LIST"
             excludes += "META-INF/io.netty.versions.properties"
+        }
+        jniLibs {
+            // Keep native libraries uncompressed in APK to allow direct page mapping into memory
+            useLegacyPackaging = false
         }
     }
 }

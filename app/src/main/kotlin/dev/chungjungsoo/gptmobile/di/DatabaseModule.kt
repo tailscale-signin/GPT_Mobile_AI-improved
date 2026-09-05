@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.di
 
+import android.app.ActivityManager
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,6 +32,32 @@ object DatabaseModule {
     private const val V1_DATABASE_NAME = "chat"
     private const val V2_DATABASE_NAME = "chat_database"
 
+    private fun isHighRamDevice(context: Context): Boolean {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        val memoryInfo = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memoryInfo)
+        return (memoryInfo.totalMem / (1024L * 1024L * 1024L)) >= 10L
+    }
+
+    private fun createPragmaCallback(context: Context): RoomDatabase.Callback {
+        return object : RoomDatabase.Callback() {
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                super.onOpen(db)
+                if (isHighRamDevice(context)) {
+                    // High-RAM (>=10-12GB) device optimizations:
+                    // 1. Allocate 64MB RAM directly to SQLite B-Tree page cache (-65536 is kibibytes)
+                    db.execSQL("PRAGMA cache_size = -65536;")
+                    // 2. Keep temp tables, index sorts, and intermediate queries purely in RAM
+                    db.execSQL("PRAGMA temp_store = MEMORY;")
+                    // 3. Memory-map up to 256MB of the DB directly into process virtual memory space
+                    db.execSQL("PRAGMA mmap_size = 268435456;")
+                    // 4. Increase WAL autocheckpoint interval to reduce flash storage writes during message generation
+                    db.execSQL("PRAGMA wal_autocheckpoint = 2000;")
+                }
+            }
+        }
+    }
+
     @Provides
     @Singleton
     fun provideChatDatabase(
@@ -39,6 +68,7 @@ object DatabaseModule {
             ChatDatabase::class.java,
             V1_DATABASE_NAME
         )
+            .addCallback(createPragmaCallback(context))
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -63,6 +93,7 @@ object DatabaseModule {
             ChatDatabaseV2::class.java,
             V2_DATABASE_NAME
         )
+            .addCallback(createPragmaCallback(context))
             .addMigrations(
                 ChatDatabaseV2Migrations.MIGRATION_10_11,
                 ChatDatabaseV2Migrations.MIGRATION_11_12,

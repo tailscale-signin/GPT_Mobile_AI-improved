@@ -291,7 +291,8 @@ fun ChatScreen(
                 ) {
                     itemsIndexed(
                         items = groupedMessages.userMessages,
-                        key = { index, message -> chatMessagePairKey(message, index) }
+                        key = { index, message -> chatMessagePairKey(message, index) },
+                        contentType = { _, _ -> "chat-message-pair" }
                     ) { index, message ->
                         ChatMessagePair(
                             messageIndex = index,
@@ -321,7 +322,7 @@ fun ChatScreen(
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
-                        item(key = "chat-bottom-anchor") {
+                        item(key = "chat-bottom-anchor", contentType = "bottom-anchor") {
                             Spacer(Modifier.size(1.dp))
                         }
                     }

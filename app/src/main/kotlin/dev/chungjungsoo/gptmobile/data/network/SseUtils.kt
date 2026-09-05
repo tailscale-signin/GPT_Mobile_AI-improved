@@ -70,7 +70,7 @@ object SseUtils {
     inline fun <reified T> safeParseChunk(
         json: Json,
         payload: String,
-        onParseError: ((Throwable, String) -> Unit)? = null
+        noinline onParseError: ((Throwable, String) -> Unit)? = null
     ): T? {
         if (isDone(payload)) return null
         return try {

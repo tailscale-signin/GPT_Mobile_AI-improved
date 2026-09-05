@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.model
 
+import androidx.compose.runtime.Immutable
 import java.io.File
 import kotlinx.serialization.Serializable
 
+@Immutable
 @Serializable
 data class ChatAttachment(
     val localFilePath: String,
@@ -31,6 +33,7 @@ data class ChatAttachment(
     )
 }
 
+@Immutable
 @Serializable
 data class AttachmentProviderRef(
     val platformUid: String,

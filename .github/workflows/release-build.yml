@@ -71,27 +71,29 @@ jobs:
 
       - name: Build Release APK and Bundle
         run: |
-          echo "Building Release APK..."
-          set -e
-          ./gradlew assembleRelease --stacktrace --no-daemon
-          
-          echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon
+          echo "Building Release APK and Bundle..."
+          ./gradlew assembleRelease bundleRelease --stacktrace --no-daemon
 
       - name: Sign APK with apksigner
         run: |
-          echo "Locating built APK in app/build/outputs/apk/release/:"
-          ls -la app/build/outputs/apk/release/ || true
+          echo "Locating built APK in app/build/outputs/:"
+          ls -la app/build/outputs/apk/release/ 2>/dev/null || true
 
-          # Find the built release APK
+          # Find the built release APK, falling back to any built APK if needed
           RAW_APK=$(find app/build/outputs/apk/release/ -name "*.apk" ! -name "*-signed.apk" 2>/dev/null | head -n 1)
           if [ -z "$RAW_APK" ]; then
-            echo "Searching entire build tree for release APKs:"
+            echo "No APK in app/build/outputs/apk/release/, searching across build directory..."
+            RAW_APK=$(find app/build/outputs/ -name "*.apk" ! -name "*-signed.apk" 2>/dev/null | head -n 1)
+          fi
+
+          if [ -z "$RAW_APK" ]; then
+            echo "Searching entire build tree for APKs:"
             find . -name "*.apk" || true
-            echo "ERROR: No release APK found to sign!"
+            echo "ERROR: No APK found to sign!"
             exit 1
           fi
-          echo "Found APK: $RAW_APK"
+          echo "Found APK to sign: $RAW_APK"
+          mkdir -p app/build/outputs/apk/release/
 
           $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
             --ks "$KEYSTORE_PATH" \
@@ -108,7 +110,7 @@ jobs:
       - name: Sign AAB with jarsigner
         run: |
           echo "Locating built AAB in app/build/outputs/bundle/release/:"
-          ls -la app/build/outputs/bundle/release/ || true
+          ls -la app/build/outputs/bundle/release/ 2>/dev/null || true
 
           RAW_AAB=$(find app/build/outputs/bundle/release/ -name "*.aab" 2>/dev/null | head -n 1)
           if [ -n "$RAW_AAB" ]; then

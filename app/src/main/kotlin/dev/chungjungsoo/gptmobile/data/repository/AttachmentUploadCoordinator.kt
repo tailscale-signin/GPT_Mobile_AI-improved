@@ -16,6 +16,9 @@ import dev.chungjungsoo.gptmobile.util.FileUtils
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 class AttachmentUploadCoordinator @Inject constructor(
@@ -43,9 +46,21 @@ class AttachmentUploadCoordinator @Inject constructor(
         if (message.attachments.isEmpty()) return message
         val config = ProviderRequestConfig(platform.apiUrl, platform.token)
         val updatedAttachments = when (platform.compatibleType) {
-            ClientType.OPENAI -> message.attachments.map { ensureOpenAIRef(it, platform.uid, config) }
-            ClientType.ANTHROPIC -> message.attachments.map { ensureAnthropicRef(it, platform.uid, config) }
-            ClientType.GOOGLE -> message.attachments.map { ensureGoogleRef(it, platform.uid, config) }
+            ClientType.OPENAI -> coroutineScope {
+                message.attachments.map { attachment ->
+                    async { ensureOpenAIRef(attachment, platform.uid, config) }
+                }.awaitAll()
+            }
+            ClientType.ANTHROPIC -> coroutineScope {
+                message.attachments.map { attachment ->
+                    async { ensureAnthropicRef(attachment, platform.uid, config) }
+                }.awaitAll()
+            }
+            ClientType.GOOGLE -> coroutineScope {
+                message.attachments.map { attachment ->
+                    async { ensureGoogleRef(attachment, platform.uid, config) }
+                }.awaitAll()
+            }
             else -> message.attachments
         }
         return if (updatedAttachments == message.attachments) message else message.copy(attachments = updatedAttachments)

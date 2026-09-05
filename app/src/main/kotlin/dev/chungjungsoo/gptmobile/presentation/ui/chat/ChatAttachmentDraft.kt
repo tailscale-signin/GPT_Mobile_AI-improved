@@ -13,7 +13,7 @@ data class ChatAttachmentDraft(
     val status: Status = Status.Preparing,
     val cleanupOnDiscard: Boolean = true,
     val notice: String? = null,
-    val errorMessage: String? = null,
+    val errorMessage: String? = null
 ) {
     val id: String = sourceFilePath
     val displayName: String = attachment?.resolvedDisplayName ?: File(preparedFilePath ?: sourceFilePath).name
@@ -21,18 +21,17 @@ data class ChatAttachmentDraft(
     enum class Status {
         Preparing,
         Ready,
-        Failed,
+        Failed
     }
 
     companion object {
-        fun fromAttachment(attachment: ChatAttachment): ChatAttachmentDraft =
-            ChatAttachmentDraft(
-                sourceFilePath = attachment.localFilePath,
-                preparedFilePath = attachment.preparedFilePath,
-                attachment = attachment,
-                mimeType = attachment.mimeType,
-                status = Status.Ready,
-                cleanupOnDiscard = false,
-            )
+        fun fromAttachment(attachment: ChatAttachment): ChatAttachmentDraft = ChatAttachmentDraft(
+            sourceFilePath = attachment.localFilePath,
+            preparedFilePath = attachment.preparedFilePath,
+            attachment = attachment,
+            mimeType = attachment.mimeType,
+            status = Status.Ready,
+            cleanupOnDiscard = false
+        )
     }
 }

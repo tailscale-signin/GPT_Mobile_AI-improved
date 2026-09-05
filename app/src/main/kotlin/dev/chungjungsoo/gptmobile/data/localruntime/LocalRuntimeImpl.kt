@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
+import android.app.ActivityManager
 import android.content.Context
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -38,6 +39,17 @@ class LocalRuntimeImpl(
     private var conversation: Conversation? = null
     private var loadedAccelerator: String = LocalAccelerators.CPU
     private var loadedSpec: LocalEngineSpec? = null
+
+    private val isHighRamDevice: Boolean by lazy {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val memoryInfo = ActivityManager.MemoryInfo()
+        if (activityManager != null) {
+            activityManager.getMemoryInfo(memoryInfo)
+            memoryInfo.totalMem >= 10L * 1024 * 1024 * 1024 // 10 GB or more
+        } else {
+            false
+        }
+    }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         withContext(Dispatchers.IO) {
@@ -173,13 +185,26 @@ class LocalRuntimeImpl(
     private fun backendFor(accelerator: String): Backend = when (LocalAccelerators.normalize(accelerator)) {
         LocalAccelerators.GPU -> Backend.GPU()
         LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
-        else -> Backend.CPU()
+        else -> Backend.CPU(
+            numThreads = if (isHighRamDevice) {
+                // High-performance CPU threads allocation for high-RAM flagship devices
+                Runtime.getRuntime().availableProcessors().coerceIn(4, 8)
+            } else {
+                null
+            }
+        )
     }
 
     private fun visionBackendFor(spec: LocalEngineSpec): Backend? {
         if (!spec.isVisionEnabled) return null
         return when (LocalAccelerators.normalize(spec.accelerator)) {
-            LocalAccelerators.CPU -> Backend.CPU()
+            LocalAccelerators.CPU -> Backend.CPU(
+                numThreads = if (isHighRamDevice) {
+                    Runtime.getRuntime().availableProcessors().coerceIn(4, 8)
+                } else {
+                    null
+                }
+            )
             LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
             else -> Backend.GPU()
         }

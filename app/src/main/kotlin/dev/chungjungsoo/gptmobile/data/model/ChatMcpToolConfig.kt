@@ -21,9 +21,11 @@ data class AvailableChatTool(
 data class ChatMcpToolConfig(
     val enabledToolIds: Set<String> = emptySet(),
     val disabledToolIds: Set<String> = emptySet(),
-    val allowAllByDefault: Boolean = true
+    val allowAllByDefault: Boolean = true,
+    val allToolsDisabled: Boolean = false
 ) {
     fun isToolEnabled(toolId: String): Boolean {
+        if (allToolsDisabled) return false
         return if (allowAllByDefault) {
             !disabledToolIds.contains(toolId)
         } else {
@@ -31,19 +33,26 @@ data class ChatMcpToolConfig(
         }
     }
 
+    fun withToolDisabled(toolId: String): ChatMcpToolConfig {
+        return copy(
+            disabledToolIds = disabledToolIds + toolId,
+            enabledToolIds = enabledToolIds - toolId
+        )
+    }
+
+    fun withToolEnabled(toolId: String): ChatMcpToolConfig {
+        return copy(
+            enabledToolIds = enabledToolIds + toolId,
+            disabledToolIds = disabledToolIds - toolId,
+            allToolsDisabled = false
+        )
+    }
+
     fun toggleTool(toolId: String): ChatMcpToolConfig {
-        return if (allowAllByDefault) {
-            if (disabledToolIds.contains(toolId)) {
-                copy(disabledToolIds = disabledToolIds - toolId)
-            } else {
-                copy(disabledToolIds = disabledToolIds + toolId)
-            }
+        return if (isToolEnabled(toolId)) {
+            withToolDisabled(toolId)
         } else {
-            if (enabledToolIds.contains(toolId)) {
-                copy(enabledToolIds = enabledToolIds - toolId)
-            } else {
-                copy(enabledToolIds = enabledToolIds + toolId)
-            }
+            withToolEnabled(toolId)
         }
     }
 }

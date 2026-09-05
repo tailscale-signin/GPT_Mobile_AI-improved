@@ -72,7 +72,7 @@ class AgentRunCoordinator @Inject constructor(
     private val _notices = MutableSharedFlow<AgentRunNotice>(extraBufferCapacity = 8)
 
     // On high-RAM (>= 10GB) flagship devices with 120Hz/144Hz displays, streaming database and UI
-    // dispatch can be throttled from 250ms down to 40ms (~25 FPS) for butter-smooth live token streaming
+    // dispatch can be throttled from 250ms down to 33ms (~30 FPS) for butter-smooth live token streaming
     // without starving CPU/IO, while conserving disk IO on lower memory devices.
     private val isHighMemoryDevice by lazy {
         try {
@@ -86,7 +86,7 @@ class AgentRunCoordinator @Inject constructor(
     }
 
     private val publishIntervalMillis: Long
-        get() = if (isHighMemoryDevice) 40L else 250L
+        get() = if (isHighMemoryDevice) 33L else 250L
 
     val activeRuns = _activeRuns.asStateFlow()
     val notices = _notices.asSharedFlow()

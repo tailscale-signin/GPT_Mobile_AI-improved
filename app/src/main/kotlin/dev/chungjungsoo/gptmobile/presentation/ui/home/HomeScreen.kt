@@ -426,7 +426,7 @@ fun FavoriteMessageItem(
                 IconButton(onClick = onUnfavoriteClick) {
                     Icon(
                         imageVector = Icons.Filled.Star,
-                        contentDescription = stringResource(R.string.favourite_response),
+                        contentDescription = stringResource(R.string.favorite),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }

@@ -250,10 +250,28 @@ internal fun filterToolEvents(events: List<ToolEvent>, query: String): List<Tool
     }
 }
 
+internal fun friendlyToolDisplayName(toolName: String): String {
+    val lower = toolName.trim().lowercase(Locale.ROOT)
+    return when {
+        lower == "web_search" || lower == "search" || lower.endsWith("__web_search") || lower.endsWith("__search") -> "Search"
+        lower == "read_url" || lower == "crawl" || lower == "scrape" || lower == "fetch" || lower.endsWith("__read_url") || lower.endsWith("__crawl") -> "Crawl"
+        lower == "calculate_expression" || lower == "calculator" || lower == "calc" || lower.endsWith("__calculate_expression") -> "Calculator"
+        lower == "device_location" || lower == "location" || lower.endsWith("__device_location") -> "Location"
+        lower == "current_date" || lower == "date" || lower == "time" || lower.endsWith("__current_date") -> "Date"
+        else -> {
+            // For other tools (e.g. MCP tools: bash, read_file, etc.)
+            val leafName = toolName.substringAfterLast("__").replace('_', ' ').replace('-', ' ').trim()
+            if (leafName.isEmpty()) "Tool"
+            else leafName.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+            }
+        }
+    }
+}
+
 internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLabels = ToolTraceLabels.Default): String {
     val count = events.size
-    val noun = if (count == 1) labels.call else labels.calls
-    if (events.isEmpty()) return "0 $noun"
+    if (events.isEmpty()) return "0 ${labels.calls}"
 
     val hasActive = events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
     val failed = events.count { it.status == ToolEventStatus.FAILED || it.isError }
@@ -266,7 +284,16 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
         events.any { it.status == ToolEventStatus.CANCELED } -> labels.canceled
         else -> labels.completed
     }
-    return "$count $noun - $status"
+
+    val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
+    val subject = if (distinctToolNames.size == 1) {
+        "${friendlyToolDisplayName(distinctToolNames.first())} tool"
+    } else {
+        val noun = if (count == 1) labels.call else labels.calls
+        "$count $noun"
+    }
+
+    return "$subject - $status"
 }
 
 internal fun formatToolDuration(event: ToolEvent): String? {

@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.runtime.Immutable
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import java.io.File
 
+@Immutable
 data class ChatAttachmentDraft(
     val sourceFilePath: String,
     val preparedFilePath: String? = null,

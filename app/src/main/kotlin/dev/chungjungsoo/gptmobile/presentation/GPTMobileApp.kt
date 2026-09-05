@@ -96,6 +96,7 @@ class GPTMobileApp :
         // On devices with 10GB+ RAM, do not prematurely unload local model weights on moderate
         // background/running-low signals (TRIM_MEMORY_RUNNING_LOW/TRIM_MEMORY_RUNNING_CRITICAL/TRIM_MEMORY_UI_HIDDEN).
         // Only unload when the system is under genuine severe pressure (TRIM_MEMORY_COMPLETE).
+        @Suppress("DEPRECATION")
         val shouldUnload = if (isHighRamDevice) {
             level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE
         } else {

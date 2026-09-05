@@ -6,7 +6,19 @@ data class ProviderRequestConfig(
     val apiUrl: String,
     val token: String?,
     val anthropicBetaFeatures: Set<String> = emptySet()
-)
+) {
+    /**
+     * Resolves an API endpoint path against the base apiUrl, normalizing any
+     * leading/trailing slashes or whitespace so that custom endpoints (e.g. self-hosted
+     * llama.cpp, Ollama, or custom OpenAI-compatible proxies) do not produce invalid
+     * double slashes or malformed URLs.
+     */
+    fun buildEndpoint(subPath: String): String {
+        val sanitizedBase = apiUrl.trim().trimEnd('/')
+        val sanitizedSubPath = subPath.trim().trimStart('/')
+        return if (sanitizedSubPath.isEmpty()) sanitizedBase else "$sanitizedBase/$sanitizedSubPath"
+    }
+}
 
 internal fun throwIfToolDefinitionsRejected(
     statusCode: Int,

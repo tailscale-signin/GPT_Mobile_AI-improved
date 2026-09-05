@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".presentation.GPTMobileApp"
@@ -63,7 +65,7 @@
             android:exported="true"/>
 
         <service
-            android:name=".data.agent.AgentExecutionService"
+            android:name=".presentation.service.AgentRunForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

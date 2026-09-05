@@ -554,7 +554,8 @@ private fun MessageFileThumbnail(
     usePrimaryColors: Boolean
 ) {
     val file = remember(filePath) { File(filePath) }
-    val isImage = remember(file.extension) { isImageFile(file.extension) }
+    val extension = file.extension
+    val isImage = remember(extension) { isImageFile(extension) }
     val containerColor = if (usePrimaryColors) {
         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
     } else {
@@ -613,5 +614,5 @@ private fun MessageFileThumbnail(
 
 private fun isImageFile(extension: String?): Boolean {
     val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")
-    return extension?.lowercase() in imageExtensions
+    return extension != null && extension.lowercase() in imageExtensions
 }

@@ -1,10 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+
 /**
- * Utility functions for Server-Sent Events (SSE) stream parsing.
+ * Utility functions for Server-Sent Events (SSE) stream parsing and resilient JSON chunk extraction.
  */
 object SseUtils {
     private const val DATA_PREFIX = "data:"
+    const val DONE_SENTINEL = "[DONE]"
 
     /**
      * Extracts and trims the payload from an SSE data line.
@@ -45,5 +49,38 @@ object SseUtils {
         }
 
         return line.substring(start, trailing)
+    }
+
+    /**
+     * Determines whether an SSE payload string indicates stream completion ([DONE]).
+     */
+    fun isDone(payload: String): Boolean {
+        return payload.trim() == DONE_SENTINEL
+    }
+
+    /**
+     * Safely parses a JSON payload chunk into type [T], gracefully recovering from partial,
+     * truncated, or malformed chunks that can occur over flaky connections or network gateways.
+     *
+     * @param json The Json serializer instance to use.
+     * @param payload The raw string payload extracted from an SSE line.
+     * @param onParseError Optional callback invoked when parsing fails for diagnostic logging.
+     * @return Deserialized [T] or null if parsing fails or payload is the [DONE] sentinel.
+     */
+    inline fun <reified T> safeParseChunk(
+        json: Json,
+        payload: String,
+        onParseError: ((Throwable, String) -> Unit)? = null
+    ): T? {
+        if (isDone(payload)) return null
+        return try {
+            json.decodeFromString<T>(payload)
+        } catch (e: SerializationException) {
+            onParseError?.invoke(e, payload)
+            null
+        } catch (e: IllegalArgumentException) {
+            onParseError?.invoke(e, payload)
+            null
+        }
     }
 }

@@ -58,7 +58,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --max-workers=2 --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --info --stacktrace
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +68,7 @@ jobs:
           if-no-files-found: error
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon --max-workers=2 --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --info --stacktrace
         continue-on-error: true
 
       - name: Upload Release APK artifact (if built)

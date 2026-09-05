@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.chungjungsoo.gptmobile.presentation.chat.ChatMcpToolConfig
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import java.nio.charset.StandardCharsets
@@ -51,7 +52,10 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    suspend fun resolve(profileUid: String): List<ResolvedAgentTool> {
+    suspend fun resolve(
+        profileUid: String,
+        chatToolConfig: ChatMcpToolConfig? = null
+    ): List<ResolvedAgentTool> {
         val resolved = mutableListOf(
             CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
         )
@@ -75,6 +79,20 @@ class AgentToolResolver @Inject constructor(
                 }
             }
         return resolved.distinctBy { it.modelToolName }
+            .filter { tool ->
+                // Check if tool is disabled in per-chat tool configuration
+                if (chatToolConfig == null) {
+                    true
+                } else {
+                    val candidateIds = listOfNotNull(
+                        tool.connectionUid?.let { "$it:${tool.realToolName}" },
+                        tool.modelToolName,
+                        tool.realToolName,
+                        tool.connectionUid
+                    )
+                    candidateIds.all { chatToolConfig.isToolEnabled(it) }
+                }
+            }
             .sortedBy { it.modelToolName }
     }
 

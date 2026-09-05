@@ -9,9 +9,9 @@ object ChatToolUtils {
             AvailableChatTool(
                 id = conn.connectionUid,
                 name = conn.name,
-                description = conn.description ?: "",
-                source = conn.type.name,
-                isEnabled = conn.isEnabled
+                description = conn.alias,
+                source = conn.type,
+                isEnabled = true
             )
         }
     }

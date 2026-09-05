@@ -36,44 +36,7 @@ object NetworkModule {
         @ApplicationContext context: Context
     ): NetworkClient {
         val ramGb = getDeviceRamGb(context)
-        val engine = CIO.create {
-            https {
-                serverName = null
-            }
-            when {
-                ramGb >= 10L -> {
-                    // High-performance concurrency pool for 10GB+ RAM multi-core devices
-                    maxConnectionsCount = 1000
-                    endpoint {
-                        maxConnectionsPerRoute = 100
-                        pipelineMaxSize = 20
-                        keepAliveTime = 5000
-                        connectTimeout = 5000
-                    }
-                }
-                ramGb >= 6L -> {
-                    // Optimized concurrency pool for 6GB-9GB mid-tier devices
-                    maxConnectionsCount = 500
-                    endpoint {
-                        maxConnectionsPerRoute = 50
-                        pipelineMaxSize = 10
-                        keepAliveTime = 5000
-                        connectTimeout = 7000
-                    }
-                }
-                else -> {
-                    // Standard conservative allocation for low memory devices
-                    maxConnectionsCount = 250
-                    endpoint {
-                        maxConnectionsPerRoute = 25
-                        pipelineMaxSize = 5
-                        keepAliveTime = 5000
-                        connectTimeout = 10000
-                    }
-                }
-            }
-        }
-        return NetworkClient(engine)
+        return NetworkClient(CIO)
     }
 
     @Provides

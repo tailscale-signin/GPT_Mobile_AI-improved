@@ -28,6 +28,8 @@ class ToolConnectionRepository internal constructor(
 
     suspend fun listConnections(): List<ToolConnection> = toolConnectionDao.listConnections()
 
+    suspend fun getAllConnections(): List<ToolConnection> = listConnections()
+
     suspend fun getConnection(connectionUid: String): ToolConnection? = toolConnectionDao.getConnection(connectionUid)
 
     suspend fun upsertConnection(

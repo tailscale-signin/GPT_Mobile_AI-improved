@@ -60,7 +60,7 @@ class WebSearchTool(
                         buildJsonObject {
                             put("type", "integer")
                             put("minimum", 1)
-                            put("maximum", 10)
+                            put("maximum", 100)
                         }
                     )
                     put("includeDomains", domainArraySchema())
@@ -115,7 +115,7 @@ class WebSearchTool(
         if (validationErrors(arguments).isNotEmpty()) return null
         return WebSearchRequest(
             query = arguments["query"]!!.jsonPrimitive.content.trim(),
-            maxResults = intArgument(arguments, "maxResults") ?: 5,
+            maxResults = intArgument(arguments, "maxResults") ?: 10,
             includeDomains = domains(arguments["includeDomains"]),
             excludeDomains = domains(arguments["excludeDomains"]),
             recencyDays = intArgument(arguments, "recencyDays")
@@ -132,7 +132,7 @@ class WebSearchTool(
 
         if (query.isBlank()) errors += "query is required"
         if (arguments["maxResults"] != null && maxResults == null) errors += "maxResults must be an integer"
-        if (maxResults != null && maxResults !in 1..10) errors += "maxResults must be between 1 and 10"
+        if (maxResults != null && maxResults !in 1..100) errors += "maxResults must be between 1 and 100"
         if (arguments["recencyDays"] != null && recencyDays == null) errors += "recencyDays must be an integer"
         if (recencyDays != null && recencyDays < 0) errors += "recencyDays must be nonnegative"
         if (arguments["includeDomains"] != null && arguments["includeDomains"] !is JsonArray) errors += "includeDomains must be an array"

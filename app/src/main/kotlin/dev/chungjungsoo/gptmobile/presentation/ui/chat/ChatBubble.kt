@@ -268,10 +268,11 @@ private fun AssistantTimelineContent(
             AssistantTimelineItemType.TEXT -> {
                 val itemContent = item.content.orEmpty()
                 val parsed = remember(itemContent) { ThinkingParser.extractThinking(itemContent) }
-                if (parsed.thinking.isNotBlank()) {
+                val parsedThinking = parsed.thinking.orEmpty()
+                if (parsedThinking.isNotBlank()) {
                     ThinkingBlock(
                         modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
-                        thoughts = parsed.thinking,
+                        thoughts = parsedThinking,
                         contentIdentity = "$contentIdentity:parsed-thinking:$index",
                         isLoading = isLoading && parsed.isThinking && index == timeline.lastIndex
                     )

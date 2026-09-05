@@ -23,20 +23,16 @@ class ContextBuilder @Inject constructor() {
         for (index in userMessages.indices) {
             val userMessage = userMessages[index]
             val candidates = assistantMessages.getOrNull(index)
-            val assistantCandidates = if (candidates.isNullOrEmpty()) {
-                emptyList()
-            } else {
-                candidates.filter { it.platformType == platform.uid }
-            }
-            val assistantMessage = assistantCandidates.firstValidAssistantCandidate(platform.uid)
+            val assistantMessage = candidates?.firstValidAssistantCandidate(platform.uid)
 
             val turn = RawConversationTurn(
                 userMessage = userMessage,
                 assistantMessage = assistantMessage,
                 hasAssistantError = assistantMessage == null &&
-                    assistantCandidates.any { candidate ->
-                        isAssistantErrorMessage(sanitizeAssistantMessageForContext(candidate).content)
-                    },
+                    candidates?.any { candidate ->
+                        candidate.platformType == platform.uid &&
+                            isAssistantErrorMessage(sanitizeAssistantMessageForContext(candidate).content)
+                    } == true,
                 isCurrentTurn = index == lastUserIndex
             )
 

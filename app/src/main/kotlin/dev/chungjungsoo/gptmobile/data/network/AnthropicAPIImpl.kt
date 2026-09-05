@@ -49,8 +49,7 @@ class AnthropicAPIImpl @Inject constructor(
         mimeType: String,
         config: ProviderRequestConfig
     ): UploadedProviderFile {
-        val apiUrl = config.apiUrl
-        val endpoint = if (apiUrl.endsWith("/")) "${apiUrl}files" else "$apiUrl/files"
+        val endpoint = config.buildEndpoint("files")
         val responseBody = networkClient().preparePost(endpoint) {
             setBody(
                 MultiPartFormDataContent(
@@ -82,8 +81,7 @@ class AnthropicAPIImpl @Inject constructor(
     }
 
     override suspend fun isFileAvailable(fileId: String, config: ProviderRequestConfig): Boolean {
-        val apiUrl = config.apiUrl
-        val endpoint = if (apiUrl.endsWith("/")) "${apiUrl}files/$fileId" else "$apiUrl/files/$fileId"
+        val endpoint = config.buildEndpoint("files/$fileId")
         return try {
             networkClient().prepareGet(endpoint) {
                 headers {
@@ -105,8 +103,7 @@ class AnthropicAPIImpl @Inject constructor(
         config: ProviderRequestConfig
     ): Flow<MessageResponseChunk> = flow {
         try {
-            val apiUrl = config.apiUrl
-            val endpoint = if (apiUrl.endsWith("/")) "${apiUrl}messages" else "$apiUrl/messages"
+            val endpoint = config.buildEndpoint("messages")
 
             networkClient().preparePost(endpoint) {
                 applyPlatformStreamingTimeout(timeoutSeconds)

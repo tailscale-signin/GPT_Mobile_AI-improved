@@ -17,6 +17,8 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
+    private const val DATABASE_NAME = "chat_database"
+
     @Provides
     @Singleton
     fun provideChatDatabaseV2(
@@ -25,7 +27,7 @@ object DatabaseModule {
         return Room.databaseBuilder(
             context,
             ChatDatabaseV2::class.java,
-            ChatDatabaseV2.DATABASE_NAME
+            DATABASE_NAME
         )
             .addMigrations(
                 ChatDatabaseV2Migrations.MIGRATION_10_11,
@@ -38,11 +40,11 @@ object DatabaseModule {
 
     @Provides
     fun provideChatRoomV2Dao(database: ChatDatabaseV2): ChatRoomV2Dao {
-        return database.chatRoomV2Dao()
+        return database.chatRoomDao()
     }
 
     @Provides
     fun provideMessageV2Dao(database: ChatDatabaseV2): MessageV2Dao {
-        return database.messageV2Dao()
+        return database.messageDao()
     }
 }

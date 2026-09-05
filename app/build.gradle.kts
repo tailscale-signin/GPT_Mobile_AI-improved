@@ -99,6 +99,14 @@ extensions.configure<ApplicationExtension> {
         jniLibs {
             // Keep native libraries uncompressed in APK to allow direct page mapping into memory
             useLegacyPackaging = false
+            // Keep pre-stripped native libraries without triggering stripping warnings
+            keepDebugSymbols += setOf(
+                "**/libLiteRt.so",
+                "**/libLiteRtClGlAccelerator.so",
+                "**/liblitertlm_jni.so",
+                "**/libdatastore_shared_counter.so",
+                "**/libandroidx.graphics.path.so"
+            )
         }
     }
 }

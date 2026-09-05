@@ -14,22 +14,17 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
 data class AgentRunLimits(
-    val runTimeoutMillis: Long = 15 * 60 * 1000L,
-    val maxRounds: Int = 8,
-    val maxToolCalls: Int = 24,
-    val maxConcurrentTools: Int = defaultMaxConcurrentTools(),
-    val toolTimeoutMillis: Long = 60 * 1000L,
-    val maxToolOutputBytes: Int = defaultMaxToolOutputBytes()
+    val runTimeoutMillis: Long = Long.MAX_VALUE,
+    val maxRounds: Int = Int.MAX_VALUE,
+    val maxToolCalls: Int = Int.MAX_VALUE,
+    val maxConcurrentTools: Int = 32,
+    val toolTimeoutMillis: Long = Long.MAX_VALUE,
+    val maxToolOutputBytes: Int = Int.MAX_VALUE
 ) {
     companion object {
-        private fun isHighRamEnvironment(): Boolean {
-            val maxMemoryMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
-            return maxMemoryMb >= 512
-        }
+        fun defaultMaxConcurrentTools(): Int = 32
 
-        fun defaultMaxConcurrentTools(): Int = if (isHighRamEnvironment()) 8 else 4
-
-        fun defaultMaxToolOutputBytes(): Int = if (isHighRamEnvironment()) 256 * 1024 else 64 * 1024
+        fun defaultMaxToolOutputBytes(): Int = Int.MAX_VALUE
     }
 }
 
@@ -46,100 +41,126 @@ class AgentRunner(
         var toolMayHaveExecuted = false
         var retriedWithoutTools = false
 
-        val finishedInTime = withTimeoutOrNull(limits.runTimeoutMillis) {
-            while (true) {
-                if (rounds >= limits.maxRounds) {
-                    emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
-                    return@withTimeoutOrNull
-                }
-                rounds += 1
-
-                val calls = mutableListOf<ProviderEvent.ToolCall>()
-                var completed = false
-                var failed = false
-                try {
-                    session.streamRound(exposedDefinitions, exchanges)
-                        .transformWhile { event ->
-                            emit(event)
-                            event !is ProviderEvent.Failed
-                        }
-                        .collect { event ->
-                            when (event) {
-                                is ProviderEvent.ToolCall -> {
-                                    if (!session.handlesToolsInternally) {
-                                        calls += event
-                                    }
-                                    emit(AgentRunEvent.Provider(event))
-                                }
-
-                                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
-
-                                is ProviderEvent.Failed -> {
-                                    failed = true
-                                    emit(AgentRunEvent.Provider(event))
-                                }
-
-                                is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
-
-                                ProviderEvent.Completed -> completed = true
-
-                                else -> emit(AgentRunEvent.Provider(event))
-                            }
-                        }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: ToolDefinitionsRejectedException) {
-                    if (exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools) {
-                        retriedWithoutTools = true
-                        exposedDefinitions = emptyList()
-                        executableToolByName = emptyMap()
-                        rounds -= 1
-                        emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
-                        continue
-                    }
-                    emit(failed(error.message ?: "Tools are unavailable for this model."))
-                    return@withTimeoutOrNull
-                } catch (error: Exception) {
-                    emit(failed(error.message ?: "Provider request failed."))
-                    return@withTimeoutOrNull
-                }
-
-                if (failed) return@withTimeoutOrNull
-                if (calls.isEmpty()) {
-                    if (completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
-                    return@withTimeoutOrNull
-                }
-                if (rounds >= limits.maxRounds) {
-                    emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
-                    return@withTimeoutOrNull
-                }
-                if (toolCallCount + calls.size > limits.maxToolCalls) {
-                    emit(failed("Agent stopped before exceeding ${limits.maxToolCalls} tool calls."))
-                    return@withTimeoutOrNull
-                }
-
-                calls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
-                toolMayHaveExecuted = true
-                val semaphore = Semaphore(limits.maxConcurrentTools)
-                val results = coroutineScope {
-                    calls.map { call ->
-                        async {
-                            semaphore.withPermit {
-                                executeBounded(call, executableToolByName[call.name])
-                            }
-                        }
-                    }.awaitAll()
-                }
-                toolCallCount += calls.size
-                calls.zip(results).forEach { (call, result) ->
-                    emit(AgentRunEvent.ToolFinished(call, result))
-                }
-                exchanges += AgentToolExchange(calls, results)
+        val finishedInTime = if (limits.runTimeoutMillis < Long.MAX_VALUE) {
+            withTimeoutOrNull(limits.runTimeoutMillis) {
+                executeLoop(session, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
             }
+        } else {
+            executeLoop(session, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
+            true
         }
 
         if (finishedInTime == null) {
             emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
+        }
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.executeLoop(
+        session: AgentProviderSession,
+        toolByName: Map<String, AgentTool>,
+        initialExecutableToolByName: Map<String, AgentTool>,
+        initialExposedDefinitions: List<AgentToolDefinition>,
+        exchanges: MutableList<AgentToolExchange>,
+        initialRounds: Int,
+        initialToolCallCount: Int,
+        initialToolMayHaveExecuted: Boolean,
+        initialRetriedWithoutTools: Boolean
+    ) {
+        var executableToolByName = initialExecutableToolByName
+        var exposedDefinitions = initialExposedDefinitions
+        var rounds = initialRounds
+        var toolCallCount = initialToolCallCount
+        var toolMayHaveExecuted = initialToolMayHaveExecuted
+        var retriedWithoutTools = initialRetriedWithoutTools
+
+        while (true) {
+            if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
+                emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
+                return
+            }
+            rounds += 1
+
+            val calls = mutableListOf<ProviderEvent.ToolCall>()
+            var completed = false
+            var failed = false
+            try {
+                session.streamRound(exposedDefinitions, exchanges)
+                    .transformWhile { event ->
+                        emit(event)
+                        event !is ProviderEvent.Failed
+                    }
+                    .collect { event ->
+                        when (event) {
+                            is ProviderEvent.ToolCall -> {
+                                if (!session.handlesToolsInternally) {
+                                    calls += event
+                                }
+                                emit(AgentRunEvent.Provider(event))
+                            }
+
+                            is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
+
+                            is ProviderEvent.Failed -> {
+                                failed = true
+                                emit(AgentRunEvent.Provider(event))
+                            }
+
+                            is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
+
+                            ProviderEvent.Completed -> completed = true
+
+                            else -> emit(AgentRunEvent.Provider(event))
+                        }
+                    }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ToolDefinitionsRejectedException) {
+                if (exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools) {
+                    retriedWithoutTools = true
+                    exposedDefinitions = emptyList()
+                    executableToolByName = emptyMap()
+                    rounds -= 1
+                    emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
+                    continue
+                }
+                emit(failed(error.message ?: "Tools are unavailable for this model."))
+                return
+            } catch (error: Exception) {
+                emit(failed(error.message ?: "Provider request failed."))
+                return
+            }
+
+            if (failed) return
+            if (calls.isEmpty()) {
+                if (completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+                return
+            }
+            if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
+                emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
+                return
+            }
+            if (limits.maxToolCalls < Int.MAX_VALUE && toolCallCount + calls.size > limits.maxToolCalls) {
+                emit(failed("Agent stopped before exceeding ${limits.maxToolCalls} tool calls."))
+                return
+            }
+
+            calls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
+            toolMayHaveExecuted = true
+            val semaphore = Semaphore(limits.maxConcurrentTools)
+            val results = coroutineScope {
+                calls.map { call ->
+                    async {
+                        semaphore.withPermit {
+                            executeBounded(call, executableToolByName[call.name])
+                        }
+                    }
+                }.awaitAll()
+            }
+            toolCallCount += calls.size
+            calls.zip(results).forEach { (call, result) ->
+                emit(AgentRunEvent.ToolFinished(call, result))
+            }
+            exchanges += AgentToolExchange(calls, results)
         }
     }
 
@@ -156,13 +177,17 @@ class AgentRunner(
         }
 
         return try {
-            val result = withTimeoutOrNull(limits.toolTimeoutMillis) {
+            val result = if (limits.toolTimeoutMillis < Long.MAX_VALUE) {
+                withTimeoutOrNull(limits.toolTimeoutMillis) {
+                    tool.execute(call.callId, call.arguments)
+                } ?: AgentToolResult(
+                    callId = call.callId,
+                    content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
+                    isError = true
+                )
+            } else {
                 tool.execute(call.callId, call.arguments)
-            } ?: AgentToolResult(
-                callId = call.callId,
-                content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
-                isError = true
-            )
+            }
             result.copy(content = boundContent(result.content))
         } catch (error: CancellationException) {
             throw error
@@ -176,6 +201,7 @@ class AgentRunner(
     }
 
     private fun boundContent(content: ToolResultContent): ToolResultContent {
+        if (limits.maxToolOutputBytes == Int.MAX_VALUE) return content
         val encoded = when (content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> Json.encodeToString(content.value)

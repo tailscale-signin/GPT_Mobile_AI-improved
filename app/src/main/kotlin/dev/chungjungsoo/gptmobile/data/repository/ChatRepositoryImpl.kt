@@ -275,17 +275,22 @@ class ChatRepositoryImpl @Inject constructor(
             return chatRoomV2Dao.getChatRooms()
         }
 
-        // Search by title
-        val titleMatches = chatRoomV2Dao.searchChatRoomsByTitle(query)
-
-        // Search by message content and get chat IDs
-        val messageMatchChatIds = messageV2Dao.searchMessagesByContent(query)
+        // Search by title and message content concurrently on I/O dispatcher
+        val (titleMatches, messageMatchChatIds) = withContext(Dispatchers.IO) {
+            coroutineScope {
+                val titleJob = async { chatRoomV2Dao.searchChatRoomsByTitle(query) }
+                val contentJob = async { messageV2Dao.searchMessagesByContent(query) }
+                Pair(titleJob.await(), contentJob.await())
+            }
+        }
 
         // Query only the matched chat rooms directly from DB by ID instead of fetching all chat rooms into memory
         val messageMatches = if (messageMatchChatIds.isEmpty()) {
             emptyList()
         } else {
-            chatRoomV2Dao.getChatRoomsByIds(messageMatchChatIds)
+            withContext(Dispatchers.IO) {
+                chatRoomV2Dao.getChatRoomsByIds(messageMatchChatIds)
+            }
         }
 
         // Combine results and remove duplicates, maintaining order by updatedAt

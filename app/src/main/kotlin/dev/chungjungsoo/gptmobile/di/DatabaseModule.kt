@@ -32,19 +32,20 @@ object DatabaseModule {
     private const val V1_DATABASE_NAME = "chat"
     private const val V2_DATABASE_NAME = "chat_database"
 
-    private fun isHighRamDevice(context: Context): Boolean {
-        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+    private fun getDeviceRamGb(context: Context): Long {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return 4L
         val memoryInfo = ActivityManager.MemoryInfo()
         am.getMemoryInfo(memoryInfo)
-        return (memoryInfo.totalMem / (1024L * 1024L * 1024L)) >= 10L
+        return memoryInfo.totalMem / (1024L * 1024L * 1024L)
     }
 
     private fun createPragmaCallback(context: Context): RoomDatabase.Callback {
         return object : RoomDatabase.Callback() {
             override fun onOpen(db: SupportSQLiteDatabase) {
                 super.onOpen(db)
-                if (isHighRamDevice(context)) {
-                    // High-RAM (>=10-12GB) device optimizations:
+                val totalRamGb = getDeviceRamGb(context)
+                if (totalRamGb >= 10L) {
+                    // High-RAM (>=10-12GB) flagship device optimizations:
                     // 1. Allocate 64MB RAM directly to SQLite B-Tree page cache (-65536 is kibibytes)
                     db.execSQL("PRAGMA cache_size = -65536;")
                     // 2. Keep temp tables, index sorts, and intermediate queries purely in RAM
@@ -53,6 +54,16 @@ object DatabaseModule {
                     db.execSQL("PRAGMA mmap_size = 268435456;")
                     // 4. Increase WAL autocheckpoint interval to reduce flash storage writes during message generation
                     db.execSQL("PRAGMA wal_autocheckpoint = 2000;")
+                } else if (totalRamGb >= 6L) {
+                    // Mid/Standard-RAM (6-9GB) device optimizations:
+                    // 1. Allocate 16MB RAM to SQLite page cache
+                    db.execSQL("PRAGMA cache_size = -16384;")
+                    // 2. Store temp tables and sorts in RAM
+                    db.execSQL("PRAGMA temp_store = MEMORY;")
+                    // 3. Memory-map up to 64MB of the DB
+                    db.execSQL("PRAGMA mmap_size = 67108864;")
+                    // 4. Moderate WAL autocheckpoint interval
+                    db.execSQL("PRAGMA wal_autocheckpoint = 1000;")
                 }
             }
         }

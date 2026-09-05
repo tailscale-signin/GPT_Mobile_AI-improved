@@ -46,10 +46,26 @@
 -keep class io.modelcontextprotocol.** { *; }
 
 # -------------------------------------------------------------
-# LiteRT-LM runtime
+# LiteRT-LM runtime & TensorFlow Lite / Edge
 # -------------------------------------------------------------
 -dontwarn com.google.ai.edge.**
 -keep class com.google.ai.edge.** { *; }
+-keep class com.google.android.gms.tflite.** { *; }
+-dontwarn com.google.android.gms.tflite.**
+
+# -------------------------------------------------------------
+# Hilt / Dagger & WorkManager
+# -------------------------------------------------------------
+-keep class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class * extends androidx.work.Worker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class * extends androidx.hilt.work.HiltWorkerFactory { *; }
+-dontwarn androidx.hilt.work.**
+-keep class dagger.hilt.** { *; }
+-dontwarn dagger.hilt.**
 
 # -------------------------------------------------------------
 # Kotlinx Serialization

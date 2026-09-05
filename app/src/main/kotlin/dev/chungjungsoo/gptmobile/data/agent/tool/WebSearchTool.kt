@@ -6,10 +6,14 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.Clock
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -31,7 +35,8 @@ import kotlinx.serialization.json.put
 enum class WebSearchProvider {
     FIRECRAWL,
     PERPLEXITY,
-    EXA
+    EXA,
+    AUTO
 }
 
 data class WebSearchProviderConfig(
@@ -81,11 +86,21 @@ class WebSearchTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val request = parseRequest(arguments) ?: return error(callId, "Invalid web search request: ${validationErrors(arguments).joinToString("; ")}.")
+
+        return if (config.provider == WebSearchProvider.AUTO) {
+            executeAutoSearch(callId, request)
+        } else {
+            executeConfiguredProvider(callId, request)
+        }
+    }
+
+    private suspend fun executeConfiguredProvider(callId: String, request: WebSearchRequest): AgentToolResult {
         return try {
             val response = networkClient().post(config.endpointUrl) {
                 when (config.provider) {
                     WebSearchProvider.EXA -> header("x-api-key", config.bearerToken)
                     WebSearchProvider.FIRECRAWL, WebSearchProvider.PERPLEXITY -> bearerAuth(config.bearerToken)
+                    WebSearchProvider.AUTO -> Unit
                 }
                 setBody(payload(request))
             }
@@ -109,6 +124,136 @@ class WebSearchTool(
         } catch (_: Exception) {
             error(callId, "Web search failed: malformed or unsupported provider response.")
         }
+    }
+
+    private suspend fun executeAutoSearch(callId: String, request: WebSearchRequest): AgentToolResult {
+        // Stage 1: Try Local Termux MCPSearch Daemon if active (e.g. http://127.0.0.1:8000/search)
+        val termuxResult = runCatching { tryTermuxMcpSearch(request) }.getOrNull()
+        if (termuxResult != null && termuxResult.isNotEmpty()) {
+            return AgentToolResult(
+                callId = callId,
+                content = ToolResultContent.Json(buildJsonObject { put("results", JsonArray(termuxResult)) }),
+                isError = false
+            )
+        }
+
+        // Stage 2: Fall back to DuckDuckGo Free Search (No API Key Required)
+        return try {
+            val ddgResults = queryDuckDuckGo(request)
+            AgentToolResult(
+                callId = callId,
+                content = ToolResultContent.Json(buildJsonObject { put("results", JsonArray(ddgResults)) }),
+                isError = false
+            )
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (_: Exception) {
+            error(callId, "Web search failed: could not retrieve search results.")
+        }
+    }
+
+    private suspend fun tryTermuxMcpSearch(request: WebSearchRequest): List<JsonObject>? {
+        val endpoint = config.endpointUrl.takeIf { it.isNotBlank() } ?: "http://127.0.0.1:8000/search"
+        val response = networkClient().get(endpoint) {
+            parameter("query", request.query)
+            parameter("limit", request.maxResults)
+        }
+        if (response.status.value !in 200..299) return null
+        val bodyText = response.bodyAsText()
+        val root = NetworkClient.json.parseToJsonElement(bodyText).jsonObject
+        val rawResults = root["results"]?.jsonArray ?: return null
+        return rawResults.mapNotNull { element ->
+            val obj = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
+            val title = obj.string("title") ?: return@mapNotNull null
+            val url = obj.string("url") ?: return@mapNotNull null
+            val snippet = obj.string("snippet") ?: obj.string("description") ?: ""
+            buildJsonObject {
+                put("title", title)
+                put("url", url)
+                put("snippet", snippet)
+                obj.string("publishedDate")?.let { put("publishedDate", it) }
+            }
+        }.take(request.maxResults)
+    }
+
+    private suspend fun queryDuckDuckGo(request: WebSearchRequest): List<JsonObject> {
+        val encodedQuery = URLEncoder.encode(request.query, StandardCharsets.UTF_8.name())
+        val url = "https://html.duckduckgo.com/html/?q=$encodedQuery"
+        val response = networkClient().get(url) {
+            header("User-Agent", "Mozilla/5.0 (Android; Mobile; rv:109.0) Gecko/114.0 Firefox/114.0")
+        }
+        if (response.status.value !in 200..299) {
+            throw IllegalStateException("DuckDuckGo HTML search HTTP ${response.status.value}")
+        }
+        val html = response.bodyAsText()
+        val parsed = parseDuckDuckGoHtml(html)
+        var filtered = parsed
+        if (request.includeDomains.isNotEmpty()) {
+            filtered = filtered.filter { result ->
+                val resultUrl = result["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                request.includeDomains.any { domain -> resultUrl.contains(domain, ignoreCase = true) }
+            }
+        }
+        if (request.excludeDomains.isNotEmpty()) {
+            filtered = filtered.filter { result ->
+                val resultUrl = result["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                request.excludeDomains.none { domain -> resultUrl.contains(domain, ignoreCase = true) }
+            }
+        }
+        return filtered.take(request.maxResults)
+    }
+
+    private fun parseDuckDuckGoHtml(html: String): List<JsonObject> {
+        val results = mutableListOf<JsonObject>()
+        // Match DuckDuckGo result blocks: class="result__body" or class="result results_links"
+        val linkRegex = Regex("""<a class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>|<a class="result__snippet[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
+        val titleRegex = Regex("""<a class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
+        val snippetRegex = Regex("""<a class="result__snippet[^"]*"[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
+
+        val titleMatches = titleRegex.findAll(html).toList()
+        val snippetMatches = snippetRegex.findAll(html).toList()
+
+        for (i in titleMatches.indices) {
+            val titleMatch = titleMatches[i]
+            val rawHref = titleMatch.groupValues[1]
+            val rawTitle = cleanHtml(titleMatch.groupValues[2])
+            val actualUrl = extractActualUrl(rawHref)
+            val snippet = if (i < snippetMatches.size) {
+                cleanHtml(snippetMatches[i].groupValues[1])
+            } else {
+                ""
+            }
+
+            if (actualUrl.isNotBlank() && rawTitle.isNotBlank()) {
+                results += buildJsonObject {
+                    put("title", rawTitle)
+                    put("url", actualUrl)
+                    put("snippet", snippet)
+                }
+            }
+        }
+        return results
+    }
+
+    private fun extractActualUrl(href: String): String {
+        // DuckDuckGo result URLs are formatted as /l/?uddg=https%3A%2F%2Fexample.com...
+        if (href.contains("uddg=")) {
+            val uddg = href.substringAfter("uddg=").substringBefore("&")
+            return runCatching { java.net.URLDecoder.decode(uddg, StandardCharsets.UTF_8.name()) }.getOrDefault(href)
+        }
+        return if (href.startsWith("//")) "https:$href" else href
+    }
+
+    private fun cleanHtml(html: String): String {
+        return html
+            .replace(Regex("<[^>]*>"), "")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace(Regex("\\s+"), " ")
+            .trim()
     }
 
     private fun parseRequest(arguments: JsonObject): WebSearchRequest? {
@@ -155,7 +300,6 @@ class WebSearchTool(
         WebSearchProvider.PERPLEXITY -> buildJsonObject {
             put("query", request.query)
             put("max_results", request.maxResults)
-            // Perplexity uses one signed domain filter list; excluded domains are represented with "-" prefixes.
             val domainFilter = request.includeDomains.ifEmpty { request.excludeDomains.map { "-$it" } }
             if (domainFilter.isNotEmpty()) put("search_domain_filter", domainFilter.toJsonArray())
             request.recencyDays?.let { put("search_after_date_filter", usDate(today().minusDays(it.toLong()))) }
@@ -169,6 +313,11 @@ class WebSearchTool(
             request.recencyDays?.let { put("startPublishedDate", todayInstantMinusDays(it)) }
             put("contents", buildJsonObject { put("highlights", true) })
         }
+
+        WebSearchProvider.AUTO -> buildJsonObject {
+            put("query", request.query)
+            put("limit", request.maxResults)
+        }
     }
 
     private fun normalized(provider: WebSearchProvider, body: String): JsonObject {
@@ -177,6 +326,7 @@ class WebSearchTool(
             WebSearchProvider.FIRECRAWL -> root["data"]?.jsonObject?.get("web")?.jsonArray
             WebSearchProvider.PERPLEXITY -> root["results"]?.jsonArray
             WebSearchProvider.EXA -> root["results"]?.jsonArray
+            WebSearchProvider.AUTO -> root["results"]?.jsonArray
         } ?: throw IllegalArgumentException("missing results")
         val results = rawResults.map { element ->
             val value = element.jsonObject

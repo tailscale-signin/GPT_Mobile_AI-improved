@@ -56,16 +56,33 @@ class AgentToolResolver @Inject constructor(
         profileUid: String,
         chatToolConfig: ChatMcpToolConfig? = null
     ): List<ResolvedAgentTool> {
+        // Baseline zero-config tools available out of the box to all models
+        val defaultWebSearch = WebSearchTool(
+            config = WebSearchProviderConfig(
+                provider = WebSearchProvider.AUTO,
+                bearerToken = "",
+                endpointUrl = "http://127.0.0.1:8000/search"
+            ),
+            networkClient = networkClient
+        )
+
         val resolved = mutableListOf(
             CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE),
-            CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+            CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION),
+            ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL),
+            defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
         )
+
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
             .forEach { binding ->
-                resolveBinding(binding)?.let { resolved += it }
+                resolveBinding(binding)?.let { customResolvedTool ->
+                    // Explicit binding overrides default built-in version of the same tool name
+                    resolved.removeAll { it.modelToolName == customResolvedTool.modelToolName }
+                    resolved += customResolvedTool
+                }
             }
         bindings.filter { it.connection?.type == ToolConnectionType.MCP }
             .groupBy { requireNotNull(it.connection).connectionUid }

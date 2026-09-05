@@ -43,4 +43,5 @@ data class AgentToolBinding(
 object BuiltInAgentTool {
     const val CURRENT_DATE = "current_date"
     const val READ_URL = "read_url"
+    const val DEVICE_LOCATION = "device_location"
 }

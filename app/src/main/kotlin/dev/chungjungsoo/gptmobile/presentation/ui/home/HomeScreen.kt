@@ -5,7 +5,9 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -15,18 +17,25 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -35,7 +44,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -72,6 +84,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
 import dev.chungjungsoo.gptmobile.util.getPlatformName
@@ -86,12 +99,15 @@ fun HomeScreen(
 ) {
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val currentTab by homeViewModel.currentTab.collectAsStateWithLifecycle()
     val chatListState by homeViewModel.chatListState.collectAsStateWithLifecycle()
     val showSelectModelDialog by homeViewModel.showSelectModelDialog.collectAsStateWithLifecycle()
     val showDeleteWarningDialog by homeViewModel.showDeleteWarningDialog.collectAsStateWithLifecycle()
     val platformState by homeViewModel.platformState.collectAsStateWithLifecycle()
     val activeChatIds by homeViewModel.activeChatIds.collectAsStateWithLifecycle()
     val searchQuery by homeViewModel.searchQuery.collectAsStateWithLifecycle()
+    val favoriteSearchQuery by homeViewModel.favoriteSearchQuery.collectAsStateWithLifecycle()
+    val favoriteMessages by homeViewModel.favoriteMessages.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -152,7 +168,7 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
                 NewChatButton(expanded = listState.isScrollingUp(), onClick = {
                     val enabledApiTypes = platformState.filter { it.enabled }.map { it.uid }
                     if (enabledApiTypes.size == 1) {
@@ -165,64 +181,117 @@ fun HomeScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier.padding(innerPadding),
-            state = listState
-        ) {
-            if (!chatListState.isSearchMode) {
-                item { ChatsTitle(scrollBehavior) }
-            }
-            if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
-                item {
-                    Text(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        text = stringResource(R.string.no_search_results),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+        Column(modifier = Modifier.padding(innerPadding)) {
+            if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                TabRow(
+                    selectedTabIndex = currentTab.ordinal,
+                    containerColor = MaterialTheme.colorScheme.background
+                ) {
+                    Tab(
+                        selected = currentTab == HomeTab.CHATS,
+                        onClick = { homeViewModel.selectTab(HomeTab.CHATS) },
+                        text = { Text(stringResource(R.string.chats)) },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Outlined.ChatBubbleOutline,
+                                contentDescription = stringResource(R.string.chats)
+                            )
+                        }
+                    )
+                    Tab(
+                        selected = currentTab == HomeTab.FAVORITES,
+                        onClick = { homeViewModel.selectTab(HomeTab.FAVORITES) },
+                        text = { Text(stringResource(R.string.favorites)) },
+                        icon = {
+                            Icon(
+                                imageVector = if (currentTab == HomeTab.FAVORITES) Icons.Filled.Star else Icons.Outlined.Star,
+                                contentDescription = stringResource(R.string.favorites)
+                            )
+                        }
                     )
                 }
             }
-            itemsIndexed(chatListState.chats, key = { _, it -> it.id }) { idx, chatRoom ->
-                val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
-                ListItem(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .combinedClickable(
-                            onLongClick = {
-                                if (!chatListState.isSearchMode) {
-                                    homeViewModel.enableSelectionMode()
-                                    homeViewModel.selectChat(idx)
-                                }
-                            },
-                            onClick = {
-                                if (chatListState.isSelectionMode) {
-                                    homeViewModel.selectChat(idx)
-                                } else {
-                                    onExistingChatClick(chatRoom)
-                                }
+
+            when (currentTab) {
+                HomeTab.CHATS -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth(),
+                        state = listState
+                    ) {
+                        if (!chatListState.isSearchMode) {
+                            item { ChatsTitle(scrollBehavior) }
+                        }
+                        if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
+                            item {
+                                Text(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    text = stringResource(R.string.no_search_results),
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        )
-                        .padding(start = 8.dp, end = 8.dp)
-                        .animateItem(),
-                    headlineContent = { Text(text = chatRoom.title) },
-                    leadingContent = {
-                        if (chatListState.isSelectionMode) {
-                            Checkbox(
-                                checked = chatListState.selectedChats[idx],
-                                onCheckedChange = { homeViewModel.selectChat(idx) }
-                            )
-                        } else {
-                            Icon(
-                                ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
-                                contentDescription = stringResource(R.string.chat_icon)
+                        }
+                        itemsIndexed(chatListState.chats, key = { _, it -> it.id }) { idx, chatRoom ->
+                            val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
+                            ListItem(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .combinedClickable(
+                                        onLongClick = {
+                                            if (!chatListState.isSearchMode) {
+                                                homeViewModel.enableSelectionMode()
+                                                homeViewModel.selectChat(idx)
+                                            }
+                                        },
+                                        onClick = {
+                                            if (chatListState.isSelectionMode) {
+                                                homeViewModel.selectChat(idx)
+                                            } else {
+                                                onExistingChatClick(chatRoom)
+                                            }
+                                        }
+                                    )
+                                    .padding(start = 8.dp, end = 8.dp)
+                                    .animateItem(),
+                                headlineContent = { Text(text = chatRoom.title) },
+                                leadingContent = {
+                                    if (chatListState.isSelectionMode) {
+                                        Checkbox(
+                                            checked = chatListState.selectedChats[idx],
+                                            onCheckedChange = { homeViewModel.selectChat(idx) }
+                                        )
+                                    } else {
+                                        Icon(
+                                            ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
+                                            contentDescription = stringResource(R.string.chat_icon)
+                                        )
+                                    }
+                                },
+                                supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
                             )
                         }
-                    },
-                    supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
-                )
+                    }
+                }
+
+                HomeTab.FAVORITES -> {
+                    FavoritesList(
+                        searchQuery = favoriteSearchQuery,
+                        onSearchQueryChanged = homeViewModel::updateFavoriteSearchQuery,
+                        favorites = favoriteMessages,
+                        platformState = platformState,
+                        onFavoriteClick = { message ->
+                            chatListState.chats.find { it.id == message.chatId }?.let { chatRoom ->
+                                onExistingChatClick(chatRoom)
+                            }
+                        },
+                        onToggleFavorite = { message ->
+                            homeViewModel.toggleFavorite(message.id, !message.isFavorite)
+                        }
+                    )
+                }
             }
         }
 
@@ -247,6 +316,126 @@ fun HomeScreen(
                     Toast.makeText(context, deletedChatsMessage, Toast.LENGTH_SHORT).show()
                     homeViewModel.closeDeleteWarningDialog()
                 }
+            )
+        }
+    }
+}
+
+@Composable
+fun FavoritesList(
+    searchQuery: String,
+    onSearchQueryChanged: (String) -> Unit,
+    favorites: List<MessageV2>,
+    platformState: List<PlatformV2>,
+    onFavoriteClick: (MessageV2) -> Unit,
+    onToggleFavorite: (MessageV2) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChanged,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            placeholder = { Text(stringResource(R.string.search_favorites)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = stringResource(R.string.search_favorites)
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { onSearchQueryChanged("") }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = stringResource(R.string.clear)
+                        )
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(24.dp)
+        )
+
+        if (favorites.isEmpty()) {
+            Text(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                text = if (searchQuery.isEmpty()) {
+                    stringResource(R.string.no_favorites_yet)
+                } else {
+                    stringResource(R.string.no_favorites_found)
+                },
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(favorites, key = { it.id }) { message ->
+                    val platformName = message.platformType?.let { platformState.getPlatformName(it) }
+                        ?: stringResource(R.string.unknown)
+                    FavoriteMessageItem(
+                        message = message,
+                        platformName = platformName,
+                        onClick = { onFavoriteClick(message) },
+                        onUnfavoriteClick = { onToggleFavorite(message) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FavoriteMessageItem(
+    message: MessageV2,
+    platformName: String,
+    onClick: () -> Unit,
+    onUnfavoriteClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .combinedClickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = platformName,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                IconButton(onClick = onUnfavoriteClick) {
+                    Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = stringResource(R.string.favourite_response),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Text(
+                text = message.content,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

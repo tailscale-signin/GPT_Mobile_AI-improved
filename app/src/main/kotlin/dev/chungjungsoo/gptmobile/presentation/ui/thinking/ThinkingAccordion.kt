@@ -34,27 +34,27 @@ import androidx.compose.ui.unit.sp
  * Parsed representation of content that may contain DeepSeek / Reasoner thinking tokens (<think>...</think>).
  */
 data class ParsedReasoningContent(
-    val thinkingText: String?,
-    val mainContent: String,
-    val isStillThinking: Boolean = false
+    val thinking: String?,
+    val displayContent: String,
+    val isThinkingInProgress: Boolean = false
 ) {
-    val thinking: String
-        get() = thinkingText ?: ""
+    val thinkingText: String?
+        get() = thinking
 
-    val displayContent: String
-        get() = mainContent
+    val mainContent: String
+        get() = displayContent
 
     val response: String
-        get() = mainContent
+        get() = displayContent
 
     val hasThinking: Boolean
-        get() = !thinkingText.isNullOrBlank()
-
-    val isThinkingInProgress: Boolean
-        get() = isStillThinking
+        get() = thinking != null
 
     val isThinking: Boolean
-        get() = isStillThinking
+        get() = isThinkingInProgress
+
+    val isStillThinking: Boolean
+        get() = isThinkingInProgress
 }
 
 object ThinkingParser {
@@ -66,9 +66,9 @@ object ThinkingParser {
     fun parse(rawText: String): ParsedReasoningContent {
         if (!rawText.contains("<think>")) {
             return ParsedReasoningContent(
-                thinkingText = null,
-                mainContent = rawText,
-                isStillThinking = false
+                thinking = null,
+                displayContent = rawText,
+                isThinkingInProgress = false
             )
         }
 
@@ -78,9 +78,9 @@ object ThinkingParser {
         val mainText = rawText.replace(match.value, "").trim()
 
         return ParsedReasoningContent(
-            thinkingText = thinkingPart.ifEmpty { null },
-            mainContent = mainText,
-            isStillThinking = isStillThinking
+            thinking = thinkingPart,
+            displayContent = mainText,
+            isThinkingInProgress = isStillThinking
         )
     }
 

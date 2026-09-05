@@ -53,9 +53,13 @@
   - Local network discovery and validation for local MCP servers / Ollama instances
   - Parallel runs, persistent trace viewer, cancellation, and foreground notification progress
   - Existing and newly migrated profiles remain chat-only until tools are explicitly assigned
+- **Backup & Restore Configuration**
+  - Full export and restore of platform profiles, custom URLs, model configurations, and theme settings via formatted JSON
+  - Seamlessly re-encrypts and manages credentials through Android Keystore (`SecretVault`)
+  - Integrated one-tap clipboard copy and in-app JSON validation with error reporting
 - **Local & Private Data Storage**
   - Chat history is **only saved locally** on your device
-  - API credentials are encrypted with Android Keystore and excluded from backup/export
+  - API credentials are encrypted with Android Keystore
   - During chats, requests go only to selected model providers and assigned tools
 - **Modern Android & Jetpack Compose Architecture**
   - [Material You](https://m3.material.io/) dynamic theming, dark mode, and seamless theme switching without Activity restarts

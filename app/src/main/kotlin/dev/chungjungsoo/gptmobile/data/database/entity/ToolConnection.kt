@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.database.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -43,7 +44,13 @@ data class ToolConnection(
 
     @ColumnInfo(name = "updated_at")
     val updatedAt: Long = System.currentTimeMillis() / 1000
-)
+) {
+    @get:Ignore
+    val isWebSearch: Boolean
+        get() = type == ToolConnectionType.FIRECRAWL ||
+            type == ToolConnectionType.PERPLEXITY ||
+            type == ToolConnectionType.EXA
+}
 
 object ToolConnectionType {
     const val MCP = "MCP"

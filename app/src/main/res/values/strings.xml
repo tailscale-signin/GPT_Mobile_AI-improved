@@ -515,4 +515,10 @@
     <string name="capability_thinking">Thinking</string>
     <string name="local_network_permission_required">Local network access is required for this provider or MCP connection.</string>
     <string name="local_network_check_failed">Could not check MCP network access. Local network permission will be requested as a precaution.</string>
+    <string name="favorites">Favorites</string>
+    <string name="favorite">Favorite</string>
+    <string name="unfavorite">Unfavorite</string>
+    <string name="search_favorites">Search favorites</string>
+    <string name="no_favorites_found">No favorited responses found</string>
+    <string name="no_favorites_yet">No favorited responses yet</string>
 </resources>

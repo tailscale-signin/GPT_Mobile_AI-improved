@@ -1,12 +1,15 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.mcp
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +22,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,6 +36,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -57,13 +64,20 @@ fun McpMarketplaceDialog(
     var selectedCategory by remember { mutableStateOf<McpCategory?>(null) }
 
     val filteredPresets = remember(searchQuery, selectedCategory) {
-        McpPresetCatalog.presets.filter { preset ->
-            val matchesCategory = selectedCategory == null || preset.category == selectedCategory
-            val matchesSearch = searchQuery.isBlank() ||
-                preset.name.contains(searchQuery, ignoreCase = true) ||
-                preset.description.contains(searchQuery, ignoreCase = true) ||
-                preset.category.name.contains(searchQuery, ignoreCase = true)
-            matchesCategory && matchesSearch
+        val base = if (selectedCategory != null) {
+            McpPresetCatalog.getByCategory(selectedCategory!!)
+        } else {
+            McpPresetCatalog.presets
+        }
+        if (searchQuery.isNotBlank()) {
+            base.filter {
+                it.name.contains(searchQuery, ignoreCase = true) ||
+                    it.description.contains(searchQuery, ignoreCase = true) ||
+                    it.alias.contains(searchQuery, ignoreCase = true) ||
+                    it.category.displayName.contains(searchQuery, ignoreCase = true)
+            }
+        } else {
+            base
         }
     }
 
@@ -73,7 +87,8 @@ fun McpMarketplaceDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth(0.95f)
+                .heightIn(max = 680.dp)
                 .padding(16.dp),
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -81,7 +96,7 @@ fun McpMarketplaceDialog(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .padding(20.dp)
             ) {
                 // Header
@@ -134,11 +149,11 @@ fun McpMarketplaceDialog(
                             label = { Text("All") }
                         )
                     }
-                    items(McpCategory.values()) { category ->
+                    items(McpCategory.entries) { category ->
                         FilterChip(
                             selected = selectedCategory == category,
                             onClick = { selectedCategory = if (selectedCategory == category) null else category },
-                            label = { Text(category.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }) }
+                            label = { Text(category.displayName) }
                         )
                     }
                 }
@@ -151,7 +166,7 @@ fun McpMarketplaceDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filteredPresets, key = { it.id }) { preset ->
-                        val isInstalled = installedPresetIds.contains(preset.id)
+                        val isInstalled = installedPresetIds.contains(preset.id) || installedPresetIds.contains(preset.alias)
                         McpPresetCard(
                             preset = preset,
                             isInstalled = isInstalled,
@@ -197,7 +212,7 @@ fun McpPresetCard(
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
                         Text(
-                            text = preset.category.name,
+                            text = preset.category.displayName,
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -216,7 +231,7 @@ fun McpPresetCard(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Transport: ${preset.transportType.name} (${preset.commandOrUrl})",
+                    text = "Transport: ${preset.transportType.name} (${preset.defaultEndpoint})",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )

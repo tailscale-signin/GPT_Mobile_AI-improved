@@ -10,6 +10,7 @@ import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -20,6 +21,9 @@ class ModelCatalogRepositoryImpl(
     private val readBundledJson: () -> String,
     private val appVersionName: String
 ) : ModelCatalogRepository {
+
+    // Fast in-memory cache to avoid redundant JSON parsing across screen navigations
+    private val inMemoryCatalogCache = AtomicReference<ModelCatalog?>(null)
 
     constructor(
         context: Context,
@@ -55,7 +59,9 @@ class ModelCatalogRepositoryImpl(
                     onParsed = writeCacheJson
                 )
             },
-            cached = { fetchParsableCatalog(source = { readCacheJson() }) },
+            cached = {
+                inMemoryCatalogCache.get() ?: fetchParsableCatalog(source = { readCacheJson() })
+            },
             bundled = { fetchParsableCatalog(source = { readBundledJson() }) }
         )
     }
@@ -63,7 +69,9 @@ class ModelCatalogRepositoryImpl(
     override suspend fun getCachedVisibleEntries(): List<CatalogEntry> = withContext(Dispatchers.IO) {
         visibleEntries(
             remote = { null },
-            cached = { fetchParsableCatalog(source = { readCacheJson() }) },
+            cached = {
+                inMemoryCatalogCache.get() ?: fetchParsableCatalog(source = { readCacheJson() })
+            },
             bundled = { fetchParsableCatalog(source = { readBundledJson() }) }
         )
     }
@@ -74,6 +82,7 @@ class ModelCatalogRepositoryImpl(
         bundled: suspend () -> ModelCatalog?
     ): List<CatalogEntry> {
         val catalog = remote() ?: cached() ?: bundled() ?: return emptyList()
+        inMemoryCatalogCache.set(catalog)
         return ModelCatalogParser.visibleEntries(catalog, appVersionName)
     }
 

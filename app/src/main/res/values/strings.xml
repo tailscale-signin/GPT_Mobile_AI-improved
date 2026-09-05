@@ -521,4 +521,19 @@
     <string name="search_favorites">Search favorites</string>
     <string name="no_favorites_found">No favorited responses found</string>
     <string name="no_favorites_yet">No favorited responses yet</string>
+
+    <!-- Backup and Restore -->
+    <string name="backup_and_restore">Backup &amp; Restore</string>
+    <string name="backup_and_restore_description">Export or restore platforms and settings</string>
+    <string name="export_configuration">Export Configuration</string>
+    <string name="restore_configuration">Restore Configuration</string>
+    <string name="backup_configuration_dialog_title">Export Configuration</string>
+    <string name="backup_configuration_dialog_description">Below is your exported configuration JSON. Keep it secure as it includes your platform settings and credentials.</string>
+    <string name="copy_to_clipboard">Copy to Clipboard</string>
+    <string name="copied_to_clipboard">Configuration copied to clipboard</string>
+    <string name="restore_configuration_dialog_title">Restore Configuration</string>
+    <string name="restore_configuration_dialog_description">Paste your configuration JSON below to restore your platforms and settings.</string>
+    <string name="paste_configuration_hint">Paste exported JSON here…</string>
+    <string name="restore_configuration_success">Configuration restored successfully (%1$d platform(s) imported).</string>
+    <string name="restore_configuration_error">Failed to restore configuration. Invalid JSON format.</string>
 </resources>

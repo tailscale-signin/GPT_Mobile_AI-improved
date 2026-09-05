@@ -9,7 +9,7 @@ Welcome to the progress and build tracking dashboard for **GPT Mobile Improved**
 | Item | Details |
 |------|---------|
 | **Target Version** | `v0.8.2` (Version Code `25`) |
-| **Current Stable Release** | [v0.8.1](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.1) |
+| **Current Stable Release** | [v0.8.2](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.2) |
 | **Package ID** | `dev.chungjungsoo.gptmobile.improved` (Side-by-side installable) |
 | **Build Status** | [![Release Build](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/workflows/release-build.yml/badge.svg?branch=main)](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/workflows/release-build.yml) |
 | **Total Downloads** | [![Total Downloads](https://img.shields.io/github/downloads/tailscale-signin/GPT_Mobile_AI-improved/total?label=Downloads&logo=github)](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/) |
@@ -69,4 +69,4 @@ Welcome to the progress and build tracking dashboard for **GPT Mobile Improved**
 ## 🛠️ Releases & Artifacts
 
 - **GitHub Releases**: [Browse All Releases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases)
-- **Latest Release Assets**: [v0.8.1 Assets](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.1)
+- **Latest Release Assets**: [v0.8.2 Assets](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.2)

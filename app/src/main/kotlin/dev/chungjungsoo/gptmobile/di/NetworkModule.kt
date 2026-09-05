@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.di
 
+import android.app.ActivityManager
+import android.content.Context
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPIImpl
@@ -14,15 +17,39 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.cio.CIOEngineConfig
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    private fun isHighRamDevice(context: Context): Boolean {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        val memoryInfo = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memoryInfo)
+        return (memoryInfo.totalMem / (1024L * 1024L * 1024L)) >= 10L
+    }
+
     @Provides
     @Singleton
-    fun provideNetworkClient(): NetworkClient = NetworkClient(CIO)
+    fun provideNetworkClient(
+        @ApplicationContext context: Context
+    ): NetworkClient {
+        val engine = CIO.create {
+            if (isHighRamDevice(context)) {
+                // High-performance concurrency pool for 12GB+ RAM multi-core devices
+                maxConnectionsCount = 1000
+                endpoint {
+                    maxConnectionsPerRoute = 100
+                    pipelineMaxSize = 20
+                    keepAliveTime = 5000
+                    connectTimeout = 5000
+                }
+            }
+        }
+        return NetworkClient(engine)
+    }
 
     @Provides
     @Singleton

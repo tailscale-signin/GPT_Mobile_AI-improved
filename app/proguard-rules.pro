@@ -91,9 +91,6 @@
 -keepclassmembers class * {
     @kotlinx.serialization.Serializable <fields>;
 }
--keepclassmembers class * {
-    companion object *;
-}
 -keepclasseswithmembers class * {
     public static *** Companion;
 }

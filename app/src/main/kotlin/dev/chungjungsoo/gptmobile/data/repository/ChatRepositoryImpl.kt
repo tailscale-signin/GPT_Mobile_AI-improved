@@ -277,9 +277,19 @@ class ChatRepositoryImpl @Inject constructor(
         }
 
         // Combine results and remove duplicates, maintaining order by updatedAt
-        return (titleMatches + messageMatches)
-            .distinctBy { it.id }
-            .sortedByDescending { it.updatedAt }
+        val titleMatchIds = HashSet<Int>(titleMatches.size)
+        val combined = ArrayList<ChatRoomV2>(titleMatches.size + messageMatches.size)
+        for (room in titleMatches) {
+            titleMatchIds.add(room.id)
+            combined.add(room)
+        }
+        for (room in messageMatches) {
+            if (titleMatchIds.add(room.id)) {
+                combined.add(room)
+            }
+        }
+        combined.sortByDescending { it.updatedAt }
+        return combined
     }
 
     override suspend fun fetchMessages(chatId: Int): List<Message> = messageDao.loadMessages(chatId)

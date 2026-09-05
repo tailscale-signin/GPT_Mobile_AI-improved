@@ -13,6 +13,7 @@ An enhanced, high-performance, open-source Android client for interacting with L
 
 - **Multi-Provider Support**: Seamlessly connect with OpenAI, Anthropic Claude, Google Gemini, Groq, Ollama, OpenRouter, Custom OpenAI-compatible endpoints, and on-device execution via LiteRT (MediaPipe/TFLite LLM).
 - **Agentic Workflows & Tool Calling**: Built-in autonomous agent runner supporting Model Context Protocol (MCP), local system tools (`current_date`, `device_location`), safe mathematical evaluation (`calculate_expression`), and web navigation (`read_url`, `web_search`).
+- **Modern Database Architecture**: Backed by `ChatDatabaseV2` Room persistence with decoupled platform profiles, conversation rooms, partitioned messages, agent execution logs, and encrypted tool credentials.
 - **Deep Mobile Optimization**: Built from the ground up for minimal battery usage, low memory footprint, and smooth 120Hz scrolling on mobile devices.
 - **Privacy First**: Direct device-to-provider connections with zero intermediary tracking servers. Android Keystore AES-GCM credential encryption and on-device local inference capabilities with LiteRT.
 
@@ -20,10 +21,12 @@ An enhanced, high-performance, open-source Android client for interacting with L
 
 ## 🚀 Performance & Architecture Improvements
 
-This repository incorporates comprehensive optimizations covering Android packaging, Jetpack Compose rendering, networking, and memory management:
+This repository incorporates comprehensive optimizations covering Android packaging, Jetpack Compose rendering, networking, memory management, and CI build stability:
 
-### 1. Build & Packaging Optimization
-- **Targeted ABI Splits**: APK splits for `arm64-v8a` and `x86_64` to dramatically reduce APK download and install sizes on user devices.
+### 1. Build & CI Pipeline Stability
+- **In-Process KSP Compilation**: Configured `ksp.run.in.process=true` to prevent additional worker JVM overhead and stay within CI container memory limits.
+- **Dedicated CI Swapfile Provisioning**: Workflows automatically provision and attach safe swap space (`/swapfile_extra`) to prevent runner OOM termination during heavy R8 minification and KSP processing.
+- **Targeted ABI Splits**: APK splits for `arm64-v8a` and `x86_64` alongside universal releases to dramatically reduce APK download and install sizes on user devices.
 - **Aggressive R8 Shrinking & Optimization**: Code and resource shrinking enabled on release builds with fine-tuned ProGuard configuration.
 - **Stripped Production Logging**: Automatically strips `android.util.Log` calls in release builds to eliminate log string overhead and prevent sensitive data leakage.
 
@@ -50,8 +53,8 @@ This repository incorporates comprehensive optimizations covering Android packag
 - **UI**: Jetpack Compose, Material 3
 - **Language**: Kotlin 2.x with Coroutines & StateFlow
 - **Networking**: Ktor Client with CIO Engine, Server-Sent Events (SSE)
-- **Local Database & Cache**: Room Database, DataStore Preferences
-- **Dependency Injection**: Hilt / Dagger
+- **Local Database & Cache**: Room Database (`ChatDatabaseV2`), DataStore Preferences
+- **Dependency Injection**: Hilt / Dagger with KSP
 - **On-Device Inference**: Google LiteRT (MediaPipe GenAI LLM)
 
 ---
@@ -60,8 +63,8 @@ This repository incorporates comprehensive optimizations covering Android packag
 
 ### Prerequisites
 - Android Studio Ladybug (2024.2.1) or newer
-- JDK 17 or higher
-- Android SDK 35 / Min SDK 26
+- JDK 21 (JDK 17 minimum)
+- Android SDK 36 (target/compile) / Min SDK 26
 
 ### Building from Source
 ```bash
@@ -71,6 +74,9 @@ cd GPT_Mobile_AI-improved
 
 # Build debug APK
 ./gradlew assembleDebug
+
+# Build release APK
+./gradlew assembleRelease
 
 # Run unit tests
 ./gradlew testDebugUnitTest

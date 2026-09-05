@@ -20,7 +20,8 @@ import kotlinx.serialization.Serializable
     ],
     indices = [
         Index(value = ["chat_id"]),
-        Index(value = ["chat_id", "created_at", "message_id"])
+        Index(value = ["chat_id", "created_at", "message_id"]),
+        Index(value = ["is_favorite"])
     ]
 )
 data class MessageV2(
@@ -59,7 +60,10 @@ data class MessageV2(
     val createdAt: Long = System.currentTimeMillis() / 1000,
 
     @ColumnInfo(name = "timeline", defaultValue = "'[]'")
-    val timeline: List<AssistantTimelineItem> = emptyList()
+    val timeline: List<AssistantTimelineItem> = emptyList(),
+
+    @ColumnInfo(name = "is_favorite", defaultValue = "0")
+    val isFavorite: Boolean = false
 )
 
 @Serializable

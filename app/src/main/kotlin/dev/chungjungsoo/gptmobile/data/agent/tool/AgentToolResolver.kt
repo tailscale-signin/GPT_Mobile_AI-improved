@@ -57,7 +57,8 @@ class AgentToolResolver @Inject constructor(
         chatToolConfig: ChatMcpToolConfig? = null
     ): List<ResolvedAgentTool> {
         val resolved = mutableListOf(
-            CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
+            CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE),
+            CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
         )
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
@@ -107,6 +108,12 @@ class AgentToolResolver @Inject constructor(
 
         BuiltInAgentTool.DEVICE_LOCATION -> if (binding.binding.connectionUid == null) {
             deviceLocationTool.resolved(null, null, BuiltInAgentTool.DEVICE_LOCATION)
+        } else {
+            null
+        }
+
+        BuiltInAgentTool.CALCULATE_EXPRESSION -> if (binding.binding.connectionUid == null) {
+            CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
         } else {
             null
         }

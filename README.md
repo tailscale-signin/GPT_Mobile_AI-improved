@@ -27,24 +27,32 @@ This repository (**`GPT_Mobile_AI-improved`**) is an advanced, high-performance 
    - Re-namespaced Application ID allows you to install and use this version **directly alongside the original app** with zero conflicts, no uninstallation needed, and separate data isolation.
 2. **Persistent Deterministic Signing**:
    - Replaced ephemeral per-build CI keystores with persistent, deterministic signing. Once installed, **all future releases install seamlessly in-place over this app** without prompting for uninstall or wiping chat history.
-3. **DeepSeek / Reasoning Thinking Accordion**:
+3. **MCPSearch Android-Termux Native Integration**:
+   - Directly integrated with [`mcpsearch-installer-android-termux`](https://github.com/tailscale-signin/mcpsearch-installer-android-termux) via STDIO (`~/.mcpsearch/run.sh`).
+   - Exposes a 5-in-1 multi-engine research toolkit:
+     - `search`: Multi-engine web search with AI summarization and async caching.
+     - `investigate`: Autonomous deep multi-source research agent.
+     - `compare`: Comparative analysis across technologies and subjects.
+     - `trending`: Real-time trending topics and GitHub/Reddit tracking.
+     - `get_crawl_stats`: Crawler cache performance & hit rates.
+4. **DeepSeek / Reasoning Thinking Accordion**:
    - Built-in `ThinkingAccordion` and parser for reasoning models (DeepSeek R1, OpenAI o-series, etc.). Automatically extracts `<think>...</think>` tokens, collapses traces cleanly in chat bubbles, displays animated indicators during active thought generation, and allows one-tap copy of reasoning traces.
-4. **Curated MCP Marketplace & Presets**:
+5. **Curated MCP Marketplace & Presets**:
    - Integrated in-app MCP marketplace with category filter chips (`Search`, `Development`, `Database`, `Productivity`, `System`, `Browser`) and instant search to discover and install community Model Context Protocol servers in one tap.
-5. **Per-Chat Granular Tool Selection**:
-   - Select and customize active tools (WebSearch, ReadUrl, CurrentDate, DeviceLocation, and connected MCP servers) specifically per chat room using the tool selection bottom sheet.
-6. **Built-in Device Location Agent Tool**:
+6. **Per-Chat Granular Tool Selection**:
+   - Select and customize active tools (MCPSearch, WebSearch, ReadUrl, CurrentDate, DeviceLocation, and connected MCP servers) specifically per chat room using the tool selection bottom sheet.
+7. **Built-in Device Location Agent Tool**:
    - On-device location provider allowing agents to answer location-sensitive prompts with runtime permission safety.
-7. **Uncapped Autonomous Agent Engine**:
+8. **Uncapped Autonomous Agent Engine**:
    - Loops, tool calling limits, and run timeouts are uncapped (`Int.MAX_VALUE` / `Long.MAX_VALUE`), enabling fully autonomous deep-reasoning multi-round agent workflows without artificial round terminations.
    - Up to 32 concurrent parallel tool executions with uncapped buffer output limits.
-8. **Enhanced Web & MCP Tool Scalability**:
+9. **Enhanced Web & MCP Tool Scalability**:
    - **ReadUrl**: Expanded to 100 MB body limit, 50 MB output buffer, and 50 redirect hops.
    - **WebSearch**: Uncapped result ceiling up to 100 results per call (via Firecrawl, Perplexity, or Exa).
    - **MCP Client**: Uncapped discovered tool limits and pagination for extensive Model Context Protocol server registries.
-9. **Full Configuration Backup & Restore**:
+10. **Full Configuration Backup & Restore**:
    - Export and restore all provider configurations, custom endpoints, model parameters, and preferences as JSON with integrated Android Keystore credential re-encryption.
-10. **Favorites & Searchable Starred AI Responses**:
+11. **Favorites & Searchable Starred AI Responses**:
    - Star any response across any provider and quickly search through your favorites library on the dedicated Star tab.
 
 ---
@@ -66,6 +74,10 @@ Track build milestones, recent updates, and download artifacts:
 
 ## Features
 
+- **MCPSearch Android-Termux Built-In Preset**
+  - Integrated preset for local execution via Termux stdio launcher (`~/.mcpsearch/run.sh`)
+  - Includes `search`, `investigate`, `compare`, `trending`, and `get_crawl_stats`
+  - Zero-configuration one-command setup via [`mcpsearch-installer-android-termux`](https://github.com/tailscale-signin/mcpsearch-installer-android-termux)
 - **DeepSeek & Reasoning Model Support**
   - Live collapsible thinking accordions for models outputting `<think>` reasoning traces
   - Expand/collapse thinking blocks, copy reasoning steps, and view animated thinking state during generation
@@ -86,8 +98,8 @@ Track build milestones, recent updates, and download artifacts:
   - Fully supports custom API URLs and arbitrary model identifiers
 - **Uncapped Agent Tools per Provider Profile**
   - Native tool calling with OpenAI, Groq, Anthropic, and Gemini
-  - Web search via Firecrawl, Perplexity, or Exa with hardened high-capacity URL fetching
-  - MCP (Model Context Protocol) Streamable HTTP servers with public, bearer token, or OAuth authentication
+  - Web search via Firecrawl, Perplexity, Exa, or local MCPSearch with hardened high-capacity URL fetching
+  - MCP (Model Context Protocol) Streamable HTTP and local STDIO servers
   - Local network discovery and validation for local MCP servers / Ollama instances
   - Parallel runs, persistent trace viewer, cancellation, and foreground notification progress
 - **Configuration Backup & Restore**

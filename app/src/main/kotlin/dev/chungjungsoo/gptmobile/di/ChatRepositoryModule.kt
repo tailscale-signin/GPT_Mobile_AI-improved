@@ -11,15 +11,14 @@ import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
-import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
-import dev.chungjungsoo.gptmobile.data.database.dao.MessageDao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
+import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
@@ -36,8 +35,6 @@ object ChatRepositoryModule {
     @Singleton
     fun provideChatRepository(
         @ApplicationContext context: Context,
-        chatRoomDao: ChatRoomDao,
-        messageDao: MessageDao,
         chatRoomV2Dao: ChatRoomV2Dao,
         messageV2Dao: MessageV2Dao,
         chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
@@ -48,7 +45,7 @@ object ChatRepositoryModule {
         groqAPI: GroqAPI,
         anthropicAPI: AnthropicAPI,
         googleAPI: GoogleAPI,
-        attachmentUploadCoordinator: dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator,
+        attachmentUploadCoordinator: AttachmentUploadCoordinator,
         contextBuilder: ContextBuilder,
         agentToolResolver: AgentToolResolver,
         toolEventRecorder: ToolEventRecorder,
@@ -57,26 +54,24 @@ object ChatRepositoryModule {
         modelCatalogRepository: ModelCatalogRepository,
         @DeviceSocModel deviceSocModel: String
     ): ChatRepository = ChatRepositoryImpl(
-        context,
-        chatRoomDao,
-        messageDao,
-        chatRoomV2Dao,
-        messageV2Dao,
-        chatPlatformModelV2Dao,
-        agentPersistenceDao,
-        agentRunDao,
-        settingRepository,
-        openAIAPI,
-        groqAPI,
-        anthropicAPI,
-        googleAPI,
-        attachmentUploadCoordinator,
-        contextBuilder,
-        agentToolResolver,
-        toolEventRecorder,
-        localRuntime,
-        localModelRepository,
-        modelCatalogRepository,
-        deviceSocModel
+        context = context,
+        chatRoomV2Dao = chatRoomV2Dao,
+        messageV2Dao = messageV2Dao,
+        chatPlatformModelV2Dao = chatPlatformModelV2Dao,
+        agentPersistenceDao = agentPersistenceDao,
+        agentRunDao = agentRunDao,
+        settingRepository = settingRepository,
+        openAIAPI = openAIAPI,
+        groqAPI = groqAPI,
+        anthropicAPI = anthropicAPI,
+        googleAPI = googleAPI,
+        attachmentUploadCoordinator = attachmentUploadCoordinator,
+        contextBuilder = contextBuilder,
+        agentToolResolver = agentToolResolver,
+        toolEventRecorder = toolEventRecorder,
+        localRuntime = localRuntime,
+        localModelRepository = localModelRepository,
+        modelCatalogRepository = modelCatalogRepository,
+        deviceSocModel = deviceSocModel
     )
 }

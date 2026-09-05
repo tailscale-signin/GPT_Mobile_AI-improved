@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import android.app.ActivityManager
+import android.content.Context
 import android.util.LruCache
 
 private const val INLINE_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_INLINE_"
@@ -7,12 +9,25 @@ private const val INLINE_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"
 private const val MAX_FENCE_INDENT = 3
 
 /**
- * In-memory LRU cache for parsed markdown structures.
- * On high-RAM devices and during active streaming or fast list scrolling, parsing
- * complex markdown AST and math delimiters on every recomposition induces garbage collection
+ * High-RAM aware in-memory LRU cache for parsed markdown structures.
+ * On devices with >= 10 GB of RAM, the cache capacity is expanded from 500 up to 2,000 entries.
+ * Parsing complex markdown AST and math delimiters on every recomposition induces garbage collection
  * and CPU thrash. Caching the parsed result by content string key eliminates redundant parsing.
  */
-private val markdownParseCache = LruCache<String, ParsedChatMarkdown>(500)
+private val markdownParseCacheCapacity: Int by lazy {
+    try {
+        val memoryInfo = ActivityManager.MemoryInfo()
+        val activityManager = android.app.ActivityThread.currentApplication()
+            ?.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        activityManager?.getMemoryInfo(memoryInfo)
+        val totalRamGb = memoryInfo.totalMem / (1024L * 1024L * 1024L)
+        if (totalRamGb >= 10L) 2_000 else 500
+    } catch (_: Throwable) {
+        500
+    }
+}
+
+private val markdownParseCache = LruCache<String, ParsedChatMarkdown>(markdownParseCacheCapacity)
 
 data class ParsedChatMarkdown(
     val blocks: List<ChatMarkdownBlock>,

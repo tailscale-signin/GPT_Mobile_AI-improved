@@ -77,14 +77,18 @@ jobs:
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build Release APK
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.workers.max=2 -Dorg.gradle.jvmargs=\"-Xmx3584m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC\""
         run: |
           echo "Building Release APK..."
-          ./gradlew assembleRelease --stacktrace --no-daemon
+          ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2
 
       - name: Build Release Bundle
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.workers.max=2 -Dorg.gradle.jvmargs=\"-Xmx3584m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC\""
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon || echo "Bundle build skipped or non-fatal"
+          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build skipped or non-fatal"
 
       - name: Sign APKs with apksigner
         run: |

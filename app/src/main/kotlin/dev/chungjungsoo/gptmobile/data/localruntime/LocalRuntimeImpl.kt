@@ -40,15 +40,23 @@ class LocalRuntimeImpl(
     private var loadedAccelerator: String = LocalAccelerators.CPU
     private var loadedSpec: LocalEngineSpec? = null
 
-    private val isHighRamDevice: Boolean by lazy {
+    private val deviceRamGb: Long by lazy {
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val memoryInfo = ActivityManager.MemoryInfo()
         if (activityManager != null) {
             activityManager.getMemoryInfo(memoryInfo)
-            memoryInfo.totalMem >= 10L * 1024 * 1024 * 1024 // 10 GB or more
+            memoryInfo.totalMem / (1024L * 1024L * 1024L)
         } else {
-            false
+            4L
         }
+    }
+
+    private val isHighRamDevice: Boolean by lazy {
+        deviceRamGb >= 10L
+    }
+
+    private val isMidRamDevice: Boolean by lazy {
+        deviceRamGb >= 6L
     }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
@@ -186,12 +194,7 @@ class LocalRuntimeImpl(
         LocalAccelerators.GPU -> Backend.GPU()
         LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
         else -> Backend.CPU(
-            numThreads = if (isHighRamDevice) {
-                // High-performance CPU threads allocation for high-RAM flagship devices
-                Runtime.getRuntime().availableProcessors().coerceIn(4, 8)
-            } else {
-                null
-            }
+            numThreads = resolveCpuThreads()
         )
     }
 
@@ -199,14 +202,19 @@ class LocalRuntimeImpl(
         if (!spec.isVisionEnabled) return null
         return when (LocalAccelerators.normalize(spec.accelerator)) {
             LocalAccelerators.CPU -> Backend.CPU(
-                numThreads = if (isHighRamDevice) {
-                    Runtime.getRuntime().availableProcessors().coerceIn(4, 8)
-                } else {
-                    null
-                }
+                numThreads = resolveCpuThreads()
             )
             LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
             else -> Backend.GPU()
+        }
+    }
+
+    private fun resolveCpuThreads(): Int? {
+        val cores = Runtime.getRuntime().availableProcessors()
+        return when {
+            isHighRamDevice -> cores.coerceIn(4, 8)
+            isMidRamDevice -> cores.coerceIn(2, 4)
+            else -> null
         }
     }
 
@@ -220,9 +228,17 @@ class LocalRuntimeImpl(
         )
     }
 
-    private fun Message.visibleText(): String = contents.contents
-        .filterIsInstance<Content.Text>()
-        .joinToString("") { it.text }
+    private fun Message.visibleText(): String {
+        val textList = contents.contents.filterIsInstance<Content.Text>()
+        if (textList.isEmpty()) return ""
+        if (textList.size == 1) return textList[0].text
+        val totalLength = textList.sumOf { it.text.length }
+        val sb = java.lang.StringBuilder(totalLength)
+        for (item in textList) {
+            sb.append(item.text)
+        }
+        return sb.toString()
+    }
 
     private companion object {
         const val THOUGHT_CHANNEL = "thought"

@@ -36,6 +36,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.selectRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
@@ -125,6 +127,15 @@ class ChatViewModel @Inject constructor(
     private val _isChatModelDialogOpen = MutableStateFlow(false)
     val isChatModelDialogOpen = _isChatModelDialogOpen.asStateFlow()
 
+    private val _isChatToolSheetOpen = MutableStateFlow(false)
+    val isChatToolSheetOpen = _isChatToolSheetOpen.asStateFlow()
+
+    private val _chatToolConfig = MutableStateFlow(ChatMcpToolConfig())
+    val chatToolConfig = _chatToolConfig.asStateFlow()
+
+    private val _availableChatTools = MutableStateFlow<List<AvailableChatTool>>(emptyList())
+    val availableChatTools = _availableChatTools.asStateFlow()
+
     private val _chatPlatformModels = MutableStateFlow<Map<String, String>>(emptyMap())
     val chatPlatformModels = _chatPlatformModels.asStateFlow()
 
@@ -204,6 +215,7 @@ class ChatViewModel @Inject constructor(
         observeAgentRuns()
         observeToolEvents()
         observeAgentNotices()
+        loadAvailableChatTools()
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
         }
@@ -280,6 +292,51 @@ class ChatViewModel @Inject constructor(
 
     fun openChatTitleDialog() = _isChatTitleDialogOpen.update { true }
     fun openChatModelDialog() = _isChatModelDialogOpen.update { true }
+
+    fun openChatToolSheet() = _isChatToolSheetOpen.update { true }
+    fun closeChatToolSheet() = _isChatToolSheetOpen.update { false }
+
+    fun toggleChatTool(toolId: String) {
+        _chatToolConfig.update { config ->
+            val isEnabled = config.isToolEnabled(toolId)
+            if (isEnabled) config.withToolDisabled(toolId) else config.withToolEnabled(toolId)
+        }
+    }
+
+    fun enableAllChatTools() {
+        _chatToolConfig.update { config ->
+            config.copy(
+                disabledToolIds = emptySet(),
+                enabledToolIds = _availableChatTools.value.map { it.id }.toSet(),
+                allToolsDisabled = false
+            )
+        }
+    }
+
+    fun disableAllChatTools() {
+        _chatToolConfig.update { config ->
+            config.copy(
+                disabledToolIds = _availableChatTools.value.map { it.id }.toSet(),
+                enabledToolIds = emptySet(),
+                allToolsDisabled = true
+            )
+        }
+    }
+
+    private fun loadAvailableChatTools() {
+        viewModelScope.launch {
+            val connections = toolConnectionRepository.getAllConnections()
+            val tools = connections.map { conn ->
+                AvailableChatTool(
+                    id = conn.alias,
+                    name = conn.name,
+                    description = conn.endpointUrl,
+                    source = if (conn.isWebSearch) "Search" else "MCP"
+                )
+            }
+            _availableChatTools.update { tools }
+        }
+    }
 
     fun openUserMessageEditDialog(question: MessageV2) {
         _messageEditSession.update {

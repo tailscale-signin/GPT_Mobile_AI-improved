@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import kotlinx.coroutines.flow.Flow
 
 interface ChatRepository {
@@ -20,7 +21,8 @@ interface ChatRepository {
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
         platform: PlatformV2,
-        runId: String
+        runId: String,
+        chatToolConfig: ChatMcpToolConfig? = null
     ): Flow<ApiState>
     fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>>
     fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>>

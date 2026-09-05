@@ -1,7 +1,15 @@
 package dev.chungjungsoo.gptmobile.util
 
 object AttachmentPayloadCache {
-    internal const val MAX_ENTRIES: Int = 32
+    // Dynamic max entries scaled for high-RAM devices
+    internal val MAX_ENTRIES: Int = run {
+        val maxMemoryMb = (Runtime.getRuntime().maxMemory() / (1024 * 1024)).toInt()
+        when {
+            maxMemoryMb >= 1024 -> 128 // 1GB+ JVM heap available (flagship RAM): cache up to 128 payloads
+            maxMemoryMb >= 512 -> 64   // 512MB-1GB heap: cache 64 payloads
+            else -> 32                 // Standard / lower RAM: 32 payloads
+        }
+    }
 
     private val payloads = object : LinkedHashMap<String, FileUtils.EncodedImage>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, FileUtils.EncodedImage>?): Boolean = size > MAX_ENTRIES

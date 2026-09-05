@@ -6,22 +6,30 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-@OptIn(FlowPreview::class)
+enum class HomeTab {
+    CHATS,
+    FAVORITES
+}
+
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
@@ -41,6 +49,9 @@ class HomeViewModel @Inject constructor(
         val selectedChats: List<Boolean> = listOf()
     )
 
+    private val _currentTab = MutableStateFlow(HomeTab.CHATS)
+    val currentTab = _currentTab.asStateFlow()
+
     private val _chatListState = MutableStateFlow(ChatListState())
     val chatListState: StateFlow<ChatListState> = _chatListState.asStateFlow()
 
@@ -49,6 +60,12 @@ class HomeViewModel @Inject constructor(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
+
+    private val _favoriteSearchQuery = MutableStateFlow("")
+    val favoriteSearchQuery = _favoriteSearchQuery.asStateFlow()
+
+    private val _favoriteMessages = MutableStateFlow<List<MessageV2>>(emptyList())
+    val favoriteMessages = _favoriteMessages.asStateFlow()
 
     private val _showSelectModelDialog = MutableStateFlow(false)
     val showSelectModelDialog: StateFlow<Boolean> = _showSelectModelDialog.asStateFlow()
@@ -60,15 +77,45 @@ class HomeViewModel @Inject constructor(
     val activeChatIds = _activeChatIds.asStateFlow()
 
     init {
-        // Set up debounced search
+        // Set up debounced search for chats
         _searchQuery
             .debounce(SEARCH_DEBOUNCE_MS)
             .distinctUntilChanged()
             .onEach { query -> searchChats(query) }
             .launchIn(viewModelScope)
+
+        // Set up debounced search / observation for favorite messages
+        _favoriteSearchQuery
+            .debounce(SEARCH_DEBOUNCE_MS)
+            .distinctUntilChanged()
+            .flatMapLatest { query ->
+                if (query.isBlank()) {
+                    chatRepository.observeFavoriteAssistantMessages()
+                } else {
+                    chatRepository.searchFavoriteAssistantMessages(query)
+                }
+            }
+            .onEach { favorites -> _favoriteMessages.update { favorites } }
+            .launchIn(viewModelScope)
+
         agentRunCoordinator.activeRuns
             .onEach { runs -> _activeChatIds.update { runs.values.mapTo(mutableSetOf()) { it.chatId } } }
             .launchIn(viewModelScope)
+    }
+
+    fun selectTab(tab: HomeTab) {
+        _currentTab.update { tab }
+        disableSelectionMode()
+    }
+
+    fun updateFavoriteSearchQuery(query: String) {
+        _favoriteSearchQuery.update { query }
+    }
+
+    fun toggleFavorite(messageId: Int, isFavorite: Boolean) {
+        viewModelScope.launch {
+            chatRepository.setMessageFavorite(messageId, isFavorite)
+        }
     }
 
     fun updatePlatformCheckedState(idx: Int) {

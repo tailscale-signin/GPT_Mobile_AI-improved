@@ -200,6 +200,14 @@ fun ChatScreen(
 
     val scope = rememberCoroutineScope()
 
+    val onCopyTextLambda = remember<(String) -> Unit>(clipboardManager, scope) {
+        { copiedText ->
+            scope.launch {
+                clipboardManager.setClipEntry(ClipEntry(ClipData.newPlainText(copiedText, copiedText)))
+            }
+        }
+    }
+
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         chatViewModel.refreshLocalNetworkRequirement()
     }
@@ -293,11 +301,7 @@ fun ChatScreen(
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
-                            onCopyText = { copiedText ->
-                                scope.launch {
-                                    clipboardManager.setClipEntry(ClipEntry(ClipData.newPlainText(copiedText, copiedText)))
-                                }
-                            },
+                            onCopyText = onCopyTextLambda,
                             onPlatformClick = chatViewModel::updateChatPlatformIndex,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,

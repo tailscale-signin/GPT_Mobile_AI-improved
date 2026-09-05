@@ -20,7 +20,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -103,6 +105,7 @@ fun OpponentChatBubble(
     toolEvents: List<ToolEvent> = emptyList(),
     contentIdentity: Any = text,
     canEdit: Boolean = false,
+    isFavorite: Boolean = false,
     revisionIndexLabel: String? = null,
     canShowPreviousRevision: Boolean = false,
     canShowNextRevision: Boolean = false,
@@ -110,6 +113,7 @@ fun OpponentChatBubble(
     onSelectClick: () -> Unit = {},
     onRetryClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
+    onFavoriteClick: () -> Unit = {},
     onShowPreviousRevision: () -> Unit = {},
     onShowNextRevision: () -> Unit = {}
 ) {
@@ -171,12 +175,15 @@ fun OpponentChatBubble(
 
             if (!isLoading) {
                 Row(
-                    modifier = Modifier.padding(start = 16.dp)
+                    modifier = Modifier.padding(start = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (!isError) {
                         CopyTextIcon(onCopyClick)
                         Spacer(modifier = Modifier.width(8.dp))
                         SelectTextIcon(onSelectClick)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FavoriteIcon(isFavorite = isFavorite, onFavoriteClick = onFavoriteClick)
                         if (canEdit) {
                             Spacer(modifier = Modifier.width(8.dp))
                             EditTextIcon(onEditClick)
@@ -399,6 +406,20 @@ private fun SelectTextIcon(onSelectClick: () -> Unit) {
         Icon(
             imageVector = ImageVector.vectorResource(id = R.drawable.ic_select),
             contentDescription = stringResource(R.string.select_text)
+        )
+    }
+}
+
+@Composable
+private fun FavoriteIcon(
+    isFavorite: Boolean,
+    onFavoriteClick: () -> Unit
+) {
+    IconButton(onClick = onFavoriteClick) {
+        Icon(
+            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+            contentDescription = stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
+            tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

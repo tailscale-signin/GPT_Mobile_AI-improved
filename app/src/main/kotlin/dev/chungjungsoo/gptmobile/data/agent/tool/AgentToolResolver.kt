@@ -32,7 +32,8 @@ class AgentToolResolver @Inject constructor(
     private val secretVault: SecretVault,
     private val networkClient: NetworkClient,
     private val mcpClientManager: McpClientManager,
-    private val mcpOAuthCoordinator: McpOAuthCoordinator
+    private val mcpOAuthCoordinator: McpOAuthCoordinator,
+    private val deviceLocationTool: DeviceLocationTool
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection): List<Tool> {
         val config = mcpConfig(connection)
@@ -82,6 +83,12 @@ class AgentToolResolver @Inject constructor(
 
         BuiltInAgentTool.READ_URL -> if (binding.binding.connectionUid == null) {
             ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
+        } else {
+            null
+        }
+
+        BuiltInAgentTool.DEVICE_LOCATION -> if (binding.binding.connectionUid == null) {
+            deviceLocationTool.resolved(null, null, BuiltInAgentTool.DEVICE_LOCATION)
         } else {
             null
         }

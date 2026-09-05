@@ -38,6 +38,8 @@
 # -------------------------------------------------------------
 -dontwarn io.ktor.**
 -keep class io.ktor.** { *; }
+-keep class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**
 
 # -------------------------------------------------------------
 # Model Context Protocol (MCP) Kotlin SDK
@@ -81,6 +83,12 @@
 -keepclasseswithmembers class * {
     public static *** Companion;
 }
+
+# -------------------------------------------------------------
+# Kotlin Metadata & Reflection Safeguards
+# -------------------------------------------------------------
+-keepattributes Signature, Exceptions
+-keepclassmembers class kotlin.Metadata { *; }
 
 # Preserve line numbers and source files for release stack traces
 -keepattributes SourceFile,LineNumberTable

@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.dto.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.dto.buildEndpoint
 import io.ktor.client.plugins.logging.LogLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,5 +32,21 @@ class NetworkClientTest {
     fun `anthropic credential header is sanitized case insensitively`() {
         assertTrue(NetworkClient.isSensitiveHeader("x-api-key"))
         assertTrue(NetworkClient.isSensitiveHeader("X-Api-Key"))
+    }
+
+    @Test
+    fun `provider request config buildEndpoint trims trailing slashes and spaces`() {
+        val configWithTrailingSlash = ProviderRequestConfig(
+            provider = dev.chungjungsoo.gptmobile.data.model.Provider.OPENAI,
+            apiUrl = "https://api.openai.com/v1/  "
+        )
+        assertEquals("https://api.openai.com/v1/chat/completions", configWithTrailingSlash.buildEndpoint("chat/completions"))
+        assertEquals("https://api.openai.com/v1/chat/completions", configWithTrailingSlash.buildEndpoint("/chat/completions"))
+
+        val configClean = ProviderRequestConfig(
+            provider = dev.chungjungsoo.gptmobile.data.model.Provider.GROQ,
+            apiUrl = "https://api.groq.com/openai/v1"
+        )
+        assertEquals("https://api.groq.com/openai/v1/models", configClean.buildEndpoint("models"))
     }
 }

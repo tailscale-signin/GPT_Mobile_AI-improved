@@ -288,6 +288,19 @@ class ChatRepositoryImpl @Inject constructor(
 
     override fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>> = messageV2Dao.observeMessages(chatId)
 
+    override fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>> = messageV2Dao.observeFavoriteAssistantMessages()
+
+    override fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>> =
+        if (query.isBlank()) {
+            messageV2Dao.observeFavoriteAssistantMessages()
+        } else {
+            messageV2Dao.searchFavoriteAssistantMessages(query)
+        }
+
+    override suspend fun setMessageFavorite(messageId: Int, isFavorite: Boolean) {
+        messageV2Dao.updateFavorite(messageId, isFavorite)
+    }
+
     override fun observeAgentRuns(chatId: Int) = agentRunDao.observeByChatId(chatId)
 
     override fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>> = toolEventRecorder.observeChat(chatId)

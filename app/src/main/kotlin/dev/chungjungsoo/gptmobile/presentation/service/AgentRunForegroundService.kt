@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -32,13 +33,16 @@ class AgentRunForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var stoppedBecauseInactive = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
+        acquireWakeLock()
         createNotificationChannel()
         var wasActive = coordinator.activeRuns.value.isNotEmpty()
         if (!showNotification(coordinator.activeRuns.value.size)) {
             coordinator.interruptAll()
+            releaseWakeLock()
             stopSelf()
             return
         }
@@ -47,14 +51,17 @@ class AgentRunForegroundService : Service() {
                 val isActive = activeRuns.isNotEmpty()
                 if (!isActive) {
                     stoppedBecauseInactive = true
+                    releaseWakeLock()
                     ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                     if (shouldNotifyAgentRunsCompleted(wasActive, isActive, AppForegroundTracker.isBackgrounded)) {
                         showCompletionNotification()
                     }
                     stopSelf()
                 } else {
+                    acquireWakeLock()
                     if (!showNotification(activeRuns.size)) {
                         coordinator.interruptAll()
+                        releaseWakeLock()
                         stopSelf()
                     }
                 }
@@ -71,6 +78,7 @@ class AgentRunForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        releaseWakeLock()
         if (shouldInterruptAgentRunsOnDestroy(stoppedBecauseInactive, coordinator.activeRuns.value.isNotEmpty())) {
             coordinator.interruptAll()
         }
@@ -79,12 +87,38 @@ class AgentRunForegroundService : Service() {
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
+        releaseWakeLock()
         coordinator.interruptAll()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun acquireWakeLock() {
+        runCatching {
+            if (wakeLock?.isHeld != true) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                wakeLock = powerManager?.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    WAKELOCK_TAG
+                )?.apply {
+                    setReferenceCounted(false)
+                    // Keep CPU awake during active inference/agent tool runs up to 1 hour per session
+                    acquire(WAKELOCK_TIMEOUT_MS)
+                }
+            }
+        }
+    }
+
+    private fun releaseWakeLock() {
+        runCatching {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+            wakeLock = null
+        }
+    }
 
     private fun showNotification(activeCount: Int): Boolean = runCatching {
         ServiceCompat.startForeground(
@@ -157,6 +191,8 @@ class AgentRunForegroundService : Service() {
         private const val CHANNEL_ID = "agent_runs"
         private const val NOTIFICATION_ID = 8001
         private const val ACTION_CANCEL_ALL = "dev.chungjungsoo.gptmobile.action.CANCEL_AGENT_RUNS"
+        private const val WAKELOCK_TAG = "dev.chungjungsoo.gptmobile:agent_execution_wakelock"
+        private const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L // 1 hour max safeguard
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(

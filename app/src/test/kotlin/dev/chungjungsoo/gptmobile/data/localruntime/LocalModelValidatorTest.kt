@@ -19,16 +19,20 @@ class LocalModelValidatorTest {
     fun nonExistentFile_returnsFailure() {
         val nonExistent = File(tempFolder.root, "does_not_exist.bin")
         val result = LocalModelValidator.validate(nonExistent.absolutePath)
-        assertFalse(result.isValid)
-        assertTrue(result.errorMessage?.contains("does not exist") == true)
+        assertTrue(result is ModelValidationResult.Invalid)
+        val invalid = result as ModelValidationResult.Invalid
+        assertEquals(ModelValidationResult.Invalid.Reason.NOT_FOUND, invalid.reason)
+        assertTrue(invalid.details?.contains("does not exist") == true)
     }
 
     @Test
     fun directory_returnsFailure() {
         val dir = tempFolder.newFolder("model_dir")
         val result = LocalModelValidator.validate(dir.absolutePath)
-        assertFalse(result.isValid)
-        assertTrue(result.errorMessage?.contains("directory") == true)
+        assertTrue(result is ModelValidationResult.Invalid)
+        val invalid = result as ModelValidationResult.Invalid
+        assertEquals(ModelValidationResult.Invalid.Reason.NOT_A_FILE, invalid.reason)
+        assertTrue(invalid.details?.contains("regular file") == true)
     }
 
     @Test
@@ -36,13 +40,15 @@ class LocalModelValidatorTest {
         val tinyFile = tempFolder.newFile("tiny.bin")
         tinyFile.writeBytes(ByteArray(100))
         val result = LocalModelValidator.validate(tinyFile.absolutePath)
-        assertFalse(result.isValid)
-        assertTrue(result.errorMessage?.contains("suspiciously small") == true)
+        assertTrue(result is ModelValidationResult.Invalid)
+        val invalid = result as ModelValidationResult.Invalid
+        assertEquals(ModelValidationResult.Invalid.Reason.FILE_TOO_SMALL, invalid.reason)
+        assertTrue(invalid.details?.contains("below minimum required") == true)
     }
 
     @Test
     fun validTfliteFile_passesValidation() {
-        val modelFile = tempFolder.newFile("model.task")
+        val modelFile = tempFolder.newFile("model.tflite")
         FileOutputStream(modelFile).use { fos ->
             val header = ByteArray(8)
             header[4] = 'T'.code.toByte()
@@ -57,9 +63,14 @@ class LocalModelValidatorTest {
             }
         }
 
-        val result = LocalModelValidator.validate(modelFile.absolutePath)
-        assertTrue(result.isValid)
-        assertEquals(null, result.errorMessage)
+        val result = LocalModelValidator.validate(
+            modelPath = modelFile.absolutePath,
+            verifyTFLiteHeader = true
+        )
+        assertTrue(result is ModelValidationResult.Valid)
+        val valid = result as ModelValidationResult.Valid
+        assertEquals(modelFile.absolutePath, valid.file.absolutePath)
+        assertTrue(valid.sizeBytes >= 10L * 1024L * 1024L)
     }
 
     @Test
@@ -72,18 +83,22 @@ class LocalModelValidatorTest {
         val expectedSha = digest.digest(content).joinToString("") { "%02x".format(it) }
 
         val validResult = LocalModelValidator.validate(
-            path = modelFile.absolutePath,
+            modelPath = modelFile.absolutePath,
             expectedSha256 = expectedSha,
-            requireMagicHeader = false
+            verifyTFLiteHeader = false
         )
-        assertTrue(validResult.isValid)
+        assertTrue(validResult is ModelValidationResult.Valid)
+        val valid = validResult as ModelValidationResult.Valid
+        assertEquals(expectedSha, valid.sha256Hex)
 
         val invalidResult = LocalModelValidator.validate(
-            path = modelFile.absolutePath,
+            modelPath = modelFile.absolutePath,
             expectedSha256 = "deadbeef00000000deadbeef00000000deadbeef00000000deadbeef00000000",
-            requireMagicHeader = false
+            verifyTFLiteHeader = false
         )
-        assertFalse(invalidResult.isValid)
-        assertTrue(invalidResult.errorMessage?.contains("Checksum mismatch") == true)
+        assertTrue(invalidResult is ModelValidationResult.Invalid)
+        val invalid = invalidResult as ModelValidationResult.Invalid
+        assertEquals(ModelValidationResult.Invalid.Reason.CHECKSUM_MISMATCH, invalid.reason)
+        assertTrue(invalid.details?.contains("SHA-256") == true)
     }
 }

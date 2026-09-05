@@ -8,7 +8,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabase
-import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseMigrations
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2Migrations
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
@@ -40,16 +39,6 @@ object DatabaseModule {
             ChatDatabase::class.java,
             V1_DATABASE_NAME
         )
-            .addMigrations(
-                ChatDatabaseMigrations.MIGRATION_1_2,
-                ChatDatabaseMigrations.MIGRATION_2_3,
-                ChatDatabaseMigrations.MIGRATION_3_4,
-                ChatDatabaseMigrations.MIGRATION_4_5,
-                ChatDatabaseMigrations.MIGRATION_5_6,
-                ChatDatabaseMigrations.MIGRATION_6_7,
-                ChatDatabaseMigrations.MIGRATION_7_8,
-                ChatDatabaseMigrations.MIGRATION_8_9
-            )
             .fallbackToDestructiveMigration()
             .build()
     }

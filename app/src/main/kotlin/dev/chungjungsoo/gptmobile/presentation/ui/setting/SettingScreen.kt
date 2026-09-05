@@ -366,6 +366,7 @@ fun ExportConfigurationDialog(
     exportedJson: String,
     onDismiss: () -> Unit
 ) {
+    @Suppress("DEPRECATION")
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
 

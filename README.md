@@ -35,36 +35,53 @@
 
 ## Features
 
-- **Chat with multiple models at once**
-  - Uses official APIs for each platform
+- **Chat with Multiple Models Simultaneously**
+  - Query multiple models simultaneously in side-by-side or tabbed multi-turn conversations
   - Supported platforms:
     - OpenAI GPT (including custom endpoints)
     - Anthropic Claude
     - Google Gemini
     - Groq
-    - Ollama (local/remote host)
+    - Ollama (local or remote instances)
     - OpenAI-compatible third-party APIs
   - Customizable temperature, top_p (nucleus sampling), and system prompts
-  - Custom API URLs and custom model names are fully supported
+  - Fully supports custom API URLs and arbitrary model identifiers
+- **AI Response Favorites & Searchable Star Tab**
+  - One-tap star/favorite on any AI response bubble across all platforms
+  - Dedicated **Star / Favorites tab** on the main home screen
+  - Real-time instant search across all favorited AI responses
+  - Tap any favorited card to jump directly to its chat room and context
+  - Backed by Room database schema migration (v13)
 - **Agent Tools per Provider Profile**
   - Native tool calling with OpenAI, OpenAI-compatible/Groq, Anthropic, and Gemini
-  - Web search via Firecrawl, Perplexity, or Exa with hardened URL reading
+  - Web search via Firecrawl, Perplexity, or Exa with hardened URL fetching
   - MCP (Model Context Protocol) Streamable HTTP servers with public, bearer token, or OAuth authentication
   - Local network discovery and validation for local MCP servers / Ollama instances
   - Parallel runs, persistent trace viewer, cancellation, and foreground notification progress
   - Existing and newly migrated profiles remain chat-only until tools are explicitly assigned
-- **Backup & Restore Configuration**
+- **Configuration Backup & Restore**
   - Full export and restore of platform profiles, custom URLs, model configurations, and theme settings via formatted JSON
   - Seamlessly re-encrypts and manages credentials through Android Keystore (`SecretVault`)
   - Integrated one-tap clipboard copy and in-app JSON validation with error reporting
 - **Local & Private Data Storage**
-  - Chat history is **only saved locally** on your device
+  - Chat history and messages are **only saved locally** on your device
   - API credentials are encrypted with Android Keystore
   - During chats, requests go only to selected model providers and assigned tools
 - **Modern Android & Jetpack Compose Architecture**
   - [Material You](https://m3.material.io/) dynamic theming, dark mode, and seamless theme switching without Activity restarts
   - Per-app language preferences for Android 13+
   - 100% Kotlin, Jetpack Compose, Kotlin Coroutines & Flow, Hilt dependency injection, and Room database
+
+
+## Recent Changes & Patches
+
+- **v0.8.1**:
+  - **AI Response Favorites**: Star AI responses directly in chat; browse and search all favorited responses in the new Star tab on the home screen.
+  - **Room Database Migration v13**: Persists `is_favorite` flag per message with migration from v12.
+  - **Backup & Restore**: Export and import full app configuration, provider profiles, and settings as JSON with Android Keystore re-encryption.
+  - **Android Local Network Permissions**: Compatibility patch adding `PERMISSION_ACCESS_LOCAL_NETWORK` fallback without breaking older SDK builds.
+  - **AAR Metadata & Build Fixes**: Dynamic task configuration for `checkAarMetadata` resolving build errors with AGP 8.8+ and CI build optimizations.
+  - **Transient Chat Runs Notice**: Fixed JVM signature ambiguity in `pruneTransientChatRunNotices`.
 
 
 ## Agent documentation

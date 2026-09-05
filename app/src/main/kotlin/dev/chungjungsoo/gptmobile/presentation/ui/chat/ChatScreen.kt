@@ -45,6 +45,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
@@ -147,6 +148,9 @@ fun ChatScreen(
     val loadingStates by chatViewModel.loadingStates.collectAsStateWithLifecycle()
     val isChatTitleDialogOpen by chatViewModel.isChatTitleDialogOpen.collectAsStateWithLifecycle()
     val isChatModelDialogOpen by chatViewModel.isChatModelDialogOpen.collectAsStateWithLifecycle()
+    val isChatToolSheetOpen by chatViewModel.isChatToolSheetOpen.collectAsStateWithLifecycle()
+    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
     val isSelectTextSheetOpen by chatViewModel.isSelectTextSheetOpen.collectAsStateWithLifecycle()
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
@@ -259,10 +263,12 @@ fun ChatScreen(
                 chatRoom.title,
                 chatRoom.id > 0,
                 chatViewModel.enabledPlatformsInChat.isNotEmpty(),
+                availableChatTools.isNotEmpty(),
                 onBackAction,
                 scrollBehavior,
                 chatViewModel::openChatTitleDialog,
                 chatViewModel::openChatModelDialog,
+                chatViewModel::openChatToolSheet,
                 onExportChatItemClick = { exportChat(context, chatViewModel) }
             )
         }
@@ -391,6 +397,17 @@ fun ChatScreen(
                     chatViewModel.updateChatPlatformModels(models)
                     chatViewModel.closeChatModelDialog()
                 }
+            )
+        }
+
+        if (isChatToolSheetOpen) {
+            ChatToolSelectionBottomSheet(
+                tools = availableChatTools,
+                config = chatToolConfig,
+                onToolToggled = chatViewModel::toggleChatTool,
+                onEnableAll = chatViewModel::enableAllChatTools,
+                onDisableAll = chatViewModel::disableAllChatTools,
+                onDismiss = chatViewModel::closeChatToolSheet
             )
         }
 
@@ -608,10 +625,12 @@ private fun ChatTopBar(
     title: String,
     isMenuItemEnabled: Boolean,
     isModelItemEnabled: Boolean,
+    isToolItemEnabled: Boolean,
     onBackAction: () -> Unit,
     scrollBehavior: TopAppBarScrollBehavior,
     onChatTitleItemClick: () -> Unit,
     onChatModelItemClick: () -> Unit,
+    onChatToolItemClick: () -> Unit,
     onExportChatItemClick: () -> Unit
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
@@ -626,6 +645,16 @@ private fun ChatTopBar(
             }
         },
         actions = {
+            if (isToolItemEnabled) {
+                IconButton(
+                    onClick = onChatToolItemClick
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Build,
+                        contentDescription = "Chat Tools"
+                    )
+                }
+            }
             IconButton(
                 enabled = isModelItemEnabled,
                 onClick = onChatModelItemClick

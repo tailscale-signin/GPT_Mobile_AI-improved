@@ -17,18 +17,17 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl
 import io.ktor.client.engine.cio.CIO
-import io.ktor.client.engine.cio.CIOEngineConfig
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    private fun isHighRamDevice(context: Context): Boolean {
-        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+    private fun getDeviceRamGb(context: Context): Long {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return 0L
         val memoryInfo = ActivityManager.MemoryInfo()
         am.getMemoryInfo(memoryInfo)
-        return (memoryInfo.totalMem / (1024L * 1024L * 1024L)) >= 10L
+        return memoryInfo.totalMem / (1024L * 1024L * 1024L)
     }
 
     @Provides
@@ -36,24 +35,38 @@ object NetworkModule {
     fun provideNetworkClient(
         @ApplicationContext context: Context
     ): NetworkClient {
-        val isHighRam = isHighRamDevice(context)
+        val ramGb = getDeviceRamGb(context)
         val engine = CIO.create {
-            if (isHighRam) {
-                // High-performance concurrency pool for 12GB+ RAM multi-core devices
-                maxConnectionsCount = 1000
-                endpoint {
-                    maxConnectionsPerRoute = 100
-                    pipelineMaxSize = 20
-                    keepAliveTime = 5000
-                    connectTimeout = 5000
+            when {
+                ramGb >= 10L -> {
+                    // High-performance concurrency pool for 10GB+ RAM multi-core devices
+                    maxConnectionsCount = 1000
+                    endpoint {
+                        maxConnectionsPerRoute = 100
+                        pipelineMaxSize = 20
+                        keepAliveTime = 5000
+                        connectTimeout = 5000
+                    }
                 }
-            } else {
-                maxConnectionsCount = 250
-                endpoint {
-                    maxConnectionsPerRoute = 25
-                    pipelineMaxSize = 5
-                    keepAliveTime = 5000
-                    connectTimeout = 10000
+                ramGb >= 6L -> {
+                    // Optimized concurrency pool for 6GB-9GB mid-tier devices
+                    maxConnectionsCount = 500
+                    endpoint {
+                        maxConnectionsPerRoute = 50
+                        pipelineMaxSize = 10
+                        keepAliveTime = 5000
+                        connectTimeout = 7000
+                    }
+                }
+                else -> {
+                    // Standard conservative allocation for low memory devices
+                    maxConnectionsCount = 250
+                    endpoint {
+                        maxConnectionsPerRoute = 25
+                        pipelineMaxSize = 5
+                        keepAliveTime = 5000
+                        connectTimeout = 10000
+                    }
                 }
             }
         }

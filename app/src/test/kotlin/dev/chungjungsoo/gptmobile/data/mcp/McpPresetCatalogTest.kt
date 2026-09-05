@@ -29,6 +29,25 @@ class McpPresetCatalogTest {
     }
 
     @Test
+    fun `mcpsearch termux preset should be configured correctly`() {
+        val mcpSearchPreset = McpPresetCatalog.presets.find { it.id == "mcpsearch-android-termux" }
+        assertNotNull("MCPSearch preset must exist", mcpSearchPreset)
+        assertEquals(McpCategory.SEARCH, mcpSearchPreset?.category)
+        assertEquals(McpTransportType.STDIO, mcpSearchPreset?.transportType)
+        assertEquals(McpSearchToolSet.DEFAULT_LAUNCHER_PATH, mcpSearchPreset?.commandOrUrl)
+        assertTrue(
+            "MCPSearch should have built-in tools registered",
+            mcpSearchPreset?.builtInTools?.isNotEmpty() == true
+        )
+        val toolNames = mcpSearchPreset?.builtInTools?.map { it.name }
+        assertTrue("MCPSearch should include search tool", toolNames?.contains("search") == true)
+        assertTrue("MCPSearch should include investigate tool", toolNames?.contains("investigate") == true)
+        assertTrue("MCPSearch should include compare tool", toolNames?.contains("compare") == true)
+        assertTrue("MCPSearch should include trending tool", toolNames?.contains("trending") == true)
+        assertTrue("MCPSearch should include get_crawl_stats tool", toolNames?.contains("get_crawl_stats") == true)
+    }
+
+    @Test
     fun `brave search preset should require BRAVE_API_KEY`() {
         val bravePreset = McpPresetCatalog.presets.find { it.id == "brave-search" }
         assertNotNull("Brave Search preset must exist", bravePreset)

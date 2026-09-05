@@ -22,9 +22,19 @@ jobs:
       - name: Free runner disk and memory space
         run: |
           sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android/sdk/ndk
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+
+      - name: Configure swap space for CI stability
+        run: |
+          echo "Setting up 4GB swap space to prevent runner OOM during release minification and dexing..."
+          sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: Setup JDK 21
         uses: actions/setup-java@v5

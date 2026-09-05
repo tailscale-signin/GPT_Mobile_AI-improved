@@ -6,13 +6,18 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSourceImpl
+import dev.chungjungsoo.gptmobile.data.dto.ConfigBackupDto
 import dev.chungjungsoo.gptmobile.data.dto.Platform
+import dev.chungjungsoo.gptmobile.data.dto.PlatformBackupDto
+import dev.chungjungsoo.gptmobile.data.dto.ThemeBackupDto
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 class SettingRepositoryImpl @Inject constructor(
@@ -21,6 +26,12 @@ class SettingRepositoryImpl @Inject constructor(
     private val chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
     private val secretVault: SecretVault
 ) : SettingRepository {
+
+    private val jsonSerializer = Json {
+        ignoreUnknownKeys = true
+        prettyPrint = true
+        encodeDefaults = true
+    }
 
     override suspend fun fetchPlatforms(): List<Platform> {
         val pref = settingDataSource.getPreferencesSnapshot()
@@ -212,6 +223,116 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun getPlatformV2ById(id: Int): PlatformV2? = platformV2Dao.getPlatform(id)?.let { platform ->
         resolvePlatformToken(platform)
+    }
+
+    override suspend fun exportConfigurationJson(): String {
+        val currentPlatforms = fetchPlatformV2s()
+        val currentThemes = fetchThemes()
+
+        val backup = ConfigBackupDto(
+            version = 1,
+            exportedAt = System.currentTimeMillis(),
+            theme = ThemeBackupDto(
+                dynamicTheme = currentThemes.dynamicTheme == DynamicTheme.ON,
+                themeMode = currentThemes.themeMode.mode
+            ),
+            platforms = currentPlatforms.map { p ->
+                PlatformBackupDto(
+                    name = p.name,
+                    compatibleType = p.compatibleType.type,
+                    enabled = p.enabled,
+                    apiUrl = p.apiUrl,
+                    token = p.token ?: "",
+                    model = p.model,
+                    temperature = p.temperature,
+                    topP = p.topP,
+                    topK = p.topK,
+                    maxTokens = p.maxTokens,
+                    accelerator = p.accelerator,
+                    systemPrompt = p.systemPrompt,
+                    stream = p.stream,
+                    reasoning = p.reasoning,
+                    timeout = p.timeout,
+                    geminiHarassmentThreshold = p.geminiHarassmentThreshold,
+                    geminiHateSpeechThreshold = p.geminiHateSpeechThreshold,
+                    geminiSexuallyExplicitThreshold = p.geminiSexuallyExplicitThreshold,
+                    geminiDangerousContentThreshold = p.geminiDangerousContentThreshold,
+                    geminiCivicIntegrityThreshold = p.geminiCivicIntegrityThreshold
+                )
+            }
+        )
+
+        return jsonSerializer.encodeToString(backup)
+    }
+
+    override suspend fun importConfigurationJson(json: String): Result<Int> = runCatching {
+        val backup = jsonSerializer.decodeFromString<ConfigBackupDto>(json)
+
+        backup.theme?.let { themeDto ->
+            val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
+            val themeMode = ThemeMode.entries.firstOrNull { it.mode == themeDto.themeMode } ?: ThemeMode.SYSTEM
+            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
+        }
+
+        var importedCount = 0
+        val existingPlatforms = platformV2Dao.getPlatforms()
+
+        backup.platforms.forEach { pDto ->
+            val clientType = ClientType.entries.firstOrNull { it.type == pDto.compatibleType } ?: ClientType.OPENAI
+            val existing = existingPlatforms.firstOrNull { it.name.equals(pDto.name, ignoreCase = true) }
+
+            if (existing != null) {
+                val updated = existing.copy(
+                    compatibleType = clientType,
+                    enabled = pDto.enabled,
+                    apiUrl = pDto.apiUrl,
+                    token = pDto.token.ifBlank { null },
+                    model = pDto.model,
+                    temperature = pDto.temperature,
+                    topP = pDto.topP,
+                    topK = pDto.topK,
+                    maxTokens = pDto.maxTokens,
+                    accelerator = pDto.accelerator,
+                    systemPrompt = pDto.systemPrompt,
+                    stream = pDto.stream,
+                    reasoning = pDto.reasoning,
+                    timeout = pDto.timeout,
+                    geminiHarassmentThreshold = pDto.geminiHarassmentThreshold,
+                    geminiHateSpeechThreshold = pDto.geminiHateSpeechThreshold,
+                    geminiSexuallyExplicitThreshold = pDto.geminiSexuallyExplicitThreshold,
+                    geminiDangerousContentThreshold = pDto.geminiDangerousContentThreshold,
+                    geminiCivicIntegrityThreshold = pDto.geminiCivicIntegrityThreshold
+                )
+                updatePlatformV2(updated)
+            } else {
+                val newPlatform = PlatformV2(
+                    name = pDto.name,
+                    compatibleType = clientType,
+                    enabled = pDto.enabled,
+                    apiUrl = pDto.apiUrl,
+                    token = pDto.token.ifBlank { null },
+                    model = pDto.model,
+                    temperature = pDto.temperature,
+                    topP = pDto.topP,
+                    topK = pDto.topK,
+                    maxTokens = pDto.maxTokens,
+                    accelerator = pDto.accelerator,
+                    systemPrompt = pDto.systemPrompt,
+                    stream = pDto.stream,
+                    reasoning = pDto.reasoning,
+                    timeout = pDto.timeout,
+                    geminiHarassmentThreshold = pDto.geminiHarassmentThreshold,
+                    geminiHateSpeechThreshold = pDto.geminiHateSpeechThreshold,
+                    geminiSexuallyExplicitThreshold = pDto.geminiSexuallyExplicitThreshold,
+                    geminiDangerousContentThreshold = pDto.geminiDangerousContentThreshold,
+                    geminiCivicIntegrityThreshold = pDto.geminiCivicIntegrityThreshold
+                )
+                addPlatformV2(newPlatform)
+            }
+            importedCount++
+        }
+
+        importedCount
     }
 
     private suspend fun securePlatform(platform: PlatformV2): PlatformV2 {

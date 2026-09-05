@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-04
+
 ### Added
 - Configuration Backup & Restore in Settings:
   - Export and restore platform configurations, customized model parameters, URLs, prompts, and theme preferences via formatted JSON.

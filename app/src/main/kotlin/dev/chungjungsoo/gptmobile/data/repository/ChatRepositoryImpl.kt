@@ -22,14 +22,10 @@ import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
-import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
-import dev.chungjungsoo.gptmobile.data.database.dao.MessageDao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
-import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoom
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
-import dev.chungjungsoo.gptmobile.data.database.entity.Message
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult
@@ -40,7 +36,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
-import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
@@ -64,8 +59,6 @@ import kotlinx.coroutines.withContext
 
 class ChatRepositoryImpl @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val chatRoomDao: ChatRoomDao,
-    private val messageDao: MessageDao,
     private val chatRoomV2Dao: ChatRoomV2Dao,
     private val messageV2Dao: MessageV2Dao,
     private val chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
@@ -268,8 +261,6 @@ class ChatRepositoryImpl @Inject constructor(
         return updatedMessages
     }
 
-    override suspend fun fetchChatList(): List<ChatRoom> = chatRoomDao.getChatRooms()
-
     override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
 
     override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
@@ -310,8 +301,6 @@ class ChatRepositoryImpl @Inject constructor(
         combined.sortByDescending { it.updatedAt }
         return combined
     }
-
-    override suspend fun fetchMessages(chatId: Int): List<Message> = messageDao.loadMessages(chatId)
 
     override suspend fun fetchMessagesV2(chatId: Int): List<MessageV2> = messageV2Dao.loadMessages(chatId)
 
@@ -387,68 +376,6 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun interruptActiveAgentRuns(completedAt: Long): Int = agentRunDao.interruptActiveRuns(completedAt)
 
-    override suspend fun migrateToChatRoomV2MessageV2() {
-        val leftOverChatRoomV2s = chatRoomV2Dao.getChatRooms()
-        leftOverChatRoomV2s.forEach { chatPlatformModelV2Dao.deleteByChatId(it.id) }
-        chatRoomV2Dao.deleteChatRooms(*leftOverChatRoomV2s.toTypedArray())
-
-        val chatList = fetchChatList()
-        val platforms = settingRepository.fetchPlatformV2s()
-        val apiTypeMap = mutableMapOf<ApiType, String>()
-        val modelByPlatformUid = mutableMapOf<String, String>()
-
-        platforms.forEach { platform ->
-            modelByPlatformUid[platform.uid] = platform.model
-            when (platform.name) {
-                "OpenAI" -> apiTypeMap[ApiType.OPENAI] = platform.uid
-                "Anthropic" -> apiTypeMap[ApiType.ANTHROPIC] = platform.uid
-                "Google" -> apiTypeMap[ApiType.GOOGLE] = platform.uid
-                "Groq" -> apiTypeMap[ApiType.GROQ] = platform.uid
-                "Ollama" -> apiTypeMap[ApiType.OLLAMA] = platform.uid
-            }
-        }
-
-        chatList.forEach { chatRoom ->
-            val messages = messageDao.loadMessages(chatRoom.id).map { m ->
-                MessageV2(
-                    id = m.id,
-                    chatId = m.chatId,
-                    content = m.content,
-                    attachments = listOf(),
-                    revisions = listOf(),
-                    linkedMessageId = m.linkedMessageId,
-                    platformType = m.platformType?.let { apiTypeMap[it] },
-                    createdAt = m.createdAt
-                )
-            }
-
-            val enabledPlatformUids = chatRoom.enabledPlatform.mapNotNull { apiTypeMap[it] }.filter { it.isNotBlank() }
-            chatRoomV2Dao.addChatRoom(
-                ChatRoomV2(
-                    id = chatRoom.id,
-                    title = chatRoom.title,
-                    enabledPlatform = enabledPlatformUids,
-                    createdAt = chatRoom.createdAt,
-                    updatedAt = chatRoom.createdAt
-                )
-            )
-
-            val modelRows = enabledPlatformUids.map { platformUid ->
-                ChatPlatformModelV2(
-                    chatId = chatRoom.id,
-                    platformUid = platformUid,
-                    model = modelByPlatformUid[platformUid] ?: ""
-                )
-            }
-
-            if (modelRows.isNotEmpty()) {
-                chatPlatformModelV2Dao.upsertAll(*modelRows.toTypedArray())
-            }
-
-            messageV2Dao.addMessages(*messages.toTypedArray())
-        }
-    }
-
     override fun generateDefaultChatTitle(messages: List<MessageV2>): String? = messages.sortedBy { it.createdAt }.firstOrNull { it.platformType == null }?.content?.replace('\n', ' ')?.take(50)
 
     override suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String) {
@@ -488,10 +415,6 @@ class ChatRepositoryImpl @Inject constructor(
             title = duplicatedTitle,
             timestamp = System.currentTimeMillis() / 1000
         )
-    }
-
-    override suspend fun deleteChats(chatRooms: List<ChatRoom>) {
-        chatRoomDao.deleteChatRooms(*chatRooms.toTypedArray())
     }
 
     override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) {

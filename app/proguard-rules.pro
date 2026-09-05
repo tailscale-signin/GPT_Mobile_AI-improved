@@ -22,12 +22,15 @@
 # Reactive Streams & Netty
 # -------------------------------------------------------------
 -keep class reactor.** { *; }
+-keep interface reactor.** { *; }
 -keep class io.micrometer.** { *; }
+-keep interface io.micrometer.** { *; }
 -dontwarn io.micrometer.**
 -dontwarn reactor.**
 
 # AppAuth (Hugging Face OAuth redirect / token exchange)
 -keep class net.openid.appauth.** { *; }
+-keep interface net.openid.appauth.** { *; }
 -dontwarn net.openid.appauth.**
 
 # Ignore missing optional logging dependencies used by Netty
@@ -39,7 +42,9 @@
 # -------------------------------------------------------------
 -dontwarn io.ktor.**
 -keep class io.ktor.** { *; }
+-keep interface io.ktor.** { *; }
 -keep class kotlinx.coroutines.** { *; }
+-keep interface kotlinx.coroutines.** { *; }
 -dontwarn kotlinx.coroutines.**
 
 # -------------------------------------------------------------
@@ -47,13 +52,16 @@
 # -------------------------------------------------------------
 -dontwarn io.modelcontextprotocol.**
 -keep class io.modelcontextprotocol.** { *; }
+-keep interface io.modelcontextprotocol.** { *; }
 
 # -------------------------------------------------------------
 # LiteRT-LM runtime & TensorFlow Lite / Edge
 # -------------------------------------------------------------
 -dontwarn com.google.ai.edge.**
 -keep class com.google.ai.edge.** { *; }
+-keep interface com.google.ai.edge.** { *; }
 -keep class com.google.android.gms.tflite.** { *; }
+-keep interface com.google.android.gms.tflite.** { *; }
 -dontwarn com.google.android.gms.tflite.**
 # Don't optimize LiteRT-LM native binding JNI classes
 -keepclasseswithmembernames,includedescriptorclasses class com.google.ai.edge.** {
@@ -72,12 +80,13 @@
 -keep class * extends androidx.hilt.work.HiltWorkerFactory { *; }
 -dontwarn androidx.hilt.work.**
 -keep class dagger.hilt.** { *; }
+-keep interface dagger.hilt.** { *; }
 -dontwarn dagger.hilt.**
 
 # -------------------------------------------------------------
 # Kotlinx Serialization
 # -------------------------------------------------------------
--keepattributes *Annotation*, InnerClasses
+-keepattributes *Annotation*, InnerClasses, EnclosingMethod
 -dontnote kotlinx.serialization.SerializationKt
 -keepclassmembers class * {
     @kotlinx.serialization.Serializable <fields>;
@@ -87,6 +96,13 @@
 }
 -keepclasseswithmembers class * {
     public static *** Companion;
+}
+-keepclassmembers class * implements kotlinx.serialization.KSerializer {
+    public static *** INSTANCE;
+}
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
 }
 
 # -------------------------------------------------------------

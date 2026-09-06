@@ -1,10 +1,10 @@
 package dev.melo.gptmobile.improved.data.model
 
-enum class DynamicTheme(val value: Int) {
-    OFF(0),
-    ON(1);
+enum class DynamicTheme {
+    ON,
+    OFF;
 
     companion object {
-        fun fromInt(value: Int) = entries.first { it.value == value }
+        fun getByValue(value: Int) = entries.firstOrNull { it.ordinal == value }
     }
 }

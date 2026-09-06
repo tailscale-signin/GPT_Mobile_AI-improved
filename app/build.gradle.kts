@@ -131,6 +131,10 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+hilt {
+    enableAggregatingTask = true
+}
+
 // Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name
 tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach {
     enabled = false

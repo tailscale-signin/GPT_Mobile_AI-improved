@@ -26,8 +26,8 @@ extensions.configure<ApplicationExtension> {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.8.12"
+        versionCode = 36
+        versionName = "0.8.13"
 
         multiDexEnabled = true
 

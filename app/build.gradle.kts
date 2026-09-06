@@ -22,6 +22,12 @@ extensions.configure<ApplicationExtension> {
     namespace = "dev.melo.gptmobile.improved"
     compileSdk = 36
 
+    sourceSets {
+        getByName("main") {
+            java.srcDirs("src/main/kotlin", "src/main/java")
+        }
+    }
+
     defaultConfig {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31

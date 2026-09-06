@@ -1,15 +1,21 @@
 package dev.melo.gptmobile.improved.di
 
 import android.content.Context
+import androidx.room.Room
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import dev.melo.gptmobile.improved.data.database.AppDatabase
+import dev.melo.gptmobile.improved.data.database.ChatDatabaseV2
+import dev.melo.gptmobile.improved.data.database.dao.AgentPersistenceDao
+import dev.melo.gptmobile.improved.data.database.dao.AgentRunDao
 import dev.melo.gptmobile.improved.data.database.dao.ChatPlatformModelV2Dao
-import dev.melo.gptmobile.improved.data.database.dao.ChatV2Dao
+import dev.melo.gptmobile.improved.data.database.dao.ChatRoomV2Dao
+import dev.melo.gptmobile.improved.data.database.dao.LocalModelDao
+import dev.melo.gptmobile.improved.data.database.dao.MessageV2Dao
 import dev.melo.gptmobile.improved.data.database.dao.PlatformV2Dao
+import dev.melo.gptmobile.improved.data.database.dao.ToolConnectionDao
 import javax.inject.Singleton
 
 @Module
@@ -18,14 +24,37 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase = AppDatabase.getInstance(context)
+    fun provideChatDatabaseV2(@ApplicationContext context: Context): ChatDatabaseV2 {
+        return Room.databaseBuilder(
+            context,
+            ChatDatabaseV2::class.java,
+            "gpt_mobile_v2.db"
+        )
+            .fallbackToDestructiveMigration()
+            .build()
+    }
 
     @Provides
-    fun provideChatDao(database: AppDatabase): ChatV2Dao = database.chatDao()
+    fun providePlatformV2Dao(database: ChatDatabaseV2): PlatformV2Dao = database.platformDao()
 
     @Provides
-    fun providePlatformV2Dao(database: AppDatabase): PlatformV2Dao = database.platformV2Dao()
+    fun provideChatRoomV2Dao(database: ChatDatabaseV2): ChatRoomV2Dao = database.chatRoomDao()
 
     @Provides
-    fun provideChatPlatformModelV2Dao(database: AppDatabase): ChatPlatformModelV2Dao = database.chatPlatformModelV2Dao()
+    fun provideMessageV2Dao(database: ChatDatabaseV2): MessageV2Dao = database.messageDao()
+
+    @Provides
+    fun provideChatPlatformModelV2Dao(database: ChatDatabaseV2): ChatPlatformModelV2Dao = database.chatPlatformModelDao()
+
+    @Provides
+    fun provideAgentRunDao(database: ChatDatabaseV2): AgentRunDao = database.agentRunDao()
+
+    @Provides
+    fun provideAgentPersistenceDao(database: ChatDatabaseV2): AgentPersistenceDao = database.agentPersistenceDao()
+
+    @Provides
+    fun provideToolConnectionDao(database: ChatDatabaseV2): ToolConnectionDao = database.toolConnectionDao()
+
+    @Provides
+    fun provideLocalModelDao(database: ChatDatabaseV2): LocalModelDao = database.localModelDao()
 }

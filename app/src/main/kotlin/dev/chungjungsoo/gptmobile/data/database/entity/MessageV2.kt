@@ -24,6 +24,7 @@ import kotlinx.serialization.Serializable
         Index(value = ["is_favorite"])
     ]
 )
+@Serializable
 data class MessageV2(
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo("message_id")

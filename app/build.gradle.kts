@@ -54,7 +54,7 @@ extensions.configure<ApplicationExtension> {
 
     sourceSets {
         getByName("main") {
-            java.directories("src/main/kotlin")
+            java.srcDirs("src/main/kotlin")
         }
     }
 
@@ -168,7 +168,6 @@ dependencies {
     implementation(libs.ktor.serialization)
 
     // OAuth browser flow
-    implementation(libs.androidx.browser)
     implementation(libs.openid.appauth)
 
     // License page UI

@@ -96,7 +96,6 @@ import dev.melo.gptmobile.improved.data.catalog.McpPresetCatalog
 import dev.melo.gptmobile.improved.data.catalog.McpPricingType
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionAuthType
 import dev.melo.gptmobile.improved.presentation.ui.setting.ToolConnectionsViewModel
-import dev.melo.gptmobile.improved.util.pinnedExitUntilCollapsedScrollBehavior
 
 /**
  * Full-screen MCP Marketplace page allowing users to discover, inspect, configure,

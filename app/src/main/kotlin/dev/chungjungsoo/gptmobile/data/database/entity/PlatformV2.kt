@@ -6,7 +6,9 @@ import androidx.room.PrimaryKey
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import java.util.*
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(tableName = "platform_v2")
 data class PlatformV2(
     @PrimaryKey(autoGenerate = true)

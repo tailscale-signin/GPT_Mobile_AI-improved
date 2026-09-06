@@ -3,41 +3,45 @@ package dev.chungjungsoo.gptmobile.data.database.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelRecord
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import kotlinx.serialization.Serializable
 
 @Entity(tableName = "local_models")
+@Serializable
 data class LocalModel(
     @PrimaryKey
-    @ColumnInfo(name = "catalog_entry_id")
-    val catalogEntryId: String,
+    @ColumnInfo(name = "id")
+    val id: String,
 
-    @ColumnInfo(name = "commit_hash")
-    val commitHash: String,
+    @ColumnInfo(name = "name")
+    val name: String,
 
-    @ColumnInfo(name = "file_name")
-    val fileName: String,
+    @ColumnInfo(name = "filename")
+    val filename: String,
 
-    @ColumnInfo(name = "relative_directory")
-    val relativeDirectory: String,
+    @ColumnInfo(name = "url")
+    val url: String,
 
-    @ColumnInfo(name = "total_bytes")
-    val totalBytes: Long,
+    @ColumnInfo(name = "size_bytes")
+    val sizeBytes: Long,
 
-    @ColumnInfo(name = "status")
-    val status: String = LocalModelStatus.DOWNLOADING,
+    @ColumnInfo(name = "sha256")
+    val sha256: String = "",
 
-    @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis() / 1000,
+    @ColumnInfo(name = "context_length")
+    val contextLength: Int = 2048,
 
-    @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis() / 1000
-) {
-    fun toRecord(): LocalModelRecord = LocalModelRecord(
-        catalogEntryId = catalogEntryId,
-        commitHash = commitHash,
-        fileName = fileName,
-        relativeDirectory = relativeDirectory,
-        status = status
-    )
-}
+    @ColumnInfo(name = "download_status")
+    val downloadStatus: String = "NOT_DOWNLOADED",
+
+    @ColumnInfo(name = "download_progress")
+    val downloadProgress: Float = 0f,
+
+    @ColumnInfo(name = "local_path")
+    val localPath: String? = null,
+
+    @ColumnInfo(name = "download_id")
+    val downloadId: Long? = null,
+
+    @ColumnInfo(name = "description")
+    val description: String = ""
+)

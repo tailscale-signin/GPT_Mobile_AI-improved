@@ -2,66 +2,43 @@ package dev.chungjungsoo.gptmobile.data.database.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.Ignore
-import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
-@Entity(
-    tableName = "tool_connections",
-    indices = [Index(value = ["alias"], unique = true)]
-)
+@Entity(tableName = "tool_connections")
+@Serializable
 data class ToolConnection(
-    @PrimaryKey
-    @ColumnInfo(name = "connection_uid")
-    val connectionUid: String,
+    @PrimaryKey(autoGenerate = true)
+    @ColumnInfo(name = "id")
+    val id: Long = 0,
+
+    @ColumnInfo(name = "server_id")
+    val serverId: String,
 
     @ColumnInfo(name = "name")
     val name: String,
 
-    @ColumnInfo(name = "alias")
-    val alias: String,
+    @ColumnInfo(name = "server_type")
+    val serverType: String,
 
-    @ColumnInfo(name = "type")
-    val type: String,
+    @ColumnInfo(name = "url")
+    val url: String? = null,
 
-    @ColumnInfo(name = "endpoint_url")
-    val endpointUrl: String?,
+    @ColumnInfo(name = "api_key")
+    val apiKey: String? = null,
 
-    @ColumnInfo(name = "auth_type")
-    val authType: String,
+    @ColumnInfo(name = "command")
+    val command: String? = null,
 
-    @ColumnInfo(name = "secret_ref")
-    val secretRef: String?,
+    @ColumnInfo(name = "args")
+    val args: String? = null,
 
-    @ColumnInfo(name = "oauth_client_id")
-    val oauthClientId: String?,
+    @ColumnInfo(name = "env")
+    val env: String? = null,
 
-    @ColumnInfo(name = "allow_cleartext")
-    val allowCleartext: Boolean = false,
+    @ColumnInfo(name = "is_enabled")
+    val isEnabled: Boolean = true,
 
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis() / 1000,
-
-    @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis() / 1000
-) {
-    @get:Ignore
-    val isWebSearch: Boolean
-        get() = type == ToolConnectionType.FIRECRAWL ||
-            type == ToolConnectionType.PERPLEXITY ||
-            type == ToolConnectionType.EXA
-}
-
-object ToolConnectionType {
-    const val MCP = "MCP"
-    const val FIRECRAWL = "FIRECRAWL"
-    const val PERPLEXITY = "PERPLEXITY"
-    const val EXA = "EXA"
-}
-
-object ToolConnectionAuthType {
-    const val NONE = "NONE"
-    const val BEARER = "BEARER"
-    const val API_KEY = "API_KEY"
-    const val OAUTH = "OAUTH"
-}
+    val createdAt: Long = System.currentTimeMillis()
+)

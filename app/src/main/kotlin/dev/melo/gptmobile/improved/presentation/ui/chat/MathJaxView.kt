@@ -1,61 +1,75 @@
 package dev.melo.gptmobile.improved.presentation.ui.chat
 
 import android.annotation.SuppressLint
-import android.content.Context
+import android.graphics.Color
+import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun MathJaxView(
-    content: String,
+    latex: String,
     modifier: Modifier = Modifier
 ) {
-    AndroidView(
-        modifier = modifier,
-        factory = { context: Context ->
-            WebView(context).apply {
-                webViewClient = WebViewClient()
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                loadDataWithBaseURL(
-                    null,
-                    buildHtml(content),
-                    "text/html",
-                    "UTF-8",
-                    null
-                )
-            }
-        },
-        update = { webView ->
-            webView.loadDataWithBaseURL(null, buildHtml(content), "text/html", "UTF-8", null)
-        }
-    )
-}
+    val textColor = MaterialTheme.colorScheme.onSurface
+    val hexColor = String.format("#%06X", 0xFFFFFF and textColor.toArgb())
 
-private fun buildHtml(content: String): String {
-    return """
+    val htmlContent = """
         <!DOCTYPE html>
         <html>
         <head>
-            <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script>
+            window.MathJax = {
+              tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+              },
+              svg: {
+                fontCache: 'global'
+              }
+            };
+            </script>
+            <script type="text/javascript" id="MathJax-script" async
+              src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
+            </script>
             <style>
                 body {
-                    font-family: sans-serif;
-                    font-size: 14px;
-                    color: #333333;
                     margin: 0;
                     padding: 8px;
+                    color: $hexColor;
+                    background-color: transparent;
+                    font-size: 16px;
+                    overflow-x: auto;
                 }
             </style>
         </head>
         <body>
-            $content
+            $$$latex$$
         </body>
         </html>
     """.trimIndent()
+
+    AndroidView(
+        modifier = modifier.fillMaxWidth(),
+        factory = { context ->
+            WebView(context).apply {
+                setBackgroundColor(Color.TRANSPARENT)
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+                }
+            }
+        },
+        update = { webView ->
+            webView.loadDataWithBaseURL("https://cdn.jsdelivr.net", htmlContent, "text/html", "UTF-8", null)
+        }
+    )
 }

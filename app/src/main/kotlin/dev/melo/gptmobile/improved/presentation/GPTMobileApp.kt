@@ -6,20 +6,14 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
-import androidx.annotation.CallSuper
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.EntryPoint
-import dagger.hilt.EntryPoints
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
-import dagger.hilt.android.internal.managers.ApplicationComponentManager
-import dagger.hilt.android.internal.managers.ComponentSupplier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import dagger.hilt.internal.GeneratedComponentManagerHolder
-import dagger.hilt.internal.UnsafeCasts
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.melo.gptmobile.improved.R
@@ -39,44 +33,36 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Base Application class providing Hilt dependency injection directly without relying
- * on Hilt Gradle bytecode manipulation/transform, which fails to execute or package under KSP.
+ * Hilt base application class.
+ *
+ * When enableTransformForLocalTests or bytecode transformation is bypassed or fails to rewrite
+ * the superclass in Kotlin 2.x + KSP, extending Hilt_GPTMobileApp directly is the canonical Dagger/Hilt
+ * solution as documented by Google Hilt (https://dagger.dev/hilt/custom-applications.html).
  */
-abstract class BaseApplication : Application(), GeneratedComponentManagerHolder {
-    private val componentManager: ApplicationComponentManager = ApplicationComponentManager(
-        ComponentSupplier {
-            DaggerGPTMobileApp_HiltComponents_SingletonC.builder()
-                .applicationContextModule(dagger.hilt.android.internal.modules.ApplicationContextModule(this))
-                .build()
-        }
-    )
+abstract class Hilt_GPTMobileApp :
+    Application(),
+    dagger.hilt.internal.GeneratedComponentManagerHolder {
 
-    private var injected = false
-
-    override fun componentManager(): ApplicationComponentManager = componentManager
-
-    override fun generatedComponent(): Any = componentManager.generatedComponent()
-
-    @CallSuper
-    override fun onCreate() {
-        hiltInternalInject()
-        super.onCreate()
-    }
-
-    protected open fun hiltInternalInject() {
-        if (!injected) {
-            injected = true
-            UnsafeCasts.<GPTMobileApp_GeneratedInjector>unsafeCast(generatedComponent()).injectGPTMobileApp(
-                UnsafeCasts.unsafeCast(this)
-            )
+    private val componentManager: dagger.hilt.android.internal.managers.ApplicationComponentManager by lazy {
+        dagger.hilt.android.internal.managers.ApplicationComponentManager {
+            dagger.hilt.android.internal.managers.ComponentSupplier {
+                EntryPoints.get(this, GPTMobileApp_GeneratedComponent::class.java)
+            }.get()
         }
     }
+
+    override fun componentManager(): dagger.hilt.android.internal.managers.ApplicationComponentManager =
+        componentManager
+
+    override fun generatedComponent(): Any =
+        componentManager.generatedComponent()
 }
 
-@HiltAndroidApp
+@HiltAndroidApp(Hilt_GPTMobileApp::class)
 class GPTMobileApp :
-    Application(),
+    Hilt_GPTMobileApp(),
     Configuration.Provider {
+
     // TODO Delete when https://github.com/google/dagger/issues/3601 is resolved.
     @Inject
     @ApplicationContext

@@ -19,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Free runner disk and memory space
+      - name: Free runner disk space
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android/sdk/ndk
@@ -87,18 +87,14 @@ jobs:
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build Release APK
-        env:
-          GRADLE_OPTS: "-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release APK..."
-          ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2
+          ./gradlew assembleRelease --stacktrace --no-daemon -Dorg.gradle.workers.max=1
 
       - name: Build Release Bundle
-        env:
-          GRADLE_OPTS: "-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build skipped or non-fatal"
+          ./gradlew bundleRelease --stacktrace --no-daemon -Dorg.gradle.workers.max=1 || echo "Bundle build skipped or non-fatal"
 
       - name: Sign APKs with apksigner
         run: |

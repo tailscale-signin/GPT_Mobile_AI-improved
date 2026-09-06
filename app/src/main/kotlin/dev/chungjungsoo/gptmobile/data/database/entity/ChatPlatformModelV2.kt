@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.data.database.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(
     tableName = "chat_platform_model_v2",
     primaryKeys = ["chat_id", "platform_uid"],

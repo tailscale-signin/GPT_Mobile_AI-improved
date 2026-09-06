@@ -26,8 +26,12 @@ extensions.configure<ApplicationExtension> {
         getByName("main") {
             java.srcDirs("src/main/kotlin")
             kotlin.srcDirs("src/main/kotlin")
-            java.filter.exclude("dev/chungjungsoo/**")
-            kotlin.filter.exclude("dev/chungjungsoo/**")
+            java.filter {
+                exclude("dev/chungjungsoo/**")
+            }
+            kotlin.filter {
+                exclude("dev/chungjungsoo/**")
+            }
         }
     }
 

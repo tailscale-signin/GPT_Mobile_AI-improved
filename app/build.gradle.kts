@@ -81,7 +81,7 @@ extensions.configure<ApplicationExtension> {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             isShrinkResources = false
             vcsInfo.include = false
             signingConfig = signingConfigs.getByName("debug")
@@ -165,6 +165,9 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.work.runtime.ktx)
+
+    // Multidex
+    implementation("androidx.multidex:multidex:2.0.1")
 
     // Ktor
     implementation(libs.ktor.content.negotiation)

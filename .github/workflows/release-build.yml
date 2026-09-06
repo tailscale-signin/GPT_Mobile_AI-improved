@@ -29,10 +29,10 @@ jobs:
 
       - name: Configure swap space for CI stability
         run: |
-          echo "Setting up 4GB swap space to prevent runner OOM during release minification and dexing..."
+          echo "Setting up 6GB swap space to prevent runner OOM during release minification and dexing..."
           sudo swapoff -a || true
           sudo rm -f /swapfile_extra
-          sudo fallocate -l 4G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=4096
+          sudo fallocate -l 6G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=6144
           sudo chmod 600 /swapfile_extra
           sudo mkswap /swapfile_extra
           sudo swapon /swapfile_extra
@@ -88,14 +88,14 @@ jobs:
 
       - name: Build Release APK
         env:
-          GRADLE_OPTS: "-Xmx3584m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
+          GRADLE_OPTS: "-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release APK..."
           ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2
 
       - name: Build Release Bundle
         env:
-          GRADLE_OPTS: "-Xmx3584m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
+          GRADLE_OPTS: "-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release Bundle..."
           ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build skipped or non-fatal"

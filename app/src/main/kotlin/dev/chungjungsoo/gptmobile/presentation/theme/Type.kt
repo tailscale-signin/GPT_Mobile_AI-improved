@@ -4,41 +4,11 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
-import dev.chungjungsoo.gptmobile.R
 
-private val GoogleFontProvider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs,
-)
-
-// Primary font: Proxima Nova font family representation
-// With downloadable font resolution and graceful fallback to system sans-serif
-val ProximaNovaFontFamily = FontFamily(
-    Font(
-        googleFont = GoogleFont("Proxima Nova"),
-        fontProvider = GoogleFontProvider,
-        weight = FontWeight.Normal,
-    ),
-    Font(
-        googleFont = GoogleFont("Proxima Nova"),
-        fontProvider = GoogleFontProvider,
-        weight = FontWeight.Medium,
-    ),
-    Font(
-        googleFont = GoogleFont("Proxima Nova"),
-        fontProvider = GoogleFontProvider,
-        weight = FontWeight.SemiBold,
-    ),
-    Font(
-        googleFont = GoogleFont("Proxima Nova"),
-        fontProvider = GoogleFontProvider,
-        weight = FontWeight.Bold,
-    ),
-)
+// Clean, reliable font family: System Sans-Serif / Roboto with full weight hierarchy
+// Avoids runtime downloadable font timeouts, missing font bundles, and provider crashes
+val ProximaNovaFontFamily = FontFamily.SansSerif
 
 val AppTypography = Typography(
     displayLarge = TextStyle(

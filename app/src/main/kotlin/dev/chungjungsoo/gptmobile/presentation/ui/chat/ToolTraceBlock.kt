@@ -6,17 +6,24 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -38,8 +46,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
@@ -48,6 +58,143 @@ import java.time.Instant
 import java.util.Locale
 
 private const val TOOL_TRACE_TEXT_LIMIT = 1024
+
+internal data class ToolServiceInfo(
+    val serviceName: String,
+    val toolDisplayName: String,
+    val monogram: String,
+    val badgeColor: Color,
+    val textColor: Color = Color.White
+)
+
+internal fun resolveToolServiceInfo(
+    toolName: String,
+    modelToolName: String,
+    connectionNameSnapshot: String? = null,
+    connectionUidSnapshot: String? = null
+): ToolServiceInfo {
+    val rawName = toolName.ifBlank { modelToolName }.trim()
+    val rawLower = rawName.lowercase(Locale.ROOT)
+    val connLower = (connectionNameSnapshot ?: "").lowercase(Locale.ROOT)
+    val uidLower = (connectionUidSnapshot ?: "").lowercase(Locale.ROOT)
+
+    val serviceName: String
+    val monogram: String
+    val badgeColor: Color
+
+    when {
+        connLower.contains("github") || uidLower.contains("github") || rawLower.startsWith("github") -> {
+            serviceName = "GitHub"
+            monogram = "GH"
+            badgeColor = Color(0xFF24292F)
+        }
+        connLower.contains("brave") || uidLower.contains("brave") || rawLower.contains("brave") -> {
+            serviceName = "Brave"
+            monogram = "B"
+            badgeColor = Color(0xFFFB542B)
+        }
+        connLower.contains("microsoft") || uidLower.contains("microsoft") || rawLower.contains("microsoft") -> {
+            serviceName = "Microsoft"
+            monogram = "MS"
+            badgeColor = Color(0xFF0078D4)
+        }
+        connLower.contains("mcp") || uidLower.contains("mcp") || rawLower.contains("mcp") -> {
+            serviceName = if (!connectionNameSnapshot.isNullOrBlank()) {
+                connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
+            } else "MCP"
+            monogram = "M"
+            badgeColor = Color(0xFF00838F)
+        }
+        rawLower.contains("search") || rawLower.contains("web") -> {
+            serviceName = "Web"
+            monogram = "W"
+            badgeColor = Color(0xFF00897B)
+        }
+        rawLower.contains("calc") || rawLower.contains("date") || rawLower.contains("location") -> {
+            serviceName = "System"
+            monogram = "SYS"
+            badgeColor = Color(0xFF5E35B1)
+        }
+        !connectionNameSnapshot.isNullOrBlank() -> {
+            serviceName = connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
+            monogram = serviceName.take(2).uppercase(Locale.ROOT)
+            badgeColor = Color(0xFF455A64)
+        }
+        else -> {
+            serviceName = "Tool"
+            monogram = "T"
+            badgeColor = Color(0xFF546E7A)
+        }
+    }
+
+    val toolDisplayName = friendlyToolDisplayName(rawName).let {
+        if (it.endsWith("Tool", ignoreCase = true)) it else "$it tool"
+    }
+
+    return ToolServiceInfo(
+        serviceName = serviceName,
+        toolDisplayName = toolDisplayName,
+        monogram = monogram,
+        badgeColor = badgeColor
+    )
+}
+
+@Composable
+internal fun ToolServiceCircleIcon(
+    info: ToolServiceInfo,
+    modifier: Modifier = Modifier,
+    sizeDp: Int = 24
+) {
+    Box(
+        modifier = modifier
+            .size(sizeDp.dp)
+            .clip(CircleShape)
+            .background(info.badgeColor),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = info.monogram,
+            color = info.textColor,
+            fontSize = if (info.monogram.length > 2) 8.sp else 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.SansSerif
+        )
+    }
+}
+
+@Composable
+internal fun ToolStatusIndicator(
+    status: String,
+    isError: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val normStatus = status.uppercase(Locale.ROOT)
+    when {
+        normStatus == ToolEventStatus.RUNNING || normStatus == ToolEventStatus.PENDING -> {
+            CircularProgressIndicator(
+                modifier = modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        isError || normStatus == ToolEventStatus.FAILED || normStatus == ToolEventStatus.CANCELED -> {
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = "Failed",
+                tint = Color(0xFFD32F2F),
+                modifier = modifier.size(18.dp)
+            )
+        }
+        else -> {
+            Icon(
+                imageVector = Icons.Rounded.Check,
+                contentDescription = "Completed",
+                tint = Color(0xFF2E7D32),
+                modifier = modifier.size(18.dp)
+            )
+        }
+    }
+}
 
 @Composable
 fun ToolTraceBlock(
@@ -65,6 +212,23 @@ fun ToolTraceBlock(
         label = "tool trace rotation"
     )
     val summary = toolTraceStatusSummary(events, labels)
+    val firstEvent = events.first()
+    val primaryServiceInfo = remember(firstEvent) {
+        resolveToolServiceInfo(
+            toolName = firstEvent.toolName,
+            modelToolName = firstEvent.modelToolName,
+            connectionNameSnapshot = firstEvent.connectionNameSnapshot,
+            connectionUidSnapshot = firstEvent.connectionUidSnapshot
+        )
+    }
+    val overallStatus = remember(events) {
+        when {
+            events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING } -> ToolEventStatus.RUNNING
+            events.any { it.status == ToolEventStatus.FAILED || it.isError } -> ToolEventStatus.FAILED
+            events.any { it.status == ToolEventStatus.CANCELED } -> ToolEventStatus.CANCELED
+            else -> ToolEventStatus.COMPLETED
+        }
+    }
     val searchToolTrace = stringResource(R.string.search_tool_trace)
     val noMatchingToolCalls = stringResource(R.string.no_matching_tool_calls)
     val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
@@ -87,12 +251,17 @@ fun ToolTraceBlock(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            ToolServiceCircleIcon(info = primaryServiceInfo)
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = summary,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
             )
+            Spacer(modifier = Modifier.width(8.dp))
+            ToolStatusIndicator(status = overallStatus)
+            Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = if (isExpanded) labels.collapse else labels.expand,
@@ -173,6 +342,12 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
         event.callId,
         event.status.lowercase(Locale.ROOT)
     )
+    val serviceInfo = resolveToolServiceInfo(
+        toolName = event.toolName,
+        modelToolName = event.modelToolName,
+        connectionNameSnapshot = event.connectionNameSnapshot,
+        connectionUidSnapshot = event.connectionUidSnapshot
+    )
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -182,11 +357,22 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
             .semantics { contentDescription = callDescription }
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "${event.sequence + 1}. ${event.toolName}",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ToolServiceCircleIcon(info = serviceInfo, sizeDp = 20)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${event.sequence + 1}. ${serviceInfo.serviceName} — ${serviceInfo.toolDisplayName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                ToolStatusIndicator(status = event.status, isError = event.isError)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
             if (event.modelToolName != event.toolName) {
                 ToolTraceLine(labels.modelTool, event.modelToolName)
             }
@@ -259,7 +445,6 @@ internal fun friendlyToolDisplayName(toolName: String): String {
         lower == "device_location" || lower == "location" || lower.endsWith("__device_location") -> "Location"
         lower == "current_date" || lower == "date" || lower == "time" || lower.endsWith("__current_date") -> "Date"
         else -> {
-            // For other tools (e.g. MCP tools: bash, read_file, etc.)
             val leafName = toolName.substringAfterLast("__").replace('_', ' ').replace('-', ' ').trim()
             if (leafName.isEmpty()) "Tool"
             else leafName.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
@@ -287,7 +472,14 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
 
     val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
     val subject = if (distinctToolNames.size == 1) {
-        "${friendlyToolDisplayName(distinctToolNames.first())} tool"
+        val first = events.first()
+        val info = resolveToolServiceInfo(
+            toolName = first.toolName,
+            modelToolName = first.modelToolName,
+            connectionNameSnapshot = first.connectionNameSnapshot,
+            connectionUidSnapshot = first.connectionUidSnapshot
+        )
+        "${info.serviceName} — ${info.toolDisplayName}"
     } else {
         val noun = if (count == 1) labels.call else labels.calls
         "$count $noun"

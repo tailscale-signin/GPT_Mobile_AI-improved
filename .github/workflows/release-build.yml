@@ -37,7 +37,7 @@ jobs:
           sudo mkswap /swapfile_extra
           sudo swapon /swapfile_extra
           if [ -f /swapfile ]; then sudo swapon /swapfile || true; fi
-          if [ -f /mnt/swapfile ]; then sudo swapon /mnt/swapfile || true; fi
+          if [ -f /mnt/swapfile ]; then sudo swapon /mnt/mnt/swapfile || true; fi
           free -h
 
       - name: Setup JDK 21
@@ -48,7 +48,7 @@ jobs:
           cache: "gradle"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: "platforms;android-36 build-tools;35.0.0"
 

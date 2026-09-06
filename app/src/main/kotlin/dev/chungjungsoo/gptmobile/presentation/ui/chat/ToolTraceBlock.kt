@@ -239,7 +239,7 @@ fun ToolTraceBlock(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f))
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -261,10 +261,10 @@ fun ToolTraceBlock(
                     fontFamily = ProximaNovaFontFamily,
                     fontWeight = FontWeight.Bold,
                 ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                 modifier = Modifier
                     .weight(1f)
-                    .alpha(0.5f),
+                    .alpha(0.75f),
             )
             Spacer(modifier = Modifier.width(8.dp))
             ToolStatusIndicator(status = overallStatus)
@@ -272,7 +272,7 @@ fun ToolTraceBlock(
             Icon(
                 imageVector = Icons.Default.ArrowDropDown,
                 contentDescription = if (isExpanded) labels.collapse else labels.expand,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                 modifier = Modifier.rotate(rotationAngle),
             )
         }
@@ -297,7 +297,7 @@ fun ToolTraceBlock(
                                     text = searchToolTrace,
                                     fontFamily = ProximaNovaFontFamily,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.alpha(0.5f),
+                                    modifier = Modifier.alpha(0.75f),
                                 )
                             },
                             singleLine = true,
@@ -315,8 +315,8 @@ fun ToolTraceBlock(
                                 fontFamily = ProximaNovaFontFamily,
                                 fontWeight = FontWeight.Bold,
                             ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.alpha(0.5f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            modifier = Modifier.alpha(0.75f),
                         )
                     } else {
                         filteredEvents.forEach { event -> ToolTraceEventCard(event, labels) }
@@ -387,10 +387,10 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
                         fontFamily = ProximaNovaFontFamily,
                         fontWeight = FontWeight.Bold,
                     ),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                     modifier = Modifier
                         .weight(1f)
-                        .alpha(0.5f),
+                        .alpha(0.75f),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 ToolStatusIndicator(status = event.status, isError = event.isError)
@@ -418,8 +418,8 @@ private fun ToolTraceLine(label: String, value: String) {
             fontFamily = ProximaNovaFontFamily,
             fontWeight = FontWeight.Bold,
         ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.alpha(0.5f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+        modifier = Modifier.alpha(0.75f),
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
     )
@@ -433,10 +433,10 @@ private fun ToolTraceBlockText(label: String, value: String) {
             fontFamily = ProximaNovaFontFamily,
             fontWeight = FontWeight.Bold,
         ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
         modifier = Modifier
             .padding(top = 8.dp)
-            .alpha(0.5f),
+            .alpha(0.75f),
     )
     Text(
         text = boundedText(value),
@@ -444,8 +444,8 @@ private fun ToolTraceBlockText(label: String, value: String) {
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
         ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.alpha(0.5f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+        modifier = Modifier.alpha(0.75f),
         maxLines = 6,
         overflow = TextOverflow.Ellipsis,
     )

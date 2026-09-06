@@ -28,8 +28,6 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 36
         versionCode = 33
         versionName = "0.8.10"
-        multiDexEnabled = true
-        multiDexKeepProguard = file("multidex-keep.txt")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

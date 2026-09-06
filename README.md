@@ -2,7 +2,7 @@
 
 An enhanced, high-performance, and feature-rich Android client for Large Language Models (LLMs), autonomous tool calling (MCP), and local AI execution.
 
-> **Fork Overview**: This version is a modernized, high-performance fork of [GPT_Mobile_AI](https://github.com/chungjungsoo/GPT_Mobile). It delivers a significantly smoother user experience, autonomous agent tools (MCP), on-device privacy AI, background and screen-off execution persistence, and major battery and performance improvements.
+> **Fork Overview**: This version is a modernized, high-performance fork of [GPT_Mobile_AI](https://github.com/melo/GPT_Mobile). It delivers a significantly smoother user experience, autonomous agent tools (MCP), on-device privacy AI, background and screen-off execution persistence, and major battery and performance improvements.
 
 [![License](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)

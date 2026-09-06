@@ -144,7 +144,10 @@ jobs:
               "$RAW_AAB" \
               "$KEY_ALIAS"
             mkdir -p app/build/outputs/bundle/release/
-            cp -f "$RAW_AAB" app/build/outputs/bundle/release/app-release.aab
+            DEST_AAB="app/build/outputs/bundle/release/app-release.aab"
+            if [ "$RAW_AAB" != "$DEST_AAB" ]; then
+              cp -f "$RAW_AAB" "$DEST_AAB"
+            fi
             echo "Successfully signed AAB."
           else
             echo "No AAB found to sign, skipping AAB signing."

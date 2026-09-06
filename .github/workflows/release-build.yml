@@ -89,12 +89,12 @@ jobs:
       - name: Build Release APK
         run: |
           echo "Building Release APK..."
-          ./gradlew assembleRelease --stacktrace --no-daemon -Dorg.gradle.workers.max=1
+          ./gradlew assembleRelease --info --stacktrace -Dorg.gradle.workers.max=1
 
       - name: Build Release Bundle
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon -Dorg.gradle.workers.max=1 || echo "Bundle build skipped or non-fatal"
+          ./gradlew bundleRelease --info --stacktrace -Dorg.gradle.workers.max=1 || echo "Bundle build skipped or non-fatal"
 
       - name: Sign APKs with apksigner
         run: |

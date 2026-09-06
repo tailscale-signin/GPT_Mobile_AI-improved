@@ -8,4 +8,14 @@
         <item name="postSplashScreenTheme">@style/Theme.GPTMobile</item>
     </style>
 
+    <style name="Theme.GPTMobile" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary_cyan</item>
+        <item name="colorPrimaryDark">@color/primary_cyan_dark</item>
+        <item name="colorAccent">@color/cyan_accent</item>
+        <item name="colorSecondary">@color/teal_accent</item>
+        <item name="android:statusBarColor">@color/ic_gpt_mobile_background</item>
+        <item name="android:navigationBarColor">@color/ic_gpt_mobile_background</item>
+        <item name="android:windowBackground">@color/bg_dark</item>
+    </style>
+
 </resources>

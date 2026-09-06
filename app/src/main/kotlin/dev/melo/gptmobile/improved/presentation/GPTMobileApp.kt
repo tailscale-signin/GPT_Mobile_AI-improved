@@ -32,35 +32,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Hilt base application class.
- *
- * When enableTransformForLocalTests or bytecode transformation is bypassed or fails to rewrite
- * the superclass in Kotlin 2.x + KSP, extending Hilt_GPTMobileApp directly is the canonical Dagger/Hilt
- * solution as documented by Google Hilt (https://dagger.dev/hilt/custom-applications.html).
- */
-abstract class Hilt_GPTMobileApp :
+@HiltAndroidApp
+open class GPTMobileApp :
     Application(),
-    dagger.hilt.internal.GeneratedComponentManagerHolder {
-
-    private val componentManager: dagger.hilt.android.internal.managers.ApplicationComponentManager by lazy {
-        dagger.hilt.android.internal.managers.ApplicationComponentManager {
-            dagger.hilt.android.internal.managers.ComponentSupplier {
-                EntryPoints.get(this, GPTMobileApp_GeneratedComponent::class.java)
-            }.get()
-        }
-    }
-
-    override fun componentManager(): dagger.hilt.android.internal.managers.ApplicationComponentManager =
-        componentManager
-
-    override fun generatedComponent(): Any =
-        componentManager.generatedComponent()
-}
-
-@HiltAndroidApp(Hilt_GPTMobileApp::class)
-class GPTMobileApp :
-    Hilt_GPTMobileApp(),
     Configuration.Provider {
 
     // TODO Delete when https://github.com/google/dagger/issues/3601 is resolved.

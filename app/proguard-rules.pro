@@ -9,11 +9,13 @@
 # -------------------------------------------------------------
 # Application & Android Components Keep Rules
 # -------------------------------------------------------------
+-keep class dev.melo.gptmobile.improved.** { *; }
+-keep interface dev.melo.gptmobile.improved.** { *; }
+-keep class dev.melo.gptmobile.improved.presentation.GPTMobileApp { *; }
+-keep class dev.melo.gptmobile.improved.presentation.ui.main.MainActivity { *; }
+-keep class dev.melo.gptmobile.improved.presentation.Hilt_GPTMobileApp { *; }
 -keep class dev.chungjungsoo.gptmobile.** { *; }
 -keep interface dev.chungjungsoo.gptmobile.** { *; }
--keep class dev.chungjungsoo.gptmobile.presentation.GPTMobileApp { *; }
--keep class dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity { *; }
--keep class dev.chungjungsoo.gptmobile.presentation.Hilt_GPTMobileApp { *; }
 -keep class * extends android.app.Application { *; }
 -keep class * extends android.app.Activity { *; }
 -keep class * extends android.app.Service { *; }

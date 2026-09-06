@@ -25,7 +25,7 @@ extensions.configure<ApplicationExtension> {
     sourceSets {
         getByName("main") {
             java.srcDirs("src/main/kotlin", "src/main/java")
-            java.exclude("dev/chungjungsoo/gptmobile/data/**")
+            java.exclude("dev/chungjungsoo/**")
         }
     }
 

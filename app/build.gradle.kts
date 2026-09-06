@@ -2,7 +2,6 @@
 
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
-import org.gradle.kotlin.dsl.aboutLibraries
 import org.gradle.kotlin.dsl.configure
 
 plugins {
@@ -207,7 +206,5 @@ dependencies {
 
 aboutLibraries {
     // Remove the "generated" timestamp to allow for reproducible builds
-    export {
-        excludeFields.add("generated")
-    }
+    excludeFields.add("generated")
 }

@@ -200,14 +200,16 @@ jobs:
             echo "WARNING: No assets found in signed directory to upload to release."
           else
             if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-              echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
+              echo "Release $TAG_NAME already exists, marking as pre-release and uploading release assets..."
+              gh release edit "$TAG_NAME" --prerelease || true
               gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
             else
-              echo "Creating fresh GitHub Release $TAG_NAME..."
+              echo "Creating GitHub Pre-release $TAG_NAME..."
               gh release create "$TAG_NAME" \
                 "${ASSETS_TO_UPLOAD[@]}" \
-                --title "$TAG_NAME - GPT Mobile Improved" \
-                --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal)."
+                --prerelease \
+                --title "$TAG_NAME - GPT Mobile Improved (Pre-release)" \
+                --notes "Automated pre-release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal). Please test and report any issues."
             fi
-            echo "GitHub Release $TAG_NAME published successfully."
+            echo "GitHub Release $TAG_NAME published successfully as pre-release."
           fi

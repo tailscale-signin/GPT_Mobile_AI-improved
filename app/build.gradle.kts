@@ -24,14 +24,8 @@ extensions.configure<ApplicationExtension> {
 
     sourceSets {
         getByName("main") {
-            java.srcDirs("src/main/kotlin")
-            kotlin.srcDirs("src/main/kotlin")
-            java.filter {
-                exclude("dev/chungjungsoo/**")
-            }
-            kotlin.filter {
-                exclude("dev/chungjungsoo/**")
-            }
+            java.directories("src/main/kotlin/dev/melo")
+            kotlin.directories("src/main/kotlin/dev/melo")
         }
     }
 
@@ -143,6 +137,14 @@ ksp {
 // Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name
 tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach {
     enabled = false
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    exclude("dev/chungjungsoo/**")
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    exclude("dev/chungjungsoo/**")
 }
 
 dependencies {

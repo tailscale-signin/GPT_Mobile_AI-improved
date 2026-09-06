@@ -30,6 +30,7 @@ extensions.configure<ApplicationExtension> {
         versionName = "0.8.11"
 
         multiDexEnabled = true
+        multiDexKeepProguard = file("main-dex-keep-rules.pro")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

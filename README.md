@@ -4,7 +4,7 @@ An enhanced, high-performance, and feature-rich Android client for Large Languag
 
 > **Fork Overview**: This version is a modernized, high-performance fork of [GPT_Mobile_AI](https://github.com/chungjungsoo/GPT_Mobile). It delivers a significantly smoother user experience, autonomous agent tools (MCP), on-device privacy AI, background and screen-off execution persistence, and major battery and performance improvements.
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
 [![Target SDK](https://img.shields.io/badge/Target%20SDK-36-brightgreen.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin%202.x-purple.svg)](https://kotlinlang.org)
@@ -23,7 +23,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 ### 2. 🧠 Autonomous Tools & Model Context Protocol (MCP) + Marketplace
 - **What you will notice**: AI models can solve math, check real-time date/time, fetch web pages, run terminal commands, and integrate external services. Discover and enable new tools directly through the built-in, full-screen **MCP Tool Marketplace**.
 - **How it works**: Integrated agent runtime capable of multi-step reasoning, safely invoking tools, handling errors, and synthesizing answers.
-- **Safety Ceiling**: Enforces a strict, configurable ceiling (default: 6 tool calls per prompt) to protect against runaway loops and unexpected API billing.
+- **Unlimited Agents & Tools**: Engineered to support unconstrained tool calling and agent rounds without arbitrary execution ceilings.
 - **Zero-Config Web Search**: Built-in Termux MCPSearch with automatic DuckDuckGo fallback for instant web connectivity without manual API key setup.
 
 ### 3. 🌙 Background, Screen-Off & Locked Device Execution
@@ -63,7 +63,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 | **High-Speed Streaming** | Stutters on fast token bursts | 🧈 Smooth 30/60/120 fps throttle buffer |
 | **Agent Tools & MCP** | ❌ Not supported | ✅ Built-in Agent Engine + Model Context Protocol |
 | **MCP Marketplace** | ❌ Not supported | ✅ Full-screen in-app marketplace with 1-click install |
-| **Tool Execution Limits** | ❌ None | ✅ Hard ceiling of 6 tool calls per prompt |
+| **Tool Execution Limits** | ❌ None | ✅ Unlimited agents & tools runtime |
 | **Background / Screen-Off Run** | ❌ Killed on screen lock | ✅ Resilient `AgentRunForegroundService` + WakeLock |
 | **Web Search** | ❌ Manual setup / none | ✅ Zero-config Termux MCPSearch + DuckDuckGo fallback |
 | **On-Device Models** | Basic / Limited | ✅ Google LiteRT & Full Ollama host integration |
@@ -122,4 +122,4 @@ cd GPT_Mobile_AI-improved
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.

@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
@@ -54,6 +55,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.presentation.theme.ProximaNovaFontFamily
 import java.time.Instant
 import java.util.Locale
 
@@ -159,7 +161,7 @@ internal fun ToolServiceCircleIcon(
             color = info.textColor,
             fontSize = if (info.monogram.length > 2) 8.sp else 10.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif,
+            fontFamily = ProximaNovaFontFamily,
         )
     }
 }
@@ -257,9 +259,14 @@ fun ToolTraceBlock(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = summary,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontFamily = ProximaNovaFontFamily,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier
+                    .weight(1f)
+                    .alpha(0.5f),
             )
             Spacer(modifier = Modifier.width(8.dp))
             ToolStatusIndicator(status = overallStatus)
@@ -267,7 +274,7 @@ fun ToolTraceBlock(
             Icon(
                 imageVector = Icons.Default.ArrowDropDown,
                 contentDescription = if (isExpanded) labels.collapse else labels.expand,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.rotate(rotationAngle),
             )
         }
@@ -287,7 +294,14 @@ fun ToolTraceBlock(
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
-                            label = { Text(searchToolTrace) },
+                            label = {
+                                Text(
+                                    text = searchToolTrace,
+                                    fontFamily = ProximaNovaFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.alpha(0.5f),
+                                )
+                            },
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -299,8 +313,12 @@ fun ToolTraceBlock(
                     if (filteredEvents.isEmpty()) {
                         Text(
                             text = noMatchingToolCalls,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = ProximaNovaFontFamily,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.alpha(0.5f),
                         )
                     } else {
                         filteredEvents.forEach { event -> ToolTraceEventCard(event, labels) }
@@ -367,9 +385,14 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "${event.sequence + 1}. ${serviceInfo.serviceName} — ${serviceInfo.toolDisplayName}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontFamily = ProximaNovaFontFamily,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .alpha(0.5f),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 ToolStatusIndicator(status = event.status, isError = event.isError)
@@ -393,8 +416,12 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
 private fun ToolTraceLine(label: String, value: String) {
     Text(
         text = "$label: $value",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodySmall.copy(
+            fontFamily = ProximaNovaFontFamily,
+            fontWeight = FontWeight.Bold,
+        ),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.alpha(0.5f),
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
     )
@@ -404,14 +431,23 @@ private fun ToolTraceLine(label: String, value: String) {
 private fun ToolTraceBlockText(label: String, value: String) {
     Text(
         text = "$label:",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp),
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontFamily = ProximaNovaFontFamily,
+            fontWeight = FontWeight.Bold,
+        ),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .alpha(0.5f),
     )
     Text(
         text = boundedText(value),
-        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodySmall.copy(
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+        ),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.alpha(0.5f),
         maxLines = 6,
         overflow = TextOverflow.Ellipsis,
     )

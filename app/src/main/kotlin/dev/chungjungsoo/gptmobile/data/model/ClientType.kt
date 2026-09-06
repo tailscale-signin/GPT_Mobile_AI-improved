@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.model
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 enum class ClientType {
     OPENAI,
     ANTHROPIC,

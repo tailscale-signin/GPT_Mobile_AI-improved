@@ -29,7 +29,7 @@ jobs:
 
       - name: Configure swap space for CI stability
         run: |
-          echo "Setting up 6GB swap space to prevent runner OOM during release minification and dexing..."
+          echo "Setting up 6GB swap space to prevent runner OOM during release packaging and dexing..."
           sudo swapoff -a || true
           sudo rm -f /swapfile_extra
           sudo fallocate -l 6G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=6144
@@ -51,6 +51,10 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: "platforms;android-36 build-tools;35.0.0"
+
+      - name: Accept Android licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
@@ -88,13 +92,13 @@ jobs:
 
       - name: Build Release APK
         run: |
-          echo "Building Release APK with verbose Kotlin compiler diagnostics..."
-          ./gradlew assembleRelease -Pkotlin.compiler.execution.strategy=in-process --info --stacktrace -Dorg.gradle.workers.max=1
+          echo "Building Release APK with Gradle..."
+          ./gradlew assembleRelease --no-daemon --info 2>&1 | tee gradle-release.log || (echo "=== GRADLE FAILURE LOG ===" && tail -n 150 gradle-release.log && exit 1)
 
       - name: Build Release Bundle
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease -Pkotlin.compiler.execution.strategy=in-process --info --stacktrace -Dorg.gradle.workers.max=1 || echo "Bundle build skipped or non-fatal"
+          ./gradlew bundleRelease --no-daemon --info || echo "Bundle build skipped or non-fatal"
 
       - name: Sign APKs with apksigner
         run: |
@@ -200,6 +204,6 @@ jobs:
             gh release create "$TAG_NAME" \
               "${ASSETS_TO_UPLOAD[@]}" \
               --title "$TAG_NAME - GPT Mobile Improved" \
-              --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
+              --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal)."
           fi
           echo "GitHub Release $TAG_NAME published successfully."

@@ -24,8 +24,8 @@ extensions.configure<ApplicationExtension> {
 
     sourceSets {
         getByName("main") {
-            java.directories("src/main/kotlin/dev/melo")
-            kotlin.directories("src/main/kotlin/dev/melo")
+            java.srcDirs("src/main/kotlin")
+            kotlin.srcDirs("src/main/kotlin")
         }
     }
 
@@ -140,11 +140,11 @@ tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") 
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    exclude("dev/chungjungsoo/**")
+    exclude("**/dev/chungjungsoo/**")
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    exclude("dev/chungjungsoo/**")
+    exclude("**/dev/chungjungsoo/**")
 }
 
 dependencies {

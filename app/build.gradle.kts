@@ -24,7 +24,10 @@ extensions.configure<ApplicationExtension> {
 
     sourceSets {
         getByName("main") {
-            java.directories.set(listOf(file("src/main/kotlin/dev/melo")))
+            java.srcDirs("src/main/kotlin")
+            kotlin.srcDirs("src/main/kotlin")
+            java.filter.exclude("dev/chungjungsoo/**")
+            kotlin.filter.exclude("dev/chungjungsoo/**")
         }
     }
 

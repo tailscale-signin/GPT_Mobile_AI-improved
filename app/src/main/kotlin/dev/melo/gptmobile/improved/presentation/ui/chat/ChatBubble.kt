@@ -39,13 +39,48 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import dev.melo.gptmobile.improved.R
 import dev.melo.gptmobile.improved.data.database.entity.AgentRun
 import dev.melo.gptmobile.improved.data.database.entity.MessageAttachmentV2
 import dev.melo.gptmobile.improved.data.database.entity.ToolEvent
+import dev.melo.gptmobile.improved.data.model.Message
+import dev.melo.gptmobile.improved.data.model.Sender
+
+@Composable
+fun ChatBubble(
+    message: Message,
+    modifier: Modifier = Modifier,
+    onRetry: () -> Unit = {}
+) {
+    val clipboardManager = LocalClipboardManager.current
+
+    if (message.sender == Sender.USER) {
+        UserChatBubble(
+            modifier = modifier,
+            text = message.content,
+            onLongPress = {
+                clipboardManager.setText(AnnotatedString(message.content))
+            }
+        )
+    } else {
+        OpponentChatBubble(
+            modifier = modifier,
+            canRetry = message.failed,
+            isLoading = message.content.isEmpty() && !message.failed,
+            isError = message.failed,
+            text = message.content,
+            onCopyClick = {
+                clipboardManager.setText(AnnotatedString(message.content))
+            },
+            onRetryClick = onRetry
+        )
+    }
+}
 
 @Composable
 fun UserChatBubble(

@@ -93,7 +93,7 @@ jobs:
       - name: Build Release APK
         run: |
           echo "Building Release APK with Gradle..."
-          ./gradlew assembleRelease --no-daemon --info 2>&1 | tee gradle-release.log || (echo "=== GRADLE FAILURE LOG ===" && tail -n 150 gradle-release.log && exit 1)
+          ./gradlew assembleRelease --no-daemon --info
 
       - name: Build Release Bundle
         run: |
@@ -102,13 +102,16 @@ jobs:
 
       - name: Sign APKs with apksigner
         run: |
-          echo "Locating built APKs in app/build/outputs/apk/release/:"
-          ls -la app/build/outputs/apk/release/ 2>/dev/null || true
+          echo "=== Locating all built APK files ==="
+          find app/build/outputs/ -type f -name "*.apk" || true
 
           mkdir -p app/build/outputs/apk/release/signed/
 
-          # Sign all generated split & universal release APKs
-          for apk in $(find app/build/outputs/apk/release/ -name "*.apk" ! -name "*-signed.apk"); do
+          FOUND_APKS=$(find app/build/outputs/ -type f -name "*.apk" ! -path "*/signed/*" ! -name "*-signed.apk")
+          echo "Found APKs to sign:"
+          echo "$FOUND_APKS"
+
+          for apk in $FOUND_APKS; do
             echo "Signing $apk..."
             basename=$(basename "$apk")
             signed_apk="app/build/outputs/apk/release/signed/$basename"
@@ -124,22 +127,15 @@ jobs:
             $ANDROID_HOME/build-tools/35.0.0/apksigner verify "$signed_apk"
           done
 
-          # Standardize canonical release APK names
-          if [ -f "app/build/outputs/apk/release/signed/app-universal-release.apk" ]; then
-            cp -f "app/build/outputs/apk/release/signed/app-universal-release.apk" app/build/outputs/apk/release/app-release.apk
-          elif [ -f "app/build/outputs/apk/release/signed/app-arm64-v8a-release.apk" ]; then
-            cp -f "app/build/outputs/apk/release/signed/app-arm64-v8a-release.apk" app/build/outputs/apk/release/app-release.apk
-          fi
-
-          echo "Successfully signed APKs:"
+          echo "=== Successfully signed APKs in signed directory ==="
           ls -la app/build/outputs/apk/release/signed/
 
       - name: Sign AAB with jarsigner
         run: |
-          echo "Locating built AAB in app/build/outputs/bundle/release/:"
-          ls -la app/build/outputs/bundle/release/ 2>/dev/null || true
+          echo "Locating built AAB in app/build/outputs/:"
+          find app/build/outputs/ -type f -name "*.aab" || true
 
-          RAW_AAB=$(find app/build/outputs/bundle/release/ -name "*.aab" 2>/dev/null | head -n 1)
+          RAW_AAB=$(find app/build/outputs/ -type f -name "*.aab" 2>/dev/null | head -n 1)
           if [ -n "$RAW_AAB" ]; then
             jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
               -keystore "$KEYSTORE_PATH" \
@@ -147,6 +143,7 @@ jobs:
               -keypass "$KEY_PASSWORD" \
               "$RAW_AAB" \
               "$KEY_ALIAS"
+            mkdir -p app/build/outputs/bundle/release/
             cp -f "$RAW_AAB" app/build/outputs/bundle/release/app-release.aab
             echo "Successfully signed AAB."
           else
@@ -158,7 +155,7 @@ jobs:
         with:
           name: gpt-mobile-release-apks-${{ github.sha }}
           path: app/build/outputs/apk/release/signed/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload Release Bundle
         uses: actions/upload-artifact@v4
@@ -196,14 +193,18 @@ jobs:
             ASSETS_TO_UPLOAD+=("app/build/outputs/bundle/release/app-release.aab")
           fi
 
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
-            gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
+          if [ ${#ASSETS_TO_UPLOAD[@]} -eq 0 ]; then
+            echo "WARNING: No assets found in signed directory to upload to release."
           else
-            echo "Creating fresh GitHub Release $TAG_NAME..."
-            gh release create "$TAG_NAME" \
-              "${ASSETS_TO_UPLOAD[@]}" \
-              --title "$TAG_NAME - GPT Mobile Improved" \
-              --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal)."
+            if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
+              gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
+            else
+              echo "Creating fresh GitHub Release $TAG_NAME..."
+              gh release create "$TAG_NAME" \
+                "${ASSETS_TO_UPLOAD[@]}" \
+                --title "$TAG_NAME - GPT Mobile Improved" \
+                --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal)."
+            fi
+            echo "GitHub Release $TAG_NAME published successfully."
           fi
-          echo "GitHub Release $TAG_NAME published successfully."

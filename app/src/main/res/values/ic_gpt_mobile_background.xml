@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_gpt_mobile_background">#00E5FF</color>
+    <!-- Background for adaptive icon set to match modern dark theme canvas so foreground circular cyan badge pops cleanly -->
+    <color name="ic_gpt_mobile_background">#121B22</color>
 </resources>

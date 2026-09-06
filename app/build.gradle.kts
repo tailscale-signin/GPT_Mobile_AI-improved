@@ -139,14 +139,6 @@ tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") 
     enabled = false
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    exclude("**/dev/chungjungsoo/**")
-}
-
-tasks.withType<JavaCompile>().configureEach {
-    exclude("**/dev/chungjungsoo/**")
-}
-
 dependencies {
     // Android & Material Components
     implementation(libs.androidx.core.ktx)

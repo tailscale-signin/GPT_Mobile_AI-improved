@@ -14,6 +14,10 @@ plugins {
     kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
 }
 
+configurations.configureEach {
+    exclude(group = "com.google.guava", module = "listenablefuture")
+}
+
 extensions.configure<ApplicationExtension> {
     namespace = "dev.chungjungsoo.gptmobile"
     compileSdk = 36

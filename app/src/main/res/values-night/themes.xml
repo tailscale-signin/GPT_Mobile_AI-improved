@@ -18,7 +18,14 @@
         <item name="android:windowBackground">@color/bg_dark</item>
     </style>
 
-    <!-- Manifest theme compatibility alias for night mode -->
+    <!-- Manifest theme compatibility aliases for night mode -->
     <style name="Theme.Gptmobile" parent="Theme.GPTMobile.Starting" />
+
+    <style name="Theme.Gptmobile.Translucent" parent="Theme.GPTMobile">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
 
 </resources>

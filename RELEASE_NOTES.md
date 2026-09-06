@@ -2,7 +2,7 @@
 
 Welcome to the release of **GPT_Mobile_AI-improved** (v0.8.4)!
 
-This release delivers comprehensive background & screen-off task execution resilience, robust agent safety limits, improved Termux / DuckDuckGo tool integration, and CI stability fixes.
+This release delivers comprehensive background & screen-off task execution resilience, robust agent safety limits, improved Termux / DuckDuckGo tool integration, interactive tool execution visualizer, and CI stability fixes.
 
 ---
 
@@ -18,11 +18,16 @@ This release delivers comprehensive background & screen-off task execution resil
 - **Hard Tool Call Limit**: Enforced a strict default limit of 6 tool calls per prompt in `AgentRunLimits`. Agent loops safely stop before exceeding 6 tool calls, preventing runaway loops and excessive API costs.
 - **Robust Unit Testing**: Added regression coverage in `AgentRunnerTest` to guarantee tool ceilings are enforced.
 
-#### 3. Zero-Config Toolset & Extensibility
+#### 3. Interactive Tool Execution Visualizer (`ToolTraceBlock`)
+- **Real-Time Visual Trace**: Live collapsible trace view rendering each step of an agent's execution directly inline with chat messages.
+- **Service Monogram & Status Indicators**: Dynamic brand badges (GitHub, Brave, Microsoft, System, MCP) with animated loading spinners, completion checkmarks, failure indicators, execution durations, and full-text search capability across trace steps.
+
+#### 4. Zero-Config Toolset & Extensibility
 - **Termux & DuckDuckGo Search Integration**: Built-in fallback toolset with descriptive headers and seamless parameter validation.
 - **MCP Marketplace**: In-app marketplace with categorized filtering and instant installation.
 
-#### 4. CI/CD & Linter Stability
+#### 5. CI/CD & Build System Stability
+- **Kotlin & KSP Alignment**: Synchronized KSP compiler plugin directly with Kotlin 2.3.21 compiler release.
 - **Reviewdog CI Fix**: Fixed missing GitHub token and job permissions in `ktlint.yml` workflow, restoring automated pull request code style checks.
 
 ---

@@ -1,6 +1,7 @@
 package dev.melo.gptmobile.improved.presentation
 
 import android.app.ActivityManager
+import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.util.Log
@@ -35,7 +36,7 @@ import kotlinx.coroutines.withContext
 @Keep
 @HiltAndroidApp
 open class GPTMobileApp :
-    Hilt_GPTMobileApp(),
+    Application(),
     Configuration.Provider {
 
     // TODO Delete when https://github.com/google/dagger/issues/3601 is resolved.

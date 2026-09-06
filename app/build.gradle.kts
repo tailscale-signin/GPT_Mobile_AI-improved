@@ -24,6 +24,7 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 36
         versionCode = 28
         versionName = "0.8.5"
+        multiDexEnabled = true
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -48,6 +49,12 @@ extensions.configure<ApplicationExtension> {
         ndk {
             // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)
             abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            java.directories("src/main/kotlin")
         }
     }
 

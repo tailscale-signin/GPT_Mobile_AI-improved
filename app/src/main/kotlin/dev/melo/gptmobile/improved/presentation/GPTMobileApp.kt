@@ -6,14 +6,20 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.CallSuper
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.EntryPoint
+import dagger.hilt.EntryPoints
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
+import dagger.hilt.android.internal.managers.ApplicationComponentManager
+import dagger.hilt.android.internal.managers.ComponentSupplier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dagger.hilt.internal.GeneratedComponentManagerHolder
+import dagger.hilt.internal.UnsafeCasts
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.melo.gptmobile.improved.R
@@ -31,6 +37,41 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Base Application class providing Hilt dependency injection directly without relying
+ * on Hilt Gradle bytecode manipulation/transform, which fails to execute or package under KSP.
+ */
+abstract class BaseApplication : Application(), GeneratedComponentManagerHolder {
+    private val componentManager: ApplicationComponentManager = ApplicationComponentManager(
+        ComponentSupplier {
+            DaggerGPTMobileApp_HiltComponents_SingletonC.builder()
+                .applicationContextModule(dagger.hilt.android.internal.modules.ApplicationContextModule(this))
+                .build()
+        }
+    )
+
+    private var injected = false
+
+    override fun componentManager(): ApplicationComponentManager = componentManager
+
+    override fun generatedComponent(): Any = componentManager.generatedComponent()
+
+    @CallSuper
+    override fun onCreate() {
+        hiltInternalInject()
+        super.onCreate()
+    }
+
+    protected open fun hiltInternalInject() {
+        if (!injected) {
+            injected = true
+            UnsafeCasts.<GPTMobileApp_GeneratedInjector>unsafeCast(generatedComponent()).injectGPTMobileApp(
+                UnsafeCasts.unsafeCast(this)
+            )
+        }
+    }
+}
 
 @HiltAndroidApp
 class GPTMobileApp :

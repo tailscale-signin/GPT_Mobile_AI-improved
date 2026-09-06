@@ -18,4 +18,7 @@
         <item name="android:windowBackground">@color/bg_dark</item>
     </style>
 
+    <!-- Manifest theme compatibility alias for night mode -->
+    <style name="Theme.Gptmobile" parent="Theme.GPTMobile.Starting" />
+
 </resources>

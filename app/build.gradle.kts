@@ -205,6 +205,5 @@ dependencies {
 }
 
 aboutLibraries {
-    // Remove the "generated" timestamp to allow for reproducible builds
-    excludeFields.add("generated")
+    excludeFields = arrayOf("generated")
 }

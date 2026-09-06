@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.GPTMobile" parent="android:Theme.Material.NoActionBar" />
+    <style name="Theme.GPTMobile" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/primary_cyan</item>
+        <item name="android:colorPrimaryDark">@color/bg_dark</item>
+        <item name="android:colorAccent">@color/cyan_accent</item>
+        <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:statusBarColor">@color/bg_dark</item>
+        <item name="android:navigationBarColor">@color/bg_dark</item>
+    </style>
 
     <!-- Manifest theme compatibility aliases -->
     <style name="Theme.Gptmobile" parent="Theme.GPTMobile" />

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand Cyan Palette -->
+    <color name="primary_cyan">#29B6F6</color>
+    <color name="primary_cyan_dark">#0288D1</color>
+    <color name="cyan_accent">#00E5FF</color>
+    <color name="teal_accent">#26A69A</color>
+
+    <!-- Surfaces & Backgrounds -->
+    <color name="bg_dark">#121B22</color>
+    <color name="surface_dark">#1A242D</color>
+    <color name="surface_dark_elevated">#22303C</color>
+
+    <!-- Chat Bubble Colors -->
+    <color name="bubble_user">#0288D1</color>
+    <color name="bubble_user_text">#FFFFFF</color>
+    <color name="bubble_bot">#1E2C38</color>
+    <color name="bubble_bot_text">#E0F7FA</color>
+    <color name="bubble_bot_border">#26A69A</color>
+
+    <!-- UI Elements -->
+    <color name="text_primary">#E1F5FE</color>
+    <color name="text_secondary">#80DEEA</color>
+    <color name="divider_color">#1F323D</color>
+</resources>

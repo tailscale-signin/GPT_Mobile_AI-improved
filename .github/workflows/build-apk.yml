@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Swap Space and free disk memory
         run: |
@@ -37,7 +37,7 @@ jobs:
           free -h
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -64,6 +64,7 @@ jobs:
           if-no-files-found: error
 
       - name: Build Release APK
+        id: build-release
         run: ./gradlew assembleRelease --no-daemon --info --stacktrace
         continue-on-error: true
         env:

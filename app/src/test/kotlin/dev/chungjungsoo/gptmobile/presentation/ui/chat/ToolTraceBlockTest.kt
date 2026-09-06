@@ -71,13 +71,13 @@ class ToolTraceBlockTest {
     @Test
     fun toolTraceStatusSummary_showsDescriptiveToolNameForSingleOrUniformTool() {
         assertEquals("0 tool calls", toolTraceStatusSummary(emptyList()))
-        assertEquals("Search tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "web_search", status = ToolEventStatus.COMPLETED))))
-        assertEquals("Crawl tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "read_url", status = ToolEventStatus.COMPLETED))))
-        assertEquals("Calculator tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "calculate_expression", status = ToolEventStatus.COMPLETED))))
-        assertEquals("Location tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "device_location", status = ToolEventStatus.COMPLETED))))
-        assertEquals("Date tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "current_date", status = ToolEventStatus.COMPLETED))))
-        assertEquals("Search tool - running", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.RUNNING))))
-        assertEquals("Search tool - completed", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.COMPLETED), event("two", toolName = "search", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Web — Search - completed", toolTraceStatusSummary(listOf(event("one", toolName = "web_search", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Web — Crawl - completed", toolTraceStatusSummary(listOf(event("one", toolName = "read_url", status = ToolEventStatus.COMPLETED))))
+        assertEquals("System — Calculator - completed", toolTraceStatusSummary(listOf(event("one", toolName = "calculate_expression", status = ToolEventStatus.COMPLETED))))
+        assertEquals("System — Location - completed", toolTraceStatusSummary(listOf(event("one", toolName = "device_location", status = ToolEventStatus.COMPLETED))))
+        assertEquals("System — Date - completed", toolTraceStatusSummary(listOf(event("one", toolName = "current_date", status = ToolEventStatus.COMPLETED))))
+        assertEquals("Web — Search - running", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.RUNNING))))
+        assertEquals("Web — Search - completed", toolTraceStatusSummary(listOf(event("one", toolName = "search", status = ToolEventStatus.COMPLETED), event("two", toolName = "search", status = ToolEventStatus.COMPLETED))))
     }
 
     @Test

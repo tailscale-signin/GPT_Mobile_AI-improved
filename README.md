@@ -53,7 +53,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 
 ### 9. 🛡️ Enterprise-Grade CI & Build Reliability (Under the Hood)
 - **What it does**: Ensures rock-solid builds and automated releases without memory exhaustion, compilation errors, or linting failures.
-- **How it works**: Automated swapfile allocation (4GB extra RAM), in-process KSP compilation aligned with Kotlin 2.3, R8 Full Mode optimization with stripped production logs for maximum privacy, and automated PR format lint checks.
+- **How it works**: Automated swapfile allocation (6GB extra RAM), KSP 2.0 and Dagger Hilt 2.52 with native Android 12+ (API 31+) MultiDex class loading, clean bytecode linkage, and automated PR verification.
 
 ---
 
@@ -73,7 +73,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 | **APK Footprint** | Large universal APK | ✅ 60% lighter native ABI split APKs |
 | **Long Chats** | Vulnerable to context overflows | ✅ Dynamic sliding-window context compactor |
 | **Network Drops** | Stream breaks immediately | ✅ Safe chunk parsing + auto-retry backoff |
-| **Release Privacy** | Debug logs present in builds | ✅ Aggressive R8 Full Mode + zero log leakage |
+| **Release Stability** | Stale builds / OOM runner crashes | ✅ Guaranteed artifact generation + 6GB Swap CI |
 
 ---
 
@@ -90,7 +90,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 - **Language**: Kotlin 2.x, Coroutines, StateFlow
 - **Networking**: Ktor Client with CIO engine, Server-Sent Events (SSE)
 - **Persistence**: Room Database (`ChatDatabaseV2`), DataStore Preferences
-- **Dependency Injection**: Hilt / Dagger with KSP
+- **Dependency Injection**: Hilt / Dagger with KSP (explicit base class linkage for native ART MultiDex)
 - **Security**: Android Keystore AES-GCM credential encryption
 - **Inference**: Google LiteRT (MediaPipe GenAI LLM)
 - **Background Execution**: Android Foreground Service (`dataSync`), CPU Partial WakeLock

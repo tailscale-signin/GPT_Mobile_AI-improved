@@ -26,9 +26,10 @@ extensions.configure<ApplicationExtension> {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31
         targetSdk = 36
-        versionCode = 32
-        versionName = "0.8.9"
+        versionCode = 33
+        versionName = "0.8.10"
         multiDexEnabled = true
+        multiDexKeepProguard = file("multidex-keep.txt")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

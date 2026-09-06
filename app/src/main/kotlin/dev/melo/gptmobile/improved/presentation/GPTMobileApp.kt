@@ -32,14 +32,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Abstract generated base class declaration matching Hilt's code generator contract.
-// This guarantees that if Hilt bytecode injection or superclass transformation does not mutate
-// GPTMobileApp bytecode directly in-place, GPTMobileApp still extends Hilt_GPTMobileApp cleanly.
-abstract class Hilt_GPTMobileApp : Application()
-
-@HiltAndroidApp(Hilt_GPTMobileApp::class)
+@HiltAndroidApp
 class GPTMobileApp :
-    Hilt_GPTMobileApp(),
+    Application(),
     Configuration.Provider {
     // TODO Delete when https://github.com/google/dagger/issues/3601 is resolved.
     @Inject

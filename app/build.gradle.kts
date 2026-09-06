@@ -19,7 +19,7 @@ extensions.configure<ApplicationExtension> {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.melo.gptmobile.improved"
+        applicationId = "dev.chungjungsoo.gptmobile"
         minSdk = 31
         targetSdk = 36
         versionCode = 28

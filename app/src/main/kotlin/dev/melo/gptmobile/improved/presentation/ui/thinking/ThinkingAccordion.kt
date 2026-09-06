@@ -9,16 +9,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,48 +27,41 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.melo.gptmobile.improved.R
-import dev.melo.gptmobile.improved.presentation.icons.AppIcons
-import dev.melo.gptmobile.improved.presentation.icons.ExpandLess
-import dev.melo.gptmobile.improved.presentation.icons.ExpandMore
-import dev.melo.gptmobile.improved.presentation.icons.Psychology
 
 @Composable
 fun ThinkingAccordion(
     thinkingText: String,
-    isThinking: Boolean,
-    modifier: Modifier = Modifier,
-    initialExpanded: Boolean = isThinking
+    isStreaming: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    var isExpanded by remember(initialExpanded) { mutableStateOf(initialExpanded) }
+    var isExpanded by remember { mutableStateOf(false) }
 
-    Card(
+    Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { isExpanded = !isExpanded }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .clickable { isExpanded = !isExpanded },
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isThinking) {
+                    if (isStreaming) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
@@ -76,28 +69,35 @@ fun ThinkingAccordion(
                         )
                     } else {
                         Icon(
-                            imageVector = AppIcons.Psychology,
+                            painter = painterResource(id = R.drawable.ic_brain),
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
-
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isThinking) {
+                        text = if (isStreaming) {
                             stringResource(R.string.thinking_in_progress)
                         } else {
-                            stringResource(R.string.thinking_complete)
+                            stringResource(R.string.thought_process)
                         },
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
                 Icon(
-                    imageVector = if (isExpanded) AppIcons.ExpandLess else AppIcons.ExpandMore,
+                    painter = painterResource(
+                        id = if (isExpanded) {
+                            R.drawable.ic_chevron_up
+                        } else {
+                            R.drawable.ic_chevron_down
+                        }
+                    ),
                     contentDescription = if (isExpanded) "Collapse" else "Expand",
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -107,21 +107,12 @@ fun ThinkingAccordion(
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                    )
-                    Text(
-                        text = thinkingText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
+                Text(
+                    text = thinkingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }

@@ -1,143 +1,156 @@
 package dev.melo.gptmobile.improved.presentation.ui.migrate
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.melo.gptmobile.improved.R
-import dev.melo.gptmobile.improved.presentation.icons.AppIcons
-import dev.melo.gptmobile.improved.presentation.icons.Warning
+import dev.melo.gptmobile.improved.presentation.icons.ArrowBack
+import dev.melo.gptmobile.improved.presentation.icons.CheckCircle
+import dev.melo.gptmobile.improved.presentation.icons.ErrorOutline
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MigrateScreen(
-    onMigrateComplete: () -> Unit,
-    viewModel: MigrateViewModel = hiltViewModel()
+    onNavigateBack: () -> Unit,
+    viewModel: MigrateViewModel
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val migrationState by viewModel.migrationState.collectAsState()
 
-    LaunchedEffect(uiState) {
-        if (uiState is MigrateUiState.Success) {
-            onMigrateComplete()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.migration_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = ArrowBack,
+                            contentDescription = stringResource(R.string.back)
+                        )
+                    }
+                }
+            )
         }
-    }
-
-    Scaffold { paddingValues ->
-        Column(
+    ) { paddingValues ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .padding(24.dp),
-            horizontalAlignment = Alignment.CenterVertically,
-            verticalArrangement = Arrangement.Center
+            contentAlignment = Alignment.Center
         ) {
-            when (val state = uiState) {
-                is MigrateUiState.Initial -> {
-                    Text(
-                        text = stringResource(R.string.migration_title),
-                        style = MaterialTheme.typography.headlineMedium,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = stringResource(R.string.migration_description),
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(32.dp))
-                    Button(
-                        onClick = { viewModel.startMigration() },
-                        modifier = Modifier.fillMaxWidth()
+            when (val state = migrationState) {
+                is MigrationState.Idle -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Text(text = stringResource(R.string.start_migration))
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedButton(
-                        onClick = onMigrateComplete,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(text = stringResource(R.string.skip_migration))
+                        Text(
+                            text = stringResource(R.string.migration_description),
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { viewModel.startMigration() }
+                        ) {
+                            Text(stringResource(R.string.start_migration))
+                        }
                     }
                 }
 
-                is MigrateUiState.Migrating -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Text(
-                        text = stringResource(R.string.migrating_data),
-                        style = MaterialTheme.typography.titleMedium,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = stringResource(R.string.migration_in_progress_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                is MigrateUiState.Success -> {
-                    // Handled by LaunchedEffect
-                }
-
-                is MigrateUiState.Error -> {
-                    Icon(
-                        imageVector = AppIcons.Warning,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = stringResource(R.string.migration_failed),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = state.message,
-                        style = MaterialTheme.typography.bodySmall,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { viewModel.startMigration() },
-                        modifier = Modifier.fillMaxWidth()
+                is MigrationState.InProgress -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Text(text = stringResource(R.string.retry_migration))
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = stringResource(R.string.migration_in_progress),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedButton(
-                        onClick = onMigrateComplete,
-                        modifier = Modifier.fillMaxWidth()
+                }
+
+                is MigrationState.Success -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Text(text = stringResource(R.string.skip_migration))
+                        Icon(
+                            imageVector = CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = state.message,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(onClick = onNavigateBack) {
+                            Text(stringResource(R.string.done))
+                        }
+                    }
+                }
+
+                is MigrationState.Error -> {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = state.message,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Row {
+                            Button(onClick = { viewModel.startMigration() }) {
+                                Text(stringResource(R.string.retry))
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Button(onClick = onNavigateBack) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
                     }
                 }
             }

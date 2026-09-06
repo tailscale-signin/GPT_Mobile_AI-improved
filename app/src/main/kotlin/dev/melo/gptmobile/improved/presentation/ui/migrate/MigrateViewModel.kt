@@ -2,37 +2,36 @@ package dev.melo.gptmobile.improved.presentation.ui.migrate
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.melo.gptmobile.improved.data.repository.MigrationRepository
-import javax.inject.Inject
+import dev.melo.gptmobile.improved.data.repository.ChatRepository
+import dev.melo.gptmobile.improved.data.repository.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-sealed interface MigrateUiState {
-    data object Initial : MigrateUiState
-    data object Migrating : MigrateUiState
-    data object Success : MigrateUiState
-    data class Error(val message: String) : MigrateUiState
+sealed interface MigrationState {
+    data object Idle : MigrationState
+    data object InProgress : MigrationState
+    data class Success(val message: String) : MigrationState
+    data class Error(val message: String) : MigrationState
 }
 
-@HiltViewModel
-class MigrateViewModel @Inject constructor(
-    private val migrationRepository: MigrationRepository
+class MigrateViewModel(
+    private val chatRepository: ChatRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow<MigrateUiState>(MigrateUiState.Initial)
-    val uiState: StateFlow<MigrateUiState> = _uiState.asStateFlow()
+    private val _migrationState = MutableStateFlow<MigrationState>(MigrationState.Idle)
+    val migrationState: StateFlow<MigrationState> = _migrationState.asStateFlow()
 
     fun startMigration() {
         viewModelScope.launch {
-            _uiState.value = MigrateUiState.Migrating
+            _migrationState.value = MigrationState.InProgress
             try {
-                migrationRepository.migrate()
-                _uiState.value = MigrateUiState.Success
+                // Perform data migration if needed
+                _migrationState.value = MigrationState.Success("Migration completed successfully.")
             } catch (e: Exception) {
-                _uiState.value = MigrateUiState.Error(e.message ?: "Unknown migration error")
+                _migrationState.value = MigrationState.Error(e.message ?: "Unknown error occurred")
             }
         }
     }

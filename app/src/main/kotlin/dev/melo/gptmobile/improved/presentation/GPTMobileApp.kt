@@ -1,12 +1,13 @@
 package dev.melo.gptmobile.improved.presentation
 
 import android.app.ActivityManager
-import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
+import androidx.annotation.Keep
 import androidx.hilt.work.HiltWorkerFactory
+import androidx.multidex.MultiDexApplication
 import androidx.work.Configuration
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -32,9 +33,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@Keep
 @HiltAndroidApp
 open class GPTMobileApp :
-    Application(),
+    MultiDexApplication(),
     Configuration.Provider {
 
     // TODO Delete when https://github.com/google/dagger/issues/3601 is resolved.
@@ -58,6 +60,10 @@ open class GPTMobileApp :
             actManager?.getMemoryInfo(memInfo)
             memInfo.totalMem >= 10L * 1024 * 1024 * 1024 // 10 GB+
         }.getOrDefault(false)
+    }
+
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
     }
 
     override fun onCreate() {

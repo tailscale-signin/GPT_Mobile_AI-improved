@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cyan Palette in Dark Mode -->
+    <color name="primary_cyan">#29B6F6</color>
+    <color name="primary_cyan_dark">#0288D1</color>
+    <color name="cyan_accent">#00E5FF</color>
+    <color name="teal_accent">#26A69A</color>
+
+    <!-- App Background & Surface (matches app icon canvas #121B22) -->
+    <color name="bg_dark">#121B22</color>
+    <color name="surface_dark">#1A242D</color>
+    <color name="surface_dark_elevated">#22303C</color>
+
+    <!-- Semantic Theme Colors (Night overrides) -->
+    <color name="window_background">#121B22</color>
+    <color name="surface">#1A242D</color>
+    <color name="surface_variant">#22303C</color>
+    <color name="on_surface">#E0F7FA</color>
+    <color name="on_surface_variant">#80DEEA</color>
+
+    <!-- Chat Bubble Colors for Dark Mode -->
+    <color name="chat_bubble_user">#0288D1</color>
+    <color name="chat_bubble_user_text">#FFFFFF</color>
+    <color name="chat_bubble_bot">#1A2633</color>
+    <color name="chat_bubble_bot_stroke">#00838F</color>
+    <color name="chat_bubble_bot_text">#E0F7FA</color>
+    <color name="chat_input_bg">#18222C</color>
+    <color name="chat_input_stroke">#00838F</color>
+</resources>

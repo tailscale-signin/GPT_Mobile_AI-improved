@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: "21"
@@ -42,8 +42,14 @@ jobs:
         run: |
           ./gradlew assembleDebug --no-daemon --info 2>&1 | tee gradle-build.log || (echo "=== GRADLE FAILURE LOG ===" && tail -n 120 gradle-build.log && exit 1)
 
+      - name: Locate and list built APKs
+        run: |
+          echo "=== Built APK files ==="
+          find app/build/outputs/ -type f -name "*.apk" || true
+
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: gpt-mobile-debug-${{ github.sha }}
-          path: app/build/outputs/apk/debug/**/*.apk
+          path: app/build/outputs/**/*.apk
+          if-no-files-found: warn

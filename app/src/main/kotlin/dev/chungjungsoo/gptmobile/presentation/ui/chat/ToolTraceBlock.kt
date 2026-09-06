@@ -131,9 +131,7 @@ internal fun resolveToolServiceInfo(
         }
     }
 
-    val toolDisplayName = friendlyToolDisplayName(rawName).let {
-        if (it.endsWith("Tool", ignoreCase = true)) it else "$it tool"
-    }
+    val toolDisplayName = friendlyToolDisplayName(rawName)
 
     return ToolServiceInfo(
         serviceName = serviceName,

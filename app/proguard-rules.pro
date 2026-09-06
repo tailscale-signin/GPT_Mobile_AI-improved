@@ -9,6 +9,8 @@
 # -------------------------------------------------------------
 # Application & Android Components Keep Rules
 # -------------------------------------------------------------
+-keep class dev.chungjungsoo.gptmobile.** { *; }
+-keep interface dev.chungjungsoo.gptmobile.** { *; }
 -keep class dev.chungjungsoo.gptmobile.presentation.GPTMobileApp { *; }
 -keep class dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity { *; }
 -keep class dev.chungjungsoo.gptmobile.presentation.Hilt_GPTMobileApp { *; }

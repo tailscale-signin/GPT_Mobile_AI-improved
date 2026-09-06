@@ -23,15 +23,12 @@ jobs:
       - name: Set up Swap Space and free disk memory
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc || true
-          # GitHub Actions ubuntu runners often have an active swapfile at /swapfile or /mnt/swapfile.
-          # Disable any active swapfile before modifying or create a dedicated new swap file.
           sudo swapoff -a || true
           sudo rm -f /swapfile_extra
           sudo fallocate -l 4G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=4096
           sudo chmod 600 /swapfile_extra
           sudo mkswap /swapfile_extra
           sudo swapon /swapfile_extra
-          # Also re-enable existing swap if available
           if [ -f /swapfile ]; then sudo swapon /swapfile || true; fi
           if [ -f /mnt/swapfile ]; then sudo swapon /mnt/swapfile || true; fi
           free -h
@@ -56,13 +53,6 @@ jobs:
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
-      - name: Upload Debug APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-
       - name: Build Release APK
         id: build-release
         run: ./gradlew assembleRelease --no-daemon --info --stacktrace
@@ -70,13 +60,43 @@ jobs:
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
-      - name: Upload Release APK artifact (if built)
+      - name: Sign APKs with apksigner
+        run: |
+          echo "Setting up keystore for APK signing..."
+          keytool -genkeypair -v \
+            -keystore release.keystore \
+            -alias gptmobile \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "gptmobile-ci-release-key" \
+            -keypass "gptmobile-ci-release-key" \
+            -dname "CN=GPT Mobile Improved, OU=Development, O=OpenSource, L=Global, ST=Global, C=XX"
+
+          mkdir -p app/build/outputs/apk/release/signed/
+          FOUND_APKS=$(find app/build/outputs/apk/ -type f -name "*.apk" ! -path "*/signed/*")
+
+          for apk in $FOUND_APKS; do
+            echo "Signing $apk..."
+            basename=$(basename "$apk")
+            signed_apk="app/build/outputs/apk/release/signed/$basename"
+
+            $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
+              --ks release.keystore \
+              --ks-pass "pass:gptmobile-ci-release-key" \
+              --ks-key-alias gptmobile \
+              --key-pass "pass:gptmobile-ci-release-key" \
+              --out "$signed_apk" \
+              "$apk"
+
+            $ANDROID_HOME/build-tools/35.0.0/apksigner verify "$signed_apk"
+          done
+
+      - name: Upload Release APKs
         uses: actions/upload-artifact@v4
-        if: steps.build-release.outcome == 'success'
-        id: upload-release
         with:
-          name: app-release-unsigned
-          path: app/build/outputs/apk/release/*.apk
+          name: app-release-signed
+          path: app/build/outputs/apk/release/signed/*.apk
           if-no-files-found: ignore
 
       - name: Extract Release Tag
@@ -94,11 +114,11 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/signed/*.apk
           body: |
             Automated tag build for ${{ steps.tag_name.outputs.tag }}.
             
             ### Artifacts
-            - `app-debug.apk`: Debug build of GPT Mobile AI
+            - Valid, signed, and aligned release APKs ready for install.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

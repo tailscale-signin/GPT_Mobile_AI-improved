@@ -137,10 +137,11 @@ tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") 
 }
 
 dependencies {
-    // Android
+    // Android & Material Components
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.google.material)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.viewmodel)
     implementation(libs.androidx.ui)

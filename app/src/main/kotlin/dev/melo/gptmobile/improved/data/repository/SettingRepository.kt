@@ -1,0 +1,27 @@
+package dev.melo.gptmobile.improved.data.repository
+
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.dto.Platform
+import dev.melo.gptmobile.improved.data.dto.ThemeSetting
+
+interface SettingRepository {
+    suspend fun fetchPlatforms(): List<Platform>
+    suspend fun fetchPlatformV2s(): List<PlatformV2>
+    suspend fun fetchThemes(): ThemeSetting
+    suspend fun migrateToPlatformV2()
+    suspend fun migrateSecrets(): List<SecretMigrationError>
+    suspend fun updatePlatforms(platforms: List<Platform>)
+    suspend fun updateThemes(themeSetting: ThemeSetting)
+
+    // PlatformV2 CRUD operations
+    suspend fun addPlatformV2(platform: PlatformV2)
+    suspend fun updatePlatformV2(platform: PlatformV2)
+    suspend fun deletePlatformV2(platform: PlatformV2)
+    suspend fun getPlatformV2ById(id: Int): PlatformV2?
+
+    // Backup & Restore
+    suspend fun exportConfigurationJson(): String
+    suspend fun importConfigurationJson(json: String): Result<Int>
+}
+
+data class SecretMigrationError(val source: String, val message: String)

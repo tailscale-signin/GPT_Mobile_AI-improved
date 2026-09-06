@@ -29,8 +29,6 @@ extensions.configure<ApplicationExtension> {
         versionCode = 36
         versionName = "0.8.13"
 
-        multiDexEnabled = true
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -142,9 +140,6 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.work.runtime.ktx)
-
-    // Multidex
-    implementation("androidx.multidex:multidex:2.0.1")
 
     // Ktor
     implementation(libs.ktor.content.negotiation)

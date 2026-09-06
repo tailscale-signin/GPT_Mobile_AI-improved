@@ -14,13 +14,13 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.melo.gptmobile.improved.R
 import dev.melo.gptmobile.improved.data.agent.AgentRunCoordinator
 import dev.melo.gptmobile.improved.data.backup.SanitizedChatBackup
 import dev.melo.gptmobile.improved.data.database.dao.AgentPersistenceDao
 import dev.melo.gptmobile.improved.data.database.dao.AgentRunDao
-import dev.melo.gptmobile.improved.data.localmodel.PendingLocalPlatformActivator
-import dev.melo.gptmobile.improved.data.localruntime.LocalRuntime
 import dev.melo.gptmobile.improved.data.repository.LocalModelRepository
 import dev.melo.gptmobile.improved.data.repository.SecretMigrationError
 import dev.melo.gptmobile.improved.data.repository.SettingRepository

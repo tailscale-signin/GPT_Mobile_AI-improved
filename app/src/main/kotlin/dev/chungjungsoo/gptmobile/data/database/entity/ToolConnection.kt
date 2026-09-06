@@ -4,11 +4,13 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 @Entity(
     tableName = "tool_connections",
     indices = [Index(value = ["alias"], unique = true)]
 )
+@Serializable
 data class ToolConnection(
     @PrimaryKey
     @ColumnInfo(name = "connection_uid")

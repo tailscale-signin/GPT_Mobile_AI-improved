@@ -21,18 +21,6 @@
 -keep class * extends android.app.Service { *; }
 
 # -------------------------------------------------------------
-# Aggressive Code & Logging Stripping for Performance
-# -------------------------------------------------------------
-# Strip Android Log calls completely in release builds to eliminate string allocation & CPU cycles
--assumenosideeffects class android.util.Log {
-    public static boolean isLoggable(java.lang.String, int);
-    public static int v(...);
-    public static int d(...);
-    public static int i(...);
-    public static int w(...);
-}
-
-# -------------------------------------------------------------
 # Reactive Streams & Netty
 # -------------------------------------------------------------
 -keep class reactor.** { *; }

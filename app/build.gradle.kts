@@ -30,7 +30,6 @@ extensions.configure<ApplicationExtension> {
         versionName = "0.8.11"
 
         multiDexEnabled = true
-        multiDexKeepProguard = file("main-dex-keep-rules.pro")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -55,12 +54,6 @@ extensions.configure<ApplicationExtension> {
         ndk {
             // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)
             abiFilters += listOf("arm64-v8a", "x86_64")
-        }
-    }
-
-    sourceSets {
-        getByName("main") {
-            java.srcDirs("src/main/kotlin", "src/main/java")
         }
     }
 
@@ -129,10 +122,6 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
-}
-
-hilt {
-    enableAggregatingTask = true
 }
 
 // Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name

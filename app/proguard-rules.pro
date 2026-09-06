@@ -7,6 +7,16 @@
 -ignorewarnings
 
 # -------------------------------------------------------------
+# Application & Android Components Keep Rules
+# -------------------------------------------------------------
+-keep class dev.chungjungsoo.gptmobile.presentation.GPTMobileApp { *; }
+-keep class dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity { *; }
+-keep class dev.chungjungsoo.gptmobile.presentation.Hilt_GPTMobileApp { *; }
+-keep class * extends android.app.Application { *; }
+-keep class * extends android.app.Activity { *; }
+-keep class * extends android.app.Service { *; }
+
+# -------------------------------------------------------------
 # Aggressive Code & Logging Stripping for Performance
 # -------------------------------------------------------------
 # Strip Android Log calls completely in release builds to eliminate string allocation & CPU cycles

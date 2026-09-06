@@ -24,6 +24,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 - **What you will notice**: AI models can solve math, check real-time date/time, fetch web pages, run terminal commands, and integrate external services. Discover and enable new tools directly through the built-in, full-screen **MCP Tool Marketplace**.
 - **How it works**: Integrated agent runtime capable of multi-step reasoning, safely invoking tools, handling errors, and synthesizing answers.
 - **Unlimited Agents & Tools**: Engineered to support unconstrained tool calling and agent rounds without arbitrary execution ceilings.
+- **Interactive Tool Execution Visualizer**: Collapsible real-time trace blocks showing live execution status, search queries, results, and duration for complete transparency into agent actions.
 - **Zero-Config Web Search**: Built-in Termux MCPSearch with automatic DuckDuckGo fallback for instant web connectivity without manual API key setup.
 
 ### 3. 🌙 Background, Screen-Off & Locked Device Execution
@@ -52,7 +53,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 
 ### 9. 🛡️ Enterprise-Grade CI & Build Reliability (Under the Hood)
 - **What it does**: Ensures rock-solid builds and automated releases without memory exhaustion, compilation errors, or linting failures.
-- **How it works**: Automated swapfile allocation (4GB extra RAM), in-process KSP compilation, R8 Full Mode optimization with stripped production logs for maximum privacy, and automated PR format lint checks.
+- **How it works**: Automated swapfile allocation (4GB extra RAM), in-process KSP compilation aligned with Kotlin 2.3, R8 Full Mode optimization with stripped production logs for maximum privacy, and automated PR format lint checks.
 
 ---
 
@@ -64,6 +65,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 | **Agent Tools & MCP** | ❌ Not supported | ✅ Built-in Agent Engine + Model Context Protocol |
 | **MCP Marketplace** | ❌ Not supported | ✅ Full-screen in-app marketplace with 1-click install |
 | **Tool Execution Limits** | ❌ None | ✅ Unlimited agents & tools runtime |
+| **Tool Execution Visualizer** | ❌ None | ✅ Live interactive collapsible trace cards |
 | **Background / Screen-Off Run** | ❌ Killed on screen lock | ✅ Resilient `AgentRunForegroundService` + WakeLock |
 | **Web Search** | ❌ Manual setup / none | ✅ Zero-config Termux MCPSearch + DuckDuckGo fallback |
 | **On-Device Models** | Basic / Limited | ✅ Google LiteRT & Full Ollama host integration |
@@ -99,8 +101,8 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 
 ### Prerequisites
 - Android Studio Ladybug (2024.2.1) or newer
-- JDK 21 (JDK 17 minimum)
-- Android SDK 36 (target/compile) / Min SDK 26
+- JDK 21
+- Android SDK 36 (target/compile) / Min SDK 31 (Android 12+)
 
 ### Building from Source
 ```bash

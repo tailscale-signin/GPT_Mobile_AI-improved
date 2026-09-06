@@ -1,41 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Outer background shape / highlight in bright cyan -->
+    <!-- Outer Cyan Circle Base -->
     <path
-        android:fillColor="#00E5FF"
-        android:pathData="M31,63.928h-0.457c-2.072,-0.009 -3.743,-1.69 -3.734,-3.762l0.264,-61.737c0.009,-2.072 1.69,-3.743 3.762,-3.734l46.737,0.2c2.072,0.009 3.743,1.69 3.734,3.762l-0.264,61.737c-0.009,2.072 -1.69,3.743 -3.762,3.734H31z"/>
-    <!-- Speech bubble body in ultra-crisp cyan tint -->
+        android:fillColor="#29B6F6"
+        android:pathData="M54,54m-46,0a46,46 0,1,1 92,0a46,46 0,1,1 -92,0" />
+
+    <!-- Slanted Chat Bubble with Pointer Tail in Crisp Soft Pale Cyan -->
+    <!-- Coords centered at (54, 52): Top-Left: (35,31), Top-Right: (79,31), Tail-Right: (73,43), Tail-Tip: (73,71), Tail-Base: (63,60), Bottom-Left: (29,60) with rounded corners -->
     <path
         android:fillColor="#E0F7FA"
-        android:pathData="M78.683,61.643l-45.696,-0.195c-1.34,-0.006 -2.421,-1.093 -2.415,-2.433l0.258,-60.366c0.006,-1.34 1.093,-2.421 2.433,-2.415l45.696,0.195c1.34,0.006 2.421,1.093 2.415,2.433l-0.258,60.366C81.11,60.563 80.023,61.649 78.683,61.643z"/>
-    <!-- Inner face background in vibrant cyan (brighter, no green) -->
+        android:pathData="M37.5,31.0 L76.5,31.0 A3,3 0 0,1 79.4,34.5 L74.2,56.5 A2,2 0 0,1 72.3,58.0 L71.5,58.0 L72.8,69.5 A1.5,1.5 0 0,1 70.3,70.7 L61.5,60.0 L31.5,60.0 A3,3 0 0,1 28.6,56.5 L34.6,33.5 A3,3 0 0,1 37.5,31.0 Z" />
+
+    <!-- Inner Rounded Bot Screen in Deep Cyan (#26C6DA / #22A7B8) -->
     <path
-        android:fillColor="#00BCD4"
-        android:pathData="M72.235,50.145l-33.803,-0.145c-0.992,-0.004 -1.792,-0.81 -1.787,-1.802l0.191,-44.688c0.004,-0.992 0.81,-1.792 1.802,-1.788l33.803,0.145c0.992,0.004 1.792,0.81 1.787,1.802l-0.191,44.688C74.035,49.336 73.228,50.149 72.235,50.145z"/>
-    <!-- Eyes and mouth in dark cyan/grey -->
+        android:fillColor="#26A69A"
+        android:pathData="M44.5,37.0 L64.5,37.0 A2.5,2.5 0 0,1 67.0,39.5 L67.0,50.5 A2.5,2.5 0 0,1 64.5,53.0 L44.5,53.0 A2.5,2.5 0 0,1 42.0,50.5 L42.0,39.5 A2.5,2.5 0 0,1 44.5,37.0 Z" />
+
+    <!-- Bot Left Eye Dot in Cyan -->
     <path
-        android:fillColor="#1B2629"
-        android:pathData="M48.805,17.202a3.5,3.5 0,1 0,-7 -0.03a3.5,3.5 0,1 0,7 0.03z"/>
+        android:fillColor="#29B6F6"
+        android:pathData="M49.5,45.0m-2.2,0a2.2,2.2 0,1,1 4.4,0a2.2,2.2 0,1,1 -4.4,0" />
+
+    <!-- Bot Right Eye Dot in Cyan -->
     <path
-        android:fillColor="#1B2629"
-        android:pathData="M69.006,17.288a3.5,3.5 0,1 0,-7 -0.03a3.5,3.5 0,1 0,7 0.03z"/>
-    <path
-        android:fillColor="#1B2629"
-        android:pathData="M62.639,34.423a8.889,8.889 0,0 1,-6.671 2.999,8.889 8.889,0 0,1 -6.643,-3.061 1.5,1.5 0,0 1,2.237 -1.998,5.889 5.889,0 0,0 4.402,2.029 5.889,5.889 0,0 0,4.424 -1.989,1.5 1.5,0 1,1 2.251,1.98z"/>
-    <!-- Outer speech bubble tail in dark cyan/grey -->
-    <path
-        android:fillColor="#1B2629"
-        android:pathData="M78.683,64.143l-45.696,-0.195c-2.716,-0.012 -4.91,-2.217 -4.898,-4.933l0.258,-60.366c0.012,-2.716 2.217,-4.91 4.933,-4.898l45.696,0.195c2.716,0.012 4.91,2.217 4.898,4.933l-0.258,60.366C83.606,61.961 81.399,64.155 78.683,64.143zM37.92,54.145l33.803,0.145c3.2,0.014 5.797,-2.574 5.811,-5.773l0.191,-44.688c0.014,-3.2 -2.574,-5.797 -5.773,-5.811l-33.803,-0.145c-3.2,-0.014 -5.797,2.574 -5.811,5.773l-0.191,44.688C32.133,51.533 34.721,54.131 37.92,54.145z"/>
-    <path
-        android:fillColor="#1B2629"
-        android:pathData="M39.502,77.94l-8.621,-13.784 4.237,-2.651 8.621,13.784z"/>
-    <path
-        android:fillColor="#1B2629"
-        android:pathData="M23.957,75.945l-0.089,-16.236 5,0.027 0.089,16.236z"/>
-    <path
-        android:fillColor="#1B2629"
-        android:pathData="M24.777,73.447l15.42,4.646 -1.442,4.788 -15.42,-4.646z"/>
+        android:fillColor="#29B6F6"
+        android:pathData="M59.5,45.0m-2.2,0a2.2,2.2 0,1,1 4.4,0a2.2,2.2 0,1,1 -4.4,0" />
 </vector>

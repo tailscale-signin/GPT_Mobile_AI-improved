@@ -18,8 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -181,7 +181,7 @@ internal fun ToolStatusIndicator(
         }
         isError || normStatus == ToolEventStatus.FAILED || normStatus == ToolEventStatus.CANCELED -> {
             Icon(
-                imageVector = Icons.Rounded.Close,
+                imageVector = Icons.Default.Close,
                 contentDescription = "Failed",
                 tint = Color(0xFFD32F2F),
                 modifier = modifier.size(18.dp),
@@ -189,7 +189,7 @@ internal fun ToolStatusIndicator(
         }
         else -> {
             Icon(
-                imageVector = Icons.Rounded.Check,
+                imageVector = Icons.Default.Check,
                 contentDescription = "Completed",
                 tint = Color(0xFF2E7D32),
                 modifier = modifier.size(18.dp),

@@ -5,7 +5,9 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelRecord
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(tableName = "local_models")
 data class LocalModel(
     @PrimaryKey

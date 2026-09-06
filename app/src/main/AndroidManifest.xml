@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="dev.melo.gptmobile.improved">
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -14,7 +13,7 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
-        android:name="dev.melo.gptmobile.improved.presentation.GPTMobileApp"
+        android:name=".presentation.GPTMobileApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -26,7 +25,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="31">
         <activity
-            android:name="dev.melo.gptmobile.improved.presentation.ui.main.MainActivity"
+            android:name=".presentation.ui.main.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Gptmobile">
             <intent-filter>
@@ -37,7 +36,7 @@
         </activity>
 
         <service
-            android:name="dev.melo.gptmobile.improved.presentation.service.AgentRunForegroundService"
+            android:name=".presentation.service.AgentRunForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
     </application>

@@ -79,7 +79,7 @@ litertlm = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", v
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
-auto-license = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "autoLicense" }
+auto-license = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "autoLicense" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }

@@ -58,16 +58,7 @@ extensions.configure<ApplicationExtension> {
 
     sourceSets {
         getByName("main") {
-            java.srcDirs("src/main/kotlin")
-        }
-    }
-
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = true
+            java.srcDirs("src/main/kotlin", "src/main/java")
         }
     }
 

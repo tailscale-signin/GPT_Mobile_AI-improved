@@ -73,11 +73,18 @@ extensions.configure<ApplicationExtension> {
         checkReleaseBuilds = false
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Default debug signing configuration
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
             vcsInfo.include = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

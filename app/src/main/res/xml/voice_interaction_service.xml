@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:sessionService="dev.chungjungsoo.gptmobile.data.service.VoiceInteractionSessionService"
+    android:sessionService="dev.melo.gptmobile.improved.data.service.VoiceInteractionSessionService"
     android:supportsAssist="true"
     android:supportsLocalInteraction="true" />

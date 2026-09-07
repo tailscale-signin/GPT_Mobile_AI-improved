@@ -2,7 +2,6 @@
 
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
-import com.mikepenz.aboutlibraries.plugin.AboutLibrariesExtension
 import org.gradle.kotlin.dsl.configure
 
 plugins {
@@ -195,7 +194,7 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 
-extensions.configure<AboutLibrariesExtension> {
+configure<com.mikepenz.aboutlibraries.plugin.AboutLibrariesExtension> {
     export {
         excludeFields.add("generated")
     }

@@ -13,6 +13,7 @@ import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
 import dev.melo.gptmobile.improved.data.database.dao.LocalModelDao
 import dev.melo.gptmobile.improved.data.database.entity.LocalModel
 import dev.melo.gptmobile.improved.data.localmodel.LocalModelDownloadPaths
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelRecord
 import dev.melo.gptmobile.improved.data.localmodel.LocalModelReconciler
 import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
 import dev.melo.gptmobile.improved.data.localmodel.ReconcileAction
@@ -146,7 +147,7 @@ class LocalModelRepositoryImpl(
     }
 
     override suspend fun totalStorageUsed(): Long = withContext(ioDispatcher) {
-        localModelDao.getAll()
+        localModelDao.getAllList()
             .filter { it.status == LocalModelStatus.READY }
             .sumOf { diskBytes(it) }
     }
@@ -166,7 +167,7 @@ class LocalModelRepositoryImpl(
                 return@withContext
             }
             val actions = LocalModelReconciler.reconcile(
-                rows = localModelDao.getAll().map { it.toRecord() },
+                rows = localModelDao.getAllList().map { it.toRecord() },
                 diskFiles = diskFilesOrDefault(),
                 activeDownloadIds = activeDownloadIds()
             )
@@ -239,6 +240,14 @@ class LocalModelRepositoryImpl(
         val file = File(storageRoot(), LocalModelDownloadPaths.relativeFilePath(model.catalogEntryId, model.commitHash, model.fileName))
         return if (file.exists()) file.length() else model.totalBytes
     }
+
+    private fun LocalModel.toRecord(): LocalModelRecord = LocalModelRecord(
+        catalogEntryId = catalogEntryId,
+        commitHash = commitHash,
+        fileName = fileName,
+        relativeDirectory = relativeDirectory,
+        status = status
+    )
 
     private companion object {
         const val JOB_DELIVERY_TIMEOUT_MS = 2_000L

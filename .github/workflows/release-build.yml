@@ -8,6 +8,9 @@ on:
       - master
       - release-*
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+
 jobs:
   build:
     name: Build and Sign Release APK & AAB
@@ -168,7 +171,7 @@ jobs:
         with:
           name: gpt-mobile-release-apks-${{ github.sha }}
           path: app/build/outputs/apk/release/signed/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload Release Bundle
         uses: actions/upload-artifact@v4

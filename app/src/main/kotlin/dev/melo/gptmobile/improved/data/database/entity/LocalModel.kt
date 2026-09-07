@@ -3,28 +3,45 @@ package dev.melo.gptmobile.improved.data.database.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelRecord
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
 
 @Entity(tableName = "local_models")
 data class LocalModel(
     @PrimaryKey
-    @ColumnInfo(name = "id")
-    val id: String = "",
+    @ColumnInfo(name = "catalog_entry_id")
+    val catalogEntryId: String = "",
 
-    @ColumnInfo(name = "display_name")
-    val displayName: String = "",
+    @ColumnInfo(name = "commit_hash")
+    val commitHash: String = "",
 
-    @ColumnInfo(name = "model_name")
-    val modelName: String = "",
+    @ColumnInfo(name = "file_name")
+    val fileName: String = "",
 
-    @ColumnInfo(name = "file_path")
-    val filePath: String = "",
+    @ColumnInfo(name = "relative_directory")
+    val relativeDirectory: String = "",
 
-    @ColumnInfo(name = "is_downloaded")
-    val isDownloaded: Boolean = false,
+    @ColumnInfo(name = "total_bytes")
+    val totalBytes: Long = 0L,
 
-    @ColumnInfo(name = "download_progress")
-    val downloadProgress: Float = 0f,
+    @ColumnInfo(name = "status")
+    val status: LocalModelStatus = LocalModelStatus.NOT_DOWNLOADED,
 
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis() / 1000
-)
+    val createdAt: Long = System.currentTimeMillis() / 1000,
+
+    @ColumnInfo(name = "updated_at")
+    val updatedAt: Long = System.currentTimeMillis() / 1000
+) {
+    val id: String
+        get() = catalogEntryId
+
+    fun toRecord(): LocalModelRecord = LocalModelRecord(
+        catalogEntryId = catalogEntryId,
+        commitHash = commitHash,
+        fileName = fileName,
+        relativeDirectory = relativeDirectory,
+        totalBytes = totalBytes,
+        status = status
+    )
+}

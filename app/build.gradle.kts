@@ -192,8 +192,3 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
-
-// Configure aboutLibraries via late-bound extension to avoid buildscript classpath resolution issues
-extensions.findByName("aboutLibraries")?.let { ext ->
-    (ext as? groovy.lang.GroovyObject)?.invokeMethod("export", mapOf<String, Any>())
-}

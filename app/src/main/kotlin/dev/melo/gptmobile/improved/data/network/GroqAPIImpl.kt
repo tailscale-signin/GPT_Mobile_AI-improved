@@ -7,7 +7,6 @@ import dev.melo.gptmobile.improved.data.dto.groq.request.GroqChatCompletionReque
 import dev.melo.gptmobile.improved.data.dto.groq.response.GroqChatCompletionChunk
 import dev.melo.gptmobile.improved.data.dto.groq.response.GroqErrorDetail
 import dev.melo.gptmobile.improved.util.applyPlatformStreamingTimeout
-import dev.melo.gptmobile.improved.util.readLine
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.accept
@@ -18,6 +17,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readUTF8Line
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +43,7 @@ class GroqAPIImpl @Inject constructor(
             networkClient().preparePost(endpoint) {
                 applyPlatformStreamingTimeout(timeoutSeconds)
                 contentType(ContentType.Application.Json)
-                setBody(NetworkClient.openAIJson.encodeToString(request))
+                setBody(NetworkClient.openAIJson.encodeToString<GroqChatCompletionRequest>(request))
                 accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                 config.token?.let { bearerAuth(it) }
             }.execute { response ->
@@ -76,7 +76,7 @@ class GroqAPIImpl @Inject constructor(
 
                 val channel = response.bodyAsChannel()
                 while (!channel.isClosedForRead) {
-                    val line = channel.readLine() ?: break
+                    val line = channel.readUTF8Line() ?: break
                     val data = SseUtils.extractSseData(line) ?: continue
 
                     if (data == "[DONE]") break

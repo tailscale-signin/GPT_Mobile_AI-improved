@@ -174,18 +174,21 @@ jobs:
         run: |
           VERSION_NAME=$(grep 'versionName =' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           VERSION_CODE=$(grep 'versionCode =' app/build.gradle.kts | head -n 1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "tag_name=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
-          echo "Detected version: v$VERSION_NAME (code: $VERSION_CODE)"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "tag_name=v${VERSION_NAME}-pre.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: v$VERSION_NAME (code: $VERSION_CODE, sha: $SHORT_SHA)"
 
-      - name: Publish or Update GitHub Release
+      - name: Publish or Update GitHub Pre-Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.version_info.outputs.tag_name }}
           VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
+          SHORT_SHA: ${{ steps.version_info.outputs.short_sha }}
         run: |
-          echo "Publishing GitHub Release for tag: $TAG_NAME"
+          echo "Publishing GitHub Pre-release for tag: $TAG_NAME"
 
           ASSETS_TO_UPLOAD=()
           for signed in app/build/outputs/apk/release/signed/*.apk; do
@@ -202,13 +205,14 @@ jobs:
             echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
             gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
-            echo "Creating fresh GitHub Release $TAG_NAME..."
+            echo "Creating fresh GitHub Pre-Release $TAG_NAME..."
             gh release create "$TAG_NAME" \
               "${ASSETS_TO_UPLOAD[@]}" \
-              --title "$TAG_NAME - GPT Mobile Improved" \
-              --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
+              --prerelease \
+              --title "v${VERSION_NAME} (Build ${SHORT_SHA})" \
+              --notes "Automated pre-release build for commit ${SHORT_SHA} on main branch. Includes signed APKs (universal and ABI-specific) built with R8 optimization."
           fi
-          echo "GitHub Release $TAG_NAME published successfully."
+          echo "GitHub Pre-Release $TAG_NAME published successfully."
 
       - name: Report Build Failure as GitHub Issue
         if: failure()

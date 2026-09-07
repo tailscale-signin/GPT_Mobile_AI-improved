@@ -129,8 +129,8 @@ class AgentToolResolver @Inject constructor(
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = discoverMcpTools(connection)
         return remoteTools
-            .filter { (tool: Tool) -> tool.name in selectedNames }
-            .map { (remoteTool: Tool) ->
+            .filter { tool: Tool -> tool.name in selectedNames }
+            .map { remoteTool: Tool ->
                 val tool = McpAgentTool(
                     definition = mcpToolDefinition(connection.alias, remoteTool),
                     authType = connection.authType,

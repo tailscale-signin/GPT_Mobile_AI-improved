@@ -538,4 +538,16 @@
     <string name="paste_configuration_hint">Paste exported JSON here…</string>
     <string name="restore_configuration_success">Configuration restored successfully (%1$d platform(s) imported).</string>
     <string name="restore_configuration_error">Failed to restore configuration. Invalid JSON format.</string>
+
+    <!-- Chat UI Strings -->
+    <string name="chat_title_default">Chat</string>
+    <string name="chat_select_tools_title">Select tools</string>
+    <string name="chat_menu_clear">Clear chat</string>
+    <string name="chat_menu_delete">Delete chat</string>
+    <string name="chat_attach_file">Attach file</string>
+    <string name="chat_input_hint">Ask a question…</string>
+    <string name="chat_no_tools_available">No tools available</string>
+    <string name="chat_thinking_process">Thinking process</string>
+    <string name="chat_tool_traces_title">Tool traces</string>
+    <string name="use_default_title">Use default</string>
 </resources>

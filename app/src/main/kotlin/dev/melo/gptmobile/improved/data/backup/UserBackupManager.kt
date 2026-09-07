@@ -9,6 +9,7 @@ import dev.melo.gptmobile.improved.data.database.entity.LocalModel
 import dev.melo.gptmobile.improved.data.database.entity.MessageV2
 import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
 import dev.melo.gptmobile.improved.data.model.ClientType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -321,14 +322,14 @@ class UserBackupManager(
         }
 
         val localModels = if (options.includeModels) {
-            database.localModelDao().getAllModels().first().map { lm ->
+            database.localModelDao().getAll().map { lm ->
                 BackupLocalModelDto(
-                    id = lm.id,
-                    displayName = lm.displayName,
-                    modelName = lm.modelName,
-                    filePath = lm.filePath,
-                    isDownloaded = lm.isDownloaded,
-                    downloadProgress = lm.downloadProgress,
+                    id = lm.catalogEntryId,
+                    displayName = lm.fileName,
+                    modelName = lm.fileName,
+                    filePath = lm.relativeDirectory,
+                    isDownloaded = lm.status == LocalModelStatus.READY,
+                    downloadProgress = 1f,
                     createdAt = lm.createdAt
                 )
             }
@@ -423,15 +424,16 @@ class UserBackupManager(
         var localModelsCount = 0
         data.localModels.forEach { dto ->
             val localModel = LocalModel(
-                id = dto.id,
-                displayName = dto.displayName,
-                modelName = dto.modelName,
-                filePath = dto.filePath,
-                isDownloaded = dto.isDownloaded,
-                downloadProgress = dto.downloadProgress,
-                createdAt = dto.createdAt
+                catalogEntryId = dto.id,
+                commitHash = "",
+                fileName = dto.modelName,
+                relativeDirectory = dto.filePath,
+                totalBytes = 0L,
+                status = if (dto.isDownloaded) LocalModelStatus.READY else LocalModelStatus.NOT_DOWNLOADED,
+                createdAt = dto.createdAt,
+                updatedAt = dto.createdAt
             )
-            database.localModelDao().insertModel(localModel)
+            database.localModelDao().upsert(localModel)
             localModelsCount++
         }
 

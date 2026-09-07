@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,13 +34,20 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -75,10 +81,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -96,11 +104,105 @@ import dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.McpPricingType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
-import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 
 /**
- * Full-screen MCP Marketplace page allowing users to discover, inspect, configure,
- * and validate all required parameters for MCP tools before adding them to their tool connections.
+ * Service icon descriptor with distinct brand colors and icons for each preset.
+ */
+data class ServiceBrand(
+    val iconVector: ImageVector? = null,
+    val iconResId: Int? = null,
+    val brandColor: Color,
+    val containerColor: Color
+)
+
+@Composable
+fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
+    val isDark = MaterialTheme.colorScheme.background.red < 0.5f
+
+    return when (iconName) {
+        "github" -> ServiceBrand(
+            iconResId = R.drawable.ic_github,
+            brandColor = if (isDark) Color(0xFFF0F6FC) else Color(0xFF24292F),
+            containerColor = if (isDark) Color(0xFF21262D) else Color(0xFFF6F8FA)
+        )
+        "brave" -> ServiceBrand(
+            iconVector = Icons.Default.Search,
+            brandColor = Color(0xFFFF5722),
+            containerColor = Color(0xFFFF5722).copy(alpha = 0.15f)
+        )
+        "folder" -> ServiceBrand(
+            iconVector = Icons.Default.Folder,
+            brandColor = Color(0xFF0288D1),
+            containerColor = Color(0xFF0288D1).copy(alpha = 0.15f)
+        )
+        "postgres" -> ServiceBrand(
+            iconVector = Icons.Default.Dns,
+            brandColor = Color(0xFF336791),
+            containerColor = Color(0xFF336791).copy(alpha = 0.15f)
+        )
+        "puppeteer" -> ServiceBrand(
+            iconVector = Icons.Default.Public,
+            brandColor = Color(0xFF00D8A2),
+            containerColor = Color(0xFF00D8A2).copy(alpha = 0.15f)
+        )
+        "fetch" -> ServiceBrand(
+            iconVector = Icons.Default.Download,
+            brandColor = Color(0xFF7C4DFF),
+            containerColor = Color(0xFF7C4DFF).copy(alpha = 0.15f)
+        )
+        "memory" -> ServiceBrand(
+            iconVector = Icons.Default.Psychology,
+            brandColor = Color(0xFFEC407A),
+            containerColor = Color(0xFFEC407A).copy(alpha = 0.15f)
+        )
+        "exa" -> ServiceBrand(
+            iconVector = Icons.Default.Search,
+            brandColor = Color(0xFF6200EE),
+            containerColor = Color(0xFF6200EE).copy(alpha = 0.15f)
+        )
+        "terminal" -> ServiceBrand(
+            iconVector = Icons.Default.Terminal,
+            brandColor = Color(0xFF00C853),
+            containerColor = Color(0xFF00C853).copy(alpha = 0.15f)
+        )
+        else -> when (category) {
+            McpCategory.SEARCH -> ServiceBrand(
+                iconVector = Icons.Default.Search,
+                brandColor = Color(0xFF0288D1),
+                containerColor = Color(0xFF0288D1).copy(alpha = 0.15f)
+            )
+            McpCategory.DEVELOPMENT -> ServiceBrand(
+                iconVector = Icons.Default.Code,
+                brandColor = Color(0xFF6200EE),
+                containerColor = Color(0xFF6200EE).copy(alpha = 0.15f)
+            )
+            McpCategory.DATABASE -> ServiceBrand(
+                iconVector = Icons.Default.Dns,
+                brandColor = Color(0xFF336791),
+                containerColor = Color(0xFF336791).copy(alpha = 0.15f)
+            )
+            McpCategory.SYSTEM -> ServiceBrand(
+                iconVector = Icons.Default.Terminal,
+                brandColor = Color(0xFF00897B),
+                containerColor = Color(0xFF00897B).copy(alpha = 0.15f)
+            )
+            McpCategory.BROWSER -> ServiceBrand(
+                iconVector = Icons.Default.Public,
+                brandColor = Color(0xFF00B0FF),
+                containerColor = Color(0xFF00B0FF).copy(alpha = 0.15f)
+            )
+            McpCategory.PRODUCTIVITY -> ServiceBrand(
+                iconVector = Icons.Default.Psychology,
+                brandColor = Color(0xFFFF6D00),
+                containerColor = Color(0xFFFF6D00).copy(alpha = 0.15f)
+            )
+        }
+    }
+}
+
+/**
+ * Enhanced full-screen MCP Marketplace page with clean layout, brand service icons,
+ * category filters, pricing tags, and robust connection configuration modal.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -166,7 +268,7 @@ fun McpMarketplaceScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
                 OutlinedTextField(
                     value = searchQuery,
@@ -189,14 +291,14 @@ fun McpMarketplaceScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
                     )
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Pricing Filter Chips (Free, Free with sign up, Paid)
+                // Category Filter Chips
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -204,17 +306,39 @@ fun McpMarketplaceScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Price:",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    FilterChip(
+                        selected = selectedCategory == null,
+                        onClick = { selectedCategory = null },
+                        label = { Text("All Categories") },
+                        shape = RoundedCornerShape(12.dp)
                     )
 
+                    McpCategory.entries.forEach { category ->
+                        FilterChip(
+                            selected = selectedCategory == category,
+                            onClick = {
+                                selectedCategory = if (selectedCategory == category) null else category
+                            },
+                            label = { Text(category.displayName) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Pricing Filter Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     FilterChip(
                         selected = selectedPricing == null,
                         onClick = { selectedPricing = null },
-                        label = { Text("All Prices") },
+                        label = { Text("All Pricing") },
                         shape = RoundedCornerShape(12.dp)
                     )
 
@@ -232,59 +356,23 @@ fun McpMarketplaceScreen(
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Category Filter Chips
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Category:",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    FilterChip(
-                        selected = selectedCategory == null,
-                        onClick = { selectedCategory = null },
-                        label = { Text("All") },
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    McpCategory.entries.forEach { category ->
-                        FilterChip(
-                            selected = selectedCategory == category,
-                            onClick = {
-                                selectedCategory = if (selectedCategory == category) null else category
-                            },
-                            label = { Text(category.displayName) },
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    }
-                }
             }
 
             HorizontalDivider(
-                modifier = Modifier.padding(vertical = 4.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
             )
 
-            // Results summary
+            // Results count
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${filteredPresets.size} MCP integration${if (filteredPresets.size == 1) "" else "s"}",
+                    text = "${filteredPresets.size} available integration${if (filteredPresets.size == 1) "" else "s"}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -295,7 +383,7 @@ fun McpMarketplaceScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredPresets, key = { it.id }) { preset ->
                     val isInstalled = installedAliases.contains(preset.alias) ||
@@ -309,7 +397,7 @@ fun McpMarketplaceScreen(
                 }
 
                 item {
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(28.dp))
                 }
             }
         }
@@ -357,7 +445,7 @@ private fun McpMarketplaceTopBar(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Connect high-capability autonomous tools to your AI",
+                    text = "Discover & connect autonomous protocol tools to your AI",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -389,7 +477,7 @@ fun PricingBadge(pricing: McpPricingType) {
         tonalElevation = 1.dp
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -414,6 +502,46 @@ fun PricingIcon(pricing: McpPricingType, modifier: Modifier = Modifier.size(16.d
 }
 
 @Composable
+fun ServiceIcon(
+    iconName: String,
+    category: McpCategory,
+    modifier: Modifier = Modifier
+) {
+    val brand = getServiceBrand(iconName, category)
+
+    Box(
+        modifier = modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(brand.containerColor),
+        contentAlignment = Alignment.Center
+    ) {
+        if (brand.iconResId != null) {
+            Icon(
+                painter = painterResource(id = brand.iconResId),
+                contentDescription = null,
+                tint = brand.brandColor,
+                modifier = Modifier.size(26.dp)
+            )
+        } else if (brand.iconVector != null) {
+            Icon(
+                imageVector = brand.iconVector,
+                contentDescription = null,
+                tint = brand.brandColor,
+                modifier = Modifier.size(26.dp)
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Extension,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+    }
+}
+
+@Composable
 fun McpMarketplaceDetailCard(
     preset: McpPreset,
     isInstalled: Boolean,
@@ -426,7 +554,7 @@ fun McpMarketplaceDetailCard(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -437,55 +565,44 @@ fun McpMarketplaceDetailCard(
                 .fillMaxWidth()
                 .padding(18.dp)
         ) {
-            // Header Row: Title, Badges, Action Button
+            // Header Row: Service Icon + Title & Metadata + Action Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Service Icon with custom brand styling
+                    ServiceIcon(
+                        iconName = preset.iconName,
+                        category = preset.category
+                    )
+
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = preset.name,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                    }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PricingBadge(pricing = preset.pricing)
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = preset.category.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
                             text = "by ${preset.author}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 if (isInstalled) {
                     OutlinedButton(
@@ -517,7 +634,30 @@ fun McpMarketplaceDetailCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Badges Row: Pricing + Category
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PricingBadge(pricing = preset.pricing)
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = preset.category.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Full Description
             Text(
@@ -529,37 +669,47 @@ fun McpMarketplaceDetailCard(
             // Tool capabilities list
             if (preset.toolCapabilities.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Tools Provided:",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Provided Tools & Functions:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                preset.toolCapabilities.take(if (isExpanded) preset.toolCapabilities.size else 2).forEach { toolDesc ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "•",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(end = 6.dp)
-                        )
-                        Text(
-                            text = toolDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        val displayCount = if (isExpanded) preset.toolCapabilities.size else 2
+                        preset.toolCapabilities.take(displayCount).forEach { toolDesc ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    text = "•",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 6.dp)
+                                )
+                                Text(
+                                    text = toolDesc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            // Expand / Collapse Footer
+            // Expand / Collapse Footer & Documentation link
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -574,15 +724,15 @@ fun McpMarketplaceDetailCard(
                             runCatching { context.startActivity(intent) }
                         }
                     ) {
-                        Text(
-                            text = "Docs / Portal",
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                             contentDescription = "Open docs",
                             modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Documentation",
+                            style = MaterialTheme.typography.labelSmall
                         )
                     }
                 } else {
@@ -592,7 +742,7 @@ fun McpMarketplaceDetailCard(
                 if (preset.toolCapabilities.size > 2) {
                     TextButton(onClick = { isExpanded = !isExpanded }) {
                         Text(
-                            text = if (isExpanded) "Show Less" else "Show All (${preset.toolCapabilities.size} tools)",
+                            text = if (isExpanded) "Show Less" else "All ${preset.toolCapabilities.size} tools",
                             style = MaterialTheme.typography.labelSmall
                         )
                         Icon(
@@ -646,6 +796,8 @@ fun McpPresetConfigureDialog(
 
     val canSave = isNameValid && isAliasValid && isEndpointValid && isCredentialValid
 
+    val context = LocalContext.current
+
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -665,23 +817,34 @@ fun McpPresetConfigureDialog(
                     .verticalScroll(rememberScrollState())
                     .imePadding()
             ) {
-                // Header
+                // Header with Service Icon
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Add ${preset.name}",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ServiceIcon(
+                            iconName = preset.iconName,
+                            category = preset.category,
+                            modifier = Modifier.size(40.dp)
                         )
-                        Text(
-                            text = "Configure and verify required connection settings",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Column {
+                            Text(
+                                text = "Configure ${preset.name}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Verify connection settings & credentials",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     IconButton(onClick = onDismissRequest) {
@@ -708,13 +871,13 @@ fun McpPresetConfigureDialog(
                 OutlinedTextField(
                     value = alias,
                     onValueChange = { alias = it },
-                    label = { Text("Tool Alias * (lowercase, letters/numbers/_)") },
+                    label = { Text("Tool Alias * (lowercase letters/numbers/_)") },
                     isError = alias.isNotBlank() && !isAliasValid,
                     supportingText = {
                         if (alias.isNotBlank() && !isAliasValid) {
                             Text("Must start with a letter and contain only [a-z0-9_]")
                         } else {
-                            Text("Used by AI agents as the namespace prefix")
+                            Text("Used by AI agents as the tool namespace prefix")
                         }
                     },
                     singleLine = true,
@@ -820,7 +983,28 @@ fun McpPresetConfigureDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                if (preset.websiteUrl.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    TextButton(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))
+                            runCatching { context.startActivity(intent) }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Need an API key? View documentation",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Action Buttons
                 Row(

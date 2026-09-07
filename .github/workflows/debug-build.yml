@@ -16,7 +16,7 @@ jobs:
     name: Build debug APK
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       issues: write
 
     steps:
@@ -53,6 +53,16 @@ jobs:
             fi
             exit $BUILD_STATUS
           }
+
+      - name: Save errors to repository
+        if: failure()
+        run: |
+          cp extracted-errors.log BUILD_ERRORS.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add BUILD_ERRORS.txt
+          git commit -m "ci: record build errors [skip ci]" || true
+          git push origin main || true
 
       - name: Report Build Failure to Issues
         if: failure()

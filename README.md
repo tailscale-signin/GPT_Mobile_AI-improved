@@ -23,7 +23,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 ### 2. 🧠 Autonomous Tools & Model Context Protocol (MCP) + Marketplace
 - **What you will notice**: AI models can solve math, check real-time date/time, fetch web pages, run terminal commands, and integrate external services. Discover and enable new tools directly through the built-in, full-screen **MCP Tool Marketplace**.
 - **How it works**: Integrated agent runtime capable of multi-step reasoning, safely invoking tools, handling errors, and synthesizing answers.
-- **Safety Ceiling**: Enforces a strict, configurable ceiling (default: 6 tool calls per prompt) to protect against runaway loops and unexpected API billing.
+- **Safety Ceiling & Custom Overrides**: Enforces a configurable ceiling (default: 10 tool calls per prompt) to protect against runaway loops and unexpected API billing, with full support for user overrides in model and tool options.
 - **Zero-Config Web Search**: Built-in Termux MCPSearch with automatic DuckDuckGo fallback for instant web connectivity without manual API key setup.
 
 ### 3. 🌙 Background, Screen-Off & Locked Device Execution
@@ -63,7 +63,7 @@ Here is a straightforward breakdown of what's new and improved, ranked from the 
 | **High-Speed Streaming** | Stutters on fast token bursts | 🧈 Smooth 30/60/120 fps throttle buffer |
 | **Agent Tools & MCP** | ❌ Not supported | ✅ Built-in Agent Engine + Model Context Protocol |
 | **MCP Marketplace** | ❌ Not supported | ✅ Full-screen in-app marketplace with 1-click install |
-| **Tool Execution Limits** | ❌ None | ✅ Hard ceiling of 6 tool calls per prompt |
+| **Tool Execution Limits** | ❌ None | ✅ Configurable ceiling (default: 10 calls, user-customizable) |
 | **Background / Screen-Off Run** | ❌ Killed on screen lock | ✅ Resilient `AgentRunForegroundService` + WakeLock |
 | **Web Search** | ❌ Manual setup / none | ✅ Zero-config Termux MCPSearch + DuckDuckGo fallback |
 | **On-Device Models** | Basic / Limited | ✅ Google LiteRT & Full Ollama host integration |

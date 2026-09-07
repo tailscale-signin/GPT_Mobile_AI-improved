@@ -7,14 +7,10 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
 import dev.melo.gptmobile.improved.data.database.entity.AgentToolBinding
+import dev.melo.gptmobile.improved.data.database.entity.AgentToolBindingWithConnection
 import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
-
-data class AgentToolBindingWithConnection(
-    val binding: AgentToolBinding,
-    val connection: ToolConnection?
-)
 
 @Dao
 abstract class ToolConnectionDao {

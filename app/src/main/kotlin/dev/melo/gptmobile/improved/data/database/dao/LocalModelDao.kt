@@ -1,37 +1,37 @@
 package dev.melo.gptmobile.improved.data.database.dao
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import dev.melo.gptmobile.improved.data.database.entity.LocalModel
-import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LocalModelDao {
-    @Query("SELECT * FROM local_models ORDER BY catalog_entry_id ASC")
-    fun observeAll(): Flow<List<LocalModel>>
-
     @Query("SELECT * FROM local_models")
-    suspend fun getAll(): List<LocalModel>
+    fun getAll(): Flow<List<LocalModel>>
 
-    @Query("SELECT * FROM local_models WHERE catalog_entry_id = :id")
-    suspend fun getById(id: String): LocalModel?
+    @Query("SELECT * FROM local_models WHERE catalog_entry_id = :catalogEntryId LIMIT 1")
+    suspend fun getByCatalogEntryId(catalogEntryId: String): LocalModel?
+
+    @Query("SELECT * FROM local_models WHERE status = :status")
+    fun getByStatus(status: String): Flow<List<LocalModel>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(model: LocalModel)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAll(models: List<LocalModel>)
+    @Update
+    suspend fun update(model: LocalModel)
 
-    @Query("DELETE FROM local_models WHERE catalog_entry_id = :id")
-    suspend fun deleteById(id: String)
+    @Delete
+    suspend fun delete(model: LocalModel)
 
-    @Query("UPDATE local_models SET status = :statusRaw, updated_at = :updatedAt WHERE catalog_entry_id = :catalogEntryId")
-    suspend fun updateStatusRaw(catalogEntryId: String, statusRaw: String, updatedAt: Long)
+    @Query("DELETE FROM local_models WHERE catalog_entry_id = :catalogEntryId")
+    suspend fun deleteByCatalogEntryId(catalogEntryId: String)
 
-    suspend fun updateStatus(catalogEntryId: String, status: LocalModelStatus, updatedAt: Long) {
-        updateStatusRaw(catalogEntryId, status.name, updatedAt)
-    }
+    @Query("UPDATE local_models SET status = :status, updated_at = :updatedAt WHERE catalog_entry_id = :catalogEntryId")
+    suspend fun updateStatus(catalogEntryId: String, status: String, updatedAt: Long)
 }

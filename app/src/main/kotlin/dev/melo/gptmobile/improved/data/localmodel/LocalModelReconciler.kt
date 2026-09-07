@@ -1,9 +1,12 @@
 package dev.melo.gptmobile.improved.data.localmodel
 
 object LocalModelStatus {
+    const val NOT_DOWNLOADED = "NOT_DOWNLOADED"
     const val DOWNLOADING = "DOWNLOADING"
     const val READY = "READY"
     const val FAILED = "FAILED"
+    const val CORRUPTED = "CORRUPTED"
+    const val CANCELED = "CANCELED"
 }
 
 data class LocalModelRecord(

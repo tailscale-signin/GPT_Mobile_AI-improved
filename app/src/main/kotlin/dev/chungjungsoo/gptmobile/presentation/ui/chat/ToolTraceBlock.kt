@@ -1,22 +1,34 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -49,6 +62,12 @@ import java.util.Locale
 
 private const val TOOL_TRACE_TEXT_LIMIT = 1024
 
+enum class ToolStatusState {
+    RUNNING,
+    COMPLETED,
+    FAILED
+}
+
 @Composable
 fun ToolTraceBlock(
     events: List<ToolEvent>,
@@ -64,10 +83,33 @@ fun ToolTraceBlock(
         targetValue = if (isExpanded) 180f else 0f,
         label = "tool trace rotation"
     )
-    val summary = toolTraceStatusSummary(events, labels)
+    val statusState = toolTraceStatusState(events)
+    val baseTitle = toolTraceStatusSummary(events, labels)
+    val isRunning = statusState == ToolStatusState.RUNNING
+
+    // Sequential 3-dot animation while running (cycling 0 -> 1 -> 2 -> 3)
+    val infiniteTransition = rememberInfiniteTransition(label = "dots-animation")
+    val dotCountFloat by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dot-count"
+    )
+
+    val animatedTitle = if (isRunning && baseTitle.endsWith("...")) {
+        val root = baseTitle.removeSuffix("...")
+        val dots = ".".repeat(dotCountFloat.toInt().coerceIn(1, 3))
+        root + dots
+    } else {
+        baseTitle
+    }
+
     val searchToolTrace = stringResource(R.string.search_tool_trace)
     val noMatchingToolCalls = stringResource(R.string.no_matching_tool_calls)
-    val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
+    val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, animatedTitle)
 
     Column(
         modifier = modifier
@@ -87,12 +129,42 @@ fun ToolTraceBlock(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Status icon: animating circle while searching/running, green checkmark if completed, red X if failed
+            when (statusState) {
+                ToolStatusState.RUNNING -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                ToolStatusState.COMPLETED -> {
+                    Icon(
+                        imageVector = Icons.Rounded.CheckCircle,
+                        contentDescription = "Completed",
+                        tint = Color(0xFF4CAF50), // Green checkmark
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                ToolStatusState.FAILED -> {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Failed",
+                        tint = MaterialTheme.colorScheme.error, // Red X
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
             Text(
-                text = summary,
+                text = animatedTitle,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
             )
+
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = if (isExpanded) labels.collapse else labels.expand,
@@ -269,6 +341,32 @@ internal fun friendlyToolDisplayName(toolName: String): String {
     }
 }
 
+internal fun smartToolVerb(toolName: String): String {
+    val friendly = friendlyToolDisplayName(toolName)
+    return when (friendly.lowercase(Locale.ROOT)) {
+        "search" -> "Searching"
+        "crawl" -> "Crawling"
+        "calculator" -> "Calculating"
+        "location" -> "Locating"
+        "date" -> "Getting date"
+        else -> {
+            if (friendly.endsWith("e", ignoreCase = true) && !friendly.endsWith("ee", ignoreCase = true)) {
+                "${friendly.dropLast(1)}ing"
+            } else {
+                "${friendly}ing"
+            }
+        }
+    }
+}
+
+internal fun toolTraceStatusState(events: List<ToolEvent>): ToolStatusState {
+    if (events.isEmpty()) return ToolStatusState.COMPLETED
+    val hasActive = events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
+    if (hasActive) return ToolStatusState.RUNNING
+    val hasFailure = events.any { it.status == ToolEventStatus.FAILED || it.isError }
+    return if (hasFailure) ToolStatusState.FAILED else ToolStatusState.COMPLETED
+}
+
 internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLabels = ToolTraceLabels.Default): String {
     val count = events.size
     if (events.isEmpty()) return "0 ${labels.calls}"
@@ -276,8 +374,19 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
     val hasActive = events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
     val failed = events.count { it.status == ToolEventStatus.FAILED || it.isError }
     val completed = events.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
+
+    val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
+    val isSingleTool = distinctToolNames.size == 1
+
+    if (hasActive) {
+        return if (isSingleTool) {
+            "${smartToolVerb(distinctToolNames.first())}..."
+        } else {
+            "Running $count ${labels.calls}..."
+        }
+    }
+
     val status = when {
-        hasActive -> labels.running
         failed == events.size -> labels.failed
         failed > 0 && completed > 0 -> labels.completedWithErrors
         failed > 0 -> labels.failed
@@ -285,15 +394,31 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
         else -> labels.completed
     }
 
-    val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
-    val subject = if (distinctToolNames.size == 1) {
-        "${friendlyToolDisplayName(distinctToolNames.first())} tool"
+    val subject = if (isSingleTool) {
+        val friendly = friendlyToolDisplayName(distinctToolNames.first())
+        when (status) {
+            labels.completed -> {
+                when (friendly.lowercase(Locale.ROOT)) {
+                    "search" -> "Searched"
+                    "crawl" -> "Crawled"
+                    "calculator" -> "Calculated"
+                    "location" -> "Located"
+                    "date" -> "Got date"
+                    else -> "$friendly tool"
+                }
+            }
+            else -> "$friendly tool"
+        }
     } else {
         val noun = if (count == 1) labels.call else labels.calls
         "$count $noun"
     }
 
-    return "$subject - $status"
+    return if (subject.endsWith("tool") || !isSingleTool) {
+        "$subject - $status"
+    } else {
+        subject
+    }
 }
 
 internal fun formatToolDuration(event: ToolEvent): String? {

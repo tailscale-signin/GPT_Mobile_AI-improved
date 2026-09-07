@@ -11,28 +11,28 @@ import kotlinx.serialization.Serializable
 @Entity(tableName = "local_models")
 data class LocalModel(
     @PrimaryKey
-    @ColumnInfo(name = "catalogEntryId")
+    @ColumnInfo(name = "catalog_entry_id")
     val catalogEntryId: String,
 
-    @ColumnInfo(name = "commitHash")
+    @ColumnInfo(name = "commit_hash")
     val commitHash: String,
 
-    @ColumnInfo(name = "fileName")
+    @ColumnInfo(name = "file_name")
     val fileName: String,
 
-    @ColumnInfo(name = "relativeDirectory")
+    @ColumnInfo(name = "relative_directory")
     val relativeDirectory: String,
 
-    @ColumnInfo(name = "totalBytes")
+    @ColumnInfo(name = "total_bytes")
     val totalBytes: Long,
 
     @ColumnInfo(name = "status")
     val status: String = LocalModelStatus.DOWNLOADING,
 
-    @ColumnInfo(name = "createdAt")
+    @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis() / 1000,
 
-    @ColumnInfo(name = "updatedAt")
+    @ColumnInfo(name = "updated_at")
     val updatedAt: Long = System.currentTimeMillis() / 1000
 ) {
     fun toRecord(): LocalModelRecord = LocalModelRecord(

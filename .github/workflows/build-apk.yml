@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -63,6 +64,27 @@ jobs:
           }
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
+
+      - name: Log Build Failure to GitHub Issue and Repository
+        if: failure()
+        run: |
+          mkdir -p build-failure
+          echo "# Build Failure on $(date -u)" > build-failure/BUILD_ERROR.md
+          echo "Commit: \`${GITHUB_SHA}\`" >> build-failure/BUILD_ERROR.md
+          echo "Workflow Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >> build-failure/BUILD_ERROR.md
+          echo "" >> build-failure/BUILD_ERROR.md
+          echo "## Compiler & Build Errors" >> build-failure/BUILD_ERROR.md
+          echo '```text' >> build-failure/BUILD_ERROR.md
+          grep -E "e: |error: |FAILURE:|Caused by:" build.log | head -n 150 >> build-failure/BUILD_ERROR.md || tail -n 150 build.log >> build-failure/BUILD_ERROR.md
+          echo '```' >> build-failure/BUILD_ERROR.md
+          
+          # Create or update an Issue so the assistant can read it directly via GitHub API
+          gh issue create \
+            --title "Build Failure: ${GITHUB_SHA::7}" \
+            --body-file build-failure/BUILD_ERROR.md \
+            --label "build-failure" || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sign APKs with apksigner
         run: |

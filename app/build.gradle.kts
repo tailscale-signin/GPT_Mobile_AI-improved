@@ -54,6 +54,12 @@ extensions.configure<ApplicationExtension> {
         )
     }
 
+    sourceSets {
+        getByName("main") {
+            java.directories("src/main/kotlin")
+        }
+    }
+
     androidResources {
         generateLocaleConfig = true
     }

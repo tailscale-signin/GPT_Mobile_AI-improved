@@ -35,6 +35,10 @@ extensions.configure<ApplicationExtension> {
             useSupportLibrary = true
         }
 
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+
         // Hugging Face OAuth. Replace these after registering an HF OAuth app;
         // the gallery credentials cannot be reused.
         manifestPlaceholders["appAuthRedirectScheme"] =
@@ -49,12 +53,6 @@ extensions.configure<ApplicationExtension> {
             "HF_OAUTH_REDIRECT_URI",
             "\"REPLACE_WITH_YOUR_REDIRECT_URI_IN_HUGGINGFACE_APP\""
         )
-    }
-
-    sourceSets {
-        getByName("main") {
-            java.srcDirs("src/main/kotlin")
-        }
     }
 
     androidResources {
@@ -101,6 +99,9 @@ extensions.configure<ApplicationExtension> {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/INDEX.LIST"
             excludes += "META-INF/io.netty.versions.properties"
+        }
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 }
@@ -194,5 +195,7 @@ dependencies {
 }
 
 aboutLibraries {
-    excludeFields = arrayOf("generated")
+    export {
+        excludeFields.add("generated")
+    }
 }

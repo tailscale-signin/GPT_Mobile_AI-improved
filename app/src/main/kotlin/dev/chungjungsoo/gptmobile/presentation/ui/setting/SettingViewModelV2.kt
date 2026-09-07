@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.backup.AppBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
@@ -17,7 +19,8 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class SettingViewModelV2 @Inject constructor(
-    private val settingRepository: SettingRepository
+    private val settingRepository: SettingRepository,
+    private val appBackupManager: AppBackupManager
 ) : ViewModel() {
 
     private val _platformState = MutableStateFlow(listOf<PlatformV2>())
@@ -98,78 +101,59 @@ class SettingViewModelV2 @Inject constructor(
 
     fun closeBackupRestoreDialog() = _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
 
-    fun openExportDialog() {
+    fun exportConfigurationToFile(uri: Uri) {
         viewModelScope.launch {
-            val json = settingRepository.exportConfigurationJson()
-            _dialogState.update {
-                it.copy(
-                    isBackupRestoreDialogOpen = false,
-                    isExportDialogOpen = true,
-                    exportedConfigJson = json
-                )
+            val result = appBackupManager.exportConfiguration(uri)
+            if (result.success) {
+                _uiEvent.emit(UiEvent.ShowToast(result.message))
+            } else {
+                _uiEvent.emit(UiEvent.ShowToast("Export failed: ${result.message}"))
             }
         }
     }
 
-    fun closeExportDialog() = _dialogState.update {
-        it.copy(
-            isExportDialogOpen = false,
-            exportedConfigJson = ""
-        )
-    }
-
-    fun openRestoreDialog() = _dialogState.update {
-        it.copy(
-            isBackupRestoreDialogOpen = false,
-            isRestoreDialogOpen = true,
-            restoreJsonInput = "",
-            restoreErrorMessage = null
-        )
-    }
-
-    fun closeRestoreDialog() = _dialogState.update {
-        it.copy(
-            isRestoreDialogOpen = false,
-            restoreJsonInput = "",
-            restoreErrorMessage = null
-        )
-    }
-
-    fun onRestoreJsonInputChanged(input: String) = _dialogState.update {
-        it.copy(restoreJsonInput = input, restoreErrorMessage = null)
-    }
-
-    fun restoreConfiguration() {
-        val json = _dialogState.value.restoreJsonInput.trim()
-        if (json.isBlank()) return
-
+    fun restoreConfigurationFromFile(uri: Uri) {
         viewModelScope.launch {
-            val result = settingRepository.importConfigurationJson(json)
-            result.onSuccess { count ->
+            val result = appBackupManager.restoreConfiguration(uri)
+            if (result.success) {
                 fetchPlatforms()
-                closeRestoreDialog()
-                _uiEvent.emit(UiEvent.RestoreSuccess(count))
-            }.onFailure { error ->
-                _dialogState.update {
-                    it.copy(restoreErrorMessage = error.localizedMessage ?: "Invalid configuration format")
-                }
+                _uiEvent.emit(UiEvent.ShowToast("Configuration restored successfully (${result.count} platforms imported)."))
+            } else {
+                _uiEvent.emit(UiEvent.ShowToast("Restore failed: ${result.message}"))
+            }
+        }
+    }
+
+    fun exportDatabaseToFile(uri: Uri) {
+        viewModelScope.launch {
+            val result = appBackupManager.exportDatabase(uri)
+            if (result.success) {
+                _uiEvent.emit(UiEvent.ShowToast(result.message))
+            } else {
+                _uiEvent.emit(UiEvent.ShowToast("Export failed: ${result.message}"))
+            }
+        }
+    }
+
+    fun restoreDatabaseFromFile(uri: Uri) {
+        viewModelScope.launch {
+            val result = appBackupManager.restoreDatabase(uri)
+            if (result.success) {
+                _uiEvent.emit(UiEvent.ShowToast("Database restored successfully (${result.count} chat(s) imported)."))
+            } else {
+                _uiEvent.emit(UiEvent.ShowToast("Restore failed: ${result.message}"))
             }
         }
     }
 
     sealed interface UiEvent {
-        data class RestoreSuccess(val count: Int) : UiEvent
+        data class ShowToast(val message: String) : UiEvent
     }
 
     data class DialogState(
         val isThemeDialogOpen: Boolean = false,
         val isDeleteDialogOpen: Boolean = false,
         val platformToDelete: Int? = null,
-        val isBackupRestoreDialogOpen: Boolean = false,
-        val isExportDialogOpen: Boolean = false,
-        val exportedConfigJson: String = "",
-        val isRestoreDialogOpen: Boolean = false,
-        val restoreJsonInput: String = "",
-        val restoreErrorMessage: String? = null
+        val isBackupRestoreDialogOpen: Boolean = false
     )
 }

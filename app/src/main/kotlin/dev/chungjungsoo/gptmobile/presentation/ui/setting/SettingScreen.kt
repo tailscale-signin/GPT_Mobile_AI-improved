@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,7 +22,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,12 +31,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -78,15 +81,45 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    // SAF Activity Launchers
+    val exportConfigLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.exportConfigurationToFile(it) }
+    }
+
+    val restoreConfigLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.restoreConfigurationFromFile(it) }
+    }
+
+    val exportDatabaseLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.exportDatabaseToFile(it) }
+    }
+
+    val restoreDatabaseLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.restoreDatabaseFromFile(it) }
+    }
+
+    var pendingRestoreDatabaseUri by remember { mutableStateOf<Uri?>(null) }
+    val confirmRestoreDatabaseLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            pendingRestoreDatabaseUri = uri
+        }
+    }
+
     LaunchedEffect(Unit) {
         settingViewModel.uiEvent.collectLatest { event ->
             when (event) {
-                is SettingViewModelV2.UiEvent.RestoreSuccess -> {
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.restore_configuration_success, event.count),
-                        Toast.LENGTH_LONG
-                    ).show()
+                is SettingViewModelV2.UiEvent.ShowToast -> {
+                    Toast.makeText(context, event.message, Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -174,23 +207,47 @@ fun SettingScreen(
             }
 
             if (dialogState.isBackupRestoreDialogOpen) {
-                BackupRestoreOptionsDialog(settingViewModel)
-            }
-
-            if (dialogState.isExportDialogOpen) {
-                ExportConfigurationDialog(
-                    exportedJson = dialogState.exportedConfigJson,
-                    onDismiss = settingViewModel::closeExportDialog
+                BackupRestoreOptionsDialog(
+                    onDismiss = settingViewModel::closeBackupRestoreDialog,
+                    onExportConfig = {
+                        settingViewModel.closeBackupRestoreDialog()
+                        exportConfigLauncher.launch("gpt_mobile_config_${System.currentTimeMillis()}.enc")
+                    },
+                    onRestoreConfig = {
+                        settingViewModel.closeBackupRestoreDialog()
+                        restoreConfigLauncher.launch(arrayOf("*/*"))
+                    },
+                    onExportDatabase = {
+                        settingViewModel.closeBackupRestoreDialog()
+                        exportDatabaseLauncher.launch("gpt_mobile_database_${System.currentTimeMillis()}.enc")
+                    },
+                    onRestoreDatabase = {
+                        settingViewModel.closeBackupRestoreDialog()
+                        confirmRestoreDatabaseLauncher.launch(arrayOf("*/*"))
+                    }
                 )
             }
 
-            if (dialogState.isRestoreDialogOpen) {
-                RestoreConfigurationDialog(
-                    inputJson = dialogState.restoreJsonInput,
-                    errorMessage = dialogState.restoreErrorMessage,
-                    onInputChanged = settingViewModel::onRestoreJsonInputChanged,
-                    onConfirm = settingViewModel::restoreConfiguration,
-                    onDismiss = settingViewModel::closeRestoreDialog
+            pendingRestoreDatabaseUri?.let { restoreUri ->
+                AlertDialog(
+                    title = { Text(stringResource(R.string.restore_database_dialog_title)) },
+                    text = { Text(stringResource(R.string.restore_database_dialog_description)) },
+                    onDismissRequest = { pendingRestoreDatabaseUri = null },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                settingViewModel.restoreDatabaseFromFile(restoreUri)
+                                pendingRestoreDatabaseUri = null
+                            }
+                        ) {
+                            Text(stringResource(R.string.confirm))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingRestoreDatabaseUri = null }) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                    }
                 )
             }
         }
@@ -329,153 +386,83 @@ fun ThemeSettingDialog(
 
 @Composable
 fun BackupRestoreOptionsDialog(
-    settingViewModel: SettingViewModelV2 = hiltViewModel()
+    onDismiss: () -> Unit,
+    onExportConfig: () -> Unit,
+    onRestoreConfig: () -> Unit,
+    onExportDatabase: () -> Unit,
+    onRestoreDatabase: () -> Unit
 ) {
     AlertDialog(
         title = {
             Text(stringResource(R.string.backup_and_restore))
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.backup_configuration_section),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.backup_configuration_section_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = settingViewModel::openExportDialog
+                    onClick = onExportConfig
                 ) {
                     Text(stringResource(R.string.export_configuration))
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = settingViewModel::openRestoreDialog
+                    onClick = onRestoreConfig
                 ) {
                     Text(stringResource(R.string.restore_configuration))
                 }
-            }
-        },
-        onDismissRequest = settingViewModel::closeBackupRestoreDialog,
-        confirmButton = {
-            TextButton(onClick = settingViewModel::closeBackupRestoreDialog) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
 
-@Composable
-fun ExportConfigurationDialog(
-    exportedJson: String,
-    onDismiss: () -> Unit
-) {
-    @Suppress("DEPRECATION")
-    val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
+                Spacer(modifier = Modifier.height(20.dp))
 
-    AlertDialog(
-        title = {
-            Text(stringResource(R.string.backup_configuration_dialog_title))
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
                 Text(
-                    text = stringResource(R.string.backup_configuration_dialog_description),
-                    style = MaterialTheme.typography.bodyMedium
+                    text = stringResource(R.string.backup_database_section),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = exportedJson,
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    textStyle = MaterialTheme.typography.bodySmall
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.backup_database_section_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onExportDatabase
+                ) {
+                    Text(stringResource(R.string.export_database))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onRestoreDatabase
+                ) {
+                    Text(stringResource(R.string.restore_database))
+                }
             }
         },
         onDismissRequest = onDismiss,
         confirmButton = {
-            Row {
-                Button(
-                    onClick = {
-                        clipboardManager.setText(AnnotatedString(exportedJson))
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.copied_to_clipboard),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                ) {
-                    Text(stringResource(R.string.copy_to_clipboard))
-                }
-            }
-        },
-        dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.close))
-            }
-        }
-    )
-}
-
-@Composable
-fun RestoreConfigurationDialog(
-    inputJson: String,
-    errorMessage: String?,
-    onInputChanged: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        title = {
-            Text(stringResource(R.string.restore_configuration_dialog_title))
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Text(
-                    text = stringResource(R.string.restore_configuration_dialog_description),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = inputJson,
-                    onValueChange = onInputChanged,
-                    placeholder = { Text(stringResource(R.string.paste_configuration_hint)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    isError = errorMessage != null
-                )
-                if (errorMessage != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = errorMessage,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        },
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = inputJson.isNotBlank()
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
             }
         }
     )

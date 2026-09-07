@@ -211,7 +211,7 @@
     <string name="llama_3_2_1b" translatable="false">Llama 3.2 1B (Preview) 8k</string>
     <string name="llama_3_1_70b_versatile" translatable="false">Llama 3.1 70B Versatile 128k</string>
     <string name="llama_3_1_8b_instant" translatable="false">Llama 3.1 8B Instant 128k</string>
-    <string name="gemma_2_9b" translatable="false">Gemma 2 9B 8k</string>
+    <string name="gemma_2_9b" transRevision="false" translatable="false">Gemma 2 9B 8k</string>
     <string name="llama_3_2_description">Latest Lightweight Open Source language model from Meta.</string>
     <string name="llama_3_1_description">State-of-the-art multilingual open source large language model from Meta.</string>
     <string name="gemma2_description">Small Language Model released by Google.</string>
@@ -526,16 +526,21 @@
 
     <!-- Backup and Restore -->
     <string name="backup_and_restore">Backup &amp; Restore</string>
-    <string name="backup_and_restore_description">Export or restore platforms and settings</string>
-    <string name="export_configuration">Export Configuration</string>
-    <string name="restore_configuration">Restore Configuration</string>
+    <string name="backup_and_restore_description">Encrypted backup &amp; restore for settings and chats</string>
+    <string name="backup_configuration_section">Configuration Backup</string>
+    <string name="backup_configuration_section_desc">Platforms, AI models, API keys, and tool connections.</string>
+    <string name="export_configuration">Export Configuration (.enc)</string>
+    <string name="restore_configuration">Restore Configuration (.enc)</string>
+    <string name="backup_database_section">Database Backup</string>
+    <string name="backup_database_section_desc">All chat rooms, messages, revisions, and favorites.</string>
+    <string name="export_database">Export Database (.enc)</string>
+    <string name="restore_database">Restore Database (.enc)</string>
+    <string name="restore_database_dialog_title">Restore Database?</string>
+    <string name="restore_database_dialog_description">Restoring will replace all existing chats and favorites with the contents of this backup file. This cannot be undone.</string>
     <string name="backup_configuration_dialog_title">Export Configuration</string>
-    <string name="backup_configuration_dialog_description">Below is your exported configuration JSON. Keep it secure as it includes your platform settings and credentials.</string>
-    <string name="copy_to_clipboard">Copy to Clipboard</string>
-    <string name="copied_to_clipboard">Configuration copied to clipboard</string>
+    <string name="backup_configuration_dialog_description">Save your encrypted configuration file to a secure place.</string>
     <string name="restore_configuration_dialog_title">Restore Configuration</string>
-    <string name="restore_configuration_dialog_description">Paste your configuration JSON below to restore your platforms and settings.</string>
-    <string name="paste_configuration_hint">Paste exported JSON here…</string>
+    <string name="restore_configuration_dialog_description">Select an encrypted configuration (.enc) backup file.</string>
     <string name="restore_configuration_success">Configuration restored successfully (%1$d platform(s) imported).</string>
-    <string name="restore_configuration_error">Failed to restore configuration. Invalid JSON format.</string>
+    <string name="restore_configuration_error">Failed to restore configuration. Invalid file.</string>
 </resources>

@@ -51,6 +51,12 @@ extensions.configure<ApplicationExtension> {
         )
     }
 
+    sourceSets {
+        getByName("main") {
+            java.directories("src/main/kotlin")
+        }
+    }
+
     androidResources {
         generateLocaleConfig = true
     }
@@ -107,6 +113,7 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+    arg("dagger.hilt.disableModulesHaveInstallInCheck", "true")
 }
 
 // Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name

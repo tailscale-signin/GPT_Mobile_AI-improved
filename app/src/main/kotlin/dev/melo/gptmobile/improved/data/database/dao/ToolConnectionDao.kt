@@ -17,27 +17,27 @@ data class AgentToolBindingWithConnection(
 )
 
 @Dao
-interface ToolConnectionDao {
+abstract class ToolConnectionDao {
     @Query("SELECT * FROM tool_connections ORDER BY name, alias, connection_uid")
-    suspend fun listConnections(): List<ToolConnection>
+    abstract suspend fun listConnections(): List<ToolConnection>
 
     @Query("SELECT * FROM tool_connections WHERE connection_uid = :connectionUid")
-    suspend fun getConnection(connectionUid: String): ToolConnection?
+    abstract suspend fun getConnection(connectionUid: String): ToolConnection?
 
     @Query("SELECT * FROM tool_connections WHERE connection_uid IN (:connectionUids)")
-    suspend fun getConnectionsByUids(connectionUids: List<String>): List<ToolConnection>
+    abstract suspend fun getConnectionsByUids(connectionUids: List<String>): List<ToolConnection>
 
     @Upsert
-    suspend fun upsertConnection(connection: ToolConnection)
+    abstract suspend fun upsertConnection(connection: ToolConnection)
 
     @Query("DELETE FROM tool_connections WHERE connection_uid = :connectionUid")
-    suspend fun deleteConnectionByUid(connectionUid: String)
+    abstract suspend fun deleteConnectionByUid(connectionUid: String)
 
     @Query("SELECT * FROM agent_tool_bindings WHERE profile_uid = :profileUid ORDER BY tool_name, connection_uid, binding_uid")
-    suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding>
+    abstract suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertBinding(binding: AgentToolBinding)
+    abstract suspend fun insertBinding(binding: AgentToolBinding)
 
     @Query(
         """
@@ -50,7 +50,7 @@ interface ToolConnectionDao {
             )
         """
     )
-    suspend fun deleteConnectionToolBindingsForTypes(
+    abstract suspend fun deleteConnectionToolBindingsForTypes(
         profileUid: String,
         toolName: String,
         connectionTypes: List<String>
@@ -64,7 +64,7 @@ interface ToolConnectionDao {
             AND connection_uid IS NULL
         """
     )
-    suspend fun deleteBuiltInToolBinding(profileUid: String, toolName: String)
+    abstract suspend fun deleteBuiltInToolBinding(profileUid: String, toolName: String)
 
     @Query(
         """
@@ -76,34 +76,34 @@ interface ToolConnectionDao {
             )
         """
     )
-    suspend fun deleteConnectionBindingsForType(profileUid: String, connectionType: String)
+    abstract suspend fun deleteConnectionBindingsForType(profileUid: String, connectionType: String)
 
     @Transaction
-    suspend fun replaceWebSearchBinding(binding: AgentToolBinding) {
+    open suspend fun replaceWebSearchBinding(binding: AgentToolBinding) {
         require(binding.toolName == WEB_SEARCH_TOOL)
         deleteConnectionToolBindingsForTypes(binding.profileUid, WEB_SEARCH_TOOL, WEB_SEARCH_TYPES)
         insertBinding(binding)
     }
 
     @Transaction
-    suspend fun removeWebSearchBinding(profileUid: String) {
+    open suspend fun removeWebSearchBinding(profileUid: String) {
         deleteConnectionToolBindingsForTypes(profileUid, WEB_SEARCH_TOOL, WEB_SEARCH_TYPES)
     }
 
     @Transaction
-    suspend fun replaceReadUrlBinding(binding: AgentToolBinding) {
+    open suspend fun replaceReadUrlBinding(binding: AgentToolBinding) {
         require(binding.toolName == BuiltInAgentTool.READ_URL)
         deleteBuiltInToolBinding(binding.profileUid, BuiltInAgentTool.READ_URL)
         insertBinding(binding)
     }
 
     @Transaction
-    suspend fun removeReadUrlBinding(profileUid: String) {
+    open suspend fun removeReadUrlBinding(profileUid: String) {
         deleteBuiltInToolBinding(profileUid, BuiltInAgentTool.READ_URL)
     }
 
     @Transaction
-    suspend fun replaceMcpBindings(
+    open suspend fun replaceMcpBindings(
         profileUid: String,
         bindings: List<AgentToolBinding>
     ) {
@@ -112,7 +112,7 @@ interface ToolConnectionDao {
     }
 
     @Transaction
-    suspend fun listBindingsWithConnections(profileUid: String): List<AgentToolBindingWithConnection> {
+    open suspend fun listBindingsWithConnections(profileUid: String): List<AgentToolBindingWithConnection> {
         val bindings = listBindingsByProfile(profileUid)
         val connections = bindings
             .mapNotNull { it.connectionUid }

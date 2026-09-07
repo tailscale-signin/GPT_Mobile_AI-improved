@@ -109,13 +109,21 @@ jobs:
 
           mkdir -p app/build/outputs/apk/release/signed/
 
+          # Locate apksigner in Android SDK
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "Error: apksigner not found in $ANDROID_HOME/build-tools"
+            exit 1
+          fi
+          echo "Using apksigner at: $APKSIGNER"
+
           # Sign all generated split & universal release APKs
           for apk in $(find app/build/outputs/apk/release/ -name "*.apk" ! -name "*-signed.apk"); do
             echo "Signing $apk..."
             basename=$(basename "$apk")
             signed_apk="app/build/outputs/apk/release/signed/$basename"
 
-            $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
+            "$APKSIGNER" sign \
               --ks "$KEYSTORE_PATH" \
               --ks-pass "pass:$KEYSTORE_PASSWORD" \
               --ks-key-alias "$KEY_ALIAS" \
@@ -123,7 +131,7 @@ jobs:
               --out "$signed_apk" \
               "$apk"
 
-            $ANDROID_HOME/build-tools/35.0.0/apksigner verify "$signed_apk"
+            "$APKSIGNER" verify "$signed_apk"
           done
 
           # Standardize canonical release APK names
@@ -201,6 +209,11 @@ jobs:
             ASSETS_TO_UPLOAD+=("app/build/outputs/bundle/release/app-release.aab")
           fi
 
+          if [ ${#ASSETS_TO_UPLOAD[@]} -eq 0 ]; then
+            echo "Error: No release assets found to upload"
+            exit 1
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
             gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
@@ -238,33 +251,51 @@ jobs:
           BODY_FILE=$(mktemp)
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            cat <<EOF > "$BODY_FILE"
-Build failure reoccurred on run: $RUN_URL
+            cat <<'EOF' > "$BODY_FILE"
+Build failure reoccurred on run: RUN_URL_PLACEHOLDER
 
-\`\`\`
-$ERROR_SNIPPET
-\`\`\`
+```
+ERROR_SNIPPET_PLACEHOLDER
+```
 EOF
+            sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" "$BODY_FILE"
+            # Write error snippet safely without regex clash
+            python3 -c "
+import sys
+content = open('$BODY_FILE').read()
+err = sys.stdin.read()
+open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
+" <<< "$ERROR_SNIPPET"
             gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body-file "$BODY_FILE"
           else
-            cat <<EOF > "$BODY_FILE"
+            cat <<'EOF' > "$BODY_FILE"
 ### 🚨 Automated CI Build Failure Report
 
-**Workflow:** $WORKFLOW_NAME
-**Branch / Ref:** \`$REF_NAME\`
-**Commit:** \`$COMMIT_SHA\`
-**Run Details:** [View Actions Run]($RUN_URL)
+**Workflow:** WORKFLOW_NAME_PLACEHOLDER
+**Branch / Ref:** `REF_NAME_PLACEHOLDER`
+**Commit:** `COMMIT_SHA_PLACEHOLDER`
+**Run Details:** [View Actions Run](RUN_URL_PLACEHOLDER)
 
 ---
 
 ### Exact Build Error / Failure Log (For AI & Maintainers)
-\`\`\`text
-$ERROR_SNIPPET
-\`\`\`
+```text
+ERROR_SNIPPET_PLACEHOLDER
+```
 
 ---
 *Generated automatically by CI workflow.*
 EOF
+            sed -i "s|WORKFLOW_NAME_PLACEHOLDER|$WORKFLOW_NAME|g" "$BODY_FILE"
+            sed -i "s|REF_NAME_PLACEHOLDER|$REF_NAME|g" "$BODY_FILE"
+            sed -i "s|COMMIT_SHA_PLACEHOLDER|$COMMIT_SHA|g" "$BODY_FILE"
+            sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" "$BODY_FILE"
+            python3 -c "
+import sys
+content = open('$BODY_FILE').read()
+err = sys.stdin.read()
+open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
+" <<< "$ERROR_SNIPPET"
             gh issue create \
               --repo "${{ github.repository }}" \
               --title "$ISSUE_TITLE" \

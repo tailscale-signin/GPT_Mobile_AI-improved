@@ -16,7 +16,7 @@ data class AvailableChatTool(
 
 /**
  * Per-chat configuration for enabling or disabling specific tools,
- * and user-overridable execution limits (e.g., max tool calls).
+ * and user-overridable execution limits (e.g., max tools exposed and max tool calls).
  */
 @Serializable
 data class ChatMcpToolConfig(
@@ -24,6 +24,7 @@ data class ChatMcpToolConfig(
     val disabledToolIds: Set<String> = emptySet(),
     val allowAllByDefault: Boolean = true,
     val allToolsDisabled: Boolean = false,
+    val maxTools: Int? = null,
     val maxToolCalls: Int? = null
 ) {
     fun isToolEnabled(toolId: String): Boolean {
@@ -58,7 +59,20 @@ data class ChatMcpToolConfig(
         }
     }
 
+    fun withMaxTools(limit: Int?): ChatMcpToolConfig {
+        return copy(maxTools = limit?.coerceAtLeast(0))
+    }
+
     fun withMaxToolCalls(limit: Int?): ChatMcpToolConfig {
-        return copy(maxToolCalls = limit)
+        return copy(maxToolCalls = limit?.coerceAtLeast(0))
+    }
+
+    /**
+     * Applies the maxTools limit to a candidate list of tools.
+     * If maxTools is configured (non-null), the list is truncated to at most maxTools items.
+     */
+    fun <T> limitTools(tools: List<T>): List<T> {
+        val limit = maxTools ?: return tools
+        return tools.take(limit)
     }
 }

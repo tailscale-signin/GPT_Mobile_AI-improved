@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.mcp
 
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,11 +15,22 @@ data class McpSearchToolToggle(
 
 data class McpIntegratedSearchConfig(
     val isIntegratedSearchEnabled: Boolean = true,
-    val toolToggles: Map<String, Boolean> = defaultToolToggles()
+    val toolToggles: Map<String, Boolean> = defaultToolToggles(),
+    val maxTools: Int? = null
 ) {
     fun isToolEnabled(toolName: String): Boolean {
         if (!isIntegratedSearchEnabled) return false
         return toolToggles[toolName] ?: true
+    }
+
+    /**
+     * Applies this search configuration to an existing [ChatMcpToolConfig],
+     * carrying over any maxTools constraint and active tool definitions.
+     */
+    fun applyToChatMcpToolConfig(baseConfig: ChatMcpToolConfig): ChatMcpToolConfig {
+        return baseConfig.copy(
+            maxTools = maxTools ?: baseConfig.maxTools
+        )
     }
 
     companion object {
@@ -38,6 +50,7 @@ interface McpIntegratedSearchRepository {
     fun getSearchConfig(): McpIntegratedSearchConfig
     fun setIntegratedSearchEnabled(enabled: Boolean)
     fun setToolEnabled(toolName: String, enabled: Boolean)
+    fun setMaxTools(limit: Int?)
     fun resetToDefaults()
     fun getActiveTools(): List<McpBuiltinTool>
 }
@@ -61,10 +74,16 @@ class McpIntegratedSearchManager(
         _configFlow.value = _configFlow.value.copy(toolToggles = currentToggles)
     }
 
+    override fun setMaxTools(limit: Int?) {
+        val clampedLimit = limit?.coerceAtLeast(0)
+        _configFlow.value = _configFlow.value.copy(maxTools = clampedLimit)
+    }
+
     override fun resetToDefaults() {
         _configFlow.value = McpIntegratedSearchConfig(
             isIntegratedSearchEnabled = true,
-            toolToggles = McpIntegratedSearchConfig.defaultToolToggles()
+            toolToggles = McpIntegratedSearchConfig.defaultToolToggles(),
+            maxTools = null
         )
     }
 
@@ -72,8 +91,14 @@ class McpIntegratedSearchManager(
         val config = _configFlow.value
         if (!config.isIntegratedSearchEnabled) return emptyList()
 
-        return McpSearchToolSet.tools.filter { tool ->
+        val enabledTools = McpSearchToolSet.tools.filter { tool ->
             config.toolToggles[tool.name] ?: true
+        }
+
+        return if (config.maxTools != null) {
+            enabledTools.take(config.maxTools)
+        } else {
+            enabledTools
         }
     }
 }

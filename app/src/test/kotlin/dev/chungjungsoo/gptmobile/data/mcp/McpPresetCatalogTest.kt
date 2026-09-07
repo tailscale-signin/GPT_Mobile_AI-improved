@@ -59,10 +59,12 @@ class McpPresetCatalogTest {
     }
 
     @Test
-    fun `github preset should require GITHUB_PERSONAL_ACCESS_TOKEN`() {
+    fun `github preset should require GITHUB_PERSONAL_ACCESS_TOKEN and use default copilot mcp url`() {
         val githubPreset = McpPresetCatalog.presets.find { it.id == "github" }
         assertNotNull("GitHub preset must exist", githubPreset)
         assertEquals(McpCategory.DEVELOPMENT, githubPreset?.category)
+        assertEquals(McpTransportType.STREAMABLE_HTTP, githubPreset?.transportType)
+        assertEquals(McpPresetCatalog.GITHUB_COPILOT_MCP_DEFAULT_URL, githubPreset?.commandOrUrl)
         assertTrue(
             "GitHub should require GITHUB_PERSONAL_ACCESS_TOKEN",
             githubPreset?.requiredEnvKeys?.contains("GITHUB_PERSONAL_ACCESS_TOKEN") == true
@@ -78,16 +80,5 @@ class McpPresetCatalogTest {
             "Postgres should require POSTGRES_CONNECTION_STRING",
             postgresPreset?.requiredEnvKeys?.contains("POSTGRES_CONNECTION_STRING") == true
         )
-    }
-
-    @Test
-    fun `all presets should have STDIO transport type`() {
-        for (preset in McpPresetCatalog.presets) {
-            assertEquals(
-                "Preset ${preset.id} should use STDIO transport",
-                McpTransportType.STDIO,
-                preset.transportType
-            )
-        }
     }
 }

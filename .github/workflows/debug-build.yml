@@ -41,7 +41,13 @@ jobs:
       - name: Build Debug APK
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --info 2>&1 | tee gradle-build.log || (echo "=== GRADLE FAILURE LOG ===" && tail -n 120 gradle-build.log && exit 1)
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle-build.log || {
+            echo "=== GRADLE FAILURE LOG ==="
+            grep -E "e: \[ksp\]|e: [^ ]+\.kt:" gradle-build.log | head -n 50 || true
+            echo "=== TAIL LOG ==="
+            tail -n 100 gradle-build.log
+            exit 1
+          }
 
       - name: Locate and list built APKs
         run: |

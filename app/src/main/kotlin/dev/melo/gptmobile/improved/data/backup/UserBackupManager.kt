@@ -9,8 +9,9 @@ import dev.melo.gptmobile.improved.data.database.entity.LocalModel
 import dev.melo.gptmobile.improved.data.database.entity.MessageV2
 import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
-import dev.melo.gptmobile.improved.data.model.PlatformType
+import dev.melo.gptmobile.improved.data.model.ClientType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -28,32 +29,55 @@ data class BackupChatRoomDto(
     val id: Int? = null,
     val title: String? = null,
     val createdAt: Long = 0L,
-    val updatedAt: Long = 0L,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val activePlatformUid: String = "",
+    val systemPrompt: String? = null,
+    val temperature: Float? = null,
+    val topP: Float? = null,
+    val maxTokens: Int? = null,
+    val presencePenalty: Float? = null,
+    val frequencyPenalty: Float? = null,
+    val enabledMcpServers: List<String> = emptyList(),
+    val mcpToolExecutionMode: String = "ALWAYS_APPROVE"
 )
 
 @Serializable
 data class BackupMessageDto(
     val id: Int? = null,
     val chatId: Int = 0,
-    val role: Int = 0,
+    val sender: Int = 0,
+    val thoughts: String = "",
     val content: String = "",
     val createdAt: Long = 0L,
     val platformType: String? = null,
     val isFavorite: Boolean = false,
-    val modelName: String? = null
+    val currentRunId: String? = null,
+    val linkedMessageId: Int = 0
 )
 
 @Serializable
 data class BackupPlatformDto(
     val platformUid: String = "",
     val name: String = "",
-    val platformType: String = "",
-    val endpoint: String? = null,
+    val compatibleType: String = "",
+    val apiUrl: String = "",
     val token: String? = null,
-    val selectedModel: String? = null,
-    val customApiName: String? = null,
-    val secretRef: String? = null
+    val secretRef: String? = null,
+    val model: String = "",
+    val enabled: Boolean = false,
+    val temperature: Float? = null,
+    val topP: Float? = null,
+    val topK: Int? = null,
+    val maxTokens: Int? = null,
+    val accelerator: String? = null,
+    val systemPrompt: String? = null,
+    val stream: Boolean = true,
+    val reasoning: Boolean = false,
+    val timeout: Int = 30,
+    val harassmentSafetyThreshold: String = "BLOCK_NONE",
+    val hateSpeechSafetyThreshold: String = "BLOCK_NONE",
+    val sexuallyExplicitSafetyThreshold: String = "BLOCK_NONE",
+    val dangerousContentSafetyThreshold: String = "BLOCK_NONE"
 )
 
 @Serializable
@@ -61,30 +85,37 @@ data class BackupChatPlatformModelDto(
     val id: Int? = null,
     val chatId: Int = 0,
     val platformUid: String = "",
-    val modelName: String = ""
+    val modelName: String = "",
+    val updatedAt: Long = 0L
 )
 
 @Serializable
 data class BackupToolConnectionDto(
-    val id: Long? = null,
+    val connectionUid: String = "",
     val name: String = "",
+    val alias: String = "",
+    val type: String = "MCP",
+    val serverName: String = "",
     val transportType: String = "",
-    val endpointOrCommand: String = "",
-    val headersOrArgs: String? = null,
-    val env: String? = null,
-    val isEnabled: Boolean = true,
+    val endpointUrl: String? = null,
+    val authType: String = "NONE",
+    val secretRef: String? = null,
+    val oauthClientId: String? = null,
+    val allowCleartext: Boolean = false,
+    val headers: String? = null,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L
 )
 
 @Serializable
 data class BackupLocalModelDto(
+    val id: String = "",
+    val displayName: String = "",
     val modelName: String = "",
-    val modelPath: String = "",
+    val filePath: String = "",
     val isDownloaded: Boolean = false,
     val downloadProgress: Float = 0f,
-    val totalBytes: Long = 0L,
-    val downloadedBytes: Long = 0L
+    val createdAt: Long = 0L
 )
 
 @Serializable
@@ -176,13 +207,21 @@ class UserBackupManager(
 
     private suspend fun buildBackupData(options: BackupExportOptions): UserBackupData {
         val chatRooms = if (options.includeChatHistory) {
-            database.chatRoomDao().getChatRooms().map {
+            database.chatRoomDao().getAll().first().map {
                 BackupChatRoomDto(
-                    id = it.id,
+                    id = it.chatId,
                     title = it.title,
                     createdAt = it.createdAt,
-                    updatedAt = it.updatedAt,
-                    isFavorite = it.isFavorite
+                    isFavorite = it.pinned,
+                    activePlatformUid = it.activePlatformUid,
+                    systemPrompt = it.systemPrompt,
+                    temperature = it.temperature,
+                    topP = it.topP,
+                    maxTokens = it.maxTokens,
+                    presencePenalty = it.presencePenalty,
+                    frequencyPenalty = it.frequencyPenalty,
+                    enabledMcpServers = it.enabledMcpServers,
+                    mcpToolExecutionMode = it.mcpToolExecutionMode
                 )
             }
         } else {
@@ -190,19 +229,20 @@ class UserBackupManager(
         }
 
         val messages = if (options.includeChatHistory) {
-            val rooms = database.chatRoomDao().getChatRooms()
+            val rooms = database.chatRoomDao().getAll().first()
             rooms.flatMap { room ->
-                val chatId = room.id ?: return@flatMap emptyList<BackupMessageDto>()
-                database.messageDao().loadMessages(chatId).map { msg ->
+                database.messageDao().getMessagesDirect(room.chatId).map { msg ->
                     BackupMessageDto(
                         id = msg.id,
                         chatId = msg.chatId,
-                        role = msg.role,
+                        sender = msg.sender,
+                        thoughts = msg.thoughts,
                         content = msg.content,
                         createdAt = msg.createdAt,
-                        platformType = msg.platformType?.name,
+                        platformType = msg.platformType,
                         isFavorite = msg.isFavorite,
-                        modelName = msg.modelName
+                        currentRunId = msg.currentRunId,
+                        linkedMessageId = msg.linkedMessageId
                     )
                 }
             }
@@ -211,16 +251,29 @@ class UserBackupManager(
         }
 
         val platforms = if (options.includePlatforms) {
-            database.platformDao().getPlatforms().map { platform ->
+            database.platformDao().getAllDirect().map { platform ->
                 BackupPlatformDto(
-                    platformUid = platform.platformUid,
+                    platformUid = platform.uid,
                     name = platform.name,
-                    platformType = platform.platformType.name,
-                    endpoint = platform.endpoint,
+                    compatibleType = platform.compatibleType.name,
+                    apiUrl = platform.apiUrl,
                     token = if (options.includeTokens) platform.token else null,
-                    selectedModel = platform.selectedModel,
-                    customApiName = platform.customApiName,
-                    secretRef = if (options.includeTokens) platform.secretRef else null
+                    secretRef = if (options.includeTokens) platform.secretRef else null,
+                    model = platform.model,
+                    enabled = platform.enabled,
+                    temperature = platform.temperature,
+                    topP = platform.topP,
+                    topK = platform.topK,
+                    maxTokens = platform.maxTokens,
+                    accelerator = platform.accelerator,
+                    systemPrompt = platform.systemPrompt,
+                    stream = platform.stream,
+                    reasoning = platform.reasoning,
+                    timeout = platform.timeout,
+                    harassmentSafetyThreshold = platform.harassmentSafetyThreshold,
+                    hateSpeechSafetyThreshold = platform.hateSpeechSafetyThreshold,
+                    sexuallyExplicitSafetyThreshold = platform.sexuallyExplicitSafetyThreshold,
+                    dangerousContentSafetyThreshold = platform.dangerousContentSafetyThreshold
                 )
             }
         } else {
@@ -228,15 +281,15 @@ class UserBackupManager(
         }
 
         val models = if (options.includeModels) {
-            val rooms = database.chatRoomDao().getChatRooms()
+            val rooms = database.chatRoomDao().getAll().first()
             rooms.flatMap { room ->
-                val chatId = room.id ?: return@flatMap emptyList<BackupChatPlatformModelDto>()
-                database.chatPlatformModelDao().getByChatId(chatId).map { model ->
+                database.chatPlatformModelDao().getModelsByChatId(room.chatId).map { model ->
                     BackupChatPlatformModelDto(
                         id = model.id,
                         chatId = model.chatId,
                         platformUid = model.platformUid,
-                        modelName = model.modelName
+                        modelName = model.modelName,
+                        updatedAt = model.updatedAt
                     )
                 }
             }
@@ -245,15 +298,20 @@ class UserBackupManager(
         }
 
         val toolConnections = if (options.includeTools) {
-            database.toolConnectionDao().getAllConnections().map { conn ->
+            database.toolConnectionDao().listConnections().map { conn ->
                 BackupToolConnectionDto(
-                    id = conn.id,
+                    connectionUid = conn.connectionUid,
                     name = conn.name,
+                    alias = conn.alias,
+                    type = conn.type,
+                    serverName = conn.serverName,
                     transportType = conn.transportType,
-                    endpointOrCommand = conn.endpointOrCommand,
-                    headersOrArgs = conn.headersOrArgs,
-                    env = conn.env,
-                    isEnabled = conn.isEnabled,
+                    endpointUrl = conn.endpointUrl,
+                    authType = conn.authType,
+                    secretRef = conn.secretRef,
+                    oauthClientId = conn.oauthClientId,
+                    allowCleartext = conn.allowCleartext,
+                    headers = conn.headers,
                     createdAt = conn.createdAt,
                     updatedAt = conn.updatedAt
                 )
@@ -263,14 +321,15 @@ class UserBackupManager(
         }
 
         val localModels = if (options.includeModels) {
-            database.localModelDao().getAll().map { lm ->
+            database.localModelDao().getAllModels().first().map { lm ->
                 BackupLocalModelDto(
+                    id = lm.id,
+                    displayName = lm.displayName,
                     modelName = lm.modelName,
-                    modelPath = lm.modelPath,
+                    filePath = lm.filePath,
                     isDownloaded = lm.isDownloaded,
                     downloadProgress = lm.downloadProgress,
-                    totalBytes = lm.totalBytes,
-                    downloadedBytes = lm.downloadedBytes
+                    createdAt = lm.createdAt
                 )
             }
         } else {
@@ -297,91 +356,120 @@ class UserBackupManager(
 
         var platformsCount = 0
         data.platforms.forEach { dto ->
-            val platformType = runCatching { PlatformType.valueOf(dto.platformType) }.getOrDefault(PlatformType.CUSTOM)
+            val compatibleType = runCatching { ClientType.valueOf(dto.compatibleType) }.getOrDefault(ClientType.CUSTOM)
             val platform = PlatformV2(
-                platformUid = dto.platformUid,
+                uid = dto.platformUid,
                 name = dto.name,
-                platformType = platformType,
-                endpoint = dto.endpoint,
+                compatibleType = compatibleType,
+                apiUrl = dto.apiUrl,
                 token = dto.token,
-                selectedModel = dto.selectedModel,
-                customApiName = dto.customApiName,
-                secretRef = dto.secretRef
+                secretRef = dto.secretRef,
+                model = dto.model,
+                enabled = dto.enabled,
+                temperature = dto.temperature,
+                topP = dto.topP,
+                topK = dto.topK,
+                maxTokens = dto.maxTokens,
+                accelerator = dto.accelerator,
+                systemPrompt = dto.systemPrompt,
+                stream = dto.stream,
+                reasoning = dto.reasoning,
+                timeout = dto.timeout,
+                harassmentSafetyThreshold = dto.harassmentSafetyThreshold,
+                hateSpeechSafetyThreshold = dto.hateSpeechSafetyThreshold,
+                sexuallyExplicitSafetyThreshold = dto.sexuallyExplicitSafetyThreshold,
+                dangerousContentSafetyThreshold = dto.dangerousContentSafetyThreshold
             )
-            database.platformDao().addPlatform(platform)
+            database.platformDao().upsert(platform)
             platformsCount++
-        }
-
-        var modelsCount = 0
-        data.models.forEach { dto ->
-            val model = ChatPlatformModelV2(
-                id = dto.id,
-                chatId = dto.chatId,
-                platformUid = dto.platformUid,
-                modelName = dto.modelName
-            )
-            database.chatPlatformModelDao().upsertAll(model)
-            modelsCount++
-        }
-
-        var localModelsCount = 0
-        data.localModels.forEach { dto ->
-            val localModel = LocalModel(
-                modelName = dto.modelName,
-                modelPath = dto.modelPath,
-                isDownloaded = dto.isDownloaded,
-                downloadProgress = dto.downloadProgress,
-                totalBytes = dto.totalBytes,
-                downloadedBytes = dto.downloadedBytes
-            )
-            database.localModelDao().upsert(localModel)
-            localModelsCount++
         }
 
         var chatRoomsCount = 0
         data.chatRooms.forEach { dto ->
             val room = ChatRoomV2(
-                id = dto.id,
-                title = dto.title,
+                chatId = dto.id ?: 0,
+                title = dto.title ?: "Chat",
+                activePlatformUid = dto.activePlatformUid,
                 createdAt = dto.createdAt,
-                updatedAt = dto.updatedAt,
-                isFavorite = dto.isFavorite
+                pinned = dto.isFavorite,
+                systemPrompt = dto.systemPrompt,
+                temperature = dto.temperature,
+                topP = dto.topP,
+                maxTokens = dto.maxTokens,
+                presencePenalty = dto.presencePenalty,
+                frequencyPenalty = dto.frequencyPenalty,
+                enabledMcpServers = dto.enabledMcpServers,
+                mcpToolExecutionMode = dto.mcpToolExecutionMode
             )
-            database.chatRoomDao().addChatRoom(room)
+            database.chatRoomDao().upsert(room)
             chatRoomsCount++
         }
 
+        var modelsCount = 0
+        val modelEntities = data.models.map { dto ->
+            ChatPlatformModelV2(
+                id = dto.id ?: 0,
+                chatId = dto.chatId,
+                platformUid = dto.platformUid,
+                modelName = dto.modelName,
+                updatedAt = dto.updatedAt
+            )
+        }
+        if (modelEntities.isNotEmpty()) {
+            database.chatPlatformModelDao().upsertAll(modelEntities)
+            modelsCount = modelEntities.size
+        }
+
+        var localModelsCount = 0
+        data.localModels.forEach { dto ->
+            val localModel = LocalModel(
+                id = dto.id,
+                displayName = dto.displayName,
+                modelName = dto.modelName,
+                filePath = dto.filePath,
+                isDownloaded = dto.isDownloaded,
+                downloadProgress = dto.downloadProgress,
+                createdAt = dto.createdAt
+            )
+            database.localModelDao().insertModel(localModel)
+            localModelsCount++
+        }
+
         var messagesCount = 0
-        if (data.messages.isNotEmpty()) {
-            val messageEntities = data.messages.map { dto ->
-                val platformType = dto.platformType?.let { runCatching { PlatformType.valueOf(it) }.getOrNull() }
-                MessageV2(
-                    id = dto.id,
-                    chatId = dto.chatId,
-                    role = dto.role,
-                    content = dto.content,
-                    createdAt = dto.createdAt,
-                    platformType = platformType,
-                    isFavorite = dto.isFavorite,
-                    modelName = dto.modelName
-                )
-            }
-            database.messageDao().addMessages(*messageEntities.toTypedArray())
-            messagesCount = messageEntities.size
+        data.messages.forEach { dto ->
+            val message = MessageV2(
+                id = dto.id ?: 0,
+                chatId = dto.chatId,
+                sender = dto.sender,
+                thoughts = dto.thoughts,
+                content = dto.content,
+                createdAt = dto.createdAt,
+                platformType = dto.platformType,
+                isFavorite = dto.isFavorite,
+                currentRunId = dto.currentRunId,
+                linkedMessageId = dto.linkedMessageId
+            )
+            database.messageDao().upsert(message)
+            messagesCount++
         }
 
         var toolConnectionsCount = 0
         data.toolConnections.forEach { dto ->
             val conn = ToolConnection(
-                id = dto.id,
+                connectionUid = dto.connectionUid,
                 name = dto.name,
+                alias = dto.alias,
+                type = dto.type,
+                serverName = dto.serverName,
                 transportType = dto.transportType,
-                endpointOrCommand = dto.endpointOrCommand,
-                headersOrArgs = dto.headersOrArgs,
-                env = dto.env,
-                isEnabled = dto.isEnabled,
-                createdAt = conn.createdAt,
-                updatedAt = conn.updatedAt
+                endpointUrl = dto.endpointUrl,
+                authType = dto.authType,
+                secretRef = dto.secretRef,
+                oauthClientId = dto.oauthClientId,
+                allowCleartext = dto.allowCleartext,
+                headers = dto.headers,
+                createdAt = dto.createdAt,
+                updatedAt = dto.updatedAt
             )
             database.toolConnectionDao().upsertConnection(conn)
             toolConnectionsCount++

@@ -1,19 +1,16 @@
 package dev.chungjungsoo.gptmobile.presentation.theme
 
+import android.graphics.Typeface
 import androidx.compose.material3.Typography
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 
 /**
  * Proxima Nova font family definition.
- * Uses generic font family with "Proxima Nova" name and sans-serif fallback
- * so that any system or bundled Proxima Nova font is prioritized.
+ * Uses Typeface.create with fallback to SansSerif so that any system or bundled
+ * Proxima Nova font is prioritized without breaking compilation.
  */
 val ProximaNovaFontFamily = FontFamily(
-    androidx.compose.ui.text.font.GenericFontFamily(
-        android.graphics.Typeface.create("proxima-nova", android.graphics.Typeface.NORMAL)
-    )
+    Typeface.create("proxima-nova", Typeface.NORMAL)
 )
 
 private val defaultTypography = Typography()

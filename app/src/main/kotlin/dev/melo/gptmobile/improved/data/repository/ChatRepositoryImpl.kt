@@ -290,7 +290,7 @@ class ChatRepositoryImpl @Inject constructor(
 
     override fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>> = toolEventRecorder.observeChat(chatId)
 
-    override suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String> = chatPlatformModelV2Dao.getByChatId(chatId).associate {
+    override suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String> = chatPlatformModelV2Dao.getModelsByChatId(chatId).associate {
         it.platformUid to it.model
     }
 
@@ -306,7 +306,7 @@ class ChatRepositoryImpl @Inject constructor(
             }
 
         if (rows.isNotEmpty()) {
-            chatPlatformModelV2Dao.upsertAll(*rows.toTypedArray())
+            chatPlatformModelV2Dao.upsertAll(rows)
         }
     }
 
@@ -350,7 +350,7 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {
-        if (chatRoom.id == 0) {
+        if (chatRoom.chatId == 0) {
             // New Chat
             val chatId = chatRoomV2Dao.insert(chatRoom)
             val updatedMessages = messages.map { it.copy(chatId = chatId.toInt()) }
@@ -359,19 +359,21 @@ class ChatRepositoryImpl @Inject constructor(
             }
             saveChatPlatformModels(
                 chatId = chatId.toInt(),
-                models = chatPlatformModels.filterKeys { it in chatRoom.enabledPlatform }
+                models = chatPlatformModels
             )
 
-            val savedChatRoom = chatRoom.copy(id = chatId.toInt())
-            updateChatTitle(savedChatRoom, updatedMessages[0].content)
+            val savedChatRoom = chatRoom.copy(chatId = chatId.toInt())
+            if (updatedMessages.isNotEmpty()) {
+                updateChatTitle(savedChatRoom, updatedMessages[0].content)
+            }
 
-            return savedChatRoom.copy(title = updatedMessages[0].content.replace('\n', ' ').take(50))
+            return savedChatRoom.copy(title = updatedMessages.firstOrNull()?.content?.replace('\n', ' ')?.take(50) ?: savedChatRoom.title)
         }
 
         agentPersistenceDao.saveChatSnapshot(
             chatRoom = chatRoom,
             messages = messages,
-            chatPlatformModels = chatPlatformModels.filterKeys { it in chatRoom.enabledPlatform }
+            chatPlatformModels = chatPlatformModels
         )
 
         return chatRoom
@@ -380,7 +382,7 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2 {
         val duplicatedTitle = "${chatRoom.title} (copy)".take(50)
         return agentPersistenceDao.duplicateChatWithHistory(
-            sourceChatId = chatRoom.id,
+            sourceChatId = chatRoom.chatId,
             title = duplicatedTitle,
             timestamp = System.currentTimeMillis() / 1000
         )

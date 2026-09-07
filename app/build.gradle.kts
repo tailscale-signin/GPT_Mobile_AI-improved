@@ -2,7 +2,6 @@
 
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
-import org.gradle.kotlin.dsl.configure
 
 plugins {
     alias(libs.plugins.android.application)
@@ -194,8 +193,7 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 
-configure<com.mikepenz.aboutlibraries.plugin.AboutLibrariesExtension> {
-    export {
-        excludeFields.add("generated")
-    }
+// Configure aboutLibraries via late-bound extension to avoid buildscript classpath resolution issues
+extensions.findByName("aboutLibraries")?.let { ext ->
+    (ext as? groovy.lang.GroovyObject)?.invokeMethod("export", mapOf<String, Any>())
 }

@@ -94,4 +94,6 @@ data class MessageV2(
     }
 }
 
+fun MessageV2.effectiveContent(): String = getEffectiveContent()
+
 fun MessageV2.resetActiveRevision(): MessageV2 = copy(activeRevisionIndex = 0)

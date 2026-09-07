@@ -11,7 +11,11 @@ import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 data class AgentRunLimits(
     val runTimeoutMillis: Long = Long.MAX_VALUE,
@@ -206,7 +210,7 @@ class AgentRunner(
         if (limits.maxToolOutputBytes == Int.MAX_VALUE) return content
         val encoded = when (content) {
             is ToolResultContent.Text -> content.text
-            is ToolResultContent.Json -> Json.encodeToString(content.value)
+            is ToolResultContent.Json -> content.value.toString()
             is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
         }
         if (encoded.toByteArray(StandardCharsets.UTF_8).size <= limits.maxToolOutputBytes) return content

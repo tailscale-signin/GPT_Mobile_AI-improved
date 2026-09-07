@@ -207,6 +207,8 @@ class LiteRtLmAdapter(
 
                             is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
 
+                            is LocalRuntimeEvent.Metrics -> Unit
+
                             is LocalRuntimeEvent.Error -> {
                                 failed = true
                                 isConversationDirty = true

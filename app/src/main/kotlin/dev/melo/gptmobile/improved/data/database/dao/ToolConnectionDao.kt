@@ -107,21 +107,6 @@ interface ToolConnectionDao {
         bindings.forEach { insertBinding(it) }
     }
 
-    @Transaction
-    suspend fun listBindingsWithConnections(profileUid: String): List<AgentToolBindingWithConnection> {
-        val bindings = listBindingsByProfile(profileUid)
-        val connections = bindings
-            .mapNotNull { it.connectionUid }
-            .distinct()
-            .takeIf { it.isNotEmpty() }
-            ?.let { getConnectionsByUids(it) }
-            ?.associateBy { it.connectionUid }
-            .orEmpty()
-        return bindings.map { binding ->
-            AgentToolBindingWithConnection(binding, binding.connectionUid?.let(connections::get))
-        }
-    }
-
     companion object {
         private const val WEB_SEARCH_TOOL = "web_search"
         private val WEB_SEARCH_TYPES = listOf(ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY, ToolConnectionType.EXA)

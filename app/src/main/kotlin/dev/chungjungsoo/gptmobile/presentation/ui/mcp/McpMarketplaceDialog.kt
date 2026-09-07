@@ -126,7 +126,7 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
             containerColor = if (isDark) Color(0xFF21262D) else Color(0xFFF6F8FA)
         )
         "brave" -> ServiceBrand(
-            iconVector = Icons.Default.Search,
+            iconResId = R.drawable.ic_brave,
             brandColor = Color(0xFFFF5722),
             containerColor = Color(0xFFFF5722).copy(alpha = 0.15f)
         )
@@ -520,7 +520,7 @@ fun ServiceIcon(
             Icon(
                 painter = painterResource(id = brand.iconResId),
                 contentDescription = null,
-                tint = brand.brandColor,
+                tint = Color.Unspecified,
                 modifier = Modifier.size(26.dp)
             )
         } else if (brand.iconVector != null) {

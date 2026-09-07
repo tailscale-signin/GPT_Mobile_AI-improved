@@ -10,6 +10,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -23,9 +24,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DateRange
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Http
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +57,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -68,6 +83,58 @@ enum class ToolStatusState {
     FAILED
 }
 
+sealed class ToolBrandIcon {
+    data class Resource(val resId: Int) : ToolBrandIcon()
+    data class Vector(val imageVector: ImageVector) : ToolBrandIcon()
+}
+
+internal fun resolveToolBrandIcon(toolName: String, connectionName: String? = null): ToolBrandIcon {
+    val norm = listOfNotNull(toolName, connectionName).joinToString(" ").lowercase(Locale.ROOT)
+    return when {
+        norm.contains("brave") -> ToolBrandIcon.Resource(R.drawable.ic_brave)
+        norm.contains("github") -> ToolBrandIcon.Resource(R.drawable.ic_github)
+        norm.contains("postgres") || norm.contains("sqlite") || norm.contains("database") || norm.contains("dns") -> ToolBrandIcon.Vector(Icons.Rounded.Dns)
+        norm.contains("folder") || norm.contains("filesystem") || norm.contains("file") -> ToolBrandIcon.Vector(Icons.Rounded.Folder)
+        norm.contains("puppeteer") || norm.contains("browser") -> ToolBrandIcon.Vector(Icons.Rounded.Public)
+        norm.contains("fetch") || norm.contains("curl") || norm.contains("download") -> ToolBrandIcon.Vector(Icons.Rounded.Download)
+        norm.contains("memory") || norm.contains("context") -> ToolBrandIcon.Vector(Icons.Rounded.Memory)
+        norm.contains("terminal") || norm.contains("bash") || norm.contains("sh") -> ToolBrandIcon.Vector(Icons.Rounded.Terminal)
+        norm.contains("calculate") || norm.contains("calc") -> ToolBrandIcon.Vector(Icons.Rounded.Calculate)
+        norm.contains("location") -> ToolBrandIcon.Vector(Icons.Rounded.LocationOn)
+        norm.contains("date") || norm.contains("time") -> ToolBrandIcon.Vector(Icons.Rounded.DateRange)
+        norm.contains("search") -> ToolBrandIcon.Vector(Icons.Rounded.Search)
+        norm.contains("read_url") || norm.contains("crawl") || norm.contains("http") -> ToolBrandIcon.Vector(Icons.Rounded.Http)
+        else -> ToolBrandIcon.Vector(Icons.Rounded.Build)
+    }
+}
+
+@Composable
+fun ToolBrandIconImage(
+    brandIcon: ToolBrandIcon,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant
+) {
+    when (brandIcon) {
+        is ToolBrandIcon.Resource -> {
+            Icon(
+                painter = painterResource(id = brandIcon.resId),
+                contentDescription = contentDescription,
+                tint = Color.Unspecified,
+                modifier = modifier
+            )
+        }
+        is ToolBrandIcon.Vector -> {
+            Icon(
+                imageVector = brandIcon.imageVector,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = modifier
+            )
+        }
+    }
+}
+
 @Composable
 fun ToolTraceBlock(
     events: List<ToolEvent>,
@@ -86,6 +153,15 @@ fun ToolTraceBlock(
     val statusState = toolTraceStatusState(events)
     val baseTitle = toolTraceStatusSummary(events, labels)
     val isRunning = statusState == ToolStatusState.RUNNING
+
+    // Primary tool brand icon for the block
+    val primaryEvent = events.firstOrNull()
+    val brandIcon = remember(primaryEvent?.toolName, primaryEvent?.connectionNameSnapshot) {
+        resolveToolBrandIcon(
+            toolName = primaryEvent?.toolName ?: "",
+            connectionName = primaryEvent?.connectionNameSnapshot
+        )
+    }
 
     // Sequential 3-dot animation while running (cycling 0 -> 1 -> 2 -> 3)
     val infiniteTransition = rememberInfiniteTransition(label = "dots-animation")
@@ -157,6 +233,15 @@ fun ToolTraceBlock(
             }
 
             Spacer(modifier = Modifier.width(8.dp))
+
+            // Dedicated MCP Tool Brand Icon displayed on the left side of the title
+            ToolBrandIconImage(
+                brandIcon = brandIcon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+
+            Spacer(modifier = Modifier.width(6.dp))
 
             Text(
                 text = animatedTitle,
@@ -246,6 +331,10 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
         event.status.lowercase(Locale.ROOT)
     )
 
+    val itemBrandIcon = remember(event.toolName, event.connectionNameSnapshot) {
+        resolveToolBrandIcon(event.toolName, event.connectionNameSnapshot)
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
@@ -254,11 +343,22 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
             .semantics { contentDescription = callDescription }
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "${event.sequence + 1}. ${event.toolName}",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                ToolBrandIconImage(
+                    brandIcon = itemBrandIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "${event.sequence + 1}. ${event.toolName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
             if (event.modelToolName != event.toolName) {
                 ToolTraceLine(labels.modelTool, event.modelToolName)
             }

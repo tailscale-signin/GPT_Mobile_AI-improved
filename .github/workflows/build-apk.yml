@@ -112,11 +112,7 @@ jobs:
 
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body "Build failure reoccurred on run: $RUN_URL
-
-\`\`\`
-$ERROR_SNIPPET
-\`\`\`"
+            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body "Build failure reoccurred on run: $RUN_URL"$'\n\n```\n'"$ERROR_SNIPPET"$'\n```'
           else
             gh issue create \
               --repo "${{ github.repository }}" \

@@ -156,6 +156,10 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.logging)
     implementation(libs.ktor.serialization)
+    implementation(libs.mcp.kotlin.sdk.client) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+        exclude(group = "io.ktor")
+    }
 
     // OAuth browser flow
     implementation(libs.androidx.browser)

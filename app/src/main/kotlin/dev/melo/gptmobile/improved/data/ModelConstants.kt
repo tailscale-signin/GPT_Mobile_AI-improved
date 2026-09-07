@@ -1,5 +1,7 @@
 package dev.melo.gptmobile.improved.data
 
+import dev.melo.gptmobile.improved.data.model.ApiType
+
 object ModelConstants {
     val OPENAI_CHAT_MODELS = listOf(
         "gpt-4o",
@@ -23,4 +25,14 @@ object ModelConstants {
         "gemini-1.5-flash-8b",
         "gemini-1.0-pro",
     )
+
+    fun getDefaultAPIUrl(apiType: ApiType): String {
+        return when (apiType) {
+            ApiType.OPENAI -> "https://api.openai.com/v1"
+            ApiType.ANTHROPIC -> "https://api.anthropic.com/v1"
+            ApiType.GOOGLE -> "https://generativelanguage.googleapis.com/v1beta"
+            ApiType.GROQ -> "https://api.groq.com/openai/v1"
+            ApiType.OLLAMA -> "http://localhost:11434"
+        }
+    }
 }

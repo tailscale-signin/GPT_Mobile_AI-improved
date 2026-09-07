@@ -1,6 +1,8 @@
 package dev.melo.gptmobile.improved.data.localmodel
 
 import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.model.LocalModel
+import dev.melo.gptmobile.improved.data.model.LocalModelStatus
 import dev.melo.gptmobile.improved.data.repository.LocalModelRepository
 import dev.melo.gptmobile.improved.data.repository.SettingRepository
 import java.util.concurrent.atomic.AtomicBoolean
@@ -28,14 +30,14 @@ class PendingLocalPlatformActivator(
     )
 
     private val started = AtomicBoolean(false)
-    private var previousStatuses: Map<String, String> = emptyMap()
+    private var previousStatuses: Map<String, LocalModelStatus> = emptyMap()
     private var hasBaseline = false
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch {
-            localModelRepository.observeAll().collect { models ->
-                val current = models.associate { it.catalogEntryId to it.status }
+            localModelRepository.observeAll().collect { models: List<LocalModel> ->
+                val current: Map<String, LocalModelStatus> = models.associate { it.id to it.status }
                 if (hasBaseline) {
                     val newlyReady = current.filter { (id, status) ->
                         status == LocalModelStatus.READY && previousStatuses[id] != LocalModelStatus.READY

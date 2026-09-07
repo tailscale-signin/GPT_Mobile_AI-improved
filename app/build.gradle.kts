@@ -54,13 +54,6 @@ extensions.configure<ApplicationExtension> {
         )
     }
 
-    sourceSets {
-        getByName("main") {
-            java.srcDirs("src/main/kotlin/dev/melo")
-            kotlin.srcDirs("src/main/kotlin/dev/melo")
-        }
-    }
-
     androidResources {
         generateLocaleConfig = true
     }

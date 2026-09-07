@@ -1,35 +1,35 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.setting
+package dev.melo.gptmobile.improved.presentation.ui.setting
 
 import androidx.lifecycle.SavedStateHandle
-import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
-import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
-import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
-import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
-import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
-import dev.chungjungsoo.gptmobile.data.dto.Platform
-import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
-import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
-import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
-import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
-import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
-import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
-import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
-import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.melo.gptmobile.improved.data.agent.tool.AgentToolResolver
+import dev.melo.gptmobile.improved.data.agent.tool.McpClientManager
+import dev.melo.gptmobile.improved.data.agent.tool.McpOAuthClient
+import dev.melo.gptmobile.improved.data.agent.tool.McpOAuthCoordinator
+import dev.melo.gptmobile.improved.data.catalog.CatalogDefaultConfig
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.catalog.SocVariant
+import dev.melo.gptmobile.improved.data.database.dao.AgentToolBindingWithConnection
+import dev.melo.gptmobile.improved.data.database.dao.ToolConnectionDao
+import dev.melo.gptmobile.improved.data.database.entity.AgentToolBinding
+import dev.melo.gptmobile.improved.data.database.entity.LocalModel
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionAuthType
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
+import dev.melo.gptmobile.improved.data.dto.Platform
+import dev.melo.gptmobile.improved.data.dto.ThemeSetting
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
+import dev.melo.gptmobile.improved.data.localruntime.AcceleratorUnavailableReason
+import dev.melo.gptmobile.improved.data.localruntime.LocalAccelerators
+import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.network.NetworkClient
+import dev.melo.gptmobile.improved.data.repository.FakeLocalModelRepository
+import dev.melo.gptmobile.improved.data.repository.LocalModelRepository
+import dev.melo.gptmobile.improved.data.repository.ModelCatalogRepository
+import dev.melo.gptmobile.improved.data.repository.SecretMigrationError
+import dev.melo.gptmobile.improved.data.repository.SettingRepository
+import dev.melo.gptmobile.improved.data.repository.ToolConnectionRepository
+import dev.melo.gptmobile.improved.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -420,7 +420,7 @@ class PlatformSettingViewModelTest {
         assertFalse(viewModel.platformState.value!!.enabled)
         assertTrue(settings.updatedPlatforms.isEmpty())
         assertEquals(
-            dev.chungjungsoo.gptmobile.R.string.local_platform_enable_model_not_ready,
+            dev.melo.gptmobile.improved.R.string.local_platform_enable_model_not_ready,
             viewModel.userMessage.value
         )
     }

@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.model
+package dev.melo.gptmobile.improved.data.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

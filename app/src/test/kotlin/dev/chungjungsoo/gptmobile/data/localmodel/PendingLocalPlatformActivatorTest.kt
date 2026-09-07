@@ -1,13 +1,13 @@
-package dev.chungjungsoo.gptmobile.data.localmodel
+package dev.melo.gptmobile.improved.data.localmodel
 
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.dto.Platform
-import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
-import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
-import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import dev.chungjungsoo.gptmobile.presentation.ui.setup.wizardStoredModel
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.dto.Platform
+import dev.melo.gptmobile.improved.data.dto.ThemeSetting
+import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.repository.FakeLocalModelRepository
+import dev.melo.gptmobile.improved.data.repository.SecretMigrationError
+import dev.melo.gptmobile.improved.data.repository.SettingRepository
+import dev.melo.gptmobile.improved.presentation.ui.setup.wizardStoredModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher

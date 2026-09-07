@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals

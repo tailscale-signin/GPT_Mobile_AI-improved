@@ -7,15 +7,15 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
-import dev.chungjungsoo.gptmobile.data.network.AnthropicAPIImpl
-import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
-import dev.chungjungsoo.gptmobile.data.network.GoogleAPIImpl
-import dev.chungjungsoo.gptmobile.data.network.GroqAPI
-import dev.chungjungsoo.gptmobile.data.network.GroqAPIImpl
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
-import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
-import dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl
+import dev.melo.gptmobile.improved.data.network.AnthropicAPI
+import dev.melo.gptmobile.improved.data.network.AnthropicAPIImpl
+import dev.melo.gptmobile.improved.data.network.GoogleAPI
+import dev.melo.gptmobile.improved.data.network.GoogleAPIImpl
+import dev.melo.gptmobile.improved.data.network.GroqAPI
+import dev.melo.gptmobile.improved.data.network.GroqAPIImpl
+import dev.melo.gptmobile.improved.data.network.NetworkClient
+import dev.melo.gptmobile.improved.data.network.OpenAIAPI
+import dev.melo.gptmobile.improved.data.network.OpenAIAPIImpl
 import io.ktor.client.engine.cio.CIO
 import javax.inject.Singleton
 

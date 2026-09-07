@@ -1,9 +1,9 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.chat
+package dev.melo.gptmobile.improved.presentation.ui.chat
 
-import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
-import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
+import dev.melo.gptmobile.improved.data.model.ChatMcpToolConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

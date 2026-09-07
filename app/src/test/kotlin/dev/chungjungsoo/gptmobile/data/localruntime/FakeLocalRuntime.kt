@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.localruntime
+package dev.melo.gptmobile.improved.data.localruntime
 
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CompletableDeferred

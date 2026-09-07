@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.agent.tool
+package dev.melo.gptmobile.improved.data.agent.tool
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -22,7 +22,7 @@ class CalculatorToolTest {
             }
         )
         assertFalse(result.isError)
-        val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
+        val json = result.content as dev.melo.gptmobile.improved.data.agent.ToolResultContent.Json
         assertEquals("14", json.value["formatted"]?.jsonPrimitive?.content)
     }
 
@@ -35,7 +35,7 @@ class CalculatorToolTest {
             }
         )
         assertFalse(result.isError)
-        val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
+        val json = result.content as dev.melo.gptmobile.improved.data.agent.ToolResultContent.Json
         assertEquals("40", json.value["formatted"]?.jsonPrimitive?.content)
     }
 
@@ -48,7 +48,7 @@ class CalculatorToolTest {
             }
         )
         assertFalse(result.isError)
-        val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
+        val json = result.content as dev.melo.gptmobile.improved.data.agent.ToolResultContent.Json
         assertEquals("9", json.value["formatted"]?.jsonPrimitive?.content)
     }
 
@@ -61,7 +61,7 @@ class CalculatorToolTest {
             }
         )
         assertTrue(result.isError)
-        val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
+        val json = result.content as dev.melo.gptmobile.improved.data.agent.ToolResultContent.Json
         assertTrue(json.value["error"]?.jsonPrimitive?.content?.contains("Division by zero") == true)
     }
 
@@ -74,7 +74,7 @@ class CalculatorToolTest {
             }
         )
         assertTrue(result.isError)
-        val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
+        val json = result.content as dev.melo.gptmobile.improved.data.agent.ToolResultContent.Json
         assertTrue(json.value.containsKey("error"))
     }
 }

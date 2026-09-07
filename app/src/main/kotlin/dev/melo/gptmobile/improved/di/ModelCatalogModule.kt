@@ -6,7 +6,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.melo.gptmobile.improved.data.network.NetworkClient
 import dev.melo.gptmobile.improved.BuildConfig
 import dev.melo.gptmobile.improved.data.repository.ModelCatalogRepository
 import dev.melo.gptmobile.improved.data.repository.ModelCatalogRepositoryImpl

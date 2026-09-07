@@ -1,25 +1,25 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.setup
+package dev.melo.gptmobile.improved.presentation.ui.setup
 
 import android.content.Intent
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
-import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.dto.Platform
-import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
-import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
-import dev.chungjungsoo.gptmobile.data.localmodel.GatedDownloadCoordinator
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelDownloadProber
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
-import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
-import dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository
-import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
-import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import dev.chungjungsoo.gptmobile.data.security.SecretVault
-import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.HuggingFaceAuthClient
-import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.HuggingFaceSignInResult
-import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalDownloadGuards
-import dev.chungjungsoo.gptmobile.presentation.ui.setting.AddPlatformViewModel
-import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsViewModel
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.database.entity.LocalModel
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.dto.Platform
+import dev.melo.gptmobile.improved.data.dto.ThemeSetting
+import dev.melo.gptmobile.improved.data.huggingface.HuggingFaceTokenStore
+import dev.melo.gptmobile.improved.data.localmodel.GatedDownloadCoordinator
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelDownloadProber
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
+import dev.melo.gptmobile.improved.data.repository.FakeLocalModelRepository
+import dev.melo.gptmobile.improved.data.repository.FakeModelCatalogRepository
+import dev.melo.gptmobile.improved.data.repository.SecretMigrationError
+import dev.melo.gptmobile.improved.data.repository.SettingRepository
+import dev.melo.gptmobile.improved.data.security.SecretVault
+import dev.melo.gptmobile.improved.presentation.ui.localmodel.HuggingFaceAuthClient
+import dev.melo.gptmobile.improved.presentation.ui.localmodel.HuggingFaceSignInResult
+import dev.melo.gptmobile.improved.presentation.ui.localmodel.LocalDownloadGuards
+import dev.melo.gptmobile.improved.presentation.ui.setting.AddPlatformViewModel
+import dev.melo.gptmobile.improved.presentation.ui.setting.LocalModelsViewModel
 import kotlinx.coroutines.Dispatchers
 
 internal fun wizardCatalogEntry(

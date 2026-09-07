@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
 
 class FakeModelCatalogRepository(
     private val entries: List<CatalogEntry> = emptyList()

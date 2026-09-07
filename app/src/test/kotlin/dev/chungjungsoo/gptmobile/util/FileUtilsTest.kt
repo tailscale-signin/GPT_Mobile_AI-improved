@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.util
+package dev.melo.gptmobile.improved.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

@@ -14,8 +14,8 @@
 -keep class dev.melo.gptmobile.improved.presentation.GPTMobileApp { *; }
 -keep class dev.melo.gptmobile.improved.presentation.ui.main.MainActivity { *; }
 -keep class dev.melo.gptmobile.improved.presentation.Hilt_GPTMobileApp { *; }
--keep class dev.chungjungsoo.gptmobile.** { *; }
--keep interface dev.chungjungsoo.gptmobile.** { *; }
+-keep class dev.melo.gptmobile.** { *; }
+-keep interface dev.melo.gptmobile.** { *; }
 -keep class * extends android.app.Application { *; }
 -keep class * extends android.app.Activity { *; }
 -keep class * extends android.app.Service { *; }

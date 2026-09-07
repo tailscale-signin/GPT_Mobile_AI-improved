@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.parser
+package dev.melo.gptmobile.improved.data.parser
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

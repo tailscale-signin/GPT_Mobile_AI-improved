@@ -1,12 +1,12 @@
-package dev.chungjungsoo.gptmobile.data.database
+package dev.melo.gptmobile.improved.data.database
 
-import dev.chungjungsoo.gptmobile.data.ModelConstants
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevisionListConverter
-import dev.chungjungsoo.gptmobile.data.database.entity.ChatAttachmentListConverter
-import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
+import dev.melo.gptmobile.improved.data.ModelConstants
+import dev.melo.gptmobile.improved.data.database.entity.AssistantRevisionListConverter
+import dev.melo.gptmobile.improved.data.database.entity.ChatAttachmentListConverter
+import dev.melo.gptmobile.improved.data.database.entity.ChatRoomV2
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.model.GeminiSafetySettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -113,7 +113,7 @@ class ChatDatabaseV2MigrationsTest {
         val converter = AssistantRevisionListConverter()
         val encoded = converter.fromList(
             listOf(
-                dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision(
+                dev.melo.gptmobile.improved.data.database.entity.AssistantRevision(
                     content = "Answer",
                     thoughts = "Reasoning",
                     createdAt = 1234L,

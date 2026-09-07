@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.data.localruntime
+package dev.melo.gptmobile.improved.data.localruntime
 
-import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
+import dev.melo.gptmobile.improved.data.catalog.ModelCatalogParser
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

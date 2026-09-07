@@ -1,9 +1,9 @@
-package dev.chungjungsoo.gptmobile.data.context
+package dev.melo.gptmobile.improved.data.context
 
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
-import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.melo.gptmobile.improved.data.database.entity.MessageV2
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.model.ChatAttachment
+import dev.melo.gptmobile.improved.data.model.ClientType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

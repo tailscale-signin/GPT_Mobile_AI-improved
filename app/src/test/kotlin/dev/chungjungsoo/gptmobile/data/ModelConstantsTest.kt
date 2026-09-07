@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.data
+package dev.melo.gptmobile.improved.data
 
-import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.melo.gptmobile.improved.data.model.ClientType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

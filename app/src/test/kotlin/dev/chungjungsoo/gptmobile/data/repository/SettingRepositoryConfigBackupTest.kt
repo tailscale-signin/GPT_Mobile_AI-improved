@@ -1,15 +1,15 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
-import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
-import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
-import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
-import dev.chungjungsoo.gptmobile.data.model.ApiType
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
-import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.melo.gptmobile.improved.data.database.dao.ChatPlatformModelV2Dao
+import dev.melo.gptmobile.improved.data.database.dao.PlatformV2Dao
+import dev.melo.gptmobile.improved.data.database.entity.ChatPlatformModelV2
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.datastore.SettingDataSource
+import dev.melo.gptmobile.improved.data.model.ApiType
+import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.model.DynamicTheme
+import dev.melo.gptmobile.improved.data.model.ThemeMode
+import dev.melo.gptmobile.improved.data.security.SecretVault
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

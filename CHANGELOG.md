@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.8.2] - 2026-09-05
 
 ### Added & Improved
-- **Separate Application ID (`dev.chungjungsoo.gptmobile.improved`)**:
+- **Separate Application ID (`dev.melo.gptmobile.improved`)**:
   - Allows direct, side-by-side installation alongside the original repository's app without signature conflicts or needing to uninstall.
-  - Custom deep-linking scheme updated to `dev.chungjungsoo.gptmobile.improved://oauth/mcp/` for MCP OAuth callbacks.
+  - Custom deep-linking scheme updated to `dev.melo.gptmobile.improved://oauth/mcp/` for MCP OAuth callbacks.
 - **Deterministic & Persistent Release Signing**:
   - Replaced ephemeral per-build keystores with a deterministic, consistent release signing pipeline.
   - All future releases and updates will install in-place over previous builds without prompting for uninstallation.

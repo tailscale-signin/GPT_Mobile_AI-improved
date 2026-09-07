@@ -1,12 +1,12 @@
-package dev.chungjungsoo.gptmobile.util
+package dev.melo.gptmobile.improved.util
 
-import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
-import dev.chungjungsoo.gptmobile.data.dto.ApiState
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
+import dev.melo.gptmobile.improved.data.database.entity.ACTIVE_REVISION_LATEST
+import dev.melo.gptmobile.improved.data.database.entity.AssistantRevision
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItem
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItemType
+import dev.melo.gptmobile.improved.data.database.entity.MessageV2
+import dev.melo.gptmobile.improved.data.dto.ApiState
+import dev.melo.gptmobile.improved.presentation.ui.chat.ChatViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow

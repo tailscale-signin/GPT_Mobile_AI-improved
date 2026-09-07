@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.data.huggingface
+package dev.melo.gptmobile.improved.data.huggingface
 
-import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.melo.gptmobile.improved.data.security.SecretVault
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

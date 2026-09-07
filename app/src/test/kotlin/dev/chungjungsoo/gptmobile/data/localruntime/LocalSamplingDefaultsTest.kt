@@ -1,8 +1,8 @@
-package dev.chungjungsoo.gptmobile.data.localruntime
+package dev.melo.gptmobile.improved.data.localruntime
 
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
-import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
+import dev.melo.gptmobile.improved.data.catalog.CatalogDefaultConfig
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.catalog.SocVariant
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

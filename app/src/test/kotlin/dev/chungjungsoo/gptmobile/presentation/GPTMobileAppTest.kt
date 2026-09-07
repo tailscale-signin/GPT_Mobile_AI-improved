@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.presentation
+package dev.melo.gptmobile.improved.presentation
 
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals

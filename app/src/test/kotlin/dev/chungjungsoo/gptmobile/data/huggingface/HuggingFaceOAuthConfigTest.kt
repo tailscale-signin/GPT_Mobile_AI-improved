@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.huggingface
+package dev.melo.gptmobile.improved.data.huggingface
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,7 +12,7 @@ class HuggingFaceOAuthConfigTest {
         assertFalse(
             HuggingFaceOAuthConfig.isConfigured(
                 clientId = "REPLACE_WITH_YOUR_CLIENT_ID_IN_HUGGINGFACE_APP",
-                redirectUri = "dev.chungjungsoo.gptmobile://oauth/huggingface"
+                redirectUri = "dev.melo.gptmobile.improved://oauth/huggingface"
             )
         )
     }
@@ -35,7 +35,7 @@ class HuggingFaceOAuthConfigTest {
 
     @Test
     fun `blank values are not configured`() {
-        assertFalse(HuggingFaceOAuthConfig.isConfigured(clientId = " ", redirectUri = "dev.chungjungsoo.gptmobile://oauth/huggingface"))
+        assertFalse(HuggingFaceOAuthConfig.isConfigured(clientId = " ", redirectUri = "dev.melo.gptmobile.improved://oauth/huggingface"))
         assertFalse(HuggingFaceOAuthConfig.isConfigured(clientId = "real-client-id", redirectUri = ""))
     }
 
@@ -44,7 +44,7 @@ class HuggingFaceOAuthConfigTest {
         assertTrue(
             HuggingFaceOAuthConfig.isConfigured(
                 clientId = "hf-app-client-id",
-                redirectUri = "dev.chungjungsoo.gptmobile://oauth/huggingface"
+                redirectUri = "dev.melo.gptmobile.improved://oauth/huggingface"
             )
         )
     }

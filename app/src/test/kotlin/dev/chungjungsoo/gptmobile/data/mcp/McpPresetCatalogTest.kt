@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.mcp
+package dev.melo.gptmobile.improved.data.mcp
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

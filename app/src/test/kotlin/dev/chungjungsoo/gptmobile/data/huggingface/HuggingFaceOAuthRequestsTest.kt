@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.huggingface
+package dev.melo.gptmobile.improved.data.huggingface
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

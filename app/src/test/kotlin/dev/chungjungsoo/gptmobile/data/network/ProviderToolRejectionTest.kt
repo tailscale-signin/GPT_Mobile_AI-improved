@@ -1,31 +1,31 @@
-package dev.chungjungsoo.gptmobile.data.network
+package dev.melo.gptmobile.improved.data.network
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
-import dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MessageRole
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.TextContent
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.AnthropicTool
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.InputMessage
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Content
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Part
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Role as GoogleRole
-import dev.chungjungsoo.gptmobile.data.dto.google.request.FunctionDeclaration
-import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerateContentRequest
-import dev.chungjungsoo.gptmobile.data.dto.google.request.GoogleTool
-import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role
-import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent as OpenAITextContent
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatFunctionTool
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
+import dev.melo.gptmobile.improved.data.agent.ToolDefinitionsRejectedException
+import dev.melo.gptmobile.improved.data.dto.anthropic.common.MessageRole
+import dev.melo.gptmobile.improved.data.dto.anthropic.common.TextContent
+import dev.melo.gptmobile.improved.data.dto.anthropic.request.AnthropicTool
+import dev.melo.gptmobile.improved.data.dto.anthropic.request.InputMessage
+import dev.melo.gptmobile.improved.data.dto.anthropic.request.MessageRequest
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.ErrorResponseChunk
+import dev.melo.gptmobile.improved.data.dto.google.common.Content
+import dev.melo.gptmobile.improved.data.dto.google.common.Part
+import dev.melo.gptmobile.improved.data.dto.google.common.Role as GoogleRole
+import dev.melo.gptmobile.improved.data.dto.google.request.FunctionDeclaration
+import dev.melo.gptmobile.improved.data.dto.google.request.GenerateContentRequest
+import dev.melo.gptmobile.improved.data.dto.google.request.GoogleTool
+import dev.melo.gptmobile.improved.data.dto.groq.request.GroqChatCompletionRequest
+import dev.melo.gptmobile.improved.data.dto.openai.common.Role
+import dev.melo.gptmobile.improved.data.dto.openai.common.TextContent as OpenAITextContent
+import dev.melo.gptmobile.improved.data.dto.openai.request.ChatCompletionRequest
+import dev.melo.gptmobile.improved.data.dto.openai.request.ChatFunctionTool
+import dev.melo.gptmobile.improved.data.dto.openai.request.ChatMessage
+import dev.melo.gptmobile.improved.data.dto.openai.request.ResponseFunctionTool
+import dev.melo.gptmobile.improved.data.dto.openai.request.ResponseInputContent
+import dev.melo.gptmobile.improved.data.dto.openai.request.ResponseInputMessage
+import dev.melo.gptmobile.improved.data.dto.openai.request.ResponsesRequest
+import dev.melo.gptmobile.improved.data.dto.openai.response.ResponseErrorEvent
 import io.ktor.client.engine.cio.CIO
 import java.net.InetSocketAddress
 import kotlinx.coroutines.flow.single

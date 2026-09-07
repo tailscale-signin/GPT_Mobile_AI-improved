@@ -1,7 +1,7 @@
-package dev.chungjungsoo.gptmobile.data.localmodel
+package dev.melo.gptmobile.improved.data.localmodel
 
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
-import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.catalog.SocVariant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

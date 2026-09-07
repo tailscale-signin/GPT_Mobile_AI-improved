@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.catalog
+package dev.melo.gptmobile.improved.data.catalog
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

@@ -1,9 +1,9 @@
-package dev.chungjungsoo.gptmobile.data.agent.tool
+package dev.melo.gptmobile.improved.data.agent.tool
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.melo.gptmobile.improved.data.agent.ToolResultContent
+import dev.melo.gptmobile.improved.data.network.NetworkClient
 import io.ktor.client.engine.cio.CIO
 import java.net.InetSocketAddress
 import java.time.Clock

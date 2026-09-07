@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.network
+package dev.melo.gptmobile.improved.data.network
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

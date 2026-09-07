@@ -1,11 +1,11 @@
-package dev.chungjungsoo.gptmobile.data.agent.provider
+package dev.melo.gptmobile.improved.data.agent.provider
 
-import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.melo.gptmobile.improved.data.agent.ProviderEvent
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.MessageResponseChunk
+import dev.melo.gptmobile.improved.data.dto.google.response.GenerateContentResponse
+import dev.melo.gptmobile.improved.data.dto.openai.response.ChatCompletionChunk
+import dev.melo.gptmobile.improved.data.dto.openai.response.ResponsesStreamEvent
+import dev.melo.gptmobile.improved.data.network.NetworkClient
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals

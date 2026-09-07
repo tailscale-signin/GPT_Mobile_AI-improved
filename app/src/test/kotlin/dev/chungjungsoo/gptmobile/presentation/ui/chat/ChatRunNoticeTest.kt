@@ -1,8 +1,8 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.chat
+package dev.melo.gptmobile.improved.presentation.ui.chat
 
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
+import dev.melo.gptmobile.improved.data.database.entity.AgentRunStatus
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItem
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItemType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

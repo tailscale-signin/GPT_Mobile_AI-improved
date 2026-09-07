@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.agent.tool
+package dev.melo.gptmobile.improved.data.agent.tool
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -23,8 +23,8 @@ import org.junit.Test
 class McpOAuthClientTest {
     @Test
     fun `callback filter accepts only MCP OAuth redirect URIs`() {
-        assertTrue(isMcpOAuthCallbackUri("dev.chungjungsoo.gptmobile://oauth/mcp/connection-1?code=code&state=state"))
-        assertFalse(isMcpOAuthCallbackUri("dev.chungjungsoo.gptmobile://oauth/other/connection-1"))
+        assertTrue(isMcpOAuthCallbackUri("dev.melo.gptmobile.improved://oauth/mcp/connection-1?code=code&state=state"))
+        assertFalse(isMcpOAuthCallbackUri("dev.melo.gptmobile.improved://oauth/other/connection-1"))
         assertFalse(isMcpOAuthCallbackUri("https://example.com/mcp/connection-1"))
         assertFalse(isMcpOAuthCallbackUri(null))
     }
@@ -40,7 +40,7 @@ class McpOAuthClientTest {
             val discovery = client.discover(server.mcpUrl, allowCleartext = true)
             val started = client.beginAuthorization(
                 discovery = discovery,
-                redirectUri = "dev.chungjungsoo.gptmobile://oauth/mcp",
+                redirectUri = "dev.melo.gptmobile.improved://oauth/mcp",
                 suppliedClientId = null
             )
             val authorization = URI(started.authorizationUri).rawQuery.formValues()
@@ -54,7 +54,7 @@ class McpOAuthClientTest {
 
             val tokens = client.completeAuthorization(
                 started.pending,
-                "dev.chungjungsoo.gptmobile://oauth/mcp?code=auth-code&state=${started.pending.state}"
+                "dev.melo.gptmobile.improved://oauth/mcp?code=auth-code&state=${started.pending.state}"
             )
             val refreshed = client.refresh(tokens)
 
@@ -76,14 +76,14 @@ class McpOAuthClientTest {
             val client = McpOAuthClient(httpClient)
             val started = client.beginAuthorization(
                 client.discover(server.mcpUrl, allowCleartext = true),
-                "dev.chungjungsoo.gptmobile://oauth/mcp",
+                "dev.melo.gptmobile.improved://oauth/mcp",
                 "manual-client"
             )
 
             val error = runCatching {
                 client.completeAuthorization(
                     started.pending,
-                    "dev.chungjungsoo.gptmobile://oauth/mcp?code=auth-code&state=wrong"
+                    "dev.melo.gptmobile.improved://oauth/mcp?code=auth-code&state=wrong"
                 )
             }.exceptionOrNull()
 
@@ -100,14 +100,14 @@ class McpOAuthClientTest {
             val client = McpOAuthClient(httpClient)
             val started = client.beginAuthorization(
                 client.discover(server.mcpUrl, allowCleartext = true),
-                "dev.chungjungsoo.gptmobile://oauth/mcp/connection-1",
+                "dev.melo.gptmobile.improved://oauth/mcp/connection-1",
                 "manual-client"
             )
 
             val error = runCatching {
                 client.completeAuthorization(
                     started.pending,
-                    "dev.chungjungsoo.gptmobile://oauth/mcp/connection-2?code=auth-code&state=${started.pending.state}"
+                    "dev.melo.gptmobile.improved://oauth/mcp/connection-2?code=auth-code&state=${started.pending.state}"
                 )
             }.exceptionOrNull()
 

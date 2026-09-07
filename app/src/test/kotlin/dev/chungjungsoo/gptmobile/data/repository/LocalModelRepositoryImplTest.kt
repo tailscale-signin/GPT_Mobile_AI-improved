@@ -1,10 +1,10 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
 import android.content.ContextWrapper
 import androidx.work.WorkInfo
-import dev.chungjungsoo.gptmobile.data.database.dao.LocalModelDao
-import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import dev.melo.gptmobile.improved.data.database.dao.LocalModelDao
+import dev.melo.gptmobile.improved.data.database.entity.LocalModel
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
 import java.io.File
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher

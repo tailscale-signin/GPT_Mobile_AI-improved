@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.util
+package dev.melo.gptmobile.improved.util
 
-import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
+import dev.melo.gptmobile.improved.presentation.ui.thinking.ThinkingParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

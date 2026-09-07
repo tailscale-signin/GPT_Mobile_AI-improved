@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.chat
+package dev.melo.gptmobile.improved.presentation.ui.chat
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

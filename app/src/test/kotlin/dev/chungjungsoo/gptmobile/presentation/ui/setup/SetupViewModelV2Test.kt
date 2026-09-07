@@ -1,13 +1,13 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.setup
+package dev.melo.gptmobile.improved.presentation.ui.setup
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
-import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelItemStatus
-import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsDialog
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
+import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.repository.FakeLocalModelRepository
+import dev.melo.gptmobile.improved.presentation.ui.setting.LocalModelItemStatus
+import dev.melo.gptmobile.improved.presentation.ui.setting.LocalModelsDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -223,6 +223,6 @@ class SetupViewModelV2Test {
         .status
 }
 
-private fun huggingFaceTokenStoreWithToken(token: String) = dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore(
-    MapSecretVault(mapOf(dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore.SECRET_REF to token.encodeToByteArray()))
+private fun huggingFaceTokenStoreWithToken(token: String) = dev.melo.gptmobile.improved.data.huggingface.HuggingFaceTokenStore(
+    MapSecretVault(mapOf(dev.melo.gptmobile.improved.data.huggingface.HuggingFaceTokenStore.SECRET_REF to token.encodeToByteArray()))
 )

@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.data.agent.tool
+package dev.melo.gptmobile.improved.data.agent.tool
 
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.melo.gptmobile.improved.data.agent.ToolResultContent
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId

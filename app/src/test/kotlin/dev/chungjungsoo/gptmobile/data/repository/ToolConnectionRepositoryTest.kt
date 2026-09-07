@@ -1,13 +1,13 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
-import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
-import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
-import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
-import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.melo.gptmobile.improved.data.database.dao.AgentToolBindingWithConnection
+import dev.melo.gptmobile.improved.data.database.dao.ToolConnectionDao
+import dev.melo.gptmobile.improved.data.database.entity.AgentToolBinding
+import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionAuthType
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
+import dev.melo.gptmobile.improved.data.security.SecretVault
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

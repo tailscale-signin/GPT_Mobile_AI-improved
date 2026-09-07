@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.localruntime
+package dev.melo.gptmobile.improved.data.localruntime
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

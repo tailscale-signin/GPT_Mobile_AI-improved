@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
-import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.melo.gptmobile.improved.data.dto.ApiState
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

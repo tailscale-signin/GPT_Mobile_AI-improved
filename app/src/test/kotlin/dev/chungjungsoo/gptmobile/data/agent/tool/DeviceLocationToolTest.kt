@@ -1,7 +1,7 @@
-package dev.chungjungsoo.gptmobile.data.agent.tool
+package dev.melo.gptmobile.improved.data.agent.tool
 
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
-import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
+import dev.melo.gptmobile.improved.data.agent.ToolResultContent
+import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk

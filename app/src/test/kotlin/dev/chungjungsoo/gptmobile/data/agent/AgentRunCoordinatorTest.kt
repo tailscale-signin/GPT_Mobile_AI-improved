@@ -1,8 +1,8 @@
-package dev.chungjungsoo.gptmobile.data.agent
+package dev.melo.gptmobile.improved.data.agent
 
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItem
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItemType
+import dev.melo.gptmobile.improved.data.database.entity.MessageV2
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation

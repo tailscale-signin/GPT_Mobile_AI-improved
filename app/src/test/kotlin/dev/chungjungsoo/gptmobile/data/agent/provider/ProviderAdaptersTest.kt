@@ -1,55 +1,55 @@
-package dev.chungjungsoo.gptmobile.data.agent.provider
+package dev.melo.gptmobile.improved.data.agent.provider
 
 import android.content.ContextWrapper
-import dev.chungjungsoo.gptmobile.data.ModelConstants
-import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
-import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
-import dev.chungjungsoo.gptmobile.data.agent.AgentTool
-import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
-import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
-import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
-import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
-import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentBlock
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentBlockType
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentDeltaResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentStartResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentStopResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Content
-import dev.chungjungsoo.gptmobile.data.dto.google.common.FunctionCall
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Part
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Role as GoogleRole
-import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerateContentRequest
-import dev.chungjungsoo.gptmobile.data.dto.google.response.Candidate
-import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
-import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChatCompletionChunk
-import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChoice
-import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqDelta
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.Choice
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseObject
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
-import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
-import dev.chungjungsoo.gptmobile.data.network.GroqAPI
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
-import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
-import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
-import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
+import dev.melo.gptmobile.improved.data.ModelConstants
+import dev.melo.gptmobile.improved.data.agent.AgentRunEvent
+import dev.melo.gptmobile.improved.data.agent.AgentRunner
+import dev.melo.gptmobile.improved.data.agent.AgentTool
+import dev.melo.gptmobile.improved.data.agent.AgentToolDefinition
+import dev.melo.gptmobile.improved.data.agent.AgentToolExchange
+import dev.melo.gptmobile.improved.data.agent.AgentToolResult
+import dev.melo.gptmobile.improved.data.agent.ProviderEvent
+import dev.melo.gptmobile.improved.data.agent.ToolResultContent
+import dev.melo.gptmobile.improved.data.context.ConversationTurn
+import dev.melo.gptmobile.improved.data.database.entity.MessageV2
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.ContentBlock
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.ContentBlockType
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.ContentDeltaResponseChunk
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.ContentStartResponseChunk
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.ContentStopResponseChunk
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.MessageResponseChunk
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.MessageStopResponseChunk
+import dev.melo.gptmobile.improved.data.dto.google.common.Content
+import dev.melo.gptmobile.improved.data.dto.google.common.FunctionCall
+import dev.melo.gptmobile.improved.data.dto.google.common.Part
+import dev.melo.gptmobile.improved.data.dto.google.common.Role as GoogleRole
+import dev.melo.gptmobile.improved.data.dto.google.request.GenerateContentRequest
+import dev.melo.gptmobile.improved.data.dto.google.response.Candidate
+import dev.melo.gptmobile.improved.data.dto.google.response.GenerateContentResponse
+import dev.melo.gptmobile.improved.data.dto.groq.request.GroqChatCompletionRequest
+import dev.melo.gptmobile.improved.data.dto.groq.response.GroqChatCompletionChunk
+import dev.melo.gptmobile.improved.data.dto.groq.response.GroqChoice
+import dev.melo.gptmobile.improved.data.dto.groq.response.GroqDelta
+import dev.melo.gptmobile.improved.data.dto.openai.request.ChatCompletionRequest
+import dev.melo.gptmobile.improved.data.dto.openai.request.ResponsesRequest
+import dev.melo.gptmobile.improved.data.dto.openai.response.ChatCompletionChunk
+import dev.melo.gptmobile.improved.data.dto.openai.response.ChatFunctionDelta
+import dev.melo.gptmobile.improved.data.dto.openai.response.ChatToolCallDelta
+import dev.melo.gptmobile.improved.data.dto.openai.response.Choice
+import dev.melo.gptmobile.improved.data.dto.openai.response.Delta
+import dev.melo.gptmobile.improved.data.dto.openai.response.OutputTextDeltaEvent
+import dev.melo.gptmobile.improved.data.dto.openai.response.ResponseCompletedEvent
+import dev.melo.gptmobile.improved.data.dto.openai.response.ResponseObject
+import dev.melo.gptmobile.improved.data.dto.openai.response.ResponsesStreamEvent
+import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.network.AnthropicAPI
+import dev.melo.gptmobile.improved.data.network.GoogleAPI
+import dev.melo.gptmobile.improved.data.network.GroqAPI
+import dev.melo.gptmobile.improved.data.network.NetworkClient
+import dev.melo.gptmobile.improved.data.network.OpenAIAPI
+import dev.melo.gptmobile.improved.data.network.ProviderRequestConfig
+import dev.melo.gptmobile.improved.data.network.UploadedProviderFile
 import java.util.ArrayDeque
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -277,8 +277,8 @@ class ProviderAdaptersTest {
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
         val continuation = api.requests.last().messages.takeLast(2)
-        val toolUse = continuation[0].content.single() as dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolUseContent
-        val toolResult = continuation[1].content.single() as dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolResultContent
+        val toolUse = continuation[0].content.single() as dev.melo.gptmobile.improved.data.dto.anthropic.common.ToolUseContent
+        val toolResult = continuation[1].content.single() as dev.melo.gptmobile.improved.data.dto.anthropic.common.ToolResultContent
         assertEquals("call_exact", toolUse.id)
         assertEquals("call_exact", toolResult.toolUseId)
     }
@@ -444,7 +444,7 @@ class ProviderAdaptersTest {
         val continuation = api.requests.last().messages.takeLast(2)
         assertEquals(
             "call_exact",
-            (continuation[1].content.single() as dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolResultContent).toolUseId
+            (continuation[1].content.single() as dev.melo.gptmobile.improved.data.dto.anthropic.common.ToolResultContent).toolUseId
         )
     }
 
@@ -831,11 +831,11 @@ class ProviderAdaptersTest {
     private class FakeAnthropicAPI(
         private val rounds: ArrayDeque<Flow<MessageResponseChunk>>
     ) : AnthropicAPI {
-        val requests = mutableListOf<dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest>()
+        val requests = mutableListOf<dev.melo.gptmobile.improved.data.dto.anthropic.request.MessageRequest>()
         val configs = mutableListOf<ProviderRequestConfig>()
 
         override fun streamChatMessage(
-            messageRequest: dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest,
+            messageRequest: dev.melo.gptmobile.improved.data.dto.anthropic.request.MessageRequest,
             timeoutSeconds: Int,
             config: ProviderRequestConfig
         ): Flow<MessageResponseChunk> {

@@ -1,7 +1,7 @@
-package dev.chungjungsoo.gptmobile.data.network
+package dev.melo.gptmobile.improved.data.network
 
-import dev.chungjungsoo.gptmobile.data.dto.ProviderRequestConfig
-import dev.chungjungsoo.gptmobile.data.dto.buildEndpoint
+import dev.melo.gptmobile.improved.data.dto.ProviderRequestConfig
+import dev.melo.gptmobile.improved.data.dto.buildEndpoint
 import io.ktor.client.plugins.logging.LogLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,14 +37,14 @@ class NetworkClientTest {
     @Test
     fun `provider request config buildEndpoint trims trailing slashes and spaces`() {
         val configWithTrailingSlash = ProviderRequestConfig(
-            provider = dev.chungjungsoo.gptmobile.data.model.Provider.OPENAI,
+            provider = dev.melo.gptmobile.improved.data.model.Provider.OPENAI,
             apiUrl = "https://api.openai.com/v1/  "
         )
         assertEquals("https://api.openai.com/v1/chat/completions", configWithTrailingSlash.buildEndpoint("chat/completions"))
         assertEquals("https://api.openai.com/v1/chat/completions", configWithTrailingSlash.buildEndpoint("/chat/completions"))
 
         val configClean = ProviderRequestConfig(
-            provider = dev.chungjungsoo.gptmobile.data.model.Provider.GROQ,
+            provider = dev.melo.gptmobile.improved.data.model.Provider.GROQ,
             apiUrl = "https://api.groq.com/openai/v1"
         )
         assertEquals("https://api.groq.com/openai/v1/models", configClean.buildEndpoint("models"))

@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.agent
+package dev.melo.gptmobile.improved.data.agent
 
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred

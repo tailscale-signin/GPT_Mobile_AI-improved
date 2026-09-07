@@ -1,7 +1,7 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.chat
+package dev.melo.gptmobile.improved.presentation.ui.chat
 
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.melo.gptmobile.improved.data.database.entity.ToolEvent
+import dev.melo.gptmobile.improved.data.database.entity.ToolEventStatus
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

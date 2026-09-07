@@ -1,11 +1,11 @@
-package dev.chungjungsoo.gptmobile.data.dto
+package dev.melo.gptmobile.improved.data.dto
 
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ImageSource
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Content
-import dev.chungjungsoo.gptmobile.data.dto.google.common.Part
-import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerateContentRequest
-import dev.chungjungsoo.gptmobile.data.dto.google.request.SafetySetting
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseContentPart
+import dev.melo.gptmobile.improved.data.dto.anthropic.common.ImageSource
+import dev.melo.gptmobile.improved.data.dto.google.common.Content
+import dev.melo.gptmobile.improved.data.dto.google.common.Part
+import dev.melo.gptmobile.improved.data.dto.google.request.GenerateContentRequest
+import dev.melo.gptmobile.improved.data.dto.google.request.SafetySetting
+import dev.melo.gptmobile.improved.data.dto.openai.request.ResponseContentPart
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

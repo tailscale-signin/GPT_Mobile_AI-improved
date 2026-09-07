@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.util
+package dev.melo.gptmobile.improved.util
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest

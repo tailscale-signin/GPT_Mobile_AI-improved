@@ -1,9 +1,9 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
 import androidx.work.WorkInfo
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
-import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.database.entity.LocalModel
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow

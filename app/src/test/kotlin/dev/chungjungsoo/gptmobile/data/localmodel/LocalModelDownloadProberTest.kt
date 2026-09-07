@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.localmodel
+package dev.melo.gptmobile.improved.data.localmodel
 
 import com.sun.net.httpserver.HttpServer
 import java.net.InetAddress

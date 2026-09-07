@@ -1,8 +1,8 @@
-package dev.chungjungsoo.gptmobile.data.localmodel
+package dev.melo.gptmobile.improved.data.localmodel
 
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
-import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
-import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.huggingface.HuggingFaceTokenStore
+import dev.melo.gptmobile.improved.data.security.SecretVault
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers

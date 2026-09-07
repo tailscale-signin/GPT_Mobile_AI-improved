@@ -1,15 +1,15 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.setting
+package dev.melo.gptmobile.improved.presentation.ui.setting
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
-import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
-import dev.chungjungsoo.gptmobile.presentation.ui.setup.FakeLocalDownloadGuards
-import dev.chungjungsoo.gptmobile.presentation.ui.setup.addPlatformViewModel
-import dev.chungjungsoo.gptmobile.presentation.ui.setup.wizardCatalogEntry
-import dev.chungjungsoo.gptmobile.presentation.ui.setup.wizardGatedCoordinator
-import dev.chungjungsoo.gptmobile.presentation.ui.setup.wizardStoredModel
+import dev.melo.gptmobile.improved.data.localmodel.LocalModelStatus
+import dev.melo.gptmobile.improved.data.repository.FakeLocalModelRepository
+import dev.melo.gptmobile.improved.presentation.ui.setup.FakeLocalDownloadGuards
+import dev.melo.gptmobile.improved.presentation.ui.setup.addPlatformViewModel
+import dev.melo.gptmobile.improved.presentation.ui.setup.wizardCatalogEntry
+import dev.melo.gptmobile.improved.presentation.ui.setup.wizardGatedCoordinator
+import dev.melo.gptmobile.improved.presentation.ui.setup.wizardStoredModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -170,10 +170,10 @@ class AddPlatformViewModelTest {
     @Test
     fun `defaultsFor still reads sampling defaults from the selected catalog entry`() = runTest {
         val viewModel = addPlatformViewModel(
-            catalog = dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository(
+            catalog = dev.melo.gptmobile.improved.data.repository.FakeModelCatalogRepository(
                 listOf(
                     wizardCatalogEntry("pending-model").copy(
-                        defaultConfig = dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig(
+                        defaultConfig = dev.melo.gptmobile.improved.data.catalog.CatalogDefaultConfig(
                             topK = 20,
                             topP = 0.8f,
                             temperature = 0.7f,

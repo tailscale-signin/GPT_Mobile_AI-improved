@@ -1,8 +1,8 @@
-package dev.chungjungsoo.gptmobile.data.agent.tool
+package dev.melo.gptmobile.improved.data.agent.tool
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.melo.gptmobile.improved.data.agent.ToolResultContent
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import kotlinx.coroutines.runBlocking
@@ -272,7 +272,7 @@ class ReadUrlToolTest {
         }
     }
 
-    private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.text(): String = (content as ToolResultContent.Text).text
+    private fun dev.melo.gptmobile.improved.data.agent.AgentToolResult.text(): String = (content as ToolResultContent.Text).text
 
     private fun assertContains(value: String, expected: String) {
         assertTrue("Expected <$value> to contain <$expected>", value.contains(expected))

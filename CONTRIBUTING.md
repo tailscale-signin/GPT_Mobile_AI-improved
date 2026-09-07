@@ -58,7 +58,7 @@ The codebase follows Clean Architecture with MVVM:
 ### Conventions
 1. **Formatting**: Follow standard Kotlin coding conventions.
 2. **Commit Messages**: Write concise, descriptive commit messages in conventional commit format (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`).
-3. **Tests**: Add or update unit tests in `app/src/test/java/dev/chungjungsoo/gptmobile/` when adding new business logic or fixing bugs.
+3. **Tests**: Add or update unit tests in `app/src/test/java/dev/melo/gptmobile/` when adding new business logic or fixing bugs.
 
 ---
 

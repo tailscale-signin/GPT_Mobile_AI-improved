@@ -1,10 +1,10 @@
-package dev.chungjungsoo.gptmobile.presentation.ui.chat
+package dev.melo.gptmobile.improved.presentation.ui.chat
 
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
-import dev.chungjungsoo.gptmobile.data.database.entity.LEGACY_ORDER_NOTICE
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItem
+import dev.melo.gptmobile.improved.data.database.entity.AssistantTimelineItemType
+import dev.melo.gptmobile.improved.data.database.entity.LEGACY_ORDER_NOTICE
+import dev.melo.gptmobile.improved.data.database.entity.MessageV2
+import dev.melo.gptmobile.improved.data.database.entity.ToolEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

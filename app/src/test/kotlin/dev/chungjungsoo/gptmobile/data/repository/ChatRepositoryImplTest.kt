@@ -1,58 +1,58 @@
-package dev.chungjungsoo.gptmobile.data.repository
+package dev.melo.gptmobile.improved.data.repository
 
 import android.content.ContextWrapper
-import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
-import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogCapabilities
-import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
-import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
-import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
-import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
-import dev.chungjungsoo.gptmobile.data.dto.ApiState
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
-import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerateContentRequest
-import dev.chungjungsoo.gptmobile.data.dto.google.response.Candidate
-import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
-import dev.chungjungsoo.gptmobile.data.dto.google.response.PromptFeedback
-import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChatCompletionChunk
-import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChoice
-import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqDelta
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.Choice
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
-import dev.chungjungsoo.gptmobile.data.localruntime.FakeLocalRuntime
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
-import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
-import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
-import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
-import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
-import dev.chungjungsoo.gptmobile.data.network.GroqAPI
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
-import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
-import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
-import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
-import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.melo.gptmobile.improved.data.agent.provider.LiteRtLmAdapter
+import dev.melo.gptmobile.improved.data.agent.tool.AgentToolResolver
+import dev.melo.gptmobile.improved.data.agent.tool.McpClientManager
+import dev.melo.gptmobile.improved.data.agent.tool.McpOAuthClient
+import dev.melo.gptmobile.improved.data.agent.tool.McpOAuthCoordinator
+import dev.melo.gptmobile.improved.data.catalog.CatalogCapabilities
+import dev.melo.gptmobile.improved.data.catalog.CatalogEntry
+import dev.melo.gptmobile.improved.data.context.ContextBuilder
+import dev.melo.gptmobile.improved.data.database.dao.AgentToolBindingWithConnection
+import dev.melo.gptmobile.improved.data.database.dao.ToolConnectionDao
+import dev.melo.gptmobile.improved.data.database.entity.AgentToolBinding
+import dev.melo.gptmobile.improved.data.database.entity.MessageV2
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionAuthType
+import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
+import dev.melo.gptmobile.improved.data.database.entity.ToolEvent
+import dev.melo.gptmobile.improved.data.database.entity.ToolEventStatus
+import dev.melo.gptmobile.improved.data.dto.ApiState
+import dev.melo.gptmobile.improved.data.dto.anthropic.request.MessageRequest
+import dev.melo.gptmobile.improved.data.dto.anthropic.response.MessageResponseChunk
+import dev.melo.gptmobile.improved.data.dto.google.request.GenerateContentRequest
+import dev.melo.gptmobile.improved.data.dto.google.response.Candidate
+import dev.melo.gptmobile.improved.data.dto.google.response.GenerateContentResponse
+import dev.melo.gptmobile.improved.data.dto.google.response.PromptFeedback
+import dev.melo.gptmobile.improved.data.dto.groq.request.GroqChatCompletionRequest
+import dev.melo.gptmobile.improved.data.dto.groq.response.GroqChatCompletionChunk
+import dev.melo.gptmobile.improved.data.dto.groq.response.GroqChoice
+import dev.melo.gptmobile.improved.data.dto.groq.response.GroqDelta
+import dev.melo.gptmobile.improved.data.dto.openai.request.ChatCompletionRequest
+import dev.melo.gptmobile.improved.data.dto.openai.request.ResponsesRequest
+import dev.melo.gptmobile.improved.data.dto.openai.response.ChatCompletionChunk
+import dev.melo.gptmobile.improved.data.dto.openai.response.ChatFunctionDelta
+import dev.melo.gptmobile.improved.data.dto.openai.response.ChatToolCallDelta
+import dev.melo.gptmobile.improved.data.dto.openai.response.Choice
+import dev.melo.gptmobile.improved.data.dto.openai.response.Delta
+import dev.melo.gptmobile.improved.data.dto.openai.response.ResponsesStreamEvent
+import dev.melo.gptmobile.improved.data.localruntime.FakeLocalRuntime
+import dev.melo.gptmobile.improved.data.localruntime.LocalRuntime
+import dev.melo.gptmobile.improved.data.localruntime.LocalRuntimeEvent
+import dev.melo.gptmobile.improved.data.localruntime.ScriptedToolInvocation
+import dev.melo.gptmobile.improved.data.model.ChatAttachment
+import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.model.GeminiSafetySettings
+import dev.melo.gptmobile.improved.data.network.AnthropicAPI
+import dev.melo.gptmobile.improved.data.network.GoogleAPI
+import dev.melo.gptmobile.improved.data.network.GroqAPI
+import dev.melo.gptmobile.improved.data.network.NetworkClient
+import dev.melo.gptmobile.improved.data.network.OpenAIAPI
+import dev.melo.gptmobile.improved.data.network.ProviderRequestConfig
+import dev.melo.gptmobile.improved.data.network.UploadedProviderFile
+import dev.melo.gptmobile.improved.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import java.io.File
 import java.lang.reflect.InvocationHandler
@@ -828,7 +828,7 @@ private class RecordingToolEventDao {
     val events = mutableListOf<ToolEvent>()
 
     @Suppress("UNCHECKED_CAST")
-    fun asDao(): dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao {
+    fun asDao(): dev.melo.gptmobile.improved.data.database.dao.AgentPersistenceDao {
         val handler = InvocationHandler { _, method, args ->
             when (method.name) {
                 "insertToolEvent" -> {
@@ -868,9 +868,9 @@ private class RecordingToolEventDao {
             }
         }
         return Proxy.newProxyInstance(
-            dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao::class.java.classLoader,
-            arrayOf(dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao::class.java),
+            dev.melo.gptmobile.improved.data.database.dao.AgentPersistenceDao::class.java.classLoader,
+            arrayOf(dev.melo.gptmobile.improved.data.database.dao.AgentPersistenceDao::class.java),
             handler
-        ) as dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
+        ) as dev.melo.gptmobile.improved.data.database.dao.AgentPersistenceDao
     }
 }

@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.presentation.service
+package dev.melo.gptmobile.improved.presentation.service
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

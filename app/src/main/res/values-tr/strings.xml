@@ -131,8 +131,8 @@
     <string name="f_droid_icon">F-Droid Simgesi</string>
     <string name="play_store_icon">Play Store Simgesi</string>
     <string name="github_link" translatable="false">https://github.com/Taewan-P/gpt_mobile</string>
-    <string name="f_droid_link" translatable="false">https://f-droid.org/packages/dev.chungjungsoo.gptmobile/</string>
-    <string name="play_store_link" translatable="false">https://play.google.com/store/apps/details?id=dev.chungjungsoo.gptmobile</string>
+    <string name="f_droid_link" translatable="false">https://f-droid.org/packages/dev.melo.gptmobile.improved/</string>
+    <string name="play_store_link" translatable="false">https://play.google.com/store/apps/details?id=dev.melo.gptmobile.improved</string>
     <string name="bug_report_link" translatable="false">https://github.com/Taewan-P/gpt_mobile/issues/new/choose</string>
     <string name="feedback_link" translatable="false">https://github.com/Taewan-P/gpt_mobile/discussions/new/choose</string>
     <string name="api_url">API URL’si</string>

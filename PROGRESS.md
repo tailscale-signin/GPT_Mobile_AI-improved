@@ -1,6 +1,6 @@
 # Project Build & Progress Dashboard
 
-Welcome to the progress and build tracking dashboard for **GPT Mobile Improved** (`dev.chungjungsoo.gptmobile.improved`).
+Welcome to the progress and build tracking dashboard for **GPT Mobile Improved** (`dev.melo.gptmobile.improved`).
 
 ---
 
@@ -10,7 +10,7 @@ Welcome to the progress and build tracking dashboard for **GPT Mobile Improved**
 |------|---------|
 | **Target Version** | `v0.8.2` (Version Code `25`) |
 | **Current Stable Release** | [v0.8.2](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.2) |
-| **Package ID** | `dev.chungjungsoo.gptmobile.improved` (Side-by-side installable) |
+| **Package ID** | `dev.melo.gptmobile.improved` (Side-by-side installable) |
 | **Build Status** | [![Release Build](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/workflows/release-build.yml/badge.svg?branch=main)](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/workflows/release-build.yml) |
 | **Total Downloads** | [![Total Downloads](https://img.shields.io/github/downloads/tailscale-signin/GPT_Mobile_AI-improved/total?label=Downloads&logo=github)](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/) |
 
@@ -43,7 +43,7 @@ Welcome to the progress and build tracking dashboard for **GPT Mobile Improved**
   - Built-in `DeviceLocationTool` and `DeviceLocationProvider` for contextual device-aware queries with runtime permission handling.
 
 ### 3. Side-by-Side Coexistence & Deterministic Keystore
-- Isolated Application ID (`dev.chungjungsoo.gptmobile.improved`) allows direct side-by-side usage with upstream GPT Mobile without uninstalls.
+- Isolated Application ID (`dev.melo.gptmobile.improved`) allows direct side-by-side usage with upstream GPT Mobile without uninstalls.
 - Persistent signing configuration ensures all subsequent updates install directly in-place without keystore mismatch errors.
 
 ### 4. Autonomous Agent Architecture

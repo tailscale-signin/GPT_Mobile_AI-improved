@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.localmodel
+package dev.melo.gptmobile.improved.data.localmodel
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

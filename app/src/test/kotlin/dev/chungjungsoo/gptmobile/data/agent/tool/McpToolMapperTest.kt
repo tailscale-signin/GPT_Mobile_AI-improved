@@ -1,6 +1,6 @@
-package dev.chungjungsoo.gptmobile.data.agent.tool
+package dev.melo.gptmobile.improved.data.agent.tool
 
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.melo.gptmobile.improved.data.agent.ToolResultContent
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.ImageContent
 import io.modelcontextprotocol.kotlin.sdk.types.ResourceLink

@@ -1,4 +1,4 @@
-package dev.chungjungsoo.gptmobile.data.network
+package dev.melo.gptmobile.improved.data.network
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

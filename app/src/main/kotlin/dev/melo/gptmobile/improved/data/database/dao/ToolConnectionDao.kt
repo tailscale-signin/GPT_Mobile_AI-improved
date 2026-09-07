@@ -7,7 +7,6 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
 import dev.melo.gptmobile.improved.data.database.entity.AgentToolBinding
-import dev.melo.gptmobile.improved.data.database.entity.AgentToolBindingWithConnection
 import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
@@ -105,21 +104,6 @@ abstract class ToolConnectionDao {
     ) {
         deleteConnectionBindingsForType(profileUid, ToolConnectionType.MCP)
         bindings.forEach { insertBinding(it) }
-    }
-
-    @Transaction
-    open suspend fun listBindingsWithConnections(profileUid: String): List<AgentToolBindingWithConnection> {
-        val bindings = listBindingsByProfile(profileUid)
-        val connections = bindings
-            .mapNotNull { it.connectionUid }
-            .distinct()
-            .takeIf { it.isNotEmpty() }
-            ?.let { getConnectionsByUids(it) }
-            ?.associateBy { it.connectionUid }
-            .orEmpty()
-        return bindings.map { binding ->
-            AgentToolBindingWithConnection(binding, binding.connectionUid?.let(connections::get))
-        }
     }
 
     companion object {

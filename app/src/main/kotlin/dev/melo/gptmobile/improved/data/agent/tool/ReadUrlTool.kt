@@ -104,9 +104,11 @@ class ReadUrlTool(
 
     private suspend fun request(uri: URI): ReadUrlRequest {
         val pinnedAddresses = resolveSafe(uri.host)
-        val pinnedDns = Dns { hostname ->
-            if (!hostname.equals(uri.host, ignoreCase = true)) throw UnknownHostException(hostname)
-            pinnedAddresses
+        val pinnedDns = object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                if (!hostname.equals(uri.host, ignoreCase = true)) throw UnknownHostException(hostname)
+                return pinnedAddresses
+            }
         }
         val client = HttpClient(OkHttp) {
             followRedirects = false

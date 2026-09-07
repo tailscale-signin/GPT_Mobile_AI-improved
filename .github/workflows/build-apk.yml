@@ -112,28 +112,42 @@ jobs:
 
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body "Build failure reoccurred on run: $RUN_URL"$'\n\n```\n'"$ERROR_SNIPPET"$'\n```'
+            COMMENT_FILE=$(mktemp)
+            cat <<EOF > "$COMMENT_FILE"
+          Build failure reoccurred on run: $RUN_URL
+
+          \`\`\`text
+          $ERROR_SNIPPET
+          \`\`\`
+          EOF
+            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body-file "$COMMENT_FILE"
+            rm -f "$COMMENT_FILE"
           else
+            BODY_FILE=$(mktemp)
+            cat <<EOF > "$BODY_FILE"
+          ### 🚨 Automated CI Build Failure Report
+
+          **Workflow:** $WORKFLOW_NAME
+          **Branch / Ref:** \`$REF_NAME\`
+          **Commit:** \`$COMMIT_SHA\`
+          **Run Details:** [View Actions Run]($RUN_URL)
+
+          ---
+
+          ### Exact Build Error / Failure Log (For AI & Maintainers)
+          \`\`\`text
+          $ERROR_SNIPPET
+          \`\`\`
+
+          ---
+          *Generated automatically by CI workflow.*
+          EOF
             gh issue create \
               --repo "${{ github.repository }}" \
               --title "$ISSUE_TITLE" \
               --label "build-failure,bug" \
-              --body "### 🚨 Automated CI Build Failure Report
-
-**Workflow:** $WORKFLOW_NAME
-**Branch / Ref:** \`$REF_NAME\`
-**Commit:** \`$COMMIT_SHA\`
-**Run Details:** [View Actions Run]($RUN_URL)
-
----
-
-### Exact Build Error / Failure Log (For AI & Maintainers)
-\`\`\`text
-$ERROR_SNIPPET
-\`\`\`
-
----
-*Generated automatically by CI workflow.*"
+              --body-file "$BODY_FILE"
+            rm -f "$BODY_FILE"
           fi
 
       - name: Extract Release Tag

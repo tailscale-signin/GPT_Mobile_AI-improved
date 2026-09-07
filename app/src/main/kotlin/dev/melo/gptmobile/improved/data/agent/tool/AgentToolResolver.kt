@@ -4,7 +4,7 @@ import dev.melo.gptmobile.improved.data.agent.AgentTool
 import dev.melo.gptmobile.improved.data.agent.AgentToolDefinition
 import dev.melo.gptmobile.improved.data.agent.AgentToolResult
 import dev.melo.gptmobile.improved.data.agent.ToolResultContent
-import dev.melo.gptmobile.improved.data.database.dao.AgentToolBindingWithConnection
+import dev.melo.gptmobile.improved.data.database.entity.AgentToolBindingWithConnection
 import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionAuthType

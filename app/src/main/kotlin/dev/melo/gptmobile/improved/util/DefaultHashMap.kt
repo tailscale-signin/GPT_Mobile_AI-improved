@@ -1,6 +1,6 @@
 package dev.melo.gptmobile.improved.util
 
-class DefaultHashMap<K, V>(
+class DefaultHashMap<K, V : Any>(
     private val defaultValue: () -> V,
     private val map: HashMap<K, V> = HashMap()
 ) : Map<K, V> by map {

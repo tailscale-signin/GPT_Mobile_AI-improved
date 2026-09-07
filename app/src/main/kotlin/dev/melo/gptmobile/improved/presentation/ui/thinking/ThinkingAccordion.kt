@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -89,13 +92,11 @@ fun ThinkingAccordion(
                 }
 
                 Icon(
-                    painter = painterResource(
-                        id = if (isExpanded) {
-                            R.drawable.ic_chevron_up
-                        } else {
-                            R.drawable.ic_chevron_down
-                        }
-                    ),
+                    imageVector = if (isExpanded) {
+                        Icons.Filled.KeyboardArrowUp
+                    } else {
+                        Icons.Filled.KeyboardArrowDown
+                    },
                     contentDescription = if (isExpanded) "Collapse" else "Expand",
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant

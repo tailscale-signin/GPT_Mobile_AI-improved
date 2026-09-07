@@ -1,6 +1,5 @@
 package dev.melo.gptmobile.improved.data.database
 
-import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
@@ -13,7 +12,7 @@ import dev.melo.gptmobile.improved.data.database.entity.Message
 @Database(
     entities = [ChatRoom::class, Message::class],
     version = 2,
-    autoMigrations = [AutoMigration(from = 1, to = 2)]
+    exportSchema = false
 )
 @TypeConverters(APITypeConverter::class)
 abstract class ChatDatabase : RoomDatabase() {

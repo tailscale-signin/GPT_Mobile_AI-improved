@@ -67,7 +67,8 @@ open class GPTMobileApp :
     }
 
     override fun onCreate() {
-        SanitizedChatBackup.restoreIfPresent(this)
+        runCatching { SanitizedChatBackup.restoreIfPresent(this) }
+            .onFailure { error -> Log.e(TAG, "SanitizedChatBackup.restoreIfPresent failed", error) }
         super.onCreate()
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {

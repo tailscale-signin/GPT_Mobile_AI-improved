@@ -3,6 +3,7 @@ package dev.melo.gptmobile.improved.data.database.entity
 import androidx.room.TypeConverter
 import dev.melo.gptmobile.improved.data.model.ChatAttachment
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class ChatAttachmentListConverter {
@@ -20,7 +21,7 @@ class ChatAttachmentListConverter {
             return emptyList()
         }
         return try {
-            json.decodeFromString(trimmed)
+            json.decodeFromString<List<ChatAttachment>>(trimmed)
         } catch (_: SerializationException) {
             emptyList()
         }

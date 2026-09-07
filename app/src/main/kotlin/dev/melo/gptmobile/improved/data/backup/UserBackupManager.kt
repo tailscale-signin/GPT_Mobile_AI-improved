@@ -73,9 +73,9 @@ class UserBackupManager @Inject constructor(
 ) {
     suspend fun createBackup(outputStream: OutputStream): BackupResult {
         return try {
-            val platforms = platformDao.getAllPlatforms().first()
-            val chatRooms = chatRoomDao.getAllChatRooms().first()
-            val messages = messageDao.getAllMessages().first()
+            val platforms = platformDao.getAll().first()
+            val chatRooms = chatRoomDao.getAll().first()
+            val messages = messageDao.getAll().first()
             val localModels = localModelDao.getAll().first()
 
             val metadata = BackupMetadata(
@@ -175,9 +175,9 @@ class UserBackupManager @Inject constructor(
 
             val meta = metadata ?: return RestoreResult.Error("Missing metadata.json in backup")
 
-            platforms.forEach { platformDao.upsertPlatform(it) }
-            chatRooms.forEach { chatRoomDao.upsertChatRoom(it) }
-            messages.forEach { messageDao.upsertMessage(it) }
+            platforms.forEach { platformDao.upsert(it) }
+            chatRooms.forEach { chatRoomDao.upsert(it) }
+            messages.forEach { messageDao.upsert(it) }
             localModels.forEach { item ->
                 localModelDao.upsert(
                     LocalModel(

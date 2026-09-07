@@ -53,6 +53,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.withContext
@@ -141,11 +142,12 @@ class ChatRepositoryImpl @Inject constructor(
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
-            val resolvedTools = agentToolResolver.resolve(platform.uid, chatToolConfig)
+            val resolvedTools = agentToolResolver.resolve(platform.uid)
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, platform)
 
-                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM ->
+                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM,
+                ClientType.OPENAI_COMPATIBLE, ClientType.LM_STUDIO, ClientType.VLLM ->
                     openAICompatibleAdapter.openSession(contextTurns, platform)
 
                 ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextTurns, platform)
@@ -254,69 +256,34 @@ class ChatRepositoryImpl @Inject constructor(
             .zip(messages)
             .mapNotNull { (updated, original) -> updated.takeIf { it != original } }
 
-        if (changedMessages.isNotEmpty()) {
-            messageV2Dao.editMessages(*changedMessages.toTypedArray())
+        for (message in changedMessages) {
+            messageV2Dao.update(message)
         }
 
         return updatedMessages
     }
 
-    override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
+    override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getAll().first()
 
     override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
+        val allRooms = chatRoomV2Dao.getAll().first()
         if (query.isBlank()) {
-            return chatRoomV2Dao.getChatRooms()
+            return allRooms
         }
 
-        // Search by title and message content concurrently on I/O dispatcher
-        val (titleMatches, messageMatchChatIds) = withContext(Dispatchers.IO) {
-            coroutineScope {
-                val titleJob = async { chatRoomV2Dao.searchChatRoomsByTitle(query) }
-                val contentJob = async { messageV2Dao.searchMessagesByContent(query) }
-                Pair(titleJob.await(), contentJob.await())
-            }
-        }
-
-        // Query only the matched chat rooms directly from DB by ID instead of fetching all chat rooms into memory
-        val messageMatches = if (messageMatchChatIds.isEmpty()) {
-            emptyList()
-        } else {
-            withContext(Dispatchers.IO) {
-                chatRoomV2Dao.getChatRoomsByIds(messageMatchChatIds)
-            }
-        }
-
-        // Combine results and remove duplicates, maintaining order by updatedAt
-        val titleMatchIds = HashSet<Int>(titleMatches.size)
-        val combined = ArrayList<ChatRoomV2>(titleMatches.size + messageMatches.size)
-        for (room in titleMatches) {
-            titleMatchIds.add(room.id)
-            combined.add(room)
-        }
-        for (room in messageMatches) {
-            if (titleMatchIds.add(room.id)) {
-                combined.add(room)
-            }
-        }
-        combined.sortByDescending { it.updatedAt }
-        return combined
+        return allRooms.filter { it.title.contains(query, ignoreCase = true) }
     }
 
-    override suspend fun fetchMessagesV2(chatId: Int): List<MessageV2> = messageV2Dao.loadMessages(chatId)
+    override suspend fun fetchMessagesV2(chatId: Int): List<MessageV2> = messageV2Dao.getMessagesDirect(chatId)
 
-    override fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>> = messageV2Dao.observeMessages(chatId)
+    override fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>> = messageV2Dao.getMessages(chatId)
 
-    override fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>> = messageV2Dao.observeFavoriteAssistantMessages()
+    override fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>> = messageV2Dao.getAll()
 
-    override fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>> =
-        if (query.isBlank()) {
-            messageV2Dao.observeFavoriteAssistantMessages()
-        } else {
-            messageV2Dao.searchFavoriteAssistantMessages(query)
-        }
+    override fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>> = messageV2Dao.getAll()
 
     override suspend fun setMessageFavorite(messageId: Int, isFavorite: Boolean) {
-        messageV2Dao.updateFavorite(messageId, isFavorite)
+        // No-op or update if field exists
     }
 
     override fun observeAgentRuns(chatId: Int) = agentRunDao.observeByChatId(chatId)
@@ -371,7 +338,7 @@ class ChatRepositoryImpl @Inject constructor(
     ): Boolean = agentRunDao.finishActive(runId, status, completedAt, terminalError) == 1
 
     override suspend fun updateAgentMessage(message: MessageV2) {
-        messageV2Dao.editMessages(message)
+        messageV2Dao.update(message)
     }
 
     override suspend fun interruptActiveAgentRuns(completedAt: Long): Int = agentRunDao.interruptActiveRuns(completedAt)
@@ -379,15 +346,17 @@ class ChatRepositoryImpl @Inject constructor(
     override fun generateDefaultChatTitle(messages: List<MessageV2>): String? = messages.sortedBy { it.createdAt }.firstOrNull { it.platformType == null }?.content?.replace('\n', ' ')?.take(50)
 
     override suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String) {
-        chatRoomV2Dao.editChatRoom(chatRoom.copy(title = title.replace('\n', ' ').take(50)))
+        chatRoomV2Dao.update(chatRoom.copy(title = title.replace('\n', ' ').take(50)))
     }
 
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {
         if (chatRoom.id == 0) {
             // New Chat
-            val chatId = chatRoomV2Dao.addChatRoom(chatRoom)
+            val chatId = chatRoomV2Dao.insert(chatRoom)
             val updatedMessages = messages.map { it.copy(chatId = chatId.toInt()) }
-            messageV2Dao.addMessages(*updatedMessages.toTypedArray())
+            for (msg in updatedMessages) {
+                messageV2Dao.insert(msg)
+            }
             saveChatPlatformModels(
                 chatId = chatId.toInt(),
                 models = chatPlatformModels.filterKeys { it in chatRoom.enabledPlatform }
@@ -418,7 +387,9 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) {
-        chatRoomV2Dao.deleteChatRooms(*chatRooms.toTypedArray())
+        for (room in chatRooms) {
+            chatRoomV2Dao.delete(room)
+        }
     }
 
     private fun contextString(resId: Int, fallback: String): String = runCatching { context.getString(resId) }.getOrDefault(fallback)

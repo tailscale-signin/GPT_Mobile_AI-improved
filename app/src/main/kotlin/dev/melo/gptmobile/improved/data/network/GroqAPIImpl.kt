@@ -2,10 +2,12 @@ package dev.melo.gptmobile.improved.data.network
 
 import android.util.Log
 import dev.melo.gptmobile.improved.data.ModelConstants
+import dev.melo.gptmobile.improved.data.model.ApiType
 import dev.melo.gptmobile.improved.data.dto.groq.request.GroqChatCompletionRequest
 import dev.melo.gptmobile.improved.data.dto.groq.response.GroqChatCompletionChunk
 import dev.melo.gptmobile.improved.data.dto.groq.response.GroqErrorDetail
 import dev.melo.gptmobile.improved.util.applyPlatformStreamingTimeout
+import dev.melo.gptmobile.improved.util.readLine
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.accept
@@ -16,7 +18,6 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 class GroqAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
@@ -35,7 +37,7 @@ class GroqAPIImpl @Inject constructor(
         config: ProviderRequestConfig
     ): Flow<GroqChatCompletionChunk> = flow {
         try {
-            val resolvedApiUrl = config.apiUrl.ifBlank { ModelConstants.GROQ_API_URL }
+            val resolvedApiUrl = config.apiUrl.ifBlank { ModelConstants.getDefaultAPIUrl(ApiType.GROQ) }
             val endpoint = config.copy(apiUrl = resolvedApiUrl).buildEndpoint("chat/completions")
 
             networkClient().preparePost(endpoint) {

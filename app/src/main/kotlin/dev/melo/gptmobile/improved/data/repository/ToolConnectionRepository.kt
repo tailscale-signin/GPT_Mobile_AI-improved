@@ -1,8 +1,8 @@
 package dev.melo.gptmobile.improved.data.repository
 
-import dev.melo.gptmobile.improved.data.database.dao.AgentToolBindingWithConnection
 import dev.melo.gptmobile.improved.data.database.dao.ToolConnectionDao
 import dev.melo.gptmobile.improved.data.database.entity.AgentToolBinding
+import dev.melo.gptmobile.improved.data.database.entity.AgentToolBindingWithConnection
 import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
@@ -63,7 +63,19 @@ class ToolConnectionRepository internal constructor(
 
     suspend fun listBindingsByProfile(profileUid: String): List<AgentToolBinding> = toolConnectionDao.listBindingsByProfile(profileUid)
 
-    suspend fun listBindingsWithConnections(profileUid: String): List<AgentToolBindingWithConnection> = toolConnectionDao.listBindingsWithConnections(profileUid)
+    suspend fun listBindingsWithConnections(profileUid: String): List<AgentToolBindingWithConnection> {
+        val bindings = toolConnectionDao.listBindingsByProfile(profileUid)
+        val connections = bindings
+            .mapNotNull { it.connectionUid }
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+            ?.let { toolConnectionDao.getConnectionsByUids(it) }
+            ?.associateBy { it.connectionUid }
+            .orEmpty()
+        return bindings.map { binding ->
+            AgentToolBindingWithConnection(binding, binding.connectionUid?.let(connections::get))
+        }
+    }
 
     suspend fun replaceWebSearchBinding(profileUid: String, connectionUid: String) {
         requireSearchConnection(connectionUid)

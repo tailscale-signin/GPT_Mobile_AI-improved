@@ -1,6 +1,7 @@
 package dev.melo.gptmobile.improved.di
 
 import android.content.Context
+import android.os.Build
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -21,4 +22,9 @@ object LocalRuntimeModule {
         @ApplicationContext context: Context,
         networkClient: NetworkClient
     ): LocalRuntimeRepository = LocalRuntimeRepositoryImpl(context, networkClient)
+
+    @Provides
+    @Singleton
+    @DeviceSocModel
+    fun provideDeviceSocModel(): String = Build.SOC_MODEL.orEmpty()
 }

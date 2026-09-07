@@ -4,31 +4,75 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.melo.gptmobile.improved.data.model.ClientType
+import dev.melo.gptmobile.improved.data.model.GeminiSafetySettings
+import java.util.UUID
 
 @Entity(tableName = "platforms_v2")
 data class PlatformV2(
-    @PrimaryKey
-    @ColumnInfo(name = "platform_uid")
-    val platformUid: String,
+    @PrimaryKey(autoGenerate = true)
+    @ColumnInfo(name = "platform_id")
+    val id: Int = 0,
+
+    @ColumnInfo(name = "uid")
+    val uid: String = UUID.randomUUID().toString(),
 
     @ColumnInfo(name = "name")
     val name: String,
 
-    @ColumnInfo(name = "client_type")
-    val clientType: ClientType,
+    @ColumnInfo(name = "compatible_type")
+    val compatibleType: ClientType,
 
-    @ColumnInfo(name = "api_key")
-    val apiKey: String,
+    @ColumnInfo(name = "enabled")
+    val enabled: Boolean = false,
 
     @ColumnInfo(name = "api_url")
     val apiUrl: String,
 
-    @ColumnInfo(name = "default_model")
-    val defaultModel: String,
+    @ColumnInfo(name = "token")
+    val token: String? = null,
 
-    @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis() / 1000,
+    @ColumnInfo(name = "secret_ref")
+    val secretRef: String? = null,
 
-    @ColumnInfo(name = "pinned")
-    val pinned: Boolean = false
+    @ColumnInfo(name = "model")
+    val model: String,
+
+    @ColumnInfo(name = "temperature")
+    val temperature: Float? = null,
+
+    @ColumnInfo(name = "top_p")
+    val topP: Float? = null,
+
+    @ColumnInfo(name = "top_k")
+    val topK: Int? = null,
+
+    @ColumnInfo(name = "max_tokens")
+    val maxTokens: Int? = null,
+
+    @ColumnInfo(name = "accelerator")
+    val accelerator: String? = null,
+
+    @ColumnInfo(name = "system_prompt")
+    val systemPrompt: String? = null,
+
+    @ColumnInfo(name = "stream")
+    val stream: Boolean = true,
+
+    @ColumnInfo(name = "reasoning")
+    val reasoning: Boolean = false,
+
+    @ColumnInfo(name = "timeout")
+    val timeout: Int = 30,
+
+    @ColumnInfo(name = "harassment_safety_threshold", defaultValue = "'BLOCK_NONE'")
+    val harassmentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
+
+    @ColumnInfo(name = "hate_speech_safety_threshold", defaultValue = "'BLOCK_NONE'")
+    val hateSpeechSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
+
+    @ColumnInfo(name = "sexually_explicit_safety_threshold", defaultValue = "'BLOCK_NONE'")
+    val sexuallyExplicitSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
+
+    @ColumnInfo(name = "dangerous_content_safety_threshold", defaultValue = "'BLOCK_NONE'")
+    val dangerousContentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE
 )

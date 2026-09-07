@@ -40,6 +40,11 @@ data class AgentToolBinding(
     val createdAt: Long = System.currentTimeMillis() / 1000
 )
 
+data class AgentToolBindingWithConnection(
+    val binding: AgentToolBinding,
+    val connection: ToolConnection?
+)
+
 object BuiltInAgentTool {
     const val CURRENT_DATE = "current_date"
     const val CALCULATE_EXPRESSION = "calculate_expression"

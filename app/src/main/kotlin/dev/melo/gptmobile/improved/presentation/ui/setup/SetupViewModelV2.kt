@@ -115,8 +115,8 @@ class SetupViewModelV2 @Inject constructor(
                 hasName && hasValidUrl
             }
             WIZARD_STEP_API_KEY -> {
-                // LiteRT LM and Ollama don't require an API key
-                clientType == ClientType.LITERT_LM || clientType == ClientType.OLLAMA || key.isNotBlank()
+                // LiteRT LM and self-hosted don't necessarily require an API key
+                clientType == ClientType.LITERT_LM || clientType?.isSelfHosted == true || key.isNotBlank()
             }
             WIZARD_STEP_MODEL -> {
                 mdl.isNotBlank()
@@ -281,6 +281,9 @@ class SetupViewModelV2 @Inject constructor(
         ClientType.GOOGLE -> "Google AI"
         ClientType.GROQ -> "Groq"
         ClientType.OLLAMA -> "Ollama (Local)"
+        ClientType.OPENAI_COMPATIBLE -> "OpenAI Compatible"
+        ClientType.LM_STUDIO -> "LM Studio"
+        ClientType.VLLM -> "vLLM"
         ClientType.OPENROUTER -> "OpenRouter"
         ClientType.CUSTOM -> "Custom OpenAI"
         ClientType.LITERT_LM -> "On-Device AI"
@@ -292,6 +295,9 @@ class SetupViewModelV2 @Inject constructor(
         ClientType.GOOGLE -> "https://generativelanguage.googleapis.com/"
         ClientType.GROQ -> "https://api.groq.com/openai/v1/"
         ClientType.OLLAMA -> "http://localhost:11434/v1/"
+        ClientType.OPENAI_COMPATIBLE -> "http://localhost:8000/v1/"
+        ClientType.LM_STUDIO -> "http://localhost:1234/v1/"
+        ClientType.VLLM -> "http://localhost:8000/v1/"
         ClientType.OPENROUTER -> "https://openrouter.ai/api/v1/"
         ClientType.CUSTOM -> "https://api.openai.com/v1/"
         ClientType.LITERT_LM -> ""
@@ -303,6 +309,9 @@ class SetupViewModelV2 @Inject constructor(
         ClientType.GOOGLE -> "gemini-2.5-flash"
         ClientType.GROQ -> "llama-3.3-70b-versatile"
         ClientType.OLLAMA -> "llama3.2"
+        ClientType.OPENAI_COMPATIBLE -> "default"
+        ClientType.LM_STUDIO -> "default"
+        ClientType.VLLM -> "default"
         ClientType.OPENROUTER -> "meta-llama/llama-3.3-70b-instruct"
         ClientType.CUSTOM -> "gpt-4o"
         ClientType.LITERT_LM -> LocalModelCatalog.DEFAULT_MODEL_ID

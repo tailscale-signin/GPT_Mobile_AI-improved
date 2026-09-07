@@ -5,7 +5,9 @@ import androidx.room.Entity
 import androidx.room.Ignore
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(
     tableName = "tool_connections",
     indices = [Index(value = ["alias"], unique = true)]

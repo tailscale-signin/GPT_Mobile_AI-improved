@@ -8,6 +8,7 @@ import androidx.room.PrimaryKey
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(
     tableName = "messages_v2",
     foreignKeys = [

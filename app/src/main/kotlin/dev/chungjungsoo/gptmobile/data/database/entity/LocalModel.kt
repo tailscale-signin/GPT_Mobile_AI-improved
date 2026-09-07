@@ -5,32 +5,34 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelRecord
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(tableName = "local_models")
 data class LocalModel(
     @PrimaryKey
-    @ColumnInfo(name = "catalog_entry_id")
+    @ColumnInfo(name = "catalogEntryId")
     val catalogEntryId: String,
 
-    @ColumnInfo(name = "commit_hash")
+    @ColumnInfo(name = "commitHash")
     val commitHash: String,
 
-    @ColumnInfo(name = "file_name")
+    @ColumnInfo(name = "fileName")
     val fileName: String,
 
-    @ColumnInfo(name = "relative_directory")
+    @ColumnInfo(name = "relativeDirectory")
     val relativeDirectory: String,
 
-    @ColumnInfo(name = "total_bytes")
+    @ColumnInfo(name = "totalBytes")
     val totalBytes: Long,
 
     @ColumnInfo(name = "status")
     val status: String = LocalModelStatus.DOWNLOADING,
 
-    @ColumnInfo(name = "created_at")
+    @ColumnInfo(name = "createdAt")
     val createdAt: Long = System.currentTimeMillis() / 1000,
 
-    @ColumnInfo(name = "updated_at")
+    @ColumnInfo(name = "updatedAt")
     val updatedAt: Long = System.currentTimeMillis() / 1000
 ) {
     fun toRecord(): LocalModelRecord = LocalModelRecord(

@@ -1,15 +1,75 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="29.577631dp" android:viewportHeight="308.24" android:viewportWidth="375.17" android:width="36dp">
-      
-    <path android:fillColor="#f2f0f3" android:pathData="M349.46,8.08 L63.72,25.34c-9.77,0.4 -15.99,6.53 -17.5,14.88L8.21,216.35c-1.56,9.53 5.76,14.74 17.5,14.88L245.38,231.23a4.17,4.17 0,0 1,3.12 1.3l44.51,60.84c12.23,13.8 26.51,5.17 29.01,-11.2l9.04,-50.93 35.9,-208.27C368.39,15.22 362.73,7.1 349.46,8.08Z" android:strokeColor="#45464f" android:strokeWidth="16"/>
-      
-    <path android:fillColor="#00a67d" android:pathData="M125.75,74.14L241.75,74.14A12,12 0,0 1,253.75 86.14L253.75,162.14A12,12 0,0 1,241.75 174.14L125.75,174.14A12,12 0,0 1,113.75 162.14L113.75,86.14A12,12 0,0 1,125.75 74.14z" android:strokeColor="#45464f" android:strokeWidth="16"/>
-      
-    <path android:fillColor="#00000000" android:pathData="M83.75,106.37L83.75,141.9" android:strokeColor="#45464f" android:strokeWidth="16"/>
-      
-    <path android:fillColor="#00000000" android:pathData="M283.75,106.37L283.75,141.9" android:strokeColor="#45464f" android:strokeWidth="16"/>
-      
-    <path android:fillColor="#45464f" android:pathData="M152.63,115.29m-10,0a10,10 0,1 1,20 0a10,10 0,1 1,-20 0"/>
-      
-    <path android:fillColor="#45464f" android:pathData="M215.11,115.29m-10,0a10,10 0,1 1,20 0a10,10 0,1 1,-20 0"/>
-    
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="36dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Cyan circular background -->
+    <path
+        android:fillColor="#17C5D7"
+        android:pathData="M 50,0
+                         A 50,50 0 1,1 50,100
+                         A 50,50 0 1,1 50,0 Z" />
+
+    <!-- Centered Icon group -->
+    <group
+        android:translateX="50"
+        android:translateY="50">
+
+        <!-- Outer white chat bubble badge -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M -23,-21
+                             L 27,-23
+                             C 28,-23 29,-22 29,-21
+                             L 20,23
+                             C 20,24 19,25 18,25
+                             L 20,34
+                             L 8,24
+                             L -27,22
+                             C -28,22 -29,21 -29,20
+                             L -24,-20
+                             C -24,-21 -23,-21 -23,-21 Z" />
+
+        <!-- Left ear / side antenna -->
+        <path
+            android:fillColor="#343B45"
+            android:pathData="M -16,-6
+                             C -17.5,-6 -18,-4.5 -18,-2
+                             L -18,2
+                             C -18,4.5 -17.5,6 -16,6
+                             Z" />
+
+        <!-- Right ear / side antenna -->
+        <path
+            android:fillColor="#343B45"
+            android:pathData="M 16,-6
+                             C 17.5,-6 18,-4.5 18,-2
+                             L 18,2
+                             C 18,4.5 17.5,6 16,6
+                             Z" />
+
+        <!-- Central cyan robot screen/face -->
+        <path
+            android:fillColor="#17C5D7"
+            android:pathData="M -11,-11
+                             H 11
+                             V 11
+                             H -11
+                             Z" />
+
+        <!-- Left eye -->
+        <path
+            android:fillColor="#343B45"
+            android:pathData="M -4.5,-2
+                             A 2.5,2.5 0 1,1 -4.5,3
+                             A 2.5,2.5 0 1,1 -4.5,-2 Z" />
+
+        <!-- Right eye -->
+        <path
+            android:fillColor="#343B45"
+            android:pathData="M 4.5,-2
+                             A 2.5,2.5 0 1,1 4.5,3
+                             A 2.5,2.5 0 1,1 4.5,-2 Z" />
+    </group>
 </vector>

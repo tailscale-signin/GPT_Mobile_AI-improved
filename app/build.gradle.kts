@@ -158,6 +158,7 @@ dependencies {
     implementation(libs.ktor.serialization)
     implementation(libs.mcp.kotlin.sdk.client) {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+        exclude(group = "io.ktor")
     }
 
     // OAuth browser flow

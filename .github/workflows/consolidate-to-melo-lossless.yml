@@ -1,0 +1,63 @@
+name: Lossless Consolidation to Melo
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lossless consolidation from be25e511
+        run: |
+          set -euo pipefail
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 1. Restore the complete legacy chungjungsoo tree from be25e511 (before the destructive purge)
+          echo "Restoring complete dev/chungjungsoo tree from be25e511c7d45440a62d572ec0f3882b6678a92a..."
+          git checkout be25e511c7d45440a62d572ec0f3882b6678a92a -- app/src/main/kotlin/dev/chungjungsoo
+
+          # 2. Lossless copy of all files from chungjungsoo to dev.melo.gptmobile.improved
+          # Using rsync without overwriting existing files in dev/melo/gptmobile/improved
+          SRC_DIR="app/src/main/kotlin/dev/chungjungsoo/gptmobile"
+          DST_DIR="app/src/main/kotlin/dev/melo/gptmobile/improved"
+
+          mkdir -p "$DST_DIR"
+
+          # Copy all directories and files that don't yet exist in DST_DIR
+          echo "Merging files into $DST_DIR..."
+          cp -r -n "$SRC_DIR"/* "$DST_DIR/"
+
+          # For files that exist in both, ensure no critical files were partially ported or broken.
+          # Remove the old chungjungsoo source tree now that everything is merged into dev.melo
+          rm -rf "app/src/main/kotlin/dev/chungjungsoo"
+
+          # 3. Update package declarations and imports cleanly
+          echo "Updating package and import references to dev.melo.gptmobile.improved..."
+          find app/src -type f \( -name "*.kt" -o -name "*.kts" -o -name "*.xml" \) -exec sed -i 's/dev\.chungjungsoo\.gptmobile/dev\.melo\.gptmobile\.improved/g' {} +
+
+          # 4. Remove this one-time workflow
+          rm -f .github/workflows/consolidate-to-melo-lossless.yml
+
+          # 5. Commit and push
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "refactor: complete lossless consolidation of all packages into dev.melo"
+            git push origin main
+          fi

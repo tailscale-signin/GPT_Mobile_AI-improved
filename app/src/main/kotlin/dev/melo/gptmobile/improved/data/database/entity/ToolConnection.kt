@@ -2,9 +2,14 @@ package dev.melo.gptmobile.improved.data.database.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Ignore
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "tool_connections")
+@Entity(
+    tableName = "tool_connections",
+    indices = [Index(value = ["alias"], unique = true)]
+)
 data class ToolConnection(
     @PrimaryKey
     @ColumnInfo(name = "connection_uid")
@@ -26,21 +31,46 @@ data class ToolConnection(
     val transportType: String = "",
 
     @ColumnInfo(name = "endpoint_url")
-    val endpointUrl: String = "",
+    val endpointUrl: String? = null,
+
+    @ColumnInfo(name = "auth_type")
+    val authType: String = ToolConnectionAuthType.NONE,
 
     @ColumnInfo(name = "secret_ref")
     val secretRef: String? = null,
+
+    @ColumnInfo(name = "oauth_client_id")
+    val oauthClientId: String? = null,
+
+    @ColumnInfo(name = "allow_cleartext")
+    val allowCleartext: Boolean = false,
 
     @ColumnInfo(name = "headers")
     val headers: String? = null,
 
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis() / 1000
-)
+    val createdAt: Long = System.currentTimeMillis() / 1000,
+
+    @ColumnInfo(name = "updated_at")
+    val updatedAt: Long = System.currentTimeMillis() / 1000
+) {
+    @get:Ignore
+    val isWebSearch: Boolean
+        get() = type == ToolConnectionType.FIRECRAWL ||
+            type == ToolConnectionType.PERPLEXITY ||
+            type == ToolConnectionType.EXA
+}
 
 object ToolConnectionType {
-    const val MCP = "mcp"
-    const val FIRECRAWL = "firecrawl"
-    const val PERPLEXITY = "perplexity"
-    const val EXA = "exa"
+    const val MCP = "MCP"
+    const val FIRECRAWL = "FIRECRAWL"
+    const val PERPLEXITY = "PERPLEXITY"
+    const val EXA = "EXA"
+}
+
+object ToolConnectionAuthType {
+    const val NONE = "NONE"
+    const val BEARER = "BEARER"
+    const val API_KEY = "API_KEY"
+    const val OAUTH = "OAUTH"
 }

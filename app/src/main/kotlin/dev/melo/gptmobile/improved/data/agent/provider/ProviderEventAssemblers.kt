@@ -67,8 +67,14 @@ class OpenAIResponsesEventAssembler {
 
         is FunctionCallArgumentsDoneEvent -> {
             val call = pending.remove(event.itemId)
-                ?: return listOf(ProviderEvent.Failed("OpenAI returned arguments for an unknown function call."))
-            toolCall(call.callId, call.name, event.arguments)
+                ?: listOf(ProviderEvent.Failed("OpenAI returned arguments for an unknown function call."))
+            if (call is List<*>) {
+                @Suppress("UNCHECKED_CAST")
+                call as List<ProviderEvent>
+            } else {
+                val pendingCall = call as PendingCall
+                toolCall(pendingCall.callId, pendingCall.name, event.arguments)
+            }
         }
 
         is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed"))
@@ -134,87 +140,89 @@ class AnthropicEventAssembler {
     private val pendingRedactedThinking = mutableMapOf<Int, String>()
     private val completed = sortedMapOf<Int, MessageContent>()
 
-    fun accept(event: MessageResponseChunk): List<ProviderEvent> = when (event) {
-        is ContentStartResponseChunk -> {
-            when (event.contentBlock.type) {
-                ContentBlockType.TEXT -> pendingText[event.index] = StringBuilder(event.contentBlock.text.orEmpty())
+    fun accept(event: MessageResponseChunk): List<ProviderEvent> {
+        return when (event) {
+            is ContentStartResponseChunk -> {
+                when (event.contentBlock.type) {
+                    ContentBlockType.TEXT -> pendingText[event.index] = StringBuilder(event.contentBlock.text.orEmpty())
 
-                ContentBlockType.THINKING -> pendingThinking[event.index] =
-                    StringBuilder(event.contentBlock.thinking.orEmpty()) to StringBuilder(event.contentBlock.signature.orEmpty())
+                    ContentBlockType.THINKING -> pendingThinking[event.index] =
+                        StringBuilder(event.contentBlock.thinking.orEmpty()) to StringBuilder(event.contentBlock.signature.orEmpty())
 
-                // Anthropic rejects a replayed redacted_thinking block without its encrypted payload.
-                ContentBlockType.REDACTED_THINKING ->
-                    event.contentBlock.data
-                        ?.takeIf(String::isNotBlank)
-                        ?.let { pendingRedactedThinking[event.index] = it }
+                    // Anthropic rejects a replayed redacted_thinking block without its encrypted payload.
+                    ContentBlockType.REDACTED_THINKING ->
+                        event.contentBlock.data
+                            ?.takeIf(String::isNotBlank)
+                            ?.let { pendingRedactedThinking[event.index] = it }
 
-                ContentBlockType.TOOL_USE -> {
-                    val callId = event.contentBlock.id
-                    val name = event.contentBlock.name
-                    if (callId == null || name == null) {
-                        return listOf(ProviderEvent.Failed("Anthropic returned an incomplete tool use block."))
+                    ContentBlockType.TOOL_USE -> {
+                        val callId = event.contentBlock.id
+                        val name = event.contentBlock.name
+                        if (callId == null || name == null) {
+                            return listOf(ProviderEvent.Failed("Anthropic returned an incomplete tool use block."))
+                        }
+                        val initialInput = event.contentBlock.input
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.toString()
+                            .orEmpty()
+                        pending[event.index] = PendingCall(callId, name, StringBuilder(initialInput))
                     }
-                    val initialInput = event.contentBlock.input
-                        ?.takeIf { it.isNotEmpty() }
-                        ?.toString()
-                        .orEmpty()
-                    pending[event.index] = PendingCall(callId, name, StringBuilder(initialInput))
+
+                    else -> Unit
+                }
+                emptyList()
+            }
+
+            is ContentDeltaResponseChunk -> when (event.delta.type) {
+                ContentBlockType.TEXT, ContentBlockType.DELTA -> event.delta.text?.let {
+                    pendingText.getOrPut(event.index) { StringBuilder() }.append(it)
+                    listOf(ProviderEvent.TextDelta(it))
+                }.orEmpty()
+
+                ContentBlockType.THINKING, ContentBlockType.THINKING_DELTA -> event.delta.thinking?.let {
+                    pendingThinking.getOrPut(event.index) { StringBuilder() to StringBuilder() }.first.append(it)
+                    listOf(ProviderEvent.ThinkingDelta(it))
+                }.orEmpty()
+
+                ContentBlockType.SIGNATURE, ContentBlockType.SIGNATURE_DELTA -> {
+                    pendingThinking.getOrPut(event.index) { StringBuilder() to StringBuilder() }.second.append(event.delta.signature.orEmpty())
+                    emptyList()
                 }
 
-                else -> Unit
-            }
-            emptyList()
-        }
+                ContentBlockType.INPUT_JSON_DELTA -> {
+                    pending[event.index]?.arguments?.append(event.delta.partialJson.orEmpty())
+                    emptyList()
+                }
 
-        is ContentDeltaResponseChunk -> when (event.delta.type) {
-            ContentBlockType.TEXT, ContentBlockType.DELTA -> event.delta.text?.let {
-                pendingText.getOrPut(event.index) { StringBuilder() }.append(it)
-                listOf(ProviderEvent.TextDelta(it))
-            }.orEmpty()
-
-            ContentBlockType.THINKING, ContentBlockType.THINKING_DELTA -> event.delta.thinking?.let {
-                pendingThinking.getOrPut(event.index) { StringBuilder() to StringBuilder() }.first.append(it)
-                listOf(ProviderEvent.ThinkingDelta(it))
-            }.orEmpty()
-
-            ContentBlockType.SIGNATURE, ContentBlockType.SIGNATURE_DELTA -> {
-                pendingThinking.getOrPut(event.index) { StringBuilder() to StringBuilder() }.second.append(event.delta.signature.orEmpty())
-                emptyList()
+                else -> emptyList()
             }
 
-            ContentBlockType.INPUT_JSON_DELTA -> {
-                pending[event.index]?.arguments?.append(event.delta.partialJson.orEmpty())
-                emptyList()
+            is ContentStopResponseChunk -> {
+                pendingText.remove(event.index)?.let { completed[event.index] = TextContent(it.toString()) }
+                pendingThinking.remove(event.index)?.let { (thinking, signature) ->
+                    completed[event.index] = ThinkingContent(thinking.toString(), signature.toString())
+                }
+                pendingRedactedThinking.remove(event.index)?.let { data ->
+                    completed[event.index] = RedactedThinkingContent(data)
+                }
+                val call = pending.remove(event.index) ?: return emptyList()
+                val events = toolCall(call.callId, call.name, call.arguments.toString())
+                if (events.singleOrNull() is ProviderEvent.ToolCall) {
+                    completed[event.index] = ToolUseContent(
+                        call.callId,
+                        call.name,
+                        Json.parseToJsonElement(call.arguments.toString().ifBlank { "{}" }) as JsonObject
+                    )
+                }
+                events
             }
+
+            is ErrorResponseChunk -> listOf(ProviderEvent.Failed(event.error.message))
+
+            MessageStopResponseChunk -> listOf(ProviderEvent.Completed)
 
             else -> emptyList()
         }
-
-        is ContentStopResponseChunk -> {
-            pendingText.remove(event.index)?.let { completed[event.index] = TextContent(it.toString()) }
-            pendingThinking.remove(event.index)?.let { (thinking, signature) ->
-                completed[event.index] = ThinkingContent(thinking.toString(), signature.toString())
-            }
-            pendingRedactedThinking.remove(event.index)?.let { data ->
-                completed[event.index] = RedactedThinkingContent(data)
-            }
-            val call = pending.remove(event.index) ?: return emptyList()
-            val events = toolCall(call.callId, call.name, call.arguments.toString())
-            if (events.singleOrNull() is ProviderEvent.ToolCall) {
-                completed[event.index] = ToolUseContent(
-                    call.callId,
-                    call.name,
-                    Json.parseToJsonElement(call.arguments.toString().ifBlank { "{}" }) as JsonObject
-                )
-            }
-            events
-        }
-
-        is ErrorResponseChunk -> listOf(ProviderEvent.Failed(event.error.message))
-
-        MessageStopResponseChunk -> listOf(ProviderEvent.Completed)
-
-        else -> emptyList()
     }
 
     fun replayContent(): List<MessageContent> = completed.values.toList()

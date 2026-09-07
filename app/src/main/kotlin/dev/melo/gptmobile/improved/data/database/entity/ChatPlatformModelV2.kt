@@ -34,5 +34,19 @@ data class ChatPlatformModelV2(
     val platformUid: String,
 
     @ColumnInfo(name = "model_name")
-    val modelName: String
-)
+    val modelName: String = "",
+
+    @ColumnInfo(name = "updated_at")
+    val updatedAt: Long = System.currentTimeMillis() / 1000
+) {
+    // Convenience constructor / getter matching v0.8.2 callers expecting (chatId, platformUid, model)
+    constructor(chatId: Int, platformUid: String, model: String) : this(
+        id = 0,
+        chatId = chatId,
+        platformUid = platformUid,
+        modelName = model,
+        updatedAt = System.currentTimeMillis() / 1000
+    )
+
+    val model: String get() = modelName
+}

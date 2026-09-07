@@ -6,12 +6,13 @@ import org.gradle.kotlin.dsl.configure
 
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.android.hilt)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.auto.license)
-    kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 configurations.configureEach {

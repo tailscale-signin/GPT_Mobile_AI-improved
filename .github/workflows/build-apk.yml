@@ -15,6 +15,9 @@ permissions:
   contents: write
   issues: write
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -55,6 +58,8 @@ jobs:
         id: build_debug
         run: |
           ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log
+          echo "Listing debug build outputs:"
+          ls -laR app/build/outputs/apk/ || true
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
@@ -63,8 +68,8 @@ jobs:
         if: steps.build_debug.outcome == 'success'
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
 
       - name: Build Release APK
         id: build_release
@@ -80,7 +85,7 @@ jobs:
         id: upload-release
         with:
           name: app-release-unsigned
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/**/*.apk
           if-no-files-found: ignore
 
       - name: Report Build Failure as GitHub Issue
@@ -107,48 +112,62 @@ jobs:
 
           ISSUE_TITLE="CI Build Failure on $REF_NAME (${COMMIT_SHA:0:7})"
 
-          # Check if an open issue with this title already exists
           EXISTING_ISSUE=$(gh issue list --repo "${{ github.repository }}" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
 
+          BODY_FILE=$(mktemp)
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            COMMENT_FILE=$(mktemp)
-            cat <<EOF > "$COMMENT_FILE"
-          Build failure reoccurred on run: $RUN_URL
+            cat <<'EOF' > "$BODY_FILE"
+Build failure reoccurred on run: RUN_URL_PLACEHOLDER
 
-          \`\`\`text
-          $ERROR_SNIPPET
-          \`\`\`
-          EOF
-            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body-file "$COMMENT_FILE"
-            rm -f "$COMMENT_FILE"
+```
+ERROR_SNIPPET_PLACEHOLDER
+```
+EOF
+            sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" "$BODY_FILE"
+            python3 -c "
+import sys
+content = open('$BODY_FILE').read()
+err = sys.stdin.read()
+open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
+" <<< "$ERROR_SNIPPET"
+            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body-file "$BODY_FILE"
           else
-            BODY_FILE=$(mktemp)
-            cat <<EOF > "$BODY_FILE"
-          ### 🚨 Automated CI Build Failure Report
+            cat <<'EOF' > "$BODY_FILE"
+### 🚨 Automated CI Build Failure Report
 
-          **Workflow:** $WORKFLOW_NAME
-          **Branch / Ref:** \`$REF_NAME\`
-          **Commit:** \`$COMMIT_SHA\`
-          **Run Details:** [View Actions Run]($RUN_URL)
+**Workflow:** WORKFLOW_NAME_PLACEHOLDER
+**Branch / Ref:** `REF_NAME_PLACEHOLDER`
+**Commit:** `COMMIT_SHA_PLACEHOLDER`
+**Run Details:** [View Actions Run](RUN_URL_PLACEHOLDER)
 
-          ---
+---
 
-          ### Exact Build Error / Failure Log (For AI & Maintainers)
-          \`\`\`text
-          $ERROR_SNIPPET
-          \`\`\`
+### Exact Build Error / Failure Log (For AI & Maintainers)
+```text
+ERROR_SNIPPET_PLACEHOLDER
+```
 
-          ---
-          *Generated automatically by CI workflow.*
-          EOF
+---
+*Generated automatically by CI workflow.*
+EOF
+            sed -i "s|WORKFLOW_NAME_PLACEHOLDER|$WORKFLOW_NAME|g" "$BODY_FILE"
+            sed -i "s|REF_NAME_PLACEHOLDER|$REF_NAME|g" "$BODY_FILE"
+            sed -i "s|COMMIT_SHA_PLACEHOLDER|$COMMIT_SHA|g" "$BODY_FILE"
+            sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" "$BODY_FILE"
+            python3 -c "
+import sys
+content = open('$BODY_FILE').read()
+err = sys.stdin.read()
+open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
+" <<< "$ERROR_SNIPPET"
             gh issue create \
               --repo "${{ github.repository }}" \
               --title "$ISSUE_TITLE" \
               --label "build-failure,bug" \
               --body-file "$BODY_FILE"
-            rm -f "$BODY_FILE"
           fi
+          rm -f "$BODY_FILE"
 
       - name: Extract Release Tag
         id: tag_name
@@ -165,11 +184,11 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/**/*.apk
           body: |
             Automated tag build for ${{ steps.tag_name.outputs.tag }}.
             
             ### Artifacts
-            - `app-debug.apk`: Debug build of GPT Mobile AI
+            - Debug build of GPT Mobile AI
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

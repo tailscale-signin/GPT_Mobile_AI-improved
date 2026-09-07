@@ -1,6 +1,7 @@
 package dev.melo.gptmobile.improved.presentation.ui.setup
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,7 +39,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,7 +48,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -56,8 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.melo.gptmobile.improved.R
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
 import dev.melo.gptmobile.improved.data.model.ClientType
-import dev.melo.gptmobile.improved.data.model.Platform
 import dev.melo.gptmobile.improved.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.melo.gptmobile.improved.presentation.ui.localmodel.rememberLocalModelDownloader
 
@@ -75,8 +74,7 @@ fun SetupPlatformListScreen(
     val catalogModels by setupViewModel.catalogLocalModels.collectAsStateWithLifecycle()
     val downloadState by setupViewModel.localModelDownloadState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val context = LocalContext.current
-    var platformToDelete by remember { mutableStateOf<Platform?>(null) }
+    var platformToDelete by remember { mutableStateOf<PlatformV2?>(null) }
     val requestDownload = rememberLocalModelDownloader { entry ->
         setupViewModel.selectLocalModel(entry.id)
     }
@@ -141,8 +139,8 @@ fun SetupPlatformListScreen(
                 }
 
                 items(platforms, key = { it.id }) { platform ->
-                    val isActive = platform.id == activePlatformId
-                    val isMissingLocalModel = platform.clientType == ClientType.LITERT_LM &&
+                    val isActive = platform.uid == activePlatformId
+                    val isMissingLocalModel = platform.compatibleType == ClientType.LITERT_LM &&
                         platform.model.isNotBlank() &&
                         catalogModels.firstOrNull { it.entry.id == platform.model }?.installed != true
 
@@ -159,7 +157,7 @@ fun SetupPlatformListScreen(
                                     onNavigateToLocalModels()
                                 }
                             } else {
-                                setupViewModel.setActivePlatform(platform.id)
+                                setupViewModel.setActivePlatform(platform.uid)
                             }
                         },
                         onDelete = { platformToDelete = platform }
@@ -267,7 +265,7 @@ private fun EmptyPlatformsView(
 
 @Composable
 private fun PlatformCard(
-    platform: Platform,
+    platform: PlatformV2,
     isActive: Boolean,
     hasMissingLocalModel: Boolean = false,
     onSelect: () -> Unit,
@@ -289,7 +287,7 @@ private fun PlatformCard(
         ) {
             // Icon
             Icon(
-                imageVector = if (platform.clientType == ClientType.LITERT_LM) {
+                imageVector = if (platform.compatibleType == ClientType.LITERT_LM) {
                     Icons.Default.PhoneAndroid
                 } else {
                     Icons.Default.Radio
@@ -330,7 +328,7 @@ private fun PlatformCard(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "${platform.clientType.name} • ${platform.model}",
+                    text = "${platform.compatibleType.name} • ${platform.model}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

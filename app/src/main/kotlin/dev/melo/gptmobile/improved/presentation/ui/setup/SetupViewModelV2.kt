@@ -3,18 +3,19 @@ package dev.melo.gptmobile.improved.presentation.ui.setup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.melo.gptmobile.improved.data.database.entity.PlatformV2
 import dev.melo.gptmobile.improved.data.model.ClientType
 import dev.melo.gptmobile.improved.data.model.LocalModelCatalog
 import dev.melo.gptmobile.improved.data.model.LocalModelCatalogEntry
-import dev.melo.gptmobile.improved.data.model.Platform
 import dev.melo.gptmobile.improved.data.repository.LocalModelRepository
-import dev.melo.gptmobile.improved.data.repository.PlatformRepository
+import dev.melo.gptmobile.improved.data.repository.SettingRepository
 import dev.melo.gptmobile.improved.presentation.ui.localmodel.HuggingFaceAuthClient
 import dev.melo.gptmobile.improved.presentation.ui.localmodel.LocalModelDownloadDialog
 import dev.melo.gptmobile.improved.presentation.ui.localmodel.LocalModelDownloadState
 import dev.melo.gptmobile.improved.presentation.ui.localmodel.LocalModelDownloadViewModelDelegate
 import dev.melo.gptmobile.improved.presentation.ui.setting.LocalModelListItem
 import dev.melo.gptmobile.improved.presentation.ui.setting.toLocalModelStatus
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +30,7 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class SetupViewModelV2 @Inject constructor(
-    private val platformRepository: PlatformRepository,
+    private val settingRepository: SettingRepository,
     private val localModelRepository: LocalModelRepository,
     private val huggingFaceAuthClient: HuggingFaceAuthClient
 ) : ViewModel() {
@@ -41,11 +42,11 @@ class SetupViewModelV2 @Inject constructor(
     )
 
     // Platforms list
-    val platforms: StateFlow<List<Platform>> = platformRepository.platforms
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _platforms = MutableStateFlow<List<PlatformV2>>(emptyList())
+    val platforms: StateFlow<List<PlatformV2>> = _platforms.asStateFlow()
 
-    val activePlatformId: StateFlow<String?> = platformRepository.activePlatformId
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    private val _activePlatformId = MutableStateFlow<String?>(null)
+    val activePlatformId: StateFlow<String?> = _activePlatformId.asStateFlow()
 
     // Wizard state
     private val _wizardStep = MutableStateFlow(0)
@@ -135,9 +136,20 @@ class SetupViewModelV2 @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     init {
+        loadPlatforms()
         viewModelScope.launch {
             localModelDelegate.events.collect { message ->
                 _messageFlow.emit(message)
+            }
+        }
+    }
+
+    private fun loadPlatforms() {
+        viewModelScope.launch {
+            val list = settingRepository.fetchPlatformV2s()
+            _platforms.value = list
+            if (_activePlatformId.value == null) {
+                _activePlatformId.value = list.firstOrNull { it.enabled }?.uid ?: list.firstOrNull()?.uid
             }
         }
     }
@@ -214,28 +226,41 @@ class SetupViewModelV2 @Inject constructor(
         val mdl = _model.value.trim()
 
         viewModelScope.launch {
-            val platform = Platform(
+            val uid = UUID.randomUUID().toString()
+            val platform = PlatformV2(
                 name = name,
-                clientType = clientType,
+                uid = uid,
+                compatibleType = clientType,
                 apiUrl = url,
-                apiKey = key,
-                model = mdl
+                token = key.takeIf { it.isNotBlank() },
+                model = mdl,
+                enabled = true
             )
-            platformRepository.savePlatform(platform)
-            platformRepository.setActivePlatform(platform.id)
+            settingRepository.addPlatformV2(platform)
+            _activePlatformId.value = uid
+            loadPlatforms()
             resetWizard()
         }
     }
 
-    fun deletePlatform(platformId: String) {
+    fun deletePlatform(platformId: Int) {
         viewModelScope.launch {
-            platformRepository.deletePlatform(platformId)
+            val platform = _platforms.value.firstOrNull { it.id == platformId }
+            if (platform != null) {
+                settingRepository.deletePlatformV2(platform)
+                loadPlatforms()
+            }
         }
     }
 
-    fun setActivePlatform(platformId: String) {
+    fun setActivePlatform(platformUid: String) {
         viewModelScope.launch {
-            platformRepository.setActivePlatform(platformId)
+            _activePlatformId.value = platformUid
+            val updated = _platforms.value.map {
+                it.copy(enabled = it.uid == platformUid)
+            }
+            updated.forEach { settingRepository.updatePlatformV2(it) }
+            _platforms.value = updated
         }
     }
 

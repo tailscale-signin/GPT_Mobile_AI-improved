@@ -2,8 +2,10 @@ package dev.melo.gptmobile.improved.presentation.ui.migrate
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.melo.gptmobile.improved.data.repository.ChatRepository
-import dev.melo.gptmobile.improved.data.repository.SettingsRepository
+import dev.melo.gptmobile.improved.data.repository.SettingRepository
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,9 +18,10 @@ sealed interface MigrationState {
     data class Error(val message: String) : MigrationState
 }
 
-class MigrateViewModel(
+@HiltViewModel
+class MigrateViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
-    private val settingsRepository: SettingsRepository
+    private val settingRepository: SettingRepository
 ) : ViewModel() {
 
     private val _migrationState = MutableStateFlow<MigrationState>(MigrationState.Idle)
@@ -28,7 +31,7 @@ class MigrateViewModel(
         viewModelScope.launch {
             _migrationState.value = MigrationState.InProgress
             try {
-                // Perform data migration if needed
+                settingRepository.migrateToPlatformV2()
                 _migrationState.value = MigrationState.Success("Migration completed successfully.")
             } catch (e: Exception) {
                 _migrationState.value = MigrationState.Error(e.message ?: "Unknown error occurred")

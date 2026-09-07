@@ -15,6 +15,9 @@ jobs:
   build:
     name: Build debug APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
 
     steps:
       - uses: actions/checkout@v6
@@ -42,12 +45,25 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle-build.log || {
-            echo "=== GRADLE FAILURE LOG ==="
-            grep -E "e: \[ksp\]|e: [^ ]+\.kt:" gradle-build.log | head -n 50 || true
-            echo "=== TAIL LOG ==="
-            tail -n 100 gradle-build.log
-            exit 1
+            BUILD_STATUS=$?
+            echo "=== EXTRACTING COMPILER ERRORS ==="
+            grep -E "e: \[ksp\]|e: [^ ]+\.kt:|FAILURE:|Caused by:" gradle-build.log > extracted-errors.log || true
+            if [ ! -s extracted-errors.log ]; then
+              tail -n 120 gradle-build.log > extracted-errors.log
+            fi
+            exit $BUILD_STATUS
           }
+
+      - name: Report Build Failure to Issues
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ERROR_CONTENT=$(head -n 80 extracted-errors.log 2>/dev/null || echo "Build failed. Check actions console.")
+          gh issue create \
+            --title "Build Failure: ${{ github.sha }}" \
+            --body $'### Compilation / Build Failure Log\n\n```text\n'"$ERROR_CONTENT"$'\n```\n\nCommit: ${{ github.sha }}' \
+            --repo "${{ github.repository }}" || true
 
       - name: Locate and list built APKs
         run: |

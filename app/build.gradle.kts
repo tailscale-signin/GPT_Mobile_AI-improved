@@ -182,6 +182,9 @@ dependencies {
     // Serialization
     implementation(libs.kotlin.serialization)
 
+    // LiteRT-LM Local Runtime
+    implementation(libs.litertlm)
+
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -53,7 +53,7 @@ extensions.configure<ApplicationExtension> {
 
     sourceSets {
         getByName("main") {
-            java.directories("src/main/kotlin")
+            java.srcDirs("src/main/kotlin")
         }
     }
 

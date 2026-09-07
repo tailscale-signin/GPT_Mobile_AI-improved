@@ -36,6 +36,8 @@ enum class McpTransportType {
  * Curated marketplace catalog of popular community MCP presets.
  */
 object McpPresetCatalog {
+    const val GITHUB_COPILOT_MCP_DEFAULT_URL = "https://api.githubcopilot.com/mcp/"
+
     val presets: List<McpPreset> = listOf(
         McpPreset(
             id = "mcpsearch-android-termux",
@@ -59,12 +61,11 @@ object McpPresetCatalog {
         ),
         McpPreset(
             id = "github",
-            name = "GitHub Integration",
-            description = "Search repos, read/write issues, pull requests, and commit files.",
+            name = "GitHub Copilot MCP",
+            description = "Direct remote GitHub Copilot MCP endpoint. Search repos, read/write issues, PRs, and batch-commit changes efficiently.",
             category = McpCategory.DEVELOPMENT,
-            transportType = McpTransportType.STDIO,
-            commandOrUrl = "npx",
-            args = listOf("-y", "@modelcontextprotocol/server-github"),
+            transportType = McpTransportType.STREAMABLE_HTTP,
+            commandOrUrl = GITHUB_COPILOT_MCP_DEFAULT_URL,
             requiredEnvKeys = listOf("GITHUB_PERSONAL_ACCESS_TOKEN")
         ),
         McpPreset(

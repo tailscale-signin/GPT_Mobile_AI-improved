@@ -26,15 +26,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.melo.gptmobile.improved.R
-import dev.melo.gptmobile.improved.data.model.ToolTrace
+import dev.melo.gptmobile.improved.data.database.entity.ToolEvent
 
 @Composable
 fun ToolTraceBlock(
-    toolTraces: List<ToolTrace>,
+    toolEvents: List<ToolEvent>,
     modifier: Modifier = Modifier,
     initialExpanded: Boolean = false
 ) {
-    if (toolTraces.isEmpty()) return
+    if (toolEvents.isEmpty()) return
 
     var isExpanded by remember { mutableStateOf(initialExpanded) }
 
@@ -59,7 +59,7 @@ fun ToolTraceBlock(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = stringResource(R.string.chat_tool_traces_title, toolTraces.size),
+                    text = stringResource(R.string.chat_tool_traces_title, toolEvents.size),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -79,7 +79,7 @@ fun ToolTraceBlock(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    toolTraces.forEach { trace ->
+                    toolEvents.forEach { event ->
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.surface,
@@ -92,22 +92,31 @@ fun ToolTraceBlock(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = trace.toolName,
+                                    text = event.toolName,
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.primary
                                 )
-                                if (trace.input.isNotBlank()) {
+                                if (event.input.isNotBlank()) {
                                     Text(
-                                        text = stringResource(R.string.chat_tool_input, trace.input),
+                                        text = "${stringResource(R.string.tool_trace_arguments)}: ${event.input}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                if (trace.output.isNotBlank()) {
+                                val result = event.result
+                                if (!result.isNullTransformed()) {
                                     Text(
-                                        text = stringResource(R.string.chat_tool_output, trace.output),
+                                        text = "${stringResource(R.string.tool_trace_result)}: $result",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                val err = event.error
+                                if (!err.isNullBlank()) {
+                                    Text(
+                                        text = "${stringResource(R.string.tool_trace_error)}: $err",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
                                     )
                                 }
                             }
@@ -118,3 +127,6 @@ fun ToolTraceBlock(
         }
     }
 }
+
+private fun String?.isNullTransformed(): Boolean = this == null || this.isBlank()
+private fun String?.isNullBlank(): Boolean = this == null || this.isBlank()

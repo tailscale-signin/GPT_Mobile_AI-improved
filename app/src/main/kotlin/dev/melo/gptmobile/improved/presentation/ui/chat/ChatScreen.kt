@@ -5,21 +5,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -57,23 +54,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.melo.gptmobile.improved.R
-import dev.melo.gptmobile.improved.data.model.AgentRunStatus
-import dev.melo.gptmobile.improved.data.model.Message
-import dev.melo.gptmobile.improved.data.model.Sender
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,12 +74,13 @@ fun ChatScreen(
     modifier: Modifier = Modifier
 ) {
     val messages by viewModel.messages.collectAsState()
+    val agentRuns by viewModel.agentRuns.collectAsState()
+    val toolEvents by viewModel.toolEvents.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
     val availableTools by viewModel.availableTools.collectAsState()
     val selectedTools by viewModel.selectedTools.collectAsState()
     val attachmentDrafts by viewModel.attachmentDrafts.collectAsState()
     val currentChatRoom by viewModel.currentChatRoom.collectAsState()
-    val agentRunStatus by viewModel.agentRunStatus.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var showMenu by remember { mutableStateOf(false) }
@@ -97,7 +89,6 @@ fun ChatScreen(
     var showToolSelectionSheet by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -131,13 +122,6 @@ fun ChatScreen(
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.titleMedium
                         )
-                        currentChatRoom?.model?.let { model ->
-                            Text(
-                                text = model,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
                 },
                 navigationIcon = {
@@ -222,18 +206,17 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
+                    val run = agentRuns.find { it.assistantMessageId == message.id || it.runId == message.currentRunId }
+                    val messageToolEvents = toolEvents.filter { it.runId == message.currentRunId }
+
                     ChatBubble(
                         message = message,
+                        agentRun = run,
+                        toolEvents = messageToolEvents,
                         onRetry = {
                             viewModel.retryLastMessage()
                         }
                     )
-                }
-
-                if (agentRunStatus != null && agentRunStatus != AgentRunStatus.IDLE) {
-                    item {
-                        AgentRunStatusBlock(status = agentRunStatus!!)
-                    }
                 }
             }
 
@@ -257,7 +240,7 @@ fun ChatScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = draft.name,
+                                    text = draft.sourceFilePath.substringAfterLast("/"),
                                     style = MaterialTheme.typography.bodySmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -367,24 +350,50 @@ fun ChatScreen(
     }
 
     if (showDeleteConfirmDialog) {
-        ChatDeleteConfirmationDialog(
-            onConfirm = {
-                showDeleteConfirmDialog = false
-                viewModel.deleteCurrentChatRoom {
-                    onNavigateBack()
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text(stringResource(R.string.chat_menu_delete)) },
+            text = { Text(stringResource(R.string.this_operation_can_t_be_undone)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        viewModel.deleteCurrentChatRoom {
+                            onNavigateBack()
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.delete))
                 }
             },
-            onDismiss = { showDeleteConfirmDialog = false }
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
         )
     }
 
     if (showClearConfirmDialog) {
-        ChatClearConfirmationDialog(
-            onConfirm = {
-                showClearConfirmDialog = false
-                viewModel.clearMessages()
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showClearConfirmDialog = false },
+            title = { Text(stringResource(R.string.chat_menu_clear)) },
+            text = { Text(stringResource(R.string.this_operation_can_t_be_undone)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        showClearConfirmDialog = false
+                        viewModel.clearMessages()
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
             },
-            onDismiss = { showClearConfirmDialog = false }
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showClearConfirmDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
         )
     }
 

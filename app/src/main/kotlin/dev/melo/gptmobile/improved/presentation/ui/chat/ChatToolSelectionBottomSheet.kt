@@ -27,12 +27,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.melo.gptmobile.improved.R
-import dev.melo.gptmobile.improved.data.model.AgentToolDefinition
+import dev.melo.gptmobile.improved.data.model.AvailableChatTool
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatToolSelectionBottomSheet(
-    tools: List<AgentToolDefinition>,
+    tools: List<AvailableChatTool>,
     selectedToolNames: Set<String>,
     onToolToggled: (String) -> Unit,
     onDismissRequest: () -> Unit,

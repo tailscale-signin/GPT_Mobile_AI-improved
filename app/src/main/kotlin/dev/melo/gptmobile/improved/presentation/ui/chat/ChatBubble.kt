@@ -2,7 +2,6 @@ package dev.melo.gptmobile.improved.presentation.ui.chat
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -30,11 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,36 +41,50 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import dev.melo.gptmobile.improved.R
 import dev.melo.gptmobile.improved.data.database.entity.AgentRun
-import dev.melo.gptmobile.improved.data.database.entity.MessageAttachmentV2
+import dev.melo.gptmobile.improved.data.database.entity.MessageV2
 import dev.melo.gptmobile.improved.data.database.entity.ToolEvent
-import dev.melo.gptmobile.improved.data.model.Message
-import dev.melo.gptmobile.improved.data.model.Sender
+import dev.melo.gptmobile.improved.data.database.entity.effectiveContent
+import dev.melo.gptmobile.improved.data.database.entity.effectiveThoughts
 
 @Composable
 fun ChatBubble(
-    message: Message,
+    message: MessageV2,
+    agentRun: AgentRun? = null,
+    toolEvents: List<ToolEvent> = emptyList(),
     modifier: Modifier = Modifier,
     onRetry: () -> Unit = {}
 ) {
     val clipboardManager = LocalClipboardManager.current
+    val effectiveText = message.effectiveContent()
 
-    if (message.sender == Sender.USER) {
+    if (message.sender == 0) {
         UserChatBubble(
             modifier = modifier,
-            text = message.content,
+            text = effectiveText,
+            files = message.attachments.map { it.name },
             onLongPress = {
-                clipboardManager.setText(AnnotatedString(message.content))
+                clipboardManager.setText(AnnotatedString(effectiveText))
             }
         )
     } else {
+        val thoughts = message.effectiveThoughts()
+        val isFailed = agentRun?.status == "FAILED" || agentRun?.status == "CANCELED"
+        val isLoading = effectiveText.isEmpty() && agentRun?.status == "RUNNING"
+
         OpponentChatBubble(
             modifier = modifier,
-            canRetry = message.failed,
-            isLoading = message.content.isEmpty() && !message.failed,
-            isError = message.failed,
-            text = message.content,
+            canRetry = isFailed,
+            isLoading = isLoading,
+            isError = isFailed,
+            isFavorite = message.isFavorite,
+            text = effectiveText,
+            thoughts = thoughts,
+            attachments = message.attachments.map { it.name },
+            agentRun = agentRun,
+            toolEvents = toolEvents,
+            contentIdentity = message.id.toString(),
             onCopyClick = {
-                clipboardManager.setText(AnnotatedString(message.content))
+                clipboardManager.setText(AnnotatedString(effectiveText))
             },
             onRetryClick = onRetry
         )
@@ -154,14 +163,14 @@ fun OpponentChatBubble(
 
             if (toolEvents.isNotEmpty()) {
                 ToolTraceBlock(
-                    events = toolEvents,
+                    toolEvents = toolEvents,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
 
             if (thoughts.isNotBlank()) {
                 ThinkingBlock(
-                    thoughts = thoughts,
+                    thinkingContent = thoughts,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
@@ -388,7 +397,7 @@ fun GPTMobileIcon(loading: Boolean) {
         )
     } else {
         Icon(
-            imageVector = ImageVector.vectorResource(R.drawable.ic_launcher_foreground),
+            imageVector = ImageVector.vectorResource(R.drawable.ic_gpt_mobile_foreground),
             contentDescription = "GPT Mobile",
             modifier = Modifier.size(28.dp)
         )

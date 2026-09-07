@@ -25,7 +25,7 @@ data class LocalModel(
     val totalBytes: Long = 0L,
 
     @ColumnInfo(name = "status")
-    val status: LocalModelStatus = LocalModelStatus.NOT_DOWNLOADED,
+    val statusRaw: String = LocalModelStatus.NOT_DOWNLOADED.name,
 
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis() / 1000,
@@ -35,6 +35,29 @@ data class LocalModel(
 ) {
     val id: String
         get() = catalogEntryId
+
+    val status: LocalModelStatus
+        get() = runCatching { LocalModelStatus.valueOf(statusRaw) }.getOrDefault(LocalModelStatus.NOT_DOWNLOADED)
+
+    constructor(
+        catalogEntryId: String = "",
+        commitHash: String = "",
+        fileName: String = "",
+        relativeDirectory: String = "",
+        totalBytes: Long = 0L,
+        status: LocalModelStatus = LocalModelStatus.NOT_DOWNLOADED,
+        createdAt: Long = System.currentTimeMillis() / 1000,
+        updatedAt: Long = System.currentTimeMillis() / 1000
+    ) : this(
+        catalogEntryId = catalogEntryId,
+        commitHash = commitHash,
+        fileName = fileName,
+        relativeDirectory = relativeDirectory,
+        totalBytes = totalBytes,
+        statusRaw = status.name,
+        createdAt = createdAt,
+        updatedAt = updatedAt
+    )
 
     fun toRecord(): LocalModelRecord = LocalModelRecord(
         catalogEntryId = catalogEntryId,

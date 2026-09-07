@@ -28,6 +28,10 @@ interface LocalModelDao {
     @Query("DELETE FROM local_models WHERE catalog_entry_id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("UPDATE local_models SET status = :status, updated_at = :updatedAt WHERE catalog_entry_id = :catalogEntryId")
-    suspend fun updateStatus(catalogEntryId: String, status: LocalModelStatus, updatedAt: Long)
+    @Query("UPDATE local_models SET status = :statusRaw, updated_at = :updatedAt WHERE catalog_entry_id = :catalogEntryId")
+    suspend fun updateStatusRaw(catalogEntryId: String, statusRaw: String, updatedAt: Long)
+
+    suspend fun updateStatus(catalogEntryId: String, status: LocalModelStatus, updatedAt: Long) {
+        updateStatusRaw(catalogEntryId, status.name, updatedAt)
+    }
 }

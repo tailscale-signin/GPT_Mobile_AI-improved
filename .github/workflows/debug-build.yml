@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup JDK 21
         uses: actions/setup-java@v5
@@ -40,6 +40,7 @@ jobs:
 
       - name: Build Debug APK
         run: |
+          set -o pipefail
           ./gradlew assembleDebug --no-daemon --info 2>&1 | tee gradle-build.log || (echo "=== GRADLE FAILURE LOG ===" && tail -n 120 gradle-build.log && exit 1)
 
       - name: Locate and list built APKs
@@ -48,8 +49,8 @@ jobs:
           find app/build/outputs/ -type f -name "*.apk" || true
 
       - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gpt-mobile-debug-${{ github.sha }}
-          path: app/build/outputs/**/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn

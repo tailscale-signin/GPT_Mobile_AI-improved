@@ -12,8 +12,6 @@ import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
 import dev.melo.gptmobile.improved.data.network.NetworkClient
 import dev.melo.gptmobile.improved.data.repository.ToolConnectionRepository
 import dev.melo.gptmobile.improved.data.security.SecretVault
-import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError
-import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -235,7 +233,7 @@ private class McpAgentTool(
 }
 
 private fun Throwable.isUnauthorized(): Boolean = generateSequence(this) { it.cause }
-    .any { error -> error is StreamableHttpError && error.code == 401 }
+    .any { error -> error is McpHttpException && error.statusCode == 401 }
 
 private data class SearchProvider(
     val provider: WebSearchProvider,

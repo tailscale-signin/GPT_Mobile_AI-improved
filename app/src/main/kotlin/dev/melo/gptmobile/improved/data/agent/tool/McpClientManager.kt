@@ -3,14 +3,14 @@ package dev.melo.gptmobile.improved.data.agent.tool
 import dev.melo.gptmobile.improved.data.network.NetworkClient
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.ListToolsRequest
-import io.modelcontextprotocol.kotlin.sdk.types.PaginatedRequestParams
-import io.modelcontextprotocol.kotlin.sdk.types.Tool
+import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import java.net.URI
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -20,7 +20,18 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 class McpConnectionConfig(
     val connectionUid: String,
@@ -28,6 +39,8 @@ class McpConnectionConfig(
     val allowCleartext: Boolean,
     val authorizationHeader: String? = null
 )
+
+class McpHttpException(val statusCode: Int, message: String) : Exception(message)
 
 @Singleton
 class McpClientManager internal constructor(
@@ -37,25 +50,43 @@ class McpClientManager internal constructor(
     constructor(networkClient: NetworkClient) : this(networkClient())
 
     private val mutex = Mutex()
-
     private val sessions = mutableMapOf<String, Session>()
     private val inFlight = mutableMapOf<String, InFlight>()
+    private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun listTools(config: McpConnectionConfig): List<Tool> = withSession(config) { client ->
+    suspend fun listTools(config: McpConnectionConfig): List<Tool> = withSession(config) { session ->
         val tools = mutableListOf<Tool>()
-        val seenCursors = mutableSetOf<String>()
-        var pageCount = 0
         var cursor: String? = null
+        var pageCount = 0
         do {
             check(++pageCount <= MAX_TOOL_PAGES) { "MCP server returned too many tool pages." }
-            val page = client.listTools(
-                request = if (cursor == null) ListToolsRequest() else ListToolsRequest(PaginatedRequestParams(cursor))
-            )
-            tools += page.tools
-            check(tools.size <= MAX_DISCOVERED_TOOLS) { "MCP server returned too many tools." }
-            cursor = page.nextCursor
-            check(cursor == null || seenCursors.add(cursor)) { "MCP server returned a repeated tools cursor." }
-        } while (cursor != null)
+            val requestParams = buildJsonObject {
+                cursor?.let { put("cursor", it) }
+            }
+            val response = session.sendRpc("tools/list", requestParams)
+            val result = response["result"]?.jsonObject
+                ?: throw McpHttpException(200, "MCP tools/list returned invalid response: $response")
+            val toolList = result["tools"]?.jsonArray.orEmpty()
+            for (element in toolList) {
+                val obj = element.jsonObject
+                val name = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val description = obj["description"]?.jsonPrimitive?.contentOrNull
+                val inputSchemaObj = obj["inputSchema"]?.jsonObject
+                val schemaType = inputSchemaObj?.get("type")?.jsonPrimitive?.contentOrNull ?: "object"
+                val properties = inputSchemaObj?.get("properties")?.jsonObject
+                val requiredList = inputSchemaObj?.get("required")?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                tools += Tool(
+                    name = name,
+                    description = description,
+                    inputSchema = ToolInputSchema(
+                        type = schemaType,
+                        properties = properties,
+                        required = requiredList
+                    )
+                )
+            }
+            cursor = result["nextCursor"]?.jsonPrimitive?.contentOrNull
+        } while (!cursor.isNullOrBlank())
         tools
     }
 
@@ -63,13 +94,52 @@ class McpClientManager internal constructor(
         config: McpConnectionConfig,
         toolName: String,
         arguments: JsonObject
-    ): CallToolResult = withSession(config) { client ->
-        client.callTool(toolName, arguments)
+    ): CallToolResult = withSession(config) { session ->
+        val params = buildJsonObject {
+            put("name", toolName)
+            put("arguments", arguments)
+        }
+        val response = session.sendRpc("tools/call", params)
+        val result = response["result"]?.jsonObject
+            ?: throw McpHttpException(200, "MCP tools/call returned invalid response: $response")
+        val isError = result["isError"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
+        val contentArray = result["content"]?.jsonArray.orEmpty()
+        val blocks = mutableListOf<ContentBlock>()
+        for (item in contentArray) {
+            val itemObj = item.jsonObject
+            when (itemObj["type"]?.jsonPrimitive?.contentOrNull) {
+                "text" -> {
+                    val text = itemObj["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    blocks += TextContent(text)
+                }
+                "resource" -> {
+                    val resObj = itemObj["resource"]?.jsonObject
+                    if (resObj != null) {
+                        val uri = resObj["uri"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                        val mimeType = resObj["mimeType"]?.jsonPrimitive?.contentOrNull
+                        val text = resObj["text"]?.jsonPrimitive?.contentOrNull
+                        if (text != null) {
+                            blocks += EmbeddedResource(TextResourceContents(uri = uri, mimeType = mimeType, text = text))
+                        } else {
+                            val blob = resObj["blob"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            blocks += EmbeddedResource(BlobResourceContents(uri = uri, mimeType = mimeType, blob = blob))
+                        }
+                    }
+                }
+                "image" -> {
+                    val data = itemObj["data"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val mimeType = itemObj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "image/png"
+                    blocks += ImageContent(data = data, mimeType = mimeType)
+                }
+            }
+        }
+        val structured = result["structuredContent"]?.jsonObject
+        CallToolResult(content = blocks, isError = isError, structuredContent = structured)
     }
 
     suspend fun close(connectionUid: String) {
         val session = takeSession(connectionUid) ?: return
-        runCatching { session.client.close() }
+        session.close()
     }
 
     suspend fun closeAll() {
@@ -79,13 +149,13 @@ class McpClientManager internal constructor(
         } finally {
             mutex.unlock()
         }
-        active.forEach { session -> runCatching { session.client.close() } }
+        active.forEach { it.close() }
     }
 
-    private suspend fun <T> withSession(config: McpConnectionConfig, block: suspend (Client) -> T): T {
+    private suspend fun <T> withSession(config: McpConnectionConfig, block: suspend (Session) -> T): T {
         val session = session(config)
         return try {
-            block(session.client)
+            block(session)
         } catch (error: CancellationException) {
             withContext(NonCancellable) { invalidate(config.connectionUid, session) }
             throw error
@@ -115,20 +185,12 @@ class McpClientManager internal constructor(
             }
             awaiting?.await()
             if (awaiting != null) continue
-            withContext(NonCancellable) { stale?.let { runCatching { it.client.close() } } }
+            withContext(NonCancellable) { stale?.close() }
 
             val result = runCatching {
-                val transport = StreamableHttpClientTransport(httpClient, config.endpointUrl) {
-                    config.authorizationHeader?.let { header(HttpHeaders.Authorization, it) }
-                }
-                val client = Client(Implementation(name = CLIENT_NAME, version = CLIENT_VERSION))
-                try {
-                    client.connect(transport)
-                    Session(key, client)
-                } catch (error: Exception) {
-                    withContext(NonCancellable) { runCatching { client.close() } }
-                    throw error
-                }
+                val session = Session(key, config, httpClient)
+                session.initialize()
+                session
             }
             withContext(NonCancellable) {
                 mutex.lock()
@@ -153,7 +215,7 @@ class McpClientManager internal constructor(
         } finally {
             mutex.unlock()
         }
-        withContext(NonCancellable) { removed?.let { runCatching { it.client.close() } } }
+        withContext(NonCancellable) { removed?.close() }
     }
 
     private suspend fun takeSession(connectionUid: String): Session? {
@@ -184,14 +246,71 @@ class McpClientManager internal constructor(
         return "$endpointUrl|${authorizationHeader.orEmpty().sha256()}"
     }
 
-    private data class Session(val key: String, val client: Client)
+    private class Session(
+        val key: String,
+        private val config: McpConnectionConfig,
+        private val httpClient: HttpClient
+    ) {
+        private var messageIdCounter = 0
+        private val json = Json { ignoreUnknownKeys = true }
+
+        suspend fun initialize() {
+            val initParams = buildJsonObject {
+                put("protocolVersion", "2024-11-05")
+                put("capabilities", buildJsonObject {
+                    put("tools", buildJsonObject {})
+                })
+                put("clientInfo", buildJsonObject {
+                    put("name", CLIENT_NAME)
+                    put("version", CLIENT_VERSION)
+                })
+            }
+            sendRpc("initialize", initParams)
+        }
+
+        suspend fun sendRpc(method: String, params: JsonObject): JsonObject {
+            val id = ++messageIdCounter
+            val rpcRequest = buildJsonObject {
+                put("jsonrpc", "2.0")
+                put("id", id)
+                put("method", method)
+                put("params", params)
+            }
+            val response: HttpResponse = httpClient.post(config.endpointUrl) {
+                contentType(ContentType.Application.Json)
+                config.authorizationHeader?.let { header(HttpHeaders.Authorization, it) }
+                setBody(rpcRequest.toString())
+            }
+            if (response.status.value == 401) {
+                throw McpHttpException(401, "MCP authentication failed (401 Unauthorized)")
+            }
+            if (!response.status.isSuccess()) {
+                throw McpHttpException(response.status.value, "MCP request failed with HTTP ${response.status.value}")
+            }
+            val responseText = response.bodyAsText()
+            val responseObj = runCatching { json.parseToJsonElement(responseText).jsonObject }.getOrElse {
+                throw McpHttpException(response.status.value, "Malformed JSON-RPC response from MCP server: $responseText")
+            }
+            responseObj["error"]?.jsonObject?.let { err ->
+                val code = err["code"]?.jsonPrimitive?.intOrNull ?: -1
+                val msg = err["message"]?.jsonPrimitive?.contentOrNull ?: "Unknown MCP error"
+                throw McpHttpException(code, msg)
+            }
+            return responseObj
+        }
+
+        fun close() {
+            // Stateless HTTP JSON-RPC does not require explicit remote teardown
+        }
+    }
+
     private data class InFlight(val key: String, val deferred: CompletableDeferred<Session>)
 
     private companion object {
         const val CLIENT_NAME = "gpt-mobile"
         const val CLIENT_VERSION = "0.8.0"
-        const val MAX_TOOL_PAGES = Int.MAX_VALUE
-        const val MAX_DISCOVERED_TOOLS = Int.MAX_VALUE
+        const val MAX_TOOL_PAGES = 50
+        const val MAX_DISCOVERED_TOOLS = 200
         const val MAX_ENDPOINT_LENGTH = 32 * 1024
         const val MAX_AUTHORIZATION_HEADER_LENGTH = 128 * 1024
     }

@@ -4,16 +4,8 @@ import dev.melo.gptmobile.improved.data.agent.AgentResourceLink
 import dev.melo.gptmobile.improved.data.agent.AgentToolDefinition
 import dev.melo.gptmobile.improved.data.agent.AgentToolResult
 import dev.melo.gptmobile.improved.data.agent.ToolResultContent
-import io.modelcontextprotocol.kotlin.sdk.types.AudioContent
-import io.modelcontextprotocol.kotlin.sdk.types.BlobResourceContents
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.EmbeddedResource
-import io.modelcontextprotocol.kotlin.sdk.types.ImageContent
-import io.modelcontextprotocol.kotlin.sdk.types.ResourceLink
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
-import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import java.security.MessageDigest
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -22,6 +14,78 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+
+// Lightweight, Kotlin 2.0-compatible MCP protocol models replacing io.modelcontextprotocol SDK
+@Serializable
+data class Tool(
+    val name: String,
+    val description: String? = null,
+    val inputSchema: ToolInputSchema = ToolInputSchema()
+)
+
+@Serializable
+data class ToolInputSchema(
+    val type: String = "object",
+    val properties: JsonObject? = null,
+    val required: List<String>? = null,
+    val defs: JsonObject? = null
+)
+
+@Serializable
+data class CallToolResult(
+    val content: List<ContentBlock> = emptyList(),
+    val isError: Boolean? = null,
+    val structuredContent: JsonObject? = null
+)
+
+@Serializable
+sealed interface ContentBlock
+
+@Serializable
+data class TextContent(val text: String) : ContentBlock
+
+@Serializable
+data class ResourceLink(
+    val uri: String,
+    val name: String? = null,
+    val title: String? = null,
+    val mimeType: String? = null
+) : ContentBlock
+
+@Serializable
+data class EmbeddedResource(val resource: ResourceContents) : ContentBlock
+
+@Serializable
+sealed interface ResourceContents {
+    val uri: String
+    val mimeType: String?
+}
+
+@Serializable
+data class TextResourceContents(
+    override val uri: String,
+    override val mimeType: String? = null,
+    val text: String
+) : ResourceContents
+
+@Serializable
+data class BlobResourceContents(
+    override val uri: String,
+    override val mimeType: String? = null,
+    val blob: String
+) : ResourceContents
+
+@Serializable
+data class ImageContent(
+    val data: String,
+    val mimeType: String
+) : ContentBlock
+
+@Serializable
+data class AudioContent(
+    val data: String,
+    val mimeType: String
+) : ContentBlock
 
 internal fun namespaceMcpToolName(alias: String, toolName: String): String {
     val raw = "mcp__${alias}__$toolName"

@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ChatRoomV2Dao {
 
-    @Query("SELECT * FROM chats_v2 ORDER BY updated_at DESC")
+    @Query("SELECT * FROM chat_rooms_v2 ORDER BY created_at DESC")
     fun getAll(): Flow<List<ChatRoomV2>>
 
     @Insert
@@ -27,9 +27,9 @@ interface ChatRoomV2Dao {
     @Delete
     suspend fun delete(chatRoom: ChatRoomV2)
 
-    @Query("SELECT * FROM chats_v2 WHERE chat_id = :id")
+    @Query("SELECT * FROM chat_rooms_v2 WHERE chat_id = :id")
     suspend fun get(id: Int): ChatRoomV2?
 
-    @Query("SELECT * FROM chats_v2 ORDER BY chat_id DESC LIMIT 1")
+    @Query("SELECT * FROM chat_rooms_v2 ORDER BY chat_id DESC LIMIT 1")
     suspend fun getLatest(): ChatRoomV2?
 }

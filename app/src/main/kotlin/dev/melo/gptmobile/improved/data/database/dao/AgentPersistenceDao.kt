@@ -44,13 +44,13 @@ interface AgentPersistenceDao {
     @Upsert
     suspend fun upsertModels(models: List<ChatPlatformModelV2>)
 
-    @Query("SELECT * FROM chats_v2 WHERE chat_id = :chatId")
+    @Query("SELECT * FROM chat_rooms_v2 WHERE chat_id = :chatId")
     suspend fun getChatRoom(chatId: Int): ChatRoomV2?
 
     @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId ORDER BY created_at, message_id")
     suspend fun getMessages(chatId: Int): List<MessageV2>
 
-    @Query("SELECT * FROM chat_platform_model_v2 WHERE chat_id = :chatId")
+    @Query("SELECT * FROM chat_platform_models_v2 WHERE chat_id = :chatId")
     suspend fun getModels(chatId: Int): List<ChatPlatformModelV2>
 
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND status = 'COMPLETED' ORDER BY created_at, run_id")
@@ -118,13 +118,13 @@ interface AgentPersistenceDao {
 
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
-        val chatRoom = if (request.chatRoom.id == 0) {
-            request.chatRoom.copy(id = insertChatRoom(request.chatRoom).toInt())
+        val chatRoom = if (request.chatRoom.chatId == 0) {
+            request.chatRoom.copy(chatId = insertChatRoom(request.chatRoom).toInt())
         } else {
             updateChatRoom(request.chatRoom)
             request.chatRoom
         }
-        val userMessage = request.userMessage.copy(chatId = chatRoom.id).let { message ->
+        val userMessage = request.userMessage.copy(chatId = chatRoom.chatId).let { message ->
             if (message.id == 0) {
                 message.copy(id = insertMessage(message).toInt())
             } else {
@@ -134,7 +134,7 @@ interface AgentPersistenceDao {
         }
         val assistantMessages = request.runs.map { draft ->
             MessageV2(
-                chatId = chatRoom.id,
+                chatId = chatRoom.chatId,
                 content = "",
                 linkedMessageId = userMessage.id,
                 platformType = draft.profileUid,
@@ -145,7 +145,7 @@ interface AgentPersistenceDao {
         val runs = request.runs.zip(assistantMessages) { draft, assistantMessage ->
             AgentRun(
                 runId = draft.runId,
-                chatId = chatRoom.id,
+                chatId = chatRoom.chatId,
                 userMessageId = userMessage.id,
                 assistantMessageId = assistantMessage.id,
                 profileUid = draft.profileUid,
@@ -156,7 +156,7 @@ interface AgentPersistenceDao {
         }
         upsertModels(
             request.chatPlatformModels.map { (profileUid, model) ->
-                ChatPlatformModelV2(chatId = chatRoom.id, platformUid = profileUid, model = model)
+                ChatPlatformModelV2(chatId = chatRoom.chatId, platformUid = profileUid, model = model)
             }
         )
         return PersistAgentTurnResult(chatRoom, userMessage, assistantMessages, runs)
@@ -168,15 +168,15 @@ interface AgentPersistenceDao {
         messages: List<MessageV2>,
         chatPlatformModels: Map<String, String>
     ) {
-        require(chatRoom.id > 0)
+        require(chatRoom.chatId > 0)
         updateChatRoom(chatRoom)
 
         val incomingIds = messages.asSequence().map(MessageV2::id).filter { it > 0 }.toSet()
-        val removedMessages = getMessages(chatRoom.id).filter { it.id !in incomingIds }
+        val removedMessages = getMessages(chatRoom.chatId).filter { it.id !in incomingIds }
         if (removedMessages.isNotEmpty()) deleteMessages(removedMessages)
 
         messages.forEach { message ->
-            val persisted = message.copy(chatId = chatRoom.id)
+            val persisted = message.copy(chatId = chatRoom.chatId)
             if (persisted.id == 0) {
                 insertMessage(persisted)
             } else {
@@ -185,7 +185,7 @@ interface AgentPersistenceDao {
         }
         upsertModels(
             chatPlatformModels.map { (profileUid, model) ->
-                ChatPlatformModelV2(chatId = chatRoom.id, platformUid = profileUid, model = model)
+                ChatPlatformModelV2(chatId = chatRoom.chatId, platformUid = profileUid, model = model)
             }
         )
     }
@@ -265,17 +265,16 @@ interface AgentPersistenceDao {
         }
 
         val duplicate = sourceChat.copy(
-            id = 0,
+            chatId = 0,
             title = title,
-            createdAt = timestamp,
-            updatedAt = timestamp
-        ).let { it.copy(id = insertChatRoom(it).toInt()) }
+            createdAt = timestamp
+        ).let { it.copy(chatId = insertChatRoom(it).toInt()) }
 
         val messageIdMap = sourceMessages.associate { source ->
             val insertedId = insertMessage(
                 source.copy(
                     id = 0,
-                    chatId = duplicate.id,
+                    chatId = duplicate.chatId,
                     linkedMessageId = 0,
                     currentRunId = null
                 )
@@ -288,7 +287,7 @@ interface AgentPersistenceDao {
             updateMessage(
                 source.copy(
                     id = messageIdMap.getValue(source.id),
-                    chatId = duplicate.id,
+                    chatId = duplicate.chatId,
                     linkedMessageId = messageIdMap[source.linkedMessageId] ?: 0,
                     currentRunId = source.currentRunId?.let(runIdMap::get),
                     revisions = source.revisions.map { revision ->
@@ -302,7 +301,7 @@ interface AgentPersistenceDao {
             insertRun(
                 source.copy(
                     runId = runIdMap.getValue(source.runId),
-                    chatId = duplicate.id,
+                    chatId = duplicate.chatId,
                     userMessageId = messageIdMap.getValue(source.userMessageId),
                     assistantMessageId = messageIdMap.getValue(source.assistantMessageId)
                 )
@@ -318,7 +317,7 @@ interface AgentPersistenceDao {
         }
         upsertModels(
             getModels(sourceChatId).map { model ->
-                model.copy(chatId = duplicate.id, updatedAt = timestamp)
+                model.copy(chatId = duplicate.chatId)
             }
         )
         return duplicate

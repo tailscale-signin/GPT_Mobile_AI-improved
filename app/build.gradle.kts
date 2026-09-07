@@ -116,6 +116,14 @@ ksp {
     arg("dagger.hilt.disableModulesHaveInstallInCheck", "true")
 }
 
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().configureEach {
+    compilerOptions {
+        freeCompilerArgs.addAll(
+            "-Xskip-metadata-version-check"
+        )
+    }
+}
+
 // Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name
 tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach {
     enabled = false
@@ -127,7 +135,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.google.material)
-    implementation(platform(libs.androidx.compose.bom))
+    platform(libs.androidx.compose.bom).let {
+        implementation(it)
+        androidTestImplementation(it)
+    }
     implementation(libs.androidx.compose.viewmodel)
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -190,7 +201,6 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     androidTestImplementation(libs.room.testing)
     debugImplementation(libs.androidx.ui.tooling)

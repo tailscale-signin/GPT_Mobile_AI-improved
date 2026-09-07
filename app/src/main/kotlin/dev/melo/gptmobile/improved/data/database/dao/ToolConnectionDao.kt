@@ -11,6 +11,13 @@ import dev.melo.gptmobile.improved.data.database.entity.BuiltInAgentTool
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnection
 import dev.melo.gptmobile.improved.data.database.entity.ToolConnectionType
 
+private const val WEB_SEARCH_TOOL = "web_search"
+private val WEB_SEARCH_TYPES = listOf(
+    ToolConnectionType.FIRECRAWL,
+    ToolConnectionType.PERPLEXITY,
+    ToolConnectionType.EXA
+)
+
 @Dao
 interface ToolConnectionDao {
     @Query("SELECT * FROM tool_connections ORDER BY name, alias, connection_uid")
@@ -104,10 +111,5 @@ interface ToolConnectionDao {
     ) {
         deleteConnectionBindingsForType(profileUid, ToolConnectionType.MCP)
         bindings.forEach { insertBinding(it) }
-    }
-
-    companion object {
-        private const val WEB_SEARCH_TOOL = "web_search"
-        private val WEB_SEARCH_TYPES = listOf(ToolConnectionType.FIRECRAWL, ToolConnectionType.PERPLEXITY, ToolConnectionType.EXA)
     }
 }

@@ -14,8 +14,17 @@ interface LocalModelDao {
     @Query("SELECT * FROM local_models")
     fun getAll(): Flow<List<LocalModel>>
 
+    @Query("SELECT * FROM local_models")
+    fun observeAll(): Flow<List<LocalModel>>
+
+    @Query("SELECT * FROM local_models")
+    suspend fun getAllList(): List<LocalModel>
+
     @Query("SELECT * FROM local_models WHERE catalog_entry_id = :catalogEntryId LIMIT 1")
     suspend fun getByCatalogEntryId(catalogEntryId: String): LocalModel?
+
+    @Query("SELECT * FROM local_models WHERE catalog_entry_id = :catalogEntryId LIMIT 1")
+    suspend fun getById(catalogEntryId: String): LocalModel?
 
     @Query("SELECT * FROM local_models WHERE status = :status")
     fun getByStatus(status: String): Flow<List<LocalModel>>
@@ -31,6 +40,9 @@ interface LocalModelDao {
 
     @Query("DELETE FROM local_models WHERE catalog_entry_id = :catalogEntryId")
     suspend fun deleteByCatalogEntryId(catalogEntryId: String)
+
+    @Query("DELETE FROM local_models WHERE catalog_entry_id = :catalogEntryId")
+    suspend fun deleteById(catalogEntryId: String)
 
     @Query("UPDATE local_models SET status = :status, updated_at = :updatedAt WHERE catalog_entry_id = :catalogEntryId")
     suspend fun updateStatus(catalogEntryId: String, status: String, updatedAt: Long)

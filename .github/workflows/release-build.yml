@@ -235,19 +235,20 @@ jobs:
 
           EXISTING_ISSUE=$(gh issue list --repo "${{ github.repository }}" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
 
+          BODY_FILE=$(mktemp)
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body "Build failure reoccurred on run: $RUN_URL
+            cat <<EOF > "$BODY_FILE"
+Build failure reoccurred on run: $RUN_URL
 
 \`\`\`
 $ERROR_SNIPPET
-\`\`\`"
+\`\`\`
+EOF
+            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body-file "$BODY_FILE"
           else
-            gh issue create \
-              --repo "${{ github.repository }}" \
-              --title "$ISSUE_TITLE" \
-              --label "build-failure,bug" \
-              --body "### 🚨 Automated CI Build Failure Report
+            cat <<EOF > "$BODY_FILE"
+### 🚨 Automated CI Build Failure Report
 
 **Workflow:** $WORKFLOW_NAME
 **Branch / Ref:** \`$REF_NAME\`
@@ -262,5 +263,12 @@ $ERROR_SNIPPET
 \`\`\`
 
 ---
-*Generated automatically by CI workflow.*"
+*Generated automatically by CI workflow.*
+EOF
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "$ISSUE_TITLE" \
+              --label "build-failure,bug" \
+              --body-file "$BODY_FILE"
           fi
+          rm -f "$BODY_FILE"

@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -23,15 +24,12 @@ jobs:
       - name: Set up Swap Space and free disk memory
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc || true
-          # GitHub Actions ubuntu runners often have an active swapfile at /swapfile or /mnt/swapfile.
-          # Disable any active swapfile before modifying or create a dedicated new swap file.
           sudo swapoff -a || true
           sudo rm -f /swapfile_extra
           sudo fallocate -l 4G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=4096
           sudo chmod 600 /swapfile_extra
           sudo mkswap /swapfile_extra
           sudo swapon /swapfile_extra
-          # Also re-enable existing swap if available
           if [ -f /swapfile ]; then sudo swapon /swapfile || true; fi
           if [ -f /mnt/swapfile ]; then sudo swapon /mnt/swapfile || true; fi
           free -h
@@ -52,31 +50,93 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --info --stacktrace
+        id: build_debug
+        run: |
+          ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
+        if: steps.build_debug.outcome == 'success'
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon --info --stacktrace
+        id: build_release
+        run: |
+          ./gradlew assembleRelease --no-daemon --info --stacktrace 2>&1 | tee gradle-release-build.log
         continue-on-error: true
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
       - name: Upload Release APK artifact (if built)
         uses: actions/upload-artifact@v4
-        if: steps.build-release.outcome == 'success'
+        if: steps.build_release.outcome == 'success'
         id: upload-release
         with:
           name: app-release-unsigned
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: ignore
+
+      - name: Report Build Failure as GitHub Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+        run: |
+          ERROR_SNIPPET="No build log captured"
+          if [ -f gradle-debug-build.log ]; then
+            ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-debug-build.log | tail -n 60 || true)
+            if [ -z "$ERROR_SNIPPET" ]; then
+              ERROR_SNIPPET=$(tail -n 60 gradle-debug-build.log)
+            fi
+          elif [ -f gradle-release-build.log ]; then
+            ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-release-build.log | tail -n 60 || true)
+            if [ -z "$ERROR_SNIPPET" ]; then
+              ERROR_SNIPPET=$(tail -n 60 gradle-release-build.log)
+            fi
+          fi
+
+          ISSUE_TITLE="CI Build Failure on $REF_NAME (${COMMIT_SHA:0:7})"
+
+          # Check if an open issue with this title already exists
+          EXISTING_ISSUE=$(gh issue list --repo "${{ github.repository }}" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING_ISSUE" ]; then
+            echo "Issue #$EXISTING_ISSUE already exists for this build failure."
+            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body "Build failure reoccurred on run: $RUN_URL
+
+\`\`\`
+$ERROR_SNIPPET
+\`\`\`"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "$ISSUE_TITLE" \
+              --label "build-failure,bug" \
+              --body "### 🚨 Automated CI Build Failure Report
+
+**Workflow:** $WORKFLOW_NAME
+**Branch / Ref:** \`$REF_NAME\`
+**Commit:** \`$COMMIT_SHA\`
+**Run Details:** [View Actions Run]($RUN_URL)
+
+---
+
+### Exact Build Error / Failure Log (For AI & Maintainers)
+\`\`\`text
+$ERROR_SNIPPET
+\`\`\`
+
+---
+*Generated automatically by CI workflow.*"
+          fi
 
       - name: Extract Release Tag
         id: tag_name

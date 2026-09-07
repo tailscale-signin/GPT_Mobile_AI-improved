@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
 
     steps:
       - name: Checkout repository
@@ -87,11 +88,12 @@ jobs:
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build Release APK
+        id: build_release
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release APK..."
-          ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2
+          ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2 2>&1 | tee gradle-release-build.log
 
       - name: Build Release Bundle
         env:
@@ -207,3 +209,54 @@ jobs:
               --notes "Automated release build for $TAG_NAME (Package: dev.chungjungsoo.gptmobile.improved). Includes ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
           fi
           echo "GitHub Release $TAG_NAME published successfully."
+
+      - name: Report Build Failure as GitHub Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+        run: |
+          ERROR_SNIPPET="No build log captured"
+          if [ -f gradle-release-build.log ]; then
+            ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-release-build.log | tail -n 60 || true)
+            if [ -z "$ERROR_SNIPPET" ]; then
+              ERROR_SNIPPET=$(tail -n 60 gradle-release-build.log)
+            fi
+          fi
+
+          ISSUE_TITLE="Release Build Failure on $REF_NAME (${COMMIT_SHA:0:7})"
+
+          EXISTING_ISSUE=$(gh issue list --repo "${{ github.repository }}" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING_ISSUE" ]; then
+            echo "Issue #$EXISTING_ISSUE already exists for this build failure."
+            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body "Build failure reoccurred on run: $RUN_URL
+
+\`\`\`
+$ERROR_SNIPPET
+\`\`\`"
+          else
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "$ISSUE_TITLE" \
+              --label "build-failure,bug" \
+              --body "### 🚨 Automated CI Build Failure Report
+
+**Workflow:** $WORKFLOW_NAME
+**Branch / Ref:** \`$REF_NAME\`
+**Commit:** \`$COMMIT_SHA\`
+**Run Details:** [View Actions Run]($RUN_URL)
+
+---
+
+### Exact Build Error / Failure Log (For AI & Maintainers)
+\`\`\`text
+$ERROR_SNIPPET
+\`\`\`
+
+---
+*Generated automatically by CI workflow.*"
+          fi

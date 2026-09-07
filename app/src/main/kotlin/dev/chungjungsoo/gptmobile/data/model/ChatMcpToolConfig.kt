@@ -15,14 +15,16 @@ data class AvailableChatTool(
 )
 
 /**
- * Per-chat configuration for enabling or disabling specific tools.
+ * Per-chat configuration for enabling or disabling specific tools,
+ * and user-overridable execution limits (e.g., max tool calls).
  */
 @Serializable
 data class ChatMcpToolConfig(
     val enabledToolIds: Set<String> = emptySet(),
     val disabledToolIds: Set<String> = emptySet(),
     val allowAllByDefault: Boolean = true,
-    val allToolsDisabled: Boolean = false
+    val allToolsDisabled: Boolean = false,
+    val maxToolCalls: Int? = null
 ) {
     fun isToolEnabled(toolId: String): Boolean {
         if (allToolsDisabled) return false
@@ -54,5 +56,9 @@ data class ChatMcpToolConfig(
         } else {
             withToolEnabled(toolId)
         }
+    }
+
+    fun withMaxToolCalls(limit: Int?): ChatMcpToolConfig {
+        return copy(maxToolCalls = limit)
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
@@ -125,7 +126,7 @@ class ChatRepositoryImpl @Inject constructor(
             FileUtils.readImageBytesForLocalInference(context, filePath)
         }
     )
-    private val agentRunner = AgentRunner()
+    private val defaultAgentRunner = AgentRunner()
 
     override suspend fun completeChat(
         userMessages: List<MessageV2>,
@@ -165,7 +166,13 @@ class ChatRepositoryImpl @Inject constructor(
             }
             val trace = ToolTraceSession(runId, resolvedTools, toolEventRecorder)
 
-            agentRunner.run(session, runnerTools).collect { runEvent ->
+            val customRunner = if (chatToolConfig?.maxToolCalls != null) {
+                AgentRunner(limits = AgentRunLimits(maxToolCalls = chatToolConfig.maxToolCalls))
+            } else {
+                defaultAgentRunner
+            }
+
+            customRunner.run(session, runnerTools).collect { runEvent ->
                 when (runEvent) {
                     is AgentRunEvent.Provider -> when (val providerEvent = runEvent.event) {
                         is ProviderEvent.ThinkingDelta -> emit(ApiState.Thinking(providerEvent.text))

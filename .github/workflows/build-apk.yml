@@ -52,7 +52,15 @@ jobs:
 
       - name: Build Release APK
         id: build-release
-        run: ./gradlew assembleRelease --no-daemon --info --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log || {
+            echo "::error title=Build Failure Summary::Build failed. Extracting compiler and KSP errors below:"
+            echo "==================== KOTLIN / COMPILER ERRORS ===================="
+            grep -E "e: |error: |FAILURE:|Caused by:" build.log || tail -n 100 build.log
+            echo "=================================================================="
+            exit 1
+          }
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 

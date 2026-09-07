@@ -4,6 +4,7 @@ import dev.melo.gptmobile.improved.data.dto.google.request.GenerateContentReques
 import dev.melo.gptmobile.improved.data.dto.google.response.ErrorDetail
 import dev.melo.gptmobile.improved.data.dto.google.response.GenerateContentResponse
 import dev.melo.gptmobile.improved.util.applyPlatformStreamingTimeout
+import dev.melo.gptmobile.improved.util.readLine
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.header
@@ -16,7 +17,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 class GoogleAPIImpl @Inject constructor(
     private val networkClient: NetworkClient

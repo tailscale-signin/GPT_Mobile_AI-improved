@@ -5,6 +5,7 @@ import dev.melo.gptmobile.improved.data.dto.anthropic.response.ErrorDetail
 import dev.melo.gptmobile.improved.data.dto.anthropic.response.ErrorResponseChunk
 import dev.melo.gptmobile.improved.data.dto.anthropic.response.MessageResponseChunk
 import dev.melo.gptmobile.improved.util.applyPlatformStreamingTimeout
+import dev.melo.gptmobile.improved.util.readLine
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.accept
@@ -20,7 +21,6 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readLine
 import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private const val ANTHROPIC_FILES_BETA = "files-api-2025-04-14"

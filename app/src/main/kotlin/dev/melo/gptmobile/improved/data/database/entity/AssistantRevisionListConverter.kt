@@ -2,6 +2,7 @@ package dev.melo.gptmobile.improved.data.database.entity
 
 import androidx.room.TypeConverter
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class AssistantRevisionListConverter {
@@ -19,7 +20,7 @@ class AssistantRevisionListConverter {
             return emptyList()
         }
         return try {
-            json.decodeFromString(trimmed)
+            json.decodeFromString<List<AssistantRevision>>(trimmed)
         } catch (_: SerializationException) {
             emptyList()
         }

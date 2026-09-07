@@ -113,9 +113,8 @@ class ReadUrlTool(
         val client = HttpClient(OkHttp) {
             followRedirects = false
             engine {
-                dns = pinnedDns
-                clientCacheSize = 0
                 config {
+                    dns(pinnedDns)
                     followRedirects(false)
                     followSslRedirects(false)
                     proxy(Proxy.NO_PROXY)

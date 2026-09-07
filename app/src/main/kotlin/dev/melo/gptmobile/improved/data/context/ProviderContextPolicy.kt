@@ -52,7 +52,12 @@ data class ProviderContextPolicy(
                 )
             }
 
-            ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM -> {
+            ClientType.OLLAMA,
+            ClientType.OPENAI_COMPATIBLE,
+            ClientType.LM_STUDIO,
+            ClientType.VLLM,
+            ClientType.OPENROUTER,
+            ClientType.CUSTOM -> {
                 ProviderContextPolicy(
                     recentTurnWindow = 6,
                     historicalImageTurnWindow = 0,

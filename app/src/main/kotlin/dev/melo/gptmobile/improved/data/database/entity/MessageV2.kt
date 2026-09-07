@@ -11,9 +11,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class AssistantRevision(
-    val revisionId: String,
-    val content: String,
-    val createdAt: Long,
+    val revisionId: String = "",
+    val content: String = "",
+    val createdAt: Long = System.currentTimeMillis() / 1000,
     val timeline: List<AssistantTimelineItem> = emptyList(),
     val attachments: List<ChatAttachment> = emptyList()
 )
@@ -62,7 +62,10 @@ data class MessageV2(
     val activeRevisionIndex: Int = 0,
 
     @ColumnInfo(name = "timeline", defaultValue = "[]")
-    val timeline: List<AssistantTimelineItem> = emptyList()
+    val timeline: List<AssistantTimelineItem> = emptyList(),
+
+    @ColumnInfo(name = "thoughts", defaultValue = "''")
+    val thoughts: String = ""
 ) {
     fun getEffectiveContent(): String {
         if (sender != 1 || assistantRevisions.isEmpty()) {
@@ -90,3 +93,5 @@ data class MessageV2(
         return if (revAttachments.isNotEmpty()) revAttachments else attachments
     }
 }
+
+fun MessageV2.resetActiveRevision(): MessageV2 = copy(activeRevisionIndex = 0)

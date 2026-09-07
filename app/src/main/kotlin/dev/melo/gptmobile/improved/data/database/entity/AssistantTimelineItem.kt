@@ -1,6 +1,7 @@
 package dev.melo.gptmobile.improved.data.database.entity
 
 import kotlinx.serialization.Serializable
+import java.util.UUID
 
 @Serializable
 enum class AssistantTimelineItemType {
@@ -11,7 +12,7 @@ enum class AssistantTimelineItemType {
 
 @Serializable
 data class AssistantTimelineItem(
-    val id: String,
+    val id: String = UUID.randomUUID().toString(),
     val type: AssistantTimelineItemType,
     val content: String = "",
     val toolName: String? = null,
@@ -28,4 +29,18 @@ fun List<AssistantTimelineItem>.extractThought(): String? {
 fun List<AssistantTimelineItem>.extractText(): String {
     return filter { it.type == AssistantTimelineItemType.TEXT_CHUNK }
         .joinToString("") { it.content }
+}
+
+fun List<AssistantTimelineItem>.appendChronologicalText(text: String): List<AssistantTimelineItem> {
+    if (text.isEmpty()) return this
+    val last = lastOrNull()
+    return if (last?.type == AssistantTimelineItemType.TEXT_CHUNK && last.toolName == null) {
+        dropLast(1) + last.copy(content = last.content + text)
+    } else {
+        this + AssistantTimelineItem(
+            id = UUID.randomUUID().toString(),
+            type = AssistantTimelineItemType.TEXT_CHUNK,
+            content = text
+        )
+    }
 }

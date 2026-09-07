@@ -71,7 +71,7 @@ object SanitizedChatBackup {
             database.execSQL("VACUUM INTO '$escapedDestination'")
         }
         SQLiteDatabase.openDatabase(destination.path, null, SQLiteDatabase.OPEN_READWRITE).use { database ->
-            database.execSQL("UPDATE platform_v2 SET token = NULL")
+            database.execSQL("UPDATE platforms_v2 SET token = NULL")
         }
     }
 

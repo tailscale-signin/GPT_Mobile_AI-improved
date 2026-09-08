@@ -11,6 +11,9 @@
     <string name="delete">Delete</string>
     <string name="retry">Retry</string>
     <string name="go_back">Go back</string>
+    <string name="back">Back</string>
+    <string name="next">Next</string>
+    <string name="finish">Finish</string>
     <string name="save">Save</string>
     <string name="error">Error</string>
     <string name="clear">Clear</string>
@@ -68,6 +71,10 @@
     <string name="model">Model</string>
     <string name="model_name">Model Name</string>
     <string name="model_supporting">e.g. gpt-4o, claude-3-5-sonnet-20241022</string>
+    <string name="model_description">Enter the model identifier to use</string>
+    <string name="model_examples">Common models: %1$s</string>
+    <string name="step_model">Model Selection</string>
+    <string name="need_help">Need help getting an API key?</string>
     <string name="api_model">Model</string>
     <string name="timeout">Timeout</string>
     <string name="extended_thinking">Extended Thinking / Reasoning</string>
@@ -109,4 +116,8 @@
     <string name="openrouter_no_models_found">No models found</string>
     <string name="openrouter_load_error">Failed to load OpenRouter models</string>
     <string name="openrouter_context_length">Context: %1$d tokens</string>
+    <string name="get_started">Get Started</string>
+    <string name="gpt_mobile_introduction_logo">GPT Mobile Introduction Logo</string>
+    <string name="welcome_title">Welcome to GPT Mobile</string>
+    <string name="welcome_description">Chat with OpenAI, Anthropic, Gemini, Groq, Ollama, OpenRouter, and local on-device models all in one place.</string>
 </resources>

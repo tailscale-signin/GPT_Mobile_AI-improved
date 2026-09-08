@@ -8,6 +8,14 @@ on:
       - master
       - release-*
 
+permissions:
+  contents: write
+  issues: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+
 jobs:
   build:
     name: Build and Sign Release APK & AAB
@@ -42,7 +50,7 @@ jobs:
           free -h
 
       - name: Setup JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: "21"
@@ -122,7 +130,6 @@ jobs:
           echo "Using apksigner at: $APKSIGNER"
 
           shopt -s nullglob globstar
-          # Find all release apks anywhere in outputs
           FOUND_APKS=(app/build/outputs/**/release*/**/*.apk app/build/outputs/**/release/*.apk)
           echo "Found ${#FOUND_APKS[@]} candidate APK(s) to sign"
 

@@ -16,6 +16,7 @@ permissions:
   issues: write
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
 jobs:
@@ -40,7 +41,7 @@ jobs:
           free -h
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -61,6 +62,7 @@ jobs:
       - name: Build Debug APK
         id: build_debug
         run: |
+          set -o pipefail
           ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log
           echo "Listing debug build outputs:"
           ls -laR app/build/outputs/apk/ || true
@@ -72,12 +74,16 @@ jobs:
         if: steps.build_debug.outcome == 'success'
         with:
           name: app-debug
-          path: app/build/outputs/apk/**/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/**/*.apk
           if-no-files-found: warn
 
       - name: Build Release APK
         id: build_release
         run: |
+          set -o pipefail
           ./gradlew assembleRelease --no-daemon --info --stacktrace 2>&1 | tee gradle-release-build.log
         continue-on-error: true
         env:
@@ -89,7 +95,9 @@ jobs:
         id: upload-release
         with:
           name: app-release-unsigned
-          path: app/build/outputs/apk/release/**/*.apk
+          path: |
+            app/build/outputs/apk/release/**/*.apk
+            app/build/outputs/**/*.apk
           if-no-files-found: ignore
 
       - name: Report Build Failure as GitHub Issue

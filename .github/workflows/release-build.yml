@@ -97,6 +97,7 @@ jobs:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release APK..."
+          set -o pipefail
           ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2 2>&1 | tee gradle-release-build.log
 
       - name: Build Release Bundle
@@ -124,6 +125,11 @@ jobs:
           # Find all release apks anywhere in outputs
           FOUND_APKS=(app/build/outputs/**/release*/**/*.apk app/build/outputs/**/release/*.apk)
           echo "Found ${#FOUND_APKS[@]} candidate APK(s) to sign"
+
+          if [ ${#FOUND_APKS[@]} -eq 0 ]; then
+            echo "ERROR: Gradle assembleRelease finished without creating any APK files!"
+            exit 1
+          fi
 
           for apk in "${FOUND_APKS[@]}"; do
             case "$apk" in
@@ -181,7 +187,7 @@ jobs:
           path: |
             app/build/outputs/apk/release/signed/*.apk
             app/build/outputs/**/*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload Release Bundle
         uses: actions/upload-artifact@v4
@@ -233,8 +239,8 @@ jobs:
           fi
 
           if [ ${#ASSETS_TO_UPLOAD[@]} -eq 0 ]; then
-            echo "No release assets found to upload. Skipping release creation."
-            exit 0
+            echo "ERROR: No release assets found to upload to GitHub Release!"
+            exit 1
           fi
 
           echo "Found ${#ASSETS_TO_UPLOAD[@]} asset(s) to publish: ${ASSETS_TO_UPLOAD[*]}"

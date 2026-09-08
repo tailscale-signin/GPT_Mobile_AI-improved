@@ -168,6 +168,8 @@ class ChatRepositoryImpl @Inject constructor(
 
             val customRunner = if (chatToolConfig?.maxToolCalls != null) {
                 AgentRunner(limits = AgentRunLimits(maxToolCalls = chatToolConfig.maxToolCalls))
+            } else if (platform.maxToolCalls != Int.MAX_VALUE) {
+                AgentRunner(limits = AgentRunLimits(maxToolCalls = platform.maxToolCalls))
             } else {
                 defaultAgentRunner
             }

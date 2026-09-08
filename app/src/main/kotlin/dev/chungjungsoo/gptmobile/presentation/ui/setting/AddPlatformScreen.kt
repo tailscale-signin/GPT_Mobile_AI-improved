@@ -13,11 +13,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -68,6 +70,7 @@ fun AddPlatformScreen(
     var apiKey by remember { mutableStateOf("") }
     var model by remember { mutableStateOf("") }
     var isReasoningEnabled by remember { mutableStateOf(false) }
+    var showOpenRouterPicker by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
@@ -185,6 +188,24 @@ fun AddPlatformScreen(
                     OutlinedTextField(value = apiUrl, onValueChange = { apiUrl = it }, label = { Text(stringResource(R.string.api_url)) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), singleLine = true)
                     OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text(stringResource(R.string.api_key)) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), singleLine = true, visualTransformation = PasswordVisualTransformation(), supportingText = { Text(stringResource(R.string.api_key_supporting)) })
                     OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text(stringResource(R.string.model)) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), singleLine = true, supportingText = { Text(stringResource(R.string.model_supporting)) })
+
+                    // Exclusively enable OpenRouter model picker for OpenRouter API
+                    if (clientType == ClientType.OPENROUTER) {
+                        OutlinedButton(
+                            onClick = { showOpenRouterPicker = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.List,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text(text = stringResource(R.string.openrouter_browse_models))
+                        }
+                    }
+
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(text = stringResource(R.string.extended_thinking), style = MaterialTheme.typography.bodyLarge)
@@ -213,6 +234,16 @@ fun AddPlatformScreen(
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showOpenRouterPicker) {
+        OpenRouterModelPickerDialog(
+            currentModel = model,
+            onDismiss = { showOpenRouterPicker = false },
+            onModelSelected = { selectedModel ->
+                model = selectedModel
+            }
+        )
     }
 
     LocalModelDownloadDialogHost(

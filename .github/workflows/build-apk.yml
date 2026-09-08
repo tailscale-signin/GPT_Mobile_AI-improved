@@ -49,8 +49,10 @@ jobs:
       - name: Build Debug APK
         id: build_debug
         run: |
-          set -o pipefail
-          ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log
+          ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log || {
+            echo "::error title=Debug Build Failed::$(tail -n 30 gradle-debug-build.log | tr '\n' ' ')"
+            exit 1
+          }
           echo "Listing all generated APK files:"
           find app/build/outputs/ -type f -name "*.apk" || true
 
@@ -67,8 +69,10 @@ jobs:
       - name: Build Release APK
         id: build_release
         run: |
-          set -o pipefail
-          ./gradlew assembleRelease --no-daemon --info --stacktrace 2>&1 | tee gradle-release-build.log
+          ./gradlew assembleRelease --no-daemon --info --stacktrace 2>&1 | tee gradle-release-build.log || {
+            echo "::error title=Release Build Failed::$(tail -n 30 gradle-release-build.log | tr '\n' ' ')"
+            exit 1
+          }
         continue-on-error: true
 
       - name: Upload Release APK artifact (if built)
@@ -82,17 +86,27 @@ jobs:
             app/build/outputs/**/*.apk
           if-no-files-found: ignore
 
-      - name: Upload Build Log on Failure
+      - name: Output Failure Summary for Logs
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-build-failure-log
-          path: |
-            gradle-debug-build.log
-            gradle-release-build.log
-          if-no-files-found: ignore
+        run: |
+          echo "========================================================"
+          echo "         CI BUILD ERROR LOG SUMMARY (LAST 150 LINES)    "
+          echo "========================================================"
+          if [ -f gradle-debug-build.log ]; then
+            echo "=== GRADLE DEBUG BUILD LOG (ERRORS) ==="
+            grep -E -C 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:|FAILURE:)" gradle-debug-build.log || true
+            echo "=== LAST 120 LINES OF LOG ==="
+            tail -n 120 gradle-debug-build.log
+          fi
+          if [ -f gradle-release-build.log ]; then
+            echo "=== GRADLE RELEASE BUILD LOG (ERRORS) ==="
+            grep -E -C 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:|FAILURE:)" gradle-release-build.log || true
+            echo "=== LAST 120 LINES OF LOG ==="
+            tail -n 120 gradle-release-build.log
+          fi
+          echo "========================================================"
 
-      - name: Report Build Failure as GitHub Issue
+      - name: Create Failure Issue with Full Log
         if: failure()
         continue-on-error: true
         env:
@@ -102,55 +116,38 @@ jobs:
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           WORKFLOW_NAME: ${{ github.workflow }}
         run: |
-          ERROR_SNIPPET="No build log captured"
+          LOG_CONTENT="No build log found"
           if [ -f gradle-debug-build.log ]; then
-            ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-debug-build.log | tail -n 60 || true)
-            if [ -z "$ERROR_SNIPPET" ]; then
-              ERROR_SNIPPET=$(tail -n 60 gradle-debug-build.log)
-            fi
+            LOG_CONTENT=$(tail -n 120 gradle-debug-build.log)
           elif [ -f gradle-release-build.log ]; then
-            ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-release-build.log | tail -n 60 || true)
-            if [ -z "$ERROR_SNIPPET" ]; then
-              ERROR_SNIPPET=$(tail -n 60 gradle-release-build.log)
-            fi
+            LOG_CONTENT=$(tail -n 120 gradle-release-build.log)
           fi
 
           SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
           ISSUE_TITLE="CI Build Failure on $REF_NAME ($SHORT_COMMIT)"
 
-          BODY_FILE=$(mktemp)
-          {
-            echo "### 🚨 Automated CI Build Failure Report"
-            echo ""
-            echo "**Workflow:** $WORKFLOW_NAME"
-            echo "**Branch / Ref:** \`$REF_NAME\`"
-            echo "**Commit:** \`$COMMIT_SHA\`"
-            echo "**Run Details:** [View Actions Run]($RUN_URL)"
-            echo ""
-            echo "---"
-            echo ""
-            echo "### Exact Build Error / Failure Log (For AI & Maintainers)"
-            echo "\`\`\`text"
-            echo "$ERROR_SNIPPET"
-            echo "\`\`\`"
-            echo ""
-            echo "---"
-            echo "*Generated automatically by CI workflow.*"
-          } > "$BODY_FILE"
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$ISSUE_TITLE" \
+            --label "build-failure" \
+            --body "### CI Build Failure Log
+**Workflow:** $WORKFLOW_NAME
+**Commit:** \`$COMMIT_SHA\`
+**Run:** [View Run]($RUN_URL)
 
-          EXISTING_ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number' 2>/dev/null || true)
+\`\`\`text
+$LOG_CONTENT
+\`\`\`" || true
 
-          if [ -n "$EXISTING_ISSUE" ]; then
-            echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE" || true
-          else
-            gh issue create \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$ISSUE_TITLE" \
-              --label "build-failure,bug" \
-              --body-file "$BODY_FILE" || echo "Unable to create issue (issues might be disabled for this repository)"
-          fi
-          rm -f "$BODY_FILE"
+      - name: Upload Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-build-failure-log
+          path: |
+            gradle-debug-build.log
+            gradle-release-build.log
+          if-no-files-found: ignore
 
       - name: Extract Release Tag
         id: tag_name

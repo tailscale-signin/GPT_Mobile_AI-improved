@@ -15,7 +15,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 fun PlatformSettingScreen(
     modifier: Modifier = Modifier,
     settingViewModel: PlatformSettingViewModel = hiltViewModel(),
-    onNavigationClick: () -> Unit = {}
+    onNavigationClick: () -> Unit = {},
+    onNavigateToLocalModels: () -> Unit = {}
 ) {
     // Intentionally empty until the UI is migrated to the current view-model API.
 }

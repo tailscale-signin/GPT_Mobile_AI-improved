@@ -130,6 +130,19 @@
     <string name="feedback_description">Share feedback or request a feature</string>
     <string name="feedback_icon">Feedback</string>
 
+    <string name="mcp_server">MCP Server</string>
+    <string name="search">Search</string>
+    <string name="tool_trace_status_running">Running</string>
+    <string name="tool_trace_status_completed">Completed</string>
+    <string name="tool_trace_status_failed">Failed</string>
+    <string name="tool_trace_status_canceled">Canceled</string>
+    <string name="tool_trace_collapse_content_description">Collapse tool trace</string>
+    <string name="tool_trace_expand_content_description">Expand tool trace</string>
+    <string name="tool_trace_arguments">Arguments</string>
+    <string name="tool_trace_result">Result</string>
+    <string name="tool_trace_error">Error</string>
+    <string name="tool_trace_timing_started_at">Started at</string>
+
     <plurals name="duration_seconds">
         <item quantity="one">%1$d second</item>
         <item quantity="other">%1$d seconds</item>

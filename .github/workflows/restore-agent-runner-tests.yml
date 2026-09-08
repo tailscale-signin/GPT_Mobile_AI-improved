@@ -1,0 +1,29 @@
+name: Restore AgentRunner regression tests
+
+on:
+  push:
+    paths:
+      - '.github/workflows/restore-agent-runner-tests.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preserve new tests and restore regression suite
+        run: |
+          set -euo pipefail
+          cp app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerGracefulFinalizationTest.kt
+          sed -i 's/class AgentRunnerTest/class AgentRunnerGracefulFinalizationTest/' app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerGracefulFinalizationTest.kt
+          git checkout 078bbb48b8bb15cccea7cd4ed257e6fbc93c8a5f -- app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt
+          rm .github/workflows/restore-agent-runner-tests.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Restore AgentRunner regression test coverage'
+          git push

@@ -182,7 +182,7 @@ private fun AssistantTimelineContent(timeline: List<AssistantTimelineItem>, tool
             AssistantTimelineItemType.TOOL -> item.toolSequence?.let(events::get)?.let { event ->
                 ToolTraceBlock(
                     events = listOf(event),
-                    modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
+                    modifier = Modifier.padding(top = 8.dp, start = 8.dp),
                     contentIdentity = "$contentIdentity:tool:${event.sequence}"
                 )
             }
@@ -212,7 +212,7 @@ private fun LegacyAssistantContent(
         thoughts = effectiveThoughts, contentIdentity = contentIdentity, isLoading = isThinking
     )
     ToolTraceBlock(
-        events = toolEvents, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
+        events = toolEvents, modifier = Modifier.padding(top = 8.dp, start = 8.dp),
         contentIdentity = contentIdentity
     )
     Card(shape = RoundedCornerShape(32.dp), colors = cardColor) {
@@ -232,11 +232,20 @@ private fun LegacyAssistantContent(
 @Composable
 fun GPTMobileIcon(loading: Boolean) {
     Box(
-        modifier = Modifier.padding(start = 8.dp).size(40.dp).clip(RoundedCornerShape(40.dp)).background(Color(0xFF00A67D)),
+        modifier = Modifier.padding(start = 8.dp).size(40.dp).clip(RoundedCornerShape(40.dp)).background(Color.Cyan),
         contentAlignment = Alignment.Center
     ) {
-        if (loading) CircularProgressIndicator(Modifier.size(40.dp))
-        Image(painterResource(R.drawable.ic_gpt_mobile_no_padding), null, Modifier.size(24.dp))
+        if (loading) CircularProgressIndicator(
+            modifier = Modifier.size(40.dp),
+            color = Color.White,
+            trackColor = Color.Transparent
+        )
+        Icon(
+            painter = painterResource(R.drawable.ic_gpt_mobile_no_padding),
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+            tint = Color.White
+        )
     }
 }
 
@@ -264,7 +273,7 @@ fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatfo
 @Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text))
 }
-@Composable private fun FavoriteIcon(isFavorite: Boolean, onFavoriteClick: () -> Unit) = IconButton(onClick = onFavoriteClick) {
+@Composable private fun FavoriteIcon(isFavorite: Boolean, onFavoriteClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(
         if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
         stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),

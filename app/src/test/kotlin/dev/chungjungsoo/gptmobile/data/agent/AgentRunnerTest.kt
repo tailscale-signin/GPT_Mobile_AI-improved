@@ -76,7 +76,9 @@ class AgentRunnerTest {
             AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
         }
 
-        val events = AgentRunner().run(session, listOf(tool)).toList()
+        val events = AgentRunner(
+            limits = AgentRunLimits(maxConcurrentTools = 4)
+        ).run(session, listOf(tool)).toList()
 
         assertEquals(4, maxActive.get())
         assertEquals(6, events.filterIsInstance<AgentRunEvent.ToolFinished>().size)
@@ -127,28 +129,36 @@ class AgentRunnerTest {
     }
 
     @Test
-    fun `tool call ceiling stops before any excess call executes`() = runBlocking {
+    fun `tool call ceiling executes available calls and finalizes gracefully`() = runBlocking {
         val executions = AtomicInteger()
-        val session = session { _, _ ->
-            flow {
-                repeat(11) { emit(toolCall("call_$it")) }
-                emit(ProviderEvent.Completed)
+        val providerCalls = AtomicInteger()
+        val exposedToolCounts = mutableListOf<Int>()
+        val session = session { tools, exchanges ->
+            exposedToolCounts += tools.size
+            when (providerCalls.getAndIncrement()) {
+                0 -> flow {
+                    repeat(11) { emit(toolCall("call_$it")) }
+                    emit(ProviderEvent.Completed)
+                }
+                else -> flow {
+                    assertEquals(11, exchanges.single().results.size)
+                    emit(ProviderEvent.TextDelta("final"))
+                    emit(ProviderEvent.Completed)
+                }
             }
         }
         val tool = tool { callId, _ ->
             executions.incrementAndGet()
-            AgentToolResult(callId, ToolResultContent.Text("unexpected"), isError = false)
+            AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
         }
 
         val events = AgentRunner().run(session, listOf(tool)).toList()
 
-        assertEquals(0, executions.get())
-        assertTrue(events.last() is AgentRunEvent.Provider)
-        assertTrue((events.last() as AgentRunEvent.Provider).event is ProviderEvent.Failed)
-        assertEquals(
-            "Agent stopped before exceeding 10 tool calls.",
-            ((events.last() as AgentRunEvent.Provider).event as ProviderEvent.Failed).message
-        )
+        assertEquals(11, executions.get())
+        assertEquals(listOf(1, 0), exposedToolCounts)
+        assertTrue(events.any { it is AgentRunEvent.Notice })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
     }
 
     @Test

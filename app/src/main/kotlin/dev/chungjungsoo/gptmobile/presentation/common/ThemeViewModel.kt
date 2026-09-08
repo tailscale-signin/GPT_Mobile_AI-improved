@@ -12,12 +12,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @HiltViewModel
 class ThemeViewModel @Inject constructor(private val settingRepository: SettingRepository) : ViewModel() {
 
     private val _themeSetting = MutableStateFlow(ThemeSetting())
     val themeSetting = _themeSetting.asStateFlow()
+
+    private val themeMutex = Mutex()
 
     init {
         fetchThemes()
@@ -30,20 +34,22 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
     }
 
     fun updateDynamicTheme(theme: DynamicTheme) {
-        _themeSetting.update { setting ->
-            setting.copy(dynamicTheme = theme)
-        }
         viewModelScope.launch {
-            settingRepository.updateThemes(_themeSetting.value)
+            persistTheme { it.copy(dynamicTheme = theme) }
         }
     }
 
     fun updateThemeMode(theme: ThemeMode) {
-        _themeSetting.update { setting ->
-            setting.copy(themeMode = theme)
-        }
         viewModelScope.launch {
-            settingRepository.updateThemes(_themeSetting.value)
+            persistTheme { it.copy(themeMode = theme) }
+        }
+    }
+
+    private suspend fun persistTheme(transform: (ThemeSetting) -> ThemeSetting) {
+        themeMutex.withLock {
+            val updated = transform(_themeSetting.value)
+            settingRepository.updateThemes(updated)
+            _themeSetting.value = updated
         }
     }
 }

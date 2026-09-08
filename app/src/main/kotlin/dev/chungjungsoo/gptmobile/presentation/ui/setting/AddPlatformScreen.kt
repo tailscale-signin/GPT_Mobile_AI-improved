@@ -113,29 +113,29 @@ fun AddPlatformScreen(
                     } else {
                         null
                     }
-                    onSave(
-                        PlatformV2(
-                            name = platformName.trim(),
-                            compatibleType = clientType,
-                            enabled = if (clientType == ClientType.LITERT_LM) {
-                                viewModel.shouldEnableLocalPlatform()
-                            } else {
-                                true
-                            },
-                            apiUrl = if (clientType == ClientType.LITERT_LM) "" else apiUrl.trim(),
-                            token = apiKey.trim().takeIf { it.isNotEmpty() && clientType != ClientType.LITERT_LM },
-                            model = selectedModel,
-                            temperature = defaults?.temperature ?: 1.0f,
-                            topP = defaults?.topP ?: 1.0f,
-                            topK = defaults?.topK,
-                            maxTokens = defaults?.maxTokens,
-                            accelerator = defaults?.accelerator,
-                            systemPrompt = ModelConstants.DEFAULT_PROMPT,
-                            stream = true,
-                            reasoning = isReasoningEnabled && clientType != ClientType.LITERT_LM,
-                            timeout = 30
-                        )
+                    val platform = PlatformV2(
+                        name = platformName.trim(),
+                        compatibleType = clientType,
+                        enabled = if (clientType == ClientType.LITERT_LM) {
+                            viewModel.shouldEnableLocalPlatform()
+                        } else {
+                            true
+                        },
+                        apiUrl = if (clientType == ClientType.LITERT_LM) "" else apiUrl.trim(),
+                        token = apiKey.trim().takeIf { it.isNotEmpty() && clientType != ClientType.LITERT_LM },
+                        model = selectedModel,
+                        temperature = defaults?.temperature ?: 1.0f,
+                        topP = defaults?.topP ?: 1.0f,
+                        topK = defaults?.topK,
+                        maxTokens = defaults?.maxTokens,
+                        accelerator = defaults?.accelerator,
+                        systemPrompt = ModelConstants.DEFAULT_PROMPT,
+                        stream = true,
+                        reasoning = isReasoningEnabled && clientType != ClientType.LITERT_LM,
+                        timeout = 30
                     )
+                    apiKey = ""
+                    onSave(platform)
                 }
             )
         }

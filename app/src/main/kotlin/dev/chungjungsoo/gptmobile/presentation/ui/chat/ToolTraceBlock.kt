@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -129,9 +130,7 @@ internal fun resolveToolServiceInfo(
         }
     }
 
-    val toolDisplayName = friendlyToolDisplayName(rawName).let {
-        if (it.endsWith("Tool", ignoreCase = true)) it else "$it tool"
-    }
+    val toolDisplayName = friendlyToolDisplayName(rawName)
 
     return ToolServiceInfo(
         serviceName = serviceName,
@@ -154,12 +153,11 @@ internal fun ToolServiceCircleIcon(
             .background(info.badgeColor),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = info.monogram,
-            color = info.textColor,
-            fontSize = if (info.monogram.length > 2) 8.sp else 10.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif,
+        Icon(
+            painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = Modifier.size((sizeDp * 0.7).dp)
         )
     }
 }
@@ -238,9 +236,9 @@ fun ToolTraceBlock(
     Column(
         modifier = modifier
             .padding(start = 16.dp)
-            .fillMaxWidth(0.75f)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -259,7 +257,7 @@ fun ToolTraceBlock(
             Text(
                 text = summary,
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -464,18 +462,6 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
     val count = events.size
     if (events.isEmpty()) return "0 ${labels.calls}"
 
-    val hasActive = events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
-    val failed = events.count { it.status == ToolEventStatus.FAILED || it.isError }
-    val completed = events.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
-    val status = when {
-        hasActive -> labels.running
-        failed == events.size -> labels.failed
-        failed > 0 && completed > 0 -> labels.completedWithErrors
-        failed > 0 -> labels.failed
-        events.any { it.status == ToolEventStatus.CANCELED } -> labels.canceled
-        else -> labels.completed
-    }
-
     val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
     val subject = if (distinctToolNames.size == 1) {
         val first = events.first()
@@ -491,7 +477,7 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
         "$count $noun"
     }
 
-    return if (status == labels.completed) subject else "$subject - $status"
+    return subject
 }
 
 internal fun formatToolDuration(event: ToolEvent): String? {

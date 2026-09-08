@@ -31,6 +31,23 @@
     <string name="tool_trace_block_content_description">Tool trace: %1$s</string>
     <string name="tool_trace_call_content_description">Tool call %1$s, status %2$s</string>
     <string name="tool_event_error_interrupted_app_stopped">Interrupted because the app stopped</string>
+    <string name="retry_tools_warning">Retrying may run tools again and repeat their side effects.</string>
+
+    <!-- Gemini safety options need defaults so aapt does not discard localized-only resources. -->
+    <string name="gemini_safety_block_only_high">Block high-risk content</string>
+    <string name="gemini_safety_block_medium_and_above">Block medium- and high-risk content</string>
+    <string name="gemini_safety_block_low_and_above">Block low-, medium-, and high-risk content</string>
+    <string name="gemini_safety_block_none">Do not block</string>
+
+    <!-- Local inference status and failure messages. -->
+    <string name="local_platform_ignored_attachments">Attachments are not supported by this local model and were ignored.</string>
+    <string name="local_platform_model_not_downloaded">Download the local model before using it.</string>
+    <string name="local_platform_waiting_for_engine">Waiting for the local inference engine.</string>
+    <string name="local_platform_too_many_images">This local model cannot process this many images.</string>
+    <string name="local_platform_loading_model">Loading local model…</string>
+    <string name="local_platform_gpu_unavailable_cpu">GPU acceleration is unavailable; using the CPU.</string>
+    <string name="local_platform_npu_unavailable_cpu">NPU acceleration is unavailable; using the CPU.</string>
+    <string name="local_platform_engine_load_failed">Failed to load the local inference engine.</string>
 
     <string name="local_model_ram_warning_title">Memory warning</string>
     <string name="local_model_ram_warning_message">This model may require more memory than is available on this device.</string>
@@ -72,6 +89,26 @@
     <string name="capability_tools">Tools</string>
     <string name="capability_thinking">Thinking</string>
 
+    <!-- Download and agent foreground-service notifications. -->
+    <string name="local_model_download_notification_channel">Model downloads</string>
+    <string name="local_model_download_notification_channel_description">Progress notifications for local-model downloads</string>
+    <string name="local_model_download_notification_title">Downloading local model</string>
+    <string name="local_model_download_notification_content">Downloading %1$s</string>
+    <string name="local_model_download_notification_progress">%1$d%% downloaded</string>
+    <string name="agent_notification_channel">Agent runs</string>
+    <string name="agent_notification_title">Agent running</string>
+    <string name="cancel_agent_runs">Cancel agent runs</string>
+    <string name="agent_completion_notification_title">Agent run complete</string>
+    <string name="agent_completion_notification_text">An agent run has completed.</string>
+    <string name="agent_run_canceled">Agent run canceled</string>
+    <string name="agent_run_interrupted">Agent run interrupted</string>
+    <string name="agent_run_failed">Agent run failed</string>
+    <string name="agent_run_error_service_stopped">The agent run was interrupted because the service stopped.</string>
+
+    <string name="sample_item_title">Sample item</string>
+    <string name="sample_item_description">Sample item description</string>
+    <string name="clear_token">Clear token</string>
+
     <string name="github_link" translatable="false">https://github.com/tailscale-signin/GPT_Mobile_AI-improved</string>
     <string name="f_droid_link" translatable="false">https://f-droid.org/</string>
     <string name="play_store_link" translatable="false">https://play.google.com/store</string>
@@ -99,5 +136,9 @@
     <plurals name="duration_seconds">
         <item quantity="one">%1$d second</item>
         <item quantity="other">%1$d seconds</item>
+    </plurals>
+    <plurals name="agent_runs_active">
+        <item quantity="one">%1$d agent run active</item>
+        <item quantity="other">%1$d agent runs active</item>
     </plurals>
 </resources>

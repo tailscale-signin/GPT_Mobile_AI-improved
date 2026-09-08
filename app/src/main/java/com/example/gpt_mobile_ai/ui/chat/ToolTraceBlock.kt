@@ -108,7 +108,9 @@ val ToolRegistry = listOf(
         override fun getDisplayName() = stringResource(R.string.mcp_server)
     },
     object : ToolDefinition {
-        override fun matches(toolName: String) = toolName.contains("web", ignoreCase = true) || toolName.contains("search", ignoreCase = true)
+        override fun matches(toolName: String) = 
+            toolName.contains("web", ignoreCase = true) || 
+            toolName.contains("search", ignoreCase = true)
         override val iconResId = R.drawable.ic_web_search
         override val color = Color(0xFF4285F4)
 
@@ -155,8 +157,15 @@ fun ToolTraceBlock(
     // Format the summary text (e.g., "GitHub — Search Code")
     val summaryText = buildString {
         append(displayName)
-        val specificAction = toolEvent.toolName.split("__").lastOrNull()?.replace("_", " ")?.replaceFirstChar { it.uppercase() }
-        if (specificAction != null && specificAction.isNotBlank() && !specificAction.equals(displayName, ignoreCase = true)) {
+        val specificAction = toolEvent.toolName.split("__")
+            .lastOrNull()
+            ?.replace("_", " ")
+            ?.replaceFirstChar { it.uppercase() }
+            
+        if (specificAction != null && 
+            specificAction.isNotBlank() && 
+            !specificAction.equals(displayName, ignoreCase = true)
+        ) {
             append(" — $specificAction")
         }
     }
@@ -231,7 +240,11 @@ fun ToolTraceBlock(
             // Expand/Collapse Icon
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = if (expanded) stringResource(R.string.tool_trace_collapse_content_description) else stringResource(R.string.tool_trace_expand_content_description),
+                contentDescription = if (expanded) {
+                    stringResource(R.string.tool_trace_collapse_content_description)
+                } else {
+                    stringResource(R.string.tool_trace_expand_content_description)
+                },
                 modifier = Modifier.rotate(rotation),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -244,7 +257,10 @@ fun ToolTraceBlock(
                     .fillMaxWidth()
                     .padding(top = 12.dp)
             ) {
-                Divider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(bottom = 8.dp))
+                Divider(
+                    color = MaterialTheme.colorScheme.outlineVariant, 
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
 
                 // Arguments
                 if (toolEvent.arguments.isNotBlank()) {

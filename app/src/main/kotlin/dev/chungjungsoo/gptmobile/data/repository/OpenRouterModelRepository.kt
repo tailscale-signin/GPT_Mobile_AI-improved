@@ -2,13 +2,13 @@ package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelItem
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelsResponse
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 
 @Singleton
 class OpenRouterModelRepository @Inject constructor() {

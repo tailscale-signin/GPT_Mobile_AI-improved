@@ -247,7 +247,8 @@ jobs:
             fi
           fi
 
-          ISSUE_TITLE="Release Build Failure on $REF_NAME (${COMMIT_SHA:0:7})"
+          SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
+          ISSUE_TITLE="Release Build Failure on $REF_NAME ($SHORT_COMMIT)"
 
           EXISTING_ISSUE=$(gh issue list --repo "${{ github.repository }}" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
 

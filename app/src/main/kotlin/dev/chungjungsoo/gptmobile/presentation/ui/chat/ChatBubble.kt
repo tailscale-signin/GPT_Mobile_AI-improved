@@ -273,7 +273,7 @@ fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatfo
 @Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text))
 }
-@Composable private fun FavoriteIcon(isFavorite: Boolean, onFavoriteClick: () -> Unit) = IconButton(onClick = onClick) {
+@Composable private fun FavoriteIcon(isFavorite: Boolean, onFavoriteClick: () -> Unit) = IconButton(onClick = onFavoriteClick) {
     Icon(
         if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
         stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),

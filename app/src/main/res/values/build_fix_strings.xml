@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Required by PlatformSettingViewModel when a local model is unavailable. -->
+    <string name="local_platform_enable_model_not_ready">Select a local model before enabling this platform.</string>
+</resources>

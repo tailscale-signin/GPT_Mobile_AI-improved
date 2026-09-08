@@ -397,14 +397,14 @@ fun PlatformSettingScreen(
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
                     APIKeyDialog(dialogState, settingViewModel)
                     if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
-              OpenRouterModelPickerDialog(
-                  currentModel = platformData.model,
-                  onDismiss = settingViewModel::closeApiModelDialog,
-                  onModelSelected = settingViewModel::updateApiModel
-              )
-          } else {
-              ModelDialog(dialogState, platformData.model, settingViewModel)
-          }
+                        OpenRouterModelPickerDialog(
+                            currentModel = platformData.model,
+                            onDismiss = settingViewModel::closeApiModelDialog,
+                            onModelSelected = settingViewModel::updateApiModel
+                        )
+                    } else {
+                        ModelDialog(dialogState, platformData.model, settingViewModel)
+                    }
                     TimeoutDialog(dialogState, platformData.timeout, settingViewModel)
                 } else {
                     LocalModelDialog(
@@ -444,6 +444,72 @@ fun PlatformSettingScreen(
 
 @Composable
 private fun LegacyMcpToolsDialog(
+    toolBindingState: PlatformSettingViewModel.ToolBindingState,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (!toolBindingState.isMcpToolsDialogOpen) return
+    AlertDialog(
+        title = { Text(stringResource(R.string.mcp_server)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                when {
+                    toolBindingState.mcpConnections.isEmpty() -> Text(stringResource(R.string.no_tool_connections))
+
+                    toolBindingState.isMcpToolsLoading -> CircularProgressIndicator(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .semantics { contentDescription = "Discovering MCP tools" }
+                    )
+
+                    toolBindingState.mcpToolOptions.isEmpty() -> Text(stringResource(R.string.no_tool_connections))
+
+                    else -> toolBindingState.mcpToolOptions.forEach { option ->
+                        val selected = toolBindingState.pendingMcpTools.any {
+                            it.connectionUid == option.connectionUid && it.toolName == option.toolName
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = selected,
+                                    onValueChange = { settingViewModel.toggleMcpTool(option.connectionUid, option.toolName) }
+                                )
+                                .semantics { contentDescription = "${option.connectionName} ${option.toolName}" }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(checked = selected, onCheckedChange = null)
+                            Column(Modifier.padding(start = 8.dp)) {
+                                Text("${option.connectionName} · ${option.toolName}")
+                                Text(
+                                    option.description ?: option.modelToolName,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        onDismissRequest = settingViewModel::closeMcpToolsDialog,
+        confirmButton = {
+            TextButton(
+                enabled = !toolBindingState.isMcpToolsLoading,
+                onClick = settingViewModel::saveMcpTools
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = settingViewModel::closeMcpToolsDialog) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun FancyMcpToolsDialog(
     toolBindingState: PlatformSettingViewModel.ToolBindingState,
     settingViewModel: PlatformSettingViewModel
 ) {

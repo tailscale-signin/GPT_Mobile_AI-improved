@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   build:
@@ -44,52 +43,15 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        id: build_debug
         run: |
-          ./gradlew assembleDebug --no-daemon --info 2>&1 | tee gradle-debug-build.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "::error title=Debug Build Failed::$(grep -E '^(e:|error:|FAILURE:|Caused by:)' gradle-debug-build.log | head -n 5 | tr '\n' ' ')"
-            echo "=== GRADLE FAILURE TAIL ==="
-            tail -n 120 gradle-debug-build.log
-            exit 1
-          fi
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
-        if: steps.build_debug.outcome == 'success'
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
-
-      - name: Build Release APK
-        id: build_release
-        run: |
-          ./gradlew assembleRelease --no-daemon --info 2>&1 | tee gradle-release-build.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "::warning title=Release Build Failed::$(grep -E '^(e:|error:|FAILURE:|Caused by:)' gradle-release-build.log | head -n 5 | tr '\n' ' ')"
-            echo "=== RELEASE BUILD FAILURE LOG ==="
-            tail -n 120 gradle-release-build.log
-          fi
-        continue-on-error: true
-
-      - name: Upload Release APK artifact (if built)
-        uses: actions/upload-artifact@v4
-        if: steps.build_release.outcome == 'success'
-        with:
-          name: app-release-unsigned
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: ignore
-
-      - name: Upload Build Log on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-failure-logs
-          path: |
-            gradle-debug-build.log
-            gradle-release-build.log
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Extract Release Tag
         id: tag_name

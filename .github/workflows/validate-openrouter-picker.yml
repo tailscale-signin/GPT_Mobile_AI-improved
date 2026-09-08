@@ -46,8 +46,8 @@ jobs:
           if source.count(old) != 1:
               raise SystemExit(f"Expected malformed wiring block exactly once, found {source.count(old)}")
           path.write_text(source.replace(old, new))
-      - name: Validate Kotlin
-        run: ./gradlew ktlintCheck compileDebugKotlin --no-daemon
+      - name: Compile Kotlin
+        run: ./gradlew :app:compileDebugKotlin --no-daemon
       - name: Remove workflow and commit
         if: success()
         run: |

@@ -73,19 +73,19 @@ val ToolRegistry = listOf(
         override fun matches(toolName: String) = toolName.contains("github", ignoreCase = true)
         override val iconResId = R.drawable.ic_github_logo
         override val color = Color(0xFF24292E)
-        @Composable override fun getDisplayName() = "GitHub"
+        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_github)
     },
     object : ToolDefinition {
         override fun matches(toolName: String) = toolName.contains("brave", ignoreCase = true)
         override val iconResId = R.drawable.ic_brave_logo
         override val color = Color(0xFFFF4F00)
-        @Composable override fun getDisplayName() = "Brave"
+        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_brave)
     },
     object : ToolDefinition {
         override fun matches(toolName: String) = toolName.contains("mcp", ignoreCase = true)
         override val iconResId = R.drawable.ic_mcp_logo
         override val color = Color(0xFF0052CC)
-        @Composable override fun getDisplayName() = "MCP"
+        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_mcp)
     },
     object : ToolDefinition {
         override fun matches(toolName: String) = toolName.contains("web", ignoreCase = true) || toolName.contains("search", ignoreCase = true)
@@ -97,7 +97,7 @@ val ToolRegistry = listOf(
         override fun matches(toolName: String) = toolName.contains("calculate", ignoreCase = true)
         override val iconResId = R.drawable.ic_calculator
         override val color = Color(0xFF0F9D58)
-        @Composable override fun getDisplayName() = "Calculator"
+        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_calculator)
     }
 )
 
@@ -108,7 +108,7 @@ val DefaultToolDefinition = object : ToolDefinition {
     override fun matches(toolName: String) = true
     override val iconResId = R.drawable.ic_gpt_mobile_foreground
     override val color = Color.Gray
-    @Composable override fun getDisplayName() = "System"
+    @Composable override fun getDisplayName() = stringResource(R.string.tool_name_system)
 }
 
 @Composable

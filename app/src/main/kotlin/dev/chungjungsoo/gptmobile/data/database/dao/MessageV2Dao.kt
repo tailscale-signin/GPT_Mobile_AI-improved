@@ -14,6 +14,9 @@ interface MessageV2Dao {
     @Query("SELECT * FROM messages_v2 WHERE chat_id=:chatInt")
     suspend fun loadMessages(chatInt: Int): List<MessageV2>
 
+    @Query("SELECT * FROM messages_v2 ORDER BY created_at, message_id")
+    suspend fun getMessageList(): List<MessageV2>
+
     @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId ORDER BY created_at, message_id")
     fun observeMessages(chatId: Int): Flow<List<MessageV2>>
 
@@ -44,6 +47,9 @@ interface MessageV2Dao {
 
     @Insert
     suspend fun addMessages(vararg messages: MessageV2)
+
+    @Insert
+    suspend fun insertMessageList(messages: List<MessageV2>)
 
     @Update
     suspend fun editMessages(vararg message: MessageV2)

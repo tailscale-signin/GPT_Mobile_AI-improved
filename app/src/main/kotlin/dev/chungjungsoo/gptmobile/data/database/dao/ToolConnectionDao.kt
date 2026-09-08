@@ -21,6 +21,9 @@ interface ToolConnectionDao {
     @Query("SELECT * FROM tool_connections ORDER BY name, alias, connection_uid")
     suspend fun listConnections(): List<ToolConnection>
 
+    @Query("SELECT * FROM tool_connections ORDER BY name, alias, connection_uid")
+    suspend fun getAllConnections(): List<ToolConnection>
+
     @Query("SELECT * FROM tool_connections WHERE connection_uid = :connectionUid")
     suspend fun getConnection(connectionUid: String): ToolConnection?
 

@@ -12,10 +12,6 @@ permissions:
   contents: write
   issues: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
-
 jobs:
   build:
     name: Build and Sign Release APK & AAB
@@ -107,8 +103,6 @@ jobs:
           echo "Building Release APK..."
           set -o pipefail
           ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2 2>&1 | tee gradle-release-build.log
-          echo "Build completed. Verifying APK generation..."
-          find app/build/outputs/ -type f -name "*.apk"
 
       - name: Build Release Bundle
         env:
@@ -131,7 +125,8 @@ jobs:
           fi
           echo "Using apksigner at: $APKSIGNER"
 
-          mapfile -t FOUND_APKS < <(find app/build/outputs -type f -name "*.apk" ! -path "*/signed/*")
+          shopt -s nullglob globstar
+          FOUND_APKS=(app/build/outputs/**/release*/**/*.apk app/build/outputs/**/release/*.apk)
           echo "Found ${#FOUND_APKS[@]} candidate APK(s) to sign"
 
           if [ ${#FOUND_APKS[@]} -eq 0 ]; then
@@ -225,11 +220,21 @@ jobs:
         run: |
           echo "Publishing GitHub Pre-release for tag: $TAG_NAME"
 
-          mapfile -t ASSETS_TO_UPLOAD < <(find app/build/outputs/apk/release/signed/ -maxdepth 1 -name "*.apk" 2>/dev/null)
+          shopt -s nullglob globstar
+          ASSETS_TO_UPLOAD=()
+          for signed in app/build/outputs/apk/release/signed/*.apk; do
+            if [ -f "$signed" ]; then
+              ASSETS_TO_UPLOAD+=("$signed")
+            fi
+          done
 
           if [ ${#ASSETS_TO_UPLOAD[@]} -eq 0 ]; then
             echo "Signed release directory had no apks, searching all build outputs..."
-            mapfile -t ASSETS_TO_UPLOAD < <(find app/build/outputs/ -type f -name "*.apk" ! -path "*/intermediates/*" 2>/dev/null)
+            for any_apk in app/build/outputs/**/*.apk; do
+              if [ -f "$any_apk" ]; then
+                ASSETS_TO_UPLOAD+=("$any_apk")
+              fi
+            done
           fi
 
           if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then
@@ -255,14 +260,6 @@ jobs:
               --notes "Automated pre-release build for commit ${SHORT_SHA} on main branch. Includes signed APKs (universal and ABI-specific) built with R8 optimization."
           fi
           echo "GitHub Pre-Release $TAG_NAME published successfully."
-
-      - name: Upload Build Log on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-build-failure-log
-          path: gradle-release-build.log
-          if-no-files-found: ignore
 
       - name: Report Build Failure as GitHub Issue
         if: failure()

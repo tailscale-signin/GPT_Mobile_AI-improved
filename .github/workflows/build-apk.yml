@@ -64,8 +64,8 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log
-          echo "Listing debug build outputs:"
-          ls -laR app/build/outputs/apk/ || true
+          echo "Listing all generated APK files:"
+          find app/build/outputs/ -type f -name "*.apk" || true
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
@@ -74,10 +74,7 @@ jobs:
         if: steps.build_debug.outcome == 'success'
         with:
           name: app-debug
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/**/*.apk
-            app/build/outputs/**/*.apk
+          path: app/build/outputs/apk/**/*.apk
           if-no-files-found: warn
 
       - name: Build Release APK
@@ -95,9 +92,7 @@ jobs:
         id: upload-release
         with:
           name: app-release-unsigned
-          path: |
-            app/build/outputs/apk/release/**/*.apk
-            app/build/outputs/**/*.apk
+          path: app/build/outputs/apk/release/**/*.apk
           if-no-files-found: ignore
 
       - name: Report Build Failure as GitHub Issue

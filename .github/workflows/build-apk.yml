@@ -116,7 +116,7 @@ jobs:
 
           ISSUE_TITLE="CI Build Failure on $REF_NAME (${COMMIT_SHA:0:7})"
 
-          EXISTING_ISSUE=$(gh issue list --repo "${{ github.repository }}" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
+          EXISTING_ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
 
           BODY_FILE=$(mktemp)
           if [ -n "$EXISTING_ISSUE" ]; then
@@ -135,7 +135,7 @@ content = open('$BODY_FILE').read()
 err = sys.stdin.read()
 open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
 " <<< "$ERROR_SNIPPET"
-            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body-file "$BODY_FILE"
+            gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
           else
             cat <<'EOF' > "$BODY_FILE"
 ### 🚨 Automated CI Build Failure Report
@@ -166,7 +166,7 @@ err = sys.stdin.read()
 open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
 " <<< "$ERROR_SNIPPET"
             gh issue create \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "$ISSUE_TITLE" \
               --label "build-failure,bug" \
               --body-file "$BODY_FILE"

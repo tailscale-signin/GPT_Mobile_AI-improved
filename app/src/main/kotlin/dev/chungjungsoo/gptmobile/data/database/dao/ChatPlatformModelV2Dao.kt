@@ -11,8 +11,14 @@ interface ChatPlatformModelV2Dao {
     @Query("SELECT * FROM chat_platform_model_v2 WHERE chat_id = :chatId")
     suspend fun getByChatId(chatId: Int): List<ChatPlatformModelV2>
 
+    @Query("SELECT * FROM chat_platform_model_v2")
+    suspend fun getChatPlatformModels(): List<ChatPlatformModelV2>
+
     @Upsert
     suspend fun upsertAll(vararg models: ChatPlatformModelV2)
+
+    @Upsert
+    suspend fun upsertChatPlatformModel(model: ChatPlatformModelV2)
 
     @Query("DELETE FROM chat_platform_model_v2 WHERE chat_id = :chatId")
     suspend fun deleteByChatId(chatId: Int)

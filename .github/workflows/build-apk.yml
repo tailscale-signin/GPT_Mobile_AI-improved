@@ -27,19 +27,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Swap Space and free disk memory
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc || true
-          sudo swapoff -a || true
-          sudo rm -f /swapfile_extra
-          sudo fallocate -l 4G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=4096
-          sudo chmod 600 /swapfile_extra
-          sudo mkswap /swapfile_extra
-          sudo swapon /swapfile_extra
-          if [ -f /swapfile ]; then sudo swapon /swapfile || true; fi
-          if [ -f /mnt/swapfile ]; then sudo swapon /mnt/swapfile || true; fi
-          free -h
-
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -66,8 +53,6 @@ jobs:
           ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log
           echo "Listing all generated APK files:"
           find app/build/outputs/ -type f -name "*.apk" || true
-        env:
-          GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
@@ -85,8 +70,6 @@ jobs:
           set -o pipefail
           ./gradlew assembleRelease --no-daemon --info --stacktrace 2>&1 | tee gradle-release-build.log
         continue-on-error: true
-        env:
-          GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
       - name: Upload Release APK artifact (if built)
         uses: actions/upload-artifact@v4

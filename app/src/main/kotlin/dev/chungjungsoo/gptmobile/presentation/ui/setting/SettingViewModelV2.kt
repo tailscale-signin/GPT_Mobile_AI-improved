@@ -101,9 +101,9 @@ class SettingViewModelV2 @Inject constructor(
 
     fun closeBackupRestoreDialog() = _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
 
-    fun exportConfigurationToFile(uri: Uri) {
+    fun exportConfigurationToFile(uri: Uri, passphrase: String? = null) {
         viewModelScope.launch {
-            val result = appBackupManager.exportConfiguration(uri)
+            val result = appBackupManager.exportConfiguration(uri, passphrase)
             if (result.success) {
                 _uiEvent.emit(UiEvent.ShowToast(result.message))
             } else {
@@ -112,9 +112,9 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
-    fun restoreConfigurationFromFile(uri: Uri) {
+    fun restoreConfigurationFromFile(uri: Uri, passphrase: String? = null) {
         viewModelScope.launch {
-            val result = appBackupManager.restoreConfiguration(uri)
+            val result = appBackupManager.restoreConfiguration(uri, passphrase)
             if (result.success) {
                 fetchPlatforms()
                 _uiEvent.emit(UiEvent.ShowToast("Configuration restored successfully (${result.count} platforms imported)."))
@@ -124,9 +124,9 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
-    fun exportDatabaseToFile(uri: Uri) {
+    fun exportDatabaseToFile(uri: Uri, passphrase: String? = null) {
         viewModelScope.launch {
-            val result = appBackupManager.exportDatabase(uri)
+            val result = appBackupManager.exportDatabase(uri, passphrase)
             if (result.success) {
                 _uiEvent.emit(UiEvent.ShowToast(result.message))
             } else {
@@ -135,9 +135,9 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
-    fun restoreDatabaseFromFile(uri: Uri) {
+    fun restoreDatabaseFromFile(uri: Uri, passphrase: String? = null) {
         viewModelScope.launch {
-            val result = appBackupManager.restoreDatabase(uri)
+            val result = appBackupManager.restoreDatabase(uri, passphrase)
             if (result.success) {
                 _uiEvent.emit(UiEvent.ShowToast("Database restored successfully (${result.count} chat(s) imported)."))
             } else {

@@ -48,16 +48,137 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.time.Instant
 import java.util.Locale
 
 private const val TOOL_TRACE_TEXT_LIMIT = 1024
+
+// 1. Use sealed interface for States
+sealed interface ToolCallState {
+    data object Running : ToolCallState
+    data object Completed : ToolCallState
+    data class Failed(val isError: Boolean) : ToolCallState
+    data object Canceled : ToolCallState
+}
+
+fun ToolEvent.toToolCallState(): ToolCallState {
+    return when {
+        status == ToolEventStatus.RUNNING || status == ToolEventStatus.PENDING -> ToolCallState.Running
+        status == ToolEventStatus.FAILED || isError -> ToolCallState.Failed(isError)
+        status == ToolEventStatus.CANCELED -> ToolCallState.Canceled
+        else -> ToolCallState.Completed
+    }
+}
+
+// 2. Build a Dynamic "Tool Registry"
+interface ToolDefinition {
+    fun matches(toolName: String, connectionName: String?, connectionUid: String?): Boolean
+    val serviceNameRes: Int
+    val monogram: String
+    val badgeColor: Color
+    val textColor: Color get() = Color.White
+    fun getDisplayNameRes(rawName: String): Int? = null
+}
+
+object GitHubTool : ToolDefinition {
+    override fun matches(toolName: String, connectionName: String?, connectionUid: String?) =
+        connectionName?.contains("github", ignoreCase = true) == true ||
+        connectionUid?.contains("github", ignoreCase = true) == true ||
+        toolName.startsWith("github", ignoreCase = true)
+    override val serviceNameRes = R.string.tool_name_github
+    override val monogram = "GH"
+    override val badgeColor = Color(0xFF24292F)
+}
+
+object BraveTool : ToolDefinition {
+    override fun matches(toolName: String, connectionName: String?, connectionUid: String?) =
+        connectionName?.contains("brave", ignoreCase = true) == true ||
+        connectionUid?.contains("brave", ignoreCase = true) == true ||
+        toolName.contains("brave", ignoreCase = true)
+    override val serviceNameRes = R.string.tool_name_brave
+    override val monogram = "B"
+    override val badgeColor = Color(0xFFFB542B)
+}
+
+object MicrosoftTool : ToolDefinition {
+    override fun matches(toolName: String, connectionName: String?, connectionUid: String?) =
+        connectionName?.contains("microsoft", ignoreCase = true) == true ||
+        connectionUid?.contains("microsoft", ignoreCase = true) == true ||
+        toolName.contains("microsoft", ignoreCase = true)
+    override val serviceNameRes = R.string.tool_name_microsoft
+    override val monogram = "MS"
+    override val badgeColor = Color(0xFF0078D4)
+}
+
+object McpTool : ToolDefinition {
+    override fun matches(toolName: String, connectionName: String?, connectionUid: String?) =
+        connectionName?.contains("mcp", ignoreCase = true) == true ||
+        connectionUid?.contains("mcp", ignoreCase = true) == true ||
+        toolName.contains("mcp", ignoreCase = true)
+    override val serviceNameRes = R.string.tool_name_mcp
+    override val monogram = "M"
+    override val badgeColor = Color(0xFF00838F)
+}
+
+object WebTool : ToolDefinition {
+    override fun matches(toolName: String, connectionName: String?, connectionUid: String?) =
+        toolName.contains("search", ignoreCase = true) || toolName.contains("web", ignoreCase = true)
+    override val serviceNameRes = R.string.tool_name_web
+    override val monogram = "W"
+    override val badgeColor = Color(0xFF00897B)
+    
+    override fun getDisplayNameRes(rawName: String): Int? {
+        val lower = rawName.trim().lowercase(Locale.ROOT)
+        return when {
+            lower == "web_search" || lower == "search" || lower.endsWith("__web_search") || lower.endsWith("__search") -> R.string.tool_name_search
+            lower == "read_url" || lower == "crawl" || lower == "scrape" || lower == "fetch" || lower.endsWith("__read_url") || lower.endsWith("__crawl") -> R.string.tool_name_crawl
+            else -> null
+        }
+    }
+}
+
+object SystemTool : ToolDefinition {
+    override fun matches(toolName: String, connectionName: String?, connectionUid: String?) =
+        toolName.contains("calc", ignoreCase = true) || toolName.contains("date", ignoreCase = true) || toolName.contains("location", ignoreCase = true)
+    override val serviceNameRes = R.string.tool_name_system
+    override val monogram = "SYS"
+    override val badgeColor = Color(0xFF5E35B1)
+    
+    override fun getDisplayNameRes(rawName: String): Int? {
+        val lower = rawName.trim().lowercase(Locale.ROOT)
+        return when {
+            lower == "calculate_expression" || lower == "calculator" || lower == "calc" || lower.endsWith("__calculate_expression") -> R.string.tool_name_calculator
+            lower == "device_location" || lower == "location" || lower.endsWith("__device_location") -> R.string.tool_name_location
+            lower == "current_date" || lower == "date" || lower == "time" || lower.endsWith("__current_date") -> R.string.tool_name_date
+            else -> null
+        }
+    }
+}
+
+object DefaultTool : ToolDefinition {
+    override fun matches(toolName: String, connectionName: String?, connectionUid: String?) = true
+    override val serviceNameRes = R.string.tool_name_tool
+    override val monogram = "T"
+    override val badgeColor = Color(0xFF546E7A)
+}
+
+val ToolRegistry = listOf(
+    GitHubTool,
+    BraveTool,
+    MicrosoftTool,
+    McpTool,
+    WebTool,
+    SystemTool,
+    DefaultTool
+)
 
 internal data class ToolServiceInfo(
     val serviceName: String,
@@ -67,6 +188,7 @@ internal data class ToolServiceInfo(
     val textColor: Color = Color.White,
 )
 
+@Composable
 internal fun resolveToolServiceInfo(
     toolName: String,
     modelToolName: String,
@@ -74,63 +196,39 @@ internal fun resolveToolServiceInfo(
     connectionUidSnapshot: String? = null,
 ): ToolServiceInfo {
     val rawName = toolName.ifBlank { modelToolName }.trim()
-    val rawLower = rawName.lowercase(Locale.ROOT)
-    val connLower = (connectionNameSnapshot ?: "").lowercase(Locale.ROOT)
-    val uidLower = (connectionUidSnapshot ?: "").lowercase(Locale.ROOT)
-
-    val serviceName: String
-    val monogram: String
-    val badgeColor: Color
-
-    when {
-        connLower.contains("github") || uidLower.contains("github") || rawLower.startsWith("github") -> {
-            serviceName = "GitHub"
-            monogram = "GH"
-            badgeColor = Color(0xFF24292F)
-        }
-        connLower.contains("brave") || uidLower.contains("brave") || rawLower.contains("brave") -> {
-            serviceName = "Brave"
-            monogram = "B"
-            badgeColor = Color(0xFFFB542B)
-        }
-        connLower.contains("microsoft") || uidLower.contains("microsoft") || rawLower.contains("microsoft") -> {
-            serviceName = "Microsoft"
-            monogram = "MS"
-            badgeColor = Color(0xFF0078D4)
-        }
-        connLower.contains("mcp") || uidLower.contains("mcp") || rawLower.contains("mcp") -> {
-            serviceName = if (!connectionNameSnapshot.isNullOrBlank()) {
-                connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
-            } else {
-                "MCP"
-            }
-            monogram = "M"
-            badgeColor = Color(0xFF00838F)
-        }
-        rawLower.contains("search") || rawLower.contains("web") -> {
-            serviceName = "Web"
-            monogram = "W"
-            badgeColor = Color(0xFF00897B)
-        }
-        rawLower.contains("calc") || rawLower.contains("date") || rawLower.contains("location") -> {
-            serviceName = "System"
-            monogram = "SYS"
-            badgeColor = Color(0xFF5E35B1)
-        }
-        !connectionNameSnapshot.isNullOrBlank() -> {
-            serviceName = connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
-            monogram = serviceName.take(2).uppercase(Locale.ROOT)
-            badgeColor = Color(0xFF455A64)
-        }
-        else -> {
-            serviceName = "Tool"
-            monogram = "T"
-            badgeColor = Color(0xFF546E7A)
-        }
+    
+    val toolDef = ToolRegistry.first { it.matches(rawName, connectionNameSnapshot, connectionUidSnapshot) }
+    
+    val serviceName = if (!connectionNameSnapshot.isNullOrBlank() && toolDef !is WebTool && toolDef !is SystemTool) {
+        connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
+    } else {
+        stringResource(toolDef.serviceNameRes)
+    }
+    
+    val monogram = if (!connectionNameSnapshot.isNullOrBlank() && toolDef == DefaultTool) {
+        serviceName.take(2).uppercase(Locale.ROOT)
+    } else {
+        toolDef.monogram
+    }
+    
+    val badgeColor = if (!connectionNameSnapshot.isNullOrBlank() && toolDef == DefaultTool) {
+        Color(0xFF455A64)
+    } else {
+        toolDef.badgeColor
     }
 
-    val toolDisplayName = friendlyToolDisplayName(rawName).let {
-        if (it.endsWith("Tool", ignoreCase = true)) it else "$it tool"
+    val displayNameRes = toolDef.getDisplayNameRes(rawName)
+    val toolDisplayName = if (displayNameRes != null) {
+        stringResource(displayNameRes)
+    } else {
+        val leafName = rawName.substringAfterLast("__").replace('_', ' ').replace('-', ' ').trim()
+        if (leafName.isEmpty()) {
+            stringResource(R.string.tool_name_tool)
+        } else {
+            leafName.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+            }
+        }
     }
 
     return ToolServiceInfo(
@@ -138,6 +236,7 @@ internal fun resolveToolServiceInfo(
         toolDisplayName = toolDisplayName,
         monogram = monogram,
         badgeColor = badgeColor,
+        textColor = toolDef.textColor
     )
 }
 
@@ -166,20 +265,18 @@ internal fun ToolServiceCircleIcon(
 
 @Composable
 internal fun ToolStatusIndicator(
-    status: String,
+    state: ToolCallState,
     modifier: Modifier = Modifier,
-    isError: Boolean = false,
 ) {
-    val normStatus = status.uppercase(Locale.ROOT)
-    when {
-        normStatus == ToolEventStatus.RUNNING || normStatus == ToolEventStatus.PENDING -> {
+    when (state) {
+        is ToolCallState.Running -> {
             CircularProgressIndicator(
                 modifier = modifier.size(16.dp),
                 strokeWidth = 2.dp,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        isError || normStatus == ToolEventStatus.FAILED || normStatus == ToolEventStatus.CANCELED -> {
+        is ToolCallState.Failed, is ToolCallState.Canceled -> {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Failed",
@@ -187,7 +284,7 @@ internal fun ToolStatusIndicator(
                 modifier = modifier.size(18.dp),
             )
         }
-        else -> {
+        is ToolCallState.Completed -> {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Completed",
@@ -213,24 +310,26 @@ fun ToolTraceBlock(
         targetValue = if (isExpanded) 180f else 0f,
         label = "tool trace rotation",
     )
-    val summary = toolTraceStatusSummary(events, labels)
+    
     val firstEvent = events.first()
-    val primaryServiceInfo = remember(firstEvent) {
-        resolveToolServiceInfo(
-            toolName = firstEvent.toolName,
-            modelToolName = firstEvent.modelToolName,
-            connectionNameSnapshot = firstEvent.connectionNameSnapshot,
-            connectionUidSnapshot = firstEvent.connectionUidSnapshot,
-        )
-    }
-    val overallStatus = remember(events) {
+    val primaryServiceInfo = resolveToolServiceInfo(
+        toolName = firstEvent.toolName,
+        modelToolName = firstEvent.modelToolName,
+        connectionNameSnapshot = firstEvent.connectionNameSnapshot,
+        connectionUidSnapshot = firstEvent.connectionUidSnapshot,
+    )
+    
+    val overallState = remember(events) {
         when {
-            events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING } -> ToolEventStatus.RUNNING
-            events.any { it.status == ToolEventStatus.FAILED || it.isError } -> ToolEventStatus.FAILED
-            events.any { it.status == ToolEventStatus.CANCELED } -> ToolEventStatus.CANCELED
-            else -> ToolEventStatus.COMPLETED
+            events.any { it.toToolCallState() is ToolCallState.Running } -> ToolCallState.Running
+            events.any { it.toToolCallState() is ToolCallState.Failed } -> ToolCallState.Failed(true)
+            events.any { it.toToolCallState() is ToolCallState.Canceled } -> ToolCallState.Canceled
+            else -> ToolCallState.Completed
         }
     }
+    
+    val summary = toolTraceStatusSummary(events, labels, primaryServiceInfo, overallState)
+    
     val searchToolTrace = stringResource(R.string.search_tool_trace)
     val noMatchingToolCalls = stringResource(R.string.no_matching_tool_calls)
     val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
@@ -238,9 +337,10 @@ fun ToolTraceBlock(
     Column(
         modifier = modifier
             .padding(start = 16.dp)
-            .fillMaxWidth(0.75f)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+            // 4. Centralize a Design System (Semantic Theming) - using surfaceVariant directly without alpha
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -259,11 +359,11 @@ fun ToolTraceBlock(
             Text(
                 text = summary,
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            ToolStatusIndicator(status = overallStatus)
+            ToolStatusIndicator(state = overallState)
             Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
@@ -373,7 +473,7 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                ToolStatusIndicator(status = event.status, isError = event.isError)
+                ToolStatusIndicator(state = event.toToolCallState())
             }
             Spacer(modifier = Modifier.height(4.dp))
             if (event.modelToolName != event.toolName) {
@@ -439,59 +539,36 @@ internal fun filterToolEvents(events: List<ToolEvent>, query: String): List<Tool
     }
 }
 
-internal fun friendlyToolDisplayName(toolName: String): String {
-    val lower = toolName.trim().lowercase(Locale.ROOT)
-    return when {
-        lower == "web_search" || lower == "search" || lower.endsWith("__web_search") || lower.endsWith("__search") -> "Search"
-        lower == "read_url" || lower == "crawl" || lower == "scrape" || lower == "fetch" || lower.endsWith("__read_url") || lower.endsWith("__crawl") -> "Crawl"
-        lower == "calculate_expression" || lower == "calculator" || lower == "calc" || lower.endsWith("__calculate_expression") -> "Calculator"
-        lower == "device_location" || lower == "location" || lower.endsWith("__device_location") -> "Location"
-        lower == "current_date" || lower == "date" || lower == "time" || lower.endsWith("__current_date") -> "Date"
-        else -> {
-            val leafName = toolName.substringAfterLast("__").replace('_', ' ').replace('-', ' ').trim()
-            if (leafName.isEmpty()) {
-                "Tool"
-            } else {
-                leafName.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
-                    word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
-                }
-            }
-        }
-    }
-}
-
-internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLabels = ToolTraceLabels.Default): String {
+internal fun toolTraceStatusSummary(
+    events: List<ToolEvent>, 
+    labels: ToolTraceLabels = ToolTraceLabels.Default,
+    primaryServiceInfo: ToolServiceInfo? = null,
+    overallState: ToolCallState = ToolCallState.Completed
+): String {
     val count = events.size
     if (events.isEmpty()) return "0 ${labels.calls}"
 
-    val hasActive = events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
-    val failed = events.count { it.status == ToolEventStatus.FAILED || it.isError }
-    val completed = events.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
-    val status = when {
-        hasActive -> labels.running
+    val failed = events.count { it.toToolCallState() is ToolCallState.Failed }
+    val completed = events.count { it.toToolCallState() is ToolCallState.Completed }
+    
+    val statusStr = when {
+        overallState is ToolCallState.Running -> labels.running
         failed == events.size -> labels.failed
         failed > 0 && completed > 0 -> labels.completedWithErrors
         failed > 0 -> labels.failed
-        events.any { it.status == ToolEventStatus.CANCELED } -> labels.canceled
+        overallState is ToolCallState.Canceled -> labels.canceled
         else -> labels.completed
     }
 
     val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
-    val subject = if (distinctToolNames.size == 1) {
-        val first = events.first()
-        val info = resolveToolServiceInfo(
-            toolName = first.toolName,
-            modelToolName = first.modelToolName,
-            connectionNameSnapshot = first.connectionNameSnapshot,
-            connectionUidSnapshot = first.connectionUidSnapshot,
-        )
-        "${info.serviceName} — ${info.toolDisplayName}"
+    val subject = if (distinctToolNames.size == 1 && primaryServiceInfo != null) {
+        "${primaryServiceInfo.serviceName} — ${primaryServiceInfo.toolDisplayName}"
     } else {
         val noun = if (count == 1) labels.call else labels.calls
         "$count $noun"
     }
 
-    return if (status == labels.completed) subject else "$subject - $status"
+    return if (statusStr == labels.completed) subject else "$subject - $statusStr"
 }
 
 internal fun formatToolDuration(event: ToolEvent): String? {
@@ -634,5 +711,50 @@ data class ToolTraceLabels(
             exportHeader = { count -> "Tool calls ($count)" },
             startedAt = "started at",
         )
+    }
+}
+
+// 5. Heavy Use of Compose @Preview
+@Preview(showBackground = true)
+@Composable
+private fun ToolTraceBlockPreview() {
+    GPTMobileTheme {
+        val mockEvent = ToolEvent(
+            id = 1,
+            messageId = 1,
+            callId = "call_123",
+            toolName = "web_search",
+            modelToolName = "web_search",
+            arguments = "{\"query\": \"Compose preview\"}",
+            status = ToolEventStatus.COMPLETED,
+            sequence = 0,
+            result = "Found results for Compose preview",
+            startedAt = Instant.now().epochSecond - 5,
+            completedAt = Instant.now().epochSecond
+        )
+        Box(modifier = Modifier.padding(16.dp)) {
+            ToolTraceBlock(events = listOf(mockEvent))
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun ToolTraceBlockRunningPreview() {
+    GPTMobileTheme {
+        val mockEvent = ToolEvent(
+            id = 2,
+            messageId = 1,
+            callId = "call_456",
+            toolName = "calculate_expression",
+            modelToolName = "calculate_expression",
+            arguments = "{\"expression\": \"2 + 2\"}",
+            status = ToolEventStatus.RUNNING,
+            sequence = 0,
+            startedAt = Instant.now().epochSecond
+        )
+        Box(modifier = Modifier.padding(16.dp)) {
+            ToolTraceBlock(events = listOf(mockEvent))
+        }
     }
 }

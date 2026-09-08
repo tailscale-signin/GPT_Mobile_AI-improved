@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
@@ -8,6 +10,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -25,7 +28,8 @@ fun SettingItem(
     onItemClick: () -> Unit,
     showTrailingIcon: Boolean,
     showLeadingIcon: Boolean,
-    leadingIcon: @Composable () -> Unit? = {}
+    leadingIcon: @Composable () -> Unit? = {},
+    trailingBadge: @Composable (() -> Unit)? = null
 ) {
     val clickableModifier = if (enabled) {
         modifier
@@ -39,6 +43,21 @@ fun SettingItem(
     }
     val colors = ListItemDefaults.colors()
 
+    val trailingContentComposable: @Composable () -> Unit = {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            trailingBadge?.invoke()
+            if (showTrailingIcon) {
+                Icon(
+                    ImageVector.vectorResource(id = R.drawable.ic_round_arrow_right),
+                    contentDescription = stringResource(R.string.arrow_icon)
+                )
+            }
+        }
+    }
+
     if (showLeadingIcon) {
         ListItem(
             modifier = clickableModifier,
@@ -47,14 +66,7 @@ fun SettingItem(
                 description?.let { Text(it, overflow = TextOverflow.Ellipsis) }
             },
             leadingContent = { leadingIcon() },
-            trailingContent = {
-                if (showTrailingIcon) {
-                    Icon(
-                        ImageVector.vectorResource(id = R.drawable.ic_round_arrow_right),
-                        contentDescription = stringResource(R.string.arrow_icon)
-                    )
-                }
-            },
+            trailingContent = trailingContentComposable,
             colors = ListItemDefaults.colors(
                 headlineColor = if (enabled) colors.headlineColor else colors.disabledHeadlineColor,
                 supportingColor = if (enabled) colors.supportingTextColor else colors.disabledHeadlineColor,
@@ -68,14 +80,7 @@ fun SettingItem(
             supportingContent = {
                 description?.let { Text(it) }
             },
-            trailingContent = {
-                if (showTrailingIcon) {
-                    Icon(
-                        ImageVector.vectorResource(id = R.drawable.ic_round_arrow_right),
-                        contentDescription = stringResource(R.string.arrow_icon)
-                    )
-                }
-            },
+            trailingContent = trailingContentComposable,
             colors = ListItemDefaults.colors(
                 headlineColor = if (enabled) colors.headlineColor else colors.disabledHeadlineColor,
                 supportingColor = if (enabled) colors.supportingTextColor else colors.disabledHeadlineColor,

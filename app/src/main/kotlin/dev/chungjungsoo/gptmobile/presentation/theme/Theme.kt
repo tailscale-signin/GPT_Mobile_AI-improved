@@ -4,7 +4,6 @@ import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -49,333 +48,82 @@ private val lightScheme = lightColorScheme(
     onSurfaceVariant = onSurfaceVariantLight,
     outline = outlineLight,
     outlineVariant = outlineVariantLight,
-    scrim = scrimLight,
-    inverseSurface = inverseSurfaceLight,
-    inverseOnSurface = inverseOnSurfaceLight,
-    inversePrimary = inversePrimaryLight,
-    surfaceDim = surfaceDimLight,
-    surfaceBright = surfaceBrightLight,
-    surfaceContainerLowest = surfaceContainerLowestLight,
-    surfaceContainerLow = surfaceContainerLowLight,
-    surfaceContainer = surfaceContainerLight,
-    surfaceContainerHigh = surfaceContainerHighLight,
-    surfaceContainerHighest = surfaceContainerHighestLight
 )
 
+// Deliberately cyan-black rather than neutral/absolute black. Keeping every surface
+// in the same hue family also prevents cards and system bars from looking green.
 private val darkScheme = darkColorScheme(
-    primary = primaryDark,
-    onPrimary = onPrimaryDark,
-    primaryContainer = primaryContainerDark,
-    onPrimaryContainer = onPrimaryContainerDark,
-    secondary = secondaryDark,
-    onSecondary = onSecondaryDark,
-    secondaryContainer = secondaryContainerDark,
-    onSecondaryContainer = onSecondaryContainerDark,
-    tertiary = tertiaryDark,
-    onTertiary = onTertiaryDark,
-    tertiaryContainer = tertiaryContainerDark,
-    onTertiaryContainer = onTertiaryContainerDark,
+    primary = Color(0xFF55DFF2),
+    onPrimary = Color(0xFF002A31),
+    primaryContainer = Color(0xFF004E5B),
+    onPrimaryContainer = Color(0xFFB8F4FF),
+    secondary = Color(0xFF9EDCE5),
+    onSecondary = Color(0xFF082F35),
+    secondaryContainer = Color(0xFF123F47),
+    onSecondaryContainer = Color(0xFFC5F0F6),
+    tertiary = Color(0xFF8CDCE8),
+    onTertiary = Color(0xFF00343C),
+    tertiaryContainer = Color(0xFF07505B),
+    onTertiaryContainer = Color(0xFFC2F4FC),
     error = errorDark,
     onError = onErrorDark,
     errorContainer = errorContainerDark,
     onErrorContainer = onErrorContainerDark,
-    background = backgroundDark,
-    onBackground = onBackgroundDark,
-    surface = surfaceDark,
-    onSurface = onSurfaceDark,
-    surfaceVariant = surfaceVariantDark,
-    onSurfaceVariant = onSurfaceVariantDark,
-    outline = outlineDark,
-    outlineVariant = outlineVariantDark,
-    scrim = scrimDark,
-    inverseSurface = inverseSurfaceDark,
-    inverseOnSurface = inverseOnSurfaceDark,
-    inversePrimary = inversePrimaryDark,
-    surfaceDim = surfaceDimDark,
-    surfaceBright = surfaceBrightDark,
-    surfaceContainerLowest = surfaceContainerLowestDark,
-    surfaceContainerLow = surfaceContainerLowDark,
-    surfaceContainer = surfaceContainerDark,
-    surfaceContainerHigh = surfaceContainerHighDark,
-    surfaceContainerHighest = surfaceContainerHighestDark
-)
-
-private val mediumContrastLightColorScheme = lightColorScheme(
-    primary = primaryLightMediumContrast,
-    onPrimary = onPrimaryLightMediumContrast,
-    primaryContainer = primaryContainerLightMediumContrast,
-    onPrimaryContainer = onPrimaryContainerLightMediumContrast,
-    secondary = secondaryLightMediumContrast,
-    onSecondary = onSecondaryLightMediumContrast,
-    secondaryContainer = secondaryContainerLightMediumContrast,
-    onSecondaryContainer = onSecondaryContainerLightMediumContrast,
-    tertiary = tertiaryLightMediumContrast,
-    onTertiary = onTertiaryLightMediumContrast,
-    tertiaryContainer = tertiaryContainerLightMediumContrast,
-    onTertiaryContainer = onTertiaryContainerLightMediumContrast,
-    error = errorLightMediumContrast,
-    onError = onErrorLightMediumContrast,
-    errorContainer = errorContainerLightMediumContrast,
-    onErrorContainer = onErrorContainerLightMediumContrast,
-    background = backgroundLightMediumContrast,
-    onBackground = onBackgroundLightMediumContrast,
-    surface = surfaceLightMediumContrast,
-    onSurface = onSurfaceLightMediumContrast,
-    surfaceVariant = surfaceVariantLightMediumContrast,
-    onSurfaceVariant = onSurfaceVariantLightMediumContrast,
-    outline = outlineLightMediumContrast,
-    outlineVariant = outlineVariantLightMediumContrast,
-    scrim = scrimLightMediumContrast,
-    inverseSurface = inverseSurfaceLightMediumContrast,
-    inverseOnSurface = inverseOnSurfaceLightMediumContrast,
-    inversePrimary = inversePrimaryLightMediumContrast,
-    surfaceDim = surfaceDimLightMediumContrast,
-    surfaceBright = surfaceBrightLightMediumContrast,
-    surfaceContainerLowest = surfaceContainerLowestLightMediumContrast,
-    surfaceContainerLow = surfaceContainerLowLightMediumContrast,
-    surfaceContainer = surfaceContainerLightMediumContrast,
-    surfaceContainerHigh = surfaceContainerHighLightMediumContrast,
-    surfaceContainerHighest = surfaceContainerHighestLightMediumContrast
-)
-
-private val highContrastLightColorScheme = lightColorScheme(
-    primary = primaryLightHighContrast,
-    onPrimary = onPrimaryLightHighContrast,
-    primaryContainer = primaryContainerLightHighContrast,
-    onPrimaryContainer = onPrimaryContainerLightHighContrast,
-    secondary = secondaryLightHighContrast,
-    onSecondary = onSecondaryLightHighContrast,
-    secondaryContainer = secondaryContainerLightHighContrast,
-    onSecondaryContainer = onSecondaryContainerLightHighContrast,
-    tertiary = tertiaryLightHighContrast,
-    onTertiary = onTertiaryLightHighContrast,
-    tertiaryContainer = tertiaryContainerLightHighContrast,
-    onTertiaryContainer = onTertiaryContainerLightHighContrast,
-    error = errorLightHighContrast,
-    onError = onErrorLightHighContrast,
-    errorContainer = errorContainerLightHighContrast,
-    onErrorContainer = onErrorContainerLightHighContrast,
-    background = backgroundLightHighContrast,
-    onBackground = onBackgroundLightHighContrast,
-    surface = surfaceLightHighContrast,
-    onSurface = onSurfaceLightHighContrast,
-    surfaceVariant = surfaceVariantLightHighContrast,
-    onSurfaceVariant = onSurfaceVariantLightHighContrast,
-    outline = outlineLightHighContrast,
-    outlineVariant = outlineVariantLightHighContrast,
-    scrim = scrimLightHighContrast,
-    inverseSurface = inverseSurfaceLightHighContrast,
-    inverseOnSurface = inverseOnSurfaceLightHighContrast,
-    inversePrimary = inversePrimaryLightHighContrast,
-    surfaceDim = surfaceDimLightHighContrast,
-    surfaceBright = surfaceBrightLightHighContrast,
-    surfaceContainerLowest = surfaceContainerLowestLightHighContrast,
-    surfaceContainerLow = surfaceContainerLowLightHighContrast,
-    surfaceContainer = surfaceContainerLightHighContrast,
-    surfaceContainerHigh = surfaceContainerHighLightHighContrast,
-    surfaceContainerHighest = surfaceContainerHighestLightHighContrast
-)
-
-private val mediumContrastDarkColorScheme = darkColorScheme(
-    primary = primaryDarkMediumContrast,
-    onPrimary = onPrimaryDarkMediumContrast,
-    primaryContainer = primaryContainerDarkMediumContrast,
-    onPrimaryContainer = onPrimaryContainerDarkMediumContrast,
-    secondary = secondaryDarkMediumContrast,
-    onSecondary = onSecondaryDarkMediumContrast,
-    secondaryContainer = secondaryContainerDarkMediumContrast,
-    onSecondaryContainer = onSecondaryContainerDarkMediumContrast,
-    tertiary = tertiaryDarkMediumContrast,
-    onTertiary = onTertiaryDarkMediumContrast,
-    tertiaryContainer = tertiaryContainerDarkMediumContrast,
-    onTertiaryContainer = onTertiaryContainerDarkMediumContrast,
-    error = errorDarkMediumContrast,
-    onError = onErrorDarkMediumContrast,
-    errorContainer = errorContainerDarkMediumContrast,
-    onErrorContainer = onErrorContainerDarkMediumContrast,
-    background = backgroundDarkMediumContrast,
-    onBackground = onBackgroundDarkMediumContrast,
-    surface = surfaceDarkMediumContrast,
-    onSurface = onSurfaceDarkMediumContrast,
-    surfaceVariant = surfaceVariantDarkMediumContrast,
-    onSurfaceVariant = onSurfaceVariantDarkMediumContrast,
-    outline = outlineDarkMediumContrast,
-    outlineVariant = outlineVariantDarkMediumContrast,
-    scrim = scrimDarkMediumContrast,
-    inverseSurface = inverseSurfaceDarkMediumContrast,
-    inverseOnSurface = inverseOnSurfaceDarkMediumContrast,
-    inversePrimary = inversePrimaryDarkMediumContrast,
-    surfaceDim = surfaceDimDarkMediumContrast,
-    surfaceBright = surfaceBrightDarkMediumContrast,
-    surfaceContainerLowest = surfaceContainerLowestDarkMediumContrast,
-    surfaceContainerLow = surfaceContainerLowDarkMediumContrast,
-    surfaceContainer = surfaceContainerDarkMediumContrast,
-    surfaceContainerHigh = surfaceContainerHighDarkMediumContrast,
-    surfaceContainerHighest = surfaceContainerHighestDarkMediumContrast
-)
-
-private val highContrastDarkColorScheme = darkColorScheme(
-    primary = primaryDarkHighContrast,
-    onPrimary = onPrimaryDarkHighContrast,
-    primaryContainer = primaryContainerDarkHighContrast,
-    onPrimaryContainer = onPrimaryContainerDarkHighContrast,
-    secondary = secondaryDarkHighContrast,
-    onSecondary = onSecondaryDarkHighContrast,
-    secondaryContainer = secondaryContainerDarkHighContrast,
-    onSecondaryContainer = onSecondaryContainerDarkHighContrast,
-    tertiary = tertiaryDarkHighContrast,
-    onTertiary = onTertiaryDarkHighContrast,
-    tertiaryContainer = tertiaryContainerDarkHighContrast,
-    onTertiaryContainer = onTertiaryContainerDarkHighContrast,
-    error = errorDarkHighContrast,
-    onError = onErrorDarkHighContrast,
-    errorContainer = errorContainerDarkHighContrast,
-    onErrorContainer = onErrorContainerDarkHighContrast,
-    background = backgroundDarkHighContrast,
-    onBackground = onBackgroundDarkHighContrast,
-    surface = surfaceDarkHighContrast,
-    onSurface = onSurfaceDarkHighContrast,
-    surfaceVariant = surfaceVariantDarkHighContrast,
-    onSurfaceVariant = onSurfaceVariantDarkHighContrast,
-    outline = outlineDarkHighContrast,
-    outlineVariant = outlineVariantDarkHighContrast,
-    scrim = scrimDarkHighContrast,
-    inverseSurface = inverseSurfaceDarkHighContrast,
-    inverseOnSurface = inverseOnSurfaceDarkHighContrast,
-    inversePrimary = inversePrimaryDarkHighContrast,
-    surfaceDim = surfaceDimDarkHighContrast,
-    surfaceBright = surfaceBrightDarkHighContrast,
-    surfaceContainerLowest = surfaceContainerLowestDarkHighContrast,
-    surfaceContainerLow = surfaceContainerLowDarkHighContrast,
-    surfaceContainer = surfaceContainerDarkHighContrast,
-    surfaceContainerHigh = surfaceContainerHighDarkHighContrast,
-    surfaceContainerHighest = surfaceContainerHighestDarkHighContrast
+    background = Color(0xFF001A1F),
+    onBackground = Color(0xFFE0F4F7),
+    surface = Color(0xFF001A1F),
+    onSurface = Color(0xFFE0F4F7),
+    surfaceVariant = Color(0xFF12383F),
+    onSurfaceVariant = Color(0xFFB8DDE2),
+    outline = Color(0xFF71949A),
+    outlineVariant = Color(0xFF294D53),
+    scrim = Color(0xFF001014),
+    inverseSurface = Color(0xFFD7F2F5),
+    inverseOnSurface = Color(0xFF123338),
+    inversePrimary = Color(0xFF006878),
+    surfaceDim = Color(0xFF001A1F),
+    surfaceBright = Color(0xFF173C43),
+    surfaceContainerLowest = Color(0xFF001419),
+    surfaceContainerLow = Color(0xFF062329),
+    surfaceContainer = Color(0xFF0A292F),
+    surfaceContainerHigh = Color(0xFF103239),
+    surfaceContainerHighest = Color(0xFF173C43),
 )
 
 val extendedLight = ExtendedColorScheme(
-    customColor1 = ColorFamily(
-        customColor1Light,
-        onCustomColor1Light,
-        customColor1ContainerLight,
-        onCustomColor1ContainerLight
-    ),
-    chatGPTOfficialColor = ColorFamily(
-        chatGPTOfficialColorLight,
-        onChatGPTOfficialColorLight,
-        chatGPTOfficialColorContainerLight,
-        onChatGPTOfficialColorContainerLight
-    ),
-    customColor2 = ColorFamily(
-        customColor2Light,
-        onCustomColor2Light,
-        customColor2ContainerLight,
-        onCustomColor2ContainerLight
-    )
+    ColorFamily(customColor1Light, onCustomColor1Light, customColor1ContainerLight, onCustomColor1ContainerLight),
+    ColorFamily(chatGPTOfficialColorLight, onChatGPTOfficialColorLight, chatGPTOfficialColorContainerLight, onChatGPTOfficialColorContainerLight),
+    ColorFamily(customColor2Light, onCustomColor2Light, customColor2ContainerLight, onCustomColor2ContainerLight),
 )
 
 val extendedDark = ExtendedColorScheme(
-    customColor1 = ColorFamily(
-        customColor1Dark,
-        onCustomColor1Dark,
-        customColor1ContainerDark,
-        onCustomColor1ContainerDark
-    ),
-    chatGPTOfficialColor = ColorFamily(
-        chatGPTOfficialColorDark,
-        onChatGPTOfficialColorDark,
-        chatGPTOfficialColorContainerDark,
-        onChatGPTOfficialColorContainerDark
-    ),
-    customColor2 = ColorFamily(
-        customColor2Dark,
-        onCustomColor2Dark,
-        customColor2ContainerDark,
-        onCustomColor2ContainerDark
-    )
+    ColorFamily(customColor1Dark, onCustomColor1Dark, customColor1ContainerDark, onCustomColor1ContainerDark),
+    ColorFamily(chatGPTOfficialColorDark, onChatGPTOfficialColorDark, chatGPTOfficialColorContainerDark, onChatGPTOfficialColorContainerDark),
+    ColorFamily(customColor2Dark, onCustomColor2Dark, customColor2ContainerDark, onCustomColor2ContainerDark),
 )
 
 val extendedLightMediumContrast = ExtendedColorScheme(
-    customColor1 = ColorFamily(
-        customColor1LightMediumContrast,
-        onCustomColor1LightMediumContrast,
-        customColor1ContainerLightMediumContrast,
-        onCustomColor1ContainerLightMediumContrast
-    ),
-    chatGPTOfficialColor = ColorFamily(
-        chatGPTOfficialColorLightMediumContrast,
-        onChatGPTOfficialColorLightMediumContrast,
-        chatGPTOfficialColorContainerLightMediumContrast,
-        onChatGPTOfficialColorContainerLightMediumContrast
-    ),
-    customColor2 = ColorFamily(
-        customColor2LightMediumContrast,
-        onCustomColor2LightMediumContrast,
-        customColor2ContainerLightMediumContrast,
-        onCustomColor2ContainerLightMediumContrast
-    )
+    ColorFamily(customColor1LightMediumContrast, onCustomColor1LightMediumContrast, customColor1ContainerLightMediumContrast, onCustomColor1ContainerLightMediumContrast),
+    ColorFamily(chatGPTOfficialColorLightMediumContrast, onChatGPTOfficialColorLightMediumContrast, chatGPTOfficialColorContainerLightMediumContrast, onChatGPTOfficialColorContainerLightMediumContrast),
+    ColorFamily(customColor2LightMediumContrast, onCustomColor2LightMediumContrast, customColor2ContainerLightMediumContrast, onCustomColor2ContainerLightMediumContrast),
 )
 
 val extendedLightHighContrast = ExtendedColorScheme(
-    customColor1 = ColorFamily(
-        customColor1LightHighContrast,
-        onCustomColor1LightHighContrast,
-        customColor1ContainerLightHighContrast,
-        onCustomColor1ContainerLightHighContrast
-    ),
-    chatGPTOfficialColor = ColorFamily(
-        chatGPTOfficialColorLightHighContrast,
-        onChatGPTOfficialColorLightHighContrast,
-        chatGPTOfficialColorContainerLightHighContrast,
-        onChatGPTOfficialColorContainerLightHighContrast
-    ),
-    customColor2 = ColorFamily(
-        customColor2LightHighContrast,
-        onCustomColor2LightHighContrast,
-        customColor2ContainerLightHighContrast,
-        onCustomColor2ContainerLightHighContrast
-    )
+    ColorFamily(customColor1LightHighContrast, onCustomColor1LightHighContrast, customColor1ContainerLightHighContrast, onCustomColor1ContainerLightHighContrast),
+    ColorFamily(chatGPTOfficialColorLightHighContrast, onChatGPTOfficialColorLightHighContrast, chatGPTOfficialColorContainerLightHighContrast, onChatGPTOfficialColorContainerLightHighContrast),
+    ColorFamily(customColor2LightHighContrast, onCustomColor2LightHighContrast, customColor2ContainerLightHighContrast, onCustomColor2ContainerLightHighContrast),
 )
 
 val extendedDarkMediumContrast = ExtendedColorScheme(
-    customColor1 = ColorFamily(
-        customColor1DarkMediumContrast,
-        onCustomColor1DarkMediumContrast,
-        customColor1ContainerDarkMediumContrast,
-        onCustomColor1ContainerDarkMediumContrast
-    ),
-    chatGPTOfficialColor = ColorFamily(
-        chatGPTOfficialColorDarkMediumContrast,
-        onChatGPTOfficialColorDarkMediumContrast,
-        chatGPTOfficialColorContainerDarkMediumContrast,
-        onChatGPTOfficialColorContainerDarkMediumContrast
-    ),
-    customColor2 = ColorFamily(
-        customColor2DarkMediumContrast,
-        onCustomColor2DarkMediumContrast,
-        customColor2ContainerDarkMediumContrast,
-        onCustomColor2ContainerDarkMediumContrast
-    )
+    ColorFamily(customColor1DarkMediumContrast, onCustomColor1DarkMediumContrast, customColor1ContainerDarkMediumContrast, onCustomColor1ContainerDarkMediumContrast),
+    ColorFamily(chatGPTOfficialColorDarkMediumContrast, onChatGPTOfficialColorDarkMediumContrast, chatGPTOfficialColorContainerDarkMediumContrast, onChatGPTOfficialColorContainerDarkMediumContrast),
+    ColorFamily(customColor2DarkMediumContrast, onCustomColor2DarkMediumContrast, customColor2ContainerDarkMediumContrast, onCustomColor2ContainerDarkMediumContrast),
 )
 
 val extendedDarkHighContrast = ExtendedColorScheme(
-    customColor1 = ColorFamily(
-        customColor1DarkHighContrast,
-        onCustomColor1DarkHighContrast,
-        customColor1ContainerDarkHighContrast,
-        onCustomColor1ContainerDarkHighContrast
-    ),
-    chatGPTOfficialColor = ColorFamily(
-        chatGPTOfficialColorDarkHighContrast,
-        onChatGPTOfficialColorDarkHighContrast,
-        chatGPTOfficialColorContainerDarkHighContrast,
-        onChatGPTOfficialColorContainerDarkHighContrast
-    ),
-    customColor2 = ColorFamily(
-        customColor2DarkHighContrast,
-        onCustomColor2DarkHighContrast,
-        customColor2ContainerDarkHighContrast,
-        onCustomColor2ContainerDarkHighContrast
-    )
+    ColorFamily(customColor1DarkHighContrast, onCustomColor1DarkHighContrast, customColor1ContainerDarkHighContrast, onCustomColor1ContainerDarkHighContrast),
+    ColorFamily(chatGPTOfficialColorDarkHighContrast, onChatGPTOfficialColorDarkHighContrast, chatGPTOfficialColorContainerDarkHighContrast, onChatGPTOfficialColorContainerDarkHighContrast),
+    ColorFamily(customColor2DarkHighContrast, onCustomColor2DarkHighContrast, customColor2ContainerDarkHighContrast, onCustomColor2ContainerDarkHighContrast),
 )
 
 @Immutable
@@ -386,12 +134,7 @@ data class ColorFamily(
     val onColorContainer: Color
 )
 
-val unspecified_scheme = ColorFamily(
-    Color.Unspecified,
-    Color.Unspecified,
-    Color.Unspecified,
-    Color.Unspecified
-)
+val unspecified_scheme = ColorFamily(Color.Unspecified, Color.Unspecified, Color.Unspecified, Color.Unspecified)
 
 @Composable
 fun GPTMobileTheme(
@@ -399,21 +142,15 @@ fun GPTMobileTheme(
     themeMode: ThemeMode = ThemeMode.LIGHT,
     content: @Composable () -> Unit
 ) {
-    val useDynamicColor = dynamicTheme == DynamicTheme.ON
     val useDarkTheme = when (themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
     }
-
+    val context = LocalContext.current
     val colorScheme = when {
-        useDynamicColor -> {
-            val context = LocalContext.current
-            if (useDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
         useDarkTheme -> darkScheme
-
+        dynamicTheme == DynamicTheme.ON -> dynamicLightColorScheme(context)
         else -> lightScheme
     }
     val view = LocalView.current
@@ -424,10 +161,5 @@ fun GPTMobileTheme(
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !useDarkTheme
         }
     }
-
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = AppTypography,
-        content = content
-    )
+    MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
 }

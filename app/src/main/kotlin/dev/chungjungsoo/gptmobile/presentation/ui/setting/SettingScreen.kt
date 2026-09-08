@@ -182,7 +182,7 @@ fun SettingScreen(
                     PlatformItemCard(
                         platform = platform,
                         onToggleEnabled = { settingViewModel.togglePlatformEnabled(platform.id) },
-                        onEdit = { onNavigateToPlatformSetting(platform.id.toString()) },
+                        onEdit = { onNavigateToPlatformSetting(platform.uid) },
                         onDelete = { settingViewModel.openDeleteDialog(platform.id) }
                     )
                 }
@@ -309,7 +309,7 @@ fun SettingScreen(
                         placeholder = { Text("Leave blank to use default key") },
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = openBackupRestorePassphraseModifier
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -377,6 +377,8 @@ fun SettingScreen(
         )
     }
 }
+
+private val openBackupRestorePassphraseModifier = Modifier.fillMaxWidth()
 
 @Composable
 private fun PlatformItemCard(

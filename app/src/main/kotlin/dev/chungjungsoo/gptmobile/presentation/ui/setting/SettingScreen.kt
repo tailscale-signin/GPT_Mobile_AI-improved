@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
@@ -370,7 +369,7 @@ private fun PlatformItemCard(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = platform.title.ifBlank { platform.apiType.name },
+                    text = platform.name.ifBlank { platform.compatibleType.name },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -378,7 +377,7 @@ private fun PlatformItemCard(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${platform.apiType.name} • ${platform.model.ifBlank { "Default model" }}",
+                    text = "${platform.compatibleType.name} • ${platform.model.ifBlank { "Default model" }}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

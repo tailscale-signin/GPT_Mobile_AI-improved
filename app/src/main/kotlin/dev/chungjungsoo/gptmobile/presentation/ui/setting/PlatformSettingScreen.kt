@@ -396,7 +396,15 @@ fun PlatformSettingScreen(
                 if (!isLocalPlatform) {
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
                     APIKeyDialog(dialogState, settingViewModel)
-                    ModelDialog(dialogState, platformData.model, settingViewModel)
+                    if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
+              OpenRouterModelPickerDialog(
+                  currentModel = platformData.model,
+                  onDismiss = settingViewModel::closeApiModelDialog,
+                  onModelSelected = settingViewModel::updateApiModel
+              )
+          } else {
+              ModelDialog(dialogState, platformData.model, settingViewModel)
+          }
                     TimeoutDialog(dialogState, platformData.timeout, settingViewModel)
                 } else {
                     LocalModelDialog(

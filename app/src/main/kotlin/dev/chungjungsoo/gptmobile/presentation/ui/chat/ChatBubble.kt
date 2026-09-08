@@ -302,4 +302,5 @@ private fun MessageFileThumbnail(filePath: String, usePrimaryColors: Boolean) {
     }
 }
 
-private fun isImageFile(extension: String?): Boolean = extension?.lowercase() in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")
+private fun isImageFile(extension: String?): Boolean =
+    extension != null && extension.lowercase() in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")

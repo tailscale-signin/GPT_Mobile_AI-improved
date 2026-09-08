@@ -487,6 +487,7 @@ private fun AgentToolResult.errorMessage(): String? {
         is ToolResultContent.Text -> value.text
         is ToolResultContent.Json -> value.value.toString()
         is ToolResultContent.ResourceLinks -> "Tool call failed."
+        else -> "Tool call failed."
     }
 }
 

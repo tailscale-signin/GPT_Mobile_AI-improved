@@ -107,6 +107,8 @@ jobs:
           echo "Building Release APK..."
           set -o pipefail
           ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2 2>&1 | tee gradle-release-build.log
+          echo "Build completed. Verifying APK generation..."
+          find app/build/outputs/ -type f -name "*.apk"
 
       - name: Build Release Bundle
         env:
@@ -129,8 +131,7 @@ jobs:
           fi
           echo "Using apksigner at: $APKSIGNER"
 
-          shopt -s nullglob globstar
-          FOUND_APKS=($(find app/build/outputs -type f -name "*.apk" ! -path "*/signed/*"))
+          mapfile -t FOUND_APKS < <(find app/build/outputs -type f -name "*.apk" ! -path "*/signed/*")
           echo "Found ${#FOUND_APKS[@]} candidate APK(s) to sign"
 
           if [ ${#FOUND_APKS[@]} -eq 0 ]; then
@@ -224,16 +225,11 @@ jobs:
         run: |
           echo "Publishing GitHub Pre-release for tag: $TAG_NAME"
 
-          ASSETS_TO_UPLOAD=()
-          while IFS= read -r f; do
-            [ -n "$f" ] && ASSETS_TO_UPLOAD+=("$f")
-          done < <(find app/build/outputs/apk/release/signed/ -maxdepth 1 -name "*.apk" 2>/dev/null || true)
+          mapfile -t ASSETS_TO_UPLOAD < <(find app/build/outputs/apk/release/signed/ -maxdepth 1 -name "*.apk" 2>/dev/null)
 
           if [ ${#ASSETS_TO_UPLOAD[@]} -eq 0 ]; then
             echo "Signed release directory had no apks, searching all build outputs..."
-            while IFS= read -r f; do
-              [ -n "$f" ] && ASSETS_TO_UPLOAD+=("$f")
-            done < <(find app/build/outputs/ -type f -name "*.apk" ! -path "*/intermediates/*" 2>/dev/null || true)
+            mapfile -t ASSETS_TO_UPLOAD < <(find app/build/outputs/ -type f -name "*.apk" ! -path "*/intermediates/*" 2>/dev/null)
           fi
 
           if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then
@@ -259,6 +255,14 @@ jobs:
               --notes "Automated pre-release build for commit ${SHORT_SHA} on main branch. Includes signed APKs (universal and ABI-specific) built with R8 optimization."
           fi
           echo "GitHub Pre-Release $TAG_NAME published successfully."
+
+      - name: Upload Build Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-failure-log
+          path: gradle-release-build.log
+          if-no-files-found: ignore
 
       - name: Report Build Failure as GitHub Issue
         if: failure()

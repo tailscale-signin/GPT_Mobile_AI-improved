@@ -94,6 +94,7 @@ jobs:
 
       - name: Report Build Failure as GitHub Issue
         if: failure()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT_SHA: ${{ github.sha }}
@@ -101,7 +102,6 @@ jobs:
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           WORKFLOW_NAME: ${{ github.workflow }}
         run: |
-          set -e
           ERROR_SNIPPET="No build log captured"
           if [ -f gradle-debug-build.log ]; then
             ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-debug-build.log | tail -n 60 || true)
@@ -117,7 +117,6 @@ jobs:
 
           SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
           ISSUE_TITLE="CI Build Failure on $REF_NAME ($SHORT_COMMIT)"
-          EXISTING_ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
 
           BODY_FILE=$(mktemp)
           {
@@ -139,15 +138,17 @@ jobs:
             echo "*Generated automatically by CI workflow.*"
           } > "$BODY_FILE"
 
+          EXISTING_ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number' 2>/dev/null || true)
+
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
+            gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE" || true
           else
             gh issue create \
               --repo "$GITHUB_REPOSITORY" \
               --title "$ISSUE_TITLE" \
               --label "build-failure,bug" \
-              --body-file "$BODY_FILE"
+              --body-file "$BODY_FILE" || echo "Unable to create issue (issues might be disabled for this repository)"
           fi
           rm -f "$BODY_FILE"
 

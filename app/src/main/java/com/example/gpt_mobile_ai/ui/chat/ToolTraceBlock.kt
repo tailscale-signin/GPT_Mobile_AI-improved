@@ -231,7 +231,7 @@ fun ToolTraceBlock(
             // Expand/Collapse Icon
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = if (expanded) stringResource(R.string.tool_trace_collapse) else stringResource(R.string.tool_trace_expand),
+                contentDescription = if (expanded) stringResource(R.string.tool_trace_collapse_content_description) else stringResource(R.string.tool_trace_expand_content_description),
                 modifier = Modifier.rotate(rotation),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -60,6 +60,34 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Resolve existing build failure issues on success
+        if: steps.gradle_build.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const source = context.payload.pull_request
+              ? `PR #${context.payload.pull_request.number}`
+              : `ref \`${context.ref}\``;
+            const title = `Build failure: ${source}`;
+            const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title "${title}"`;
+            const { data } = await github.rest.search.issuesAndPullRequests({ q, per_page: 10 });
+            for (const issue of data.items) {
+              if (issue.title === title) {
+                await github.rest.issues.createComment({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  body: `✅ **Resolved:** Build succeeded on commit \`${context.sha}\` (run [#${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})). Closing issue.`
+                });
+                await github.rest.issues.update({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  state: 'closed',
+                  state_reason: 'completed'
+                });
+                console.log(`Closed issue #${issue.number} as resolved`);
+              }
+            }
+
       - name: Report build failure as an issue
         if: steps.gradle_build.outcome == 'failure'
         uses: actions/github-script@v7
@@ -88,16 +116,19 @@ jobs:
               `- Workflow run: ${runUrl}`,
               '- Full log: download the `gradle-build-log` artifact from the workflow run.',
               '',
-              '<details><summary>Gradle error output</summary>',
+              '<details open><summary>Gradle error output</summary>',
               '',
               '```text',
               excerpt,
               '```',
-              '</details>'
+              '</details>',
+              '',
+              '---',
+              '*This issue will be automatically closed when a subsequent build succeeds on this ref/branch.*'
             ].join('\n');
 
             const { data: matches } = await github.rest.search.issuesAndPullRequests({
-              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title \"${title}\"`,
+              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title "${title}"`,
               per_page: 10
             });
             const existing = matches.items.find(issue => issue.title === title);
@@ -105,13 +136,14 @@ jobs:
               await github.rest.issues.createComment({
                 ...context.repo,
                 issue_number: existing.number,
-                body
+                body: `🔄 Build failure repeated on commit \`${context.sha}\`:\n\n${body}`
               });
             } else {
               await github.rest.issues.create({
                 ...context.repo,
                 title,
-                body
+                body,
+                labels: ['build-failure', 'bug']
               });
             }
 

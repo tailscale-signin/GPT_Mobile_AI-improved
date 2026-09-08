@@ -46,7 +46,7 @@ jobs:
           free -h
 
       - name: Setup JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: "21"
@@ -261,57 +261,85 @@ jobs:
           fi
           echo "GitHub Pre-Release $TAG_NAME published successfully."
 
+      - name: Resolve existing build failure issues on success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.ref.replace('refs/heads/', '');
+            const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open "Build failure: Release build on ${branch}"`;
+            const { data } = await github.rest.search.issuesAndPullRequests({ q, per_page: 20 });
+            for (const issue of data.items) {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: issue.number,
+                body: `✅ **Resolved:** Build succeeded on commit \`${context.sha}\` (run [#${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})). Closing issue.`
+              });
+              await github.rest.issues.update({
+                ...context.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed'
+              });
+              console.log(`Closed issue #${issue.number} as resolved`);
+            }
+
       - name: Report Build Failure as GitHub Issue
         if: failure()
-        continue-on-error: true
+        uses: actions/github-script@v7
         env:
-          GH_TOKEN: ${{ github.token }}
-          COMMIT_SHA: ${{ github.sha }}
-          REF_NAME: ${{ github.ref_name }}
-          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          WORKFLOW_NAME: ${{ github.workflow }}
-        run: |
-          ERROR_SNIPPET="No build log captured"
-          if [ -f gradle-release-build.log ]; then
-            ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-release-build.log | tail -n 60 || true)
-            if [ -z "$ERROR_SNIPPET" ]; then
-              ERROR_SNIPPET=$(tail -n 60 gradle-release-build.log)
-            fi
-          fi
+          BUILD_LOG: gradle-release-build.log
+        with:
+          script: |
+            const fs = require('fs');
+            const branch = context.ref.replace('refs/heads/', '');
+            const log = fs.existsSync(process.env.BUILD_LOG)
+              ? fs.readFileSync(process.env.BUILD_LOG, 'utf8')
+              : 'Gradle did not produce a build log.';
 
-          SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
-          ISSUE_TITLE="Release Build Failure on $REF_NAME ($SHORT_COMMIT)"
+            const maxLogLength = 45000;
+            const excerpt = log.length > maxLogLength
+              ? `[Earlier output omitted; full log is in the workflow run.]\n${log.slice(-maxLogLength)}`
+              : log;
 
-          BODY_FILE=$(mktemp)
-          {
-            echo "### 🚨 Automated CI Build Failure Report"
-            echo ""
-            echo "**Workflow:** $WORKFLOW_NAME"
-            echo "**Branch / Ref:** \`$REF_NAME\`"
-            echo "**Commit:** \`$COMMIT_SHA\`"
-            echo "**Run Details:** [View Actions Run]($RUN_URL)"
-            echo ""
-            echo "---"
-            echo ""
-            echo "### Exact Build Error / Failure Log (For AI & Maintainers)"
-            echo "\`\`\`text"
-            echo "$ERROR_SNIPPET"
-            echo "\`\`\`"
-            echo ""
-            echo "---"
-            echo "*Generated automatically by CI workflow.*"
-          } > "$BODY_FILE"
+            const title = `Build failure: Release build on ${branch}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `### 🚨 Automated Release Build Failure Report`,
+              '',
+              `- **Branch:** \`${branch}\``,
+              `- **Commit:** \`${context.sha}\``,
+              `- **Workflow run:** [${context.runId}](${runUrl})`,
+              '',
+              '---',
+              '',
+              '### Gradle Error Output',
+              '<details open><summary>Click to view/collapse</summary>',
+              '',
+              '```text',
+              excerpt,
+              '```',
+              '</details>',
+              '',
+              '---',
+              '*This issue will be automatically closed when a subsequent build succeeds on this branch.*'
+            ].join('\n');
 
-          EXISTING_ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number' 2>/dev/null || true)
+            const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title "${title}"`;
+            const { data } = await github.rest.search.issuesAndPullRequests({ q, per_page: 5 });
+            const existing = data.items.find(i => i.title === title);
 
-          if [ -n "$EXISTING_ISSUE" ]; then
-            echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE" || true
-          else
-            gh issue create \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$ISSUE_TITLE" \
-              --label "build-failure" \
-              --body-file "$BODY_FILE" || echo "Unable to create issue (issues might be disabled for this repository)"
-          fi
-          rm -f "$BODY_FILE"
+            if (existing) {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: existing.number,
+                body: `🔄 Build failure repeated on commit \`${context.sha}\`:\n\n${body}`
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo,
+                title,
+                body,
+                labels: ['build-failure', 'bug']
+              });
+            }

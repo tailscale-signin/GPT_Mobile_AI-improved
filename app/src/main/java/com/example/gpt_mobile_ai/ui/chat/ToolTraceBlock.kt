@@ -4,12 +4,27 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,14 +58,12 @@ sealed interface ToolCallState {
 /**
  * Extension function to map the database entity status to our UI state.
  */
-fun ToolEvent.toToolCallState(): ToolCallState {
-    return when (this.status) {
-        "running" -> ToolCallState.Running
-        "completed" -> ToolCallState.Completed(this.result)
-        "failed" -> ToolCallState.Failed(this.error ?: "Unknown error")
-        "canceled" -> ToolCallState.Canceled
-        else -> ToolCallState.Failed("Unknown status: ${this.status}")
-    }
+fun ToolEvent.toToolCallState(): ToolCallState = when (this.status) {
+    "running" -> ToolCallState.Running
+    "completed" -> ToolCallState.Completed(this.result)
+    "failed" -> ToolCallState.Failed(this.error ?: "Unknown error")
+    "canceled" -> ToolCallState.Canceled
+    else -> ToolCallState.Failed("Unknown status: ${this.status}")
 }
 
 /**
@@ -61,6 +74,7 @@ interface ToolDefinition {
     fun matches(toolName: String): Boolean
     val iconResId: Int
     val color: Color
+
     @Composable
     fun getDisplayName(): String
 }
@@ -73,31 +87,41 @@ val ToolRegistry = listOf(
         override fun matches(toolName: String) = toolName.contains("github", ignoreCase = true)
         override val iconResId = R.drawable.ic_github_logo
         override val color = Color(0xFF24292E)
-        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_github)
+
+        @Composable
+        override fun getDisplayName() = stringResource(R.string.github)
     },
     object : ToolDefinition {
         override fun matches(toolName: String) = toolName.contains("brave", ignoreCase = true)
         override val iconResId = R.drawable.ic_brave_logo
         override val color = Color(0xFFFF4F00)
-        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_brave)
+
+        @Composable
+        override fun getDisplayName() = "Brave"
     },
     object : ToolDefinition {
         override fun matches(toolName: String) = toolName.contains("mcp", ignoreCase = true)
         override val iconResId = R.drawable.ic_mcp_logo
         override val color = Color(0xFF0052CC)
-        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_mcp)
+
+        @Composable
+        override fun getDisplayName() = stringResource(R.string.mcp_server)
     },
     object : ToolDefinition {
         override fun matches(toolName: String) = toolName.contains("web", ignoreCase = true) || toolName.contains("search", ignoreCase = true)
         override val iconResId = R.drawable.ic_web_search
         override val color = Color(0xFF4285F4)
-        @Composable override fun getDisplayName() = stringResource(R.string.search)
+
+        @Composable
+        override fun getDisplayName() = stringResource(R.string.search)
     },
     object : ToolDefinition {
         override fun matches(toolName: String) = toolName.contains("calculate", ignoreCase = true)
         override val iconResId = R.drawable.ic_calculator
         override val color = Color(0xFF0F9D58)
-        @Composable override fun getDisplayName() = stringResource(R.string.tool_name_calculator)
+
+        @Composable
+        override fun getDisplayName() = "Calculator"
     }
 )
 
@@ -108,7 +132,9 @@ val DefaultToolDefinition = object : ToolDefinition {
     override fun matches(toolName: String) = true
     override val iconResId = R.drawable.ic_gpt_mobile_foreground
     override val color = Color.Gray
-    @Composable override fun getDisplayName() = stringResource(R.string.tool_name_system)
+
+    @Composable
+    override fun getDisplayName() = "System"
 }
 
 @Composable
@@ -168,7 +194,7 @@ fun ToolTraceBlock(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 // Status Indicator
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val statusColor = when (toolState) {
@@ -177,7 +203,7 @@ fun ToolTraceBlock(
                         is ToolCallState.Failed -> MaterialTheme.colorScheme.error
                         is ToolCallState.Canceled -> MaterialTheme.colorScheme.outline
                     }
-                    
+
                     if (toolState is ToolCallState.Running) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(12.dp),
@@ -186,14 +212,14 @@ fun ToolTraceBlock(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }
-                    
+
                     val statusText = when (toolState) {
                         is ToolCallState.Running -> stringResource(R.string.tool_trace_status_running)
                         is ToolCallState.Completed -> stringResource(R.string.tool_trace_status_completed)
                         is ToolCallState.Failed -> stringResource(R.string.tool_trace_status_failed)
                         is ToolCallState.Canceled -> stringResource(R.string.tool_trace_status_canceled)
                     }
-                    
+
                     Text(
                         text = statusText,
                         style = MaterialTheme.typography.bodySmall,
@@ -219,7 +245,7 @@ fun ToolTraceBlock(
                     .padding(top = 12.dp)
             ) {
                 Divider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(bottom = 8.dp))
-                
+
                 // Arguments
                 if (toolEvent.arguments.isNotBlank()) {
                     Text(
@@ -283,7 +309,7 @@ fun ToolTraceBlock(
                     }
                     else -> {} // Running or Canceled don't show results
                 }
-                
+
                 // Timing
                 Spacer(modifier = Modifier.height(8.dp))
                 val formatter = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())

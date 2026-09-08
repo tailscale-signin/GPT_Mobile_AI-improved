@@ -43,3 +43,7 @@ Models or endpoints that reject native tool definitions fall back once to chat-o
 - Deleting a connection removes its bindings and vault credential. Historical traces keep bounded connection/tool snapshots, not secrets.
 - Deleting a chat removes its runs and traces. Duplicating a chat copies completed history with regenerated IDs. Markdown export includes bounded traces and excludes credentials.
 - Credentials are not logged. Unsupported MCP binary/image blocks may be identified in the local trace but are not forwarded to the model.
+
+## Contributor guidelines
+
+See [GitHub MCP integration guidelines](./github-mcp-integration-guidelines.md) for the engineering practices required when adding or modifying MCP client code (tool discovery, credential handling, timeout/retry behavior, output limits) in this repo.

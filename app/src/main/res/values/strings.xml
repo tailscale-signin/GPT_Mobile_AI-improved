@@ -21,6 +21,8 @@
     <string name="error">Error</string>
     <string name="clear">Clear</string>
     <string name="search">Search</string>
+    <string name="on">On</string>
+    <string name="off">Off</string>
     <string name="settings">Settings</string>
     <string name="general">General</string>
     <string name="theme">Theme</string>

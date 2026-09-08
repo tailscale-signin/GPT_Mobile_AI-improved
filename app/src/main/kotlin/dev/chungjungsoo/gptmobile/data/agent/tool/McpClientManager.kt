@@ -191,8 +191,14 @@ class McpClientManager internal constructor(
     private companion object {
         const val CLIENT_NAME = "gpt-mobile"
         const val CLIENT_VERSION = "0.8.0"
-        const val MAX_TOOL_PAGES = Int.MAX_VALUE
-        const val MAX_DISCOVERED_TOOLS = Int.MAX_VALUE
+
+        // Bounded (not Int.MAX_VALUE): remote MCP server responses are untrusted input. Without a
+        // finite cap, a misbehaving or malicious server (e.g. a compromised or misconfigured
+        // Streamable HTTP endpoint such as a GitHub MCP preset) could force unbounded pagination
+        // or an unbounded in-memory tool list. These values comfortably exceed any realistic
+        // MCP server's tool catalog while restoring the intended safety guarantee.
+        const val MAX_TOOL_PAGES = 200
+        const val MAX_DISCOVERED_TOOLS = 1000
         const val MAX_ENDPOINT_LENGTH = 32 * 1024
         const val MAX_AUTHORIZATION_HEADER_LENGTH = 128 * 1024
     }

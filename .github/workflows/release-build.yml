@@ -70,7 +70,7 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Using repository secret keystore"
-            echo "$KEYSTORE_BASE64" | base4 -d > release.keystore
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
             echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
             echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
             echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
@@ -264,7 +264,6 @@ ERROR_SNIPPET_PLACEHOLDER
 ```
 EOF
             sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" "$BODY_FILE"
-            # Write error snippet safely without regex clash
             python3 -c "
 import sys
 content = open('$BODY_FILE').read()

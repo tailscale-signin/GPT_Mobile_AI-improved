@@ -16,15 +16,15 @@ import kotlinx.serialization.json.Json
 data class AgentRunLimits(
     val runTimeoutMillis: Long = Long.MAX_VALUE,
     val maxRounds: Int = Int.MAX_VALUE,
-    val maxToolCalls: Int = Int.MAX_VALUE,
-    val maxConcurrentTools: Int = 128,
+    val maxToolCalls: Int = 12,
+    val maxConcurrentTools: Int = 32,
     val toolTimeoutMillis: Long = Long.MAX_VALUE,
     val maxToolOutputBytes: Int = Int.MAX_VALUE
 ) {
     companion object {
-        const val DEFAULT_MAX_TOOL_CALLS: Int = Int.MAX_VALUE
+        const val DEFAULT_MAX_TOOL_CALLS: Int = 12
 
-        fun defaultMaxConcurrentTools(): Int = 128
+        fun defaultMaxConcurrentTools(): Int = 32
 
         fun defaultMaxToolOutputBytes(): Int = Int.MAX_VALUE
     }

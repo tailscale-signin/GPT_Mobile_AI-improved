@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.time.Instant
@@ -720,15 +721,18 @@ data class ToolTraceLabels(
 private fun ToolTraceBlockPreview() {
     GPTMobileTheme {
         val mockEvent = ToolEvent(
-            id = 1,
-            messageId = 1,
+            eventId = "evt_1",
+            runId = "run_1",
             callId = "call_123",
+            connectionUidSnapshot = null,
+            connectionNameSnapshot = null,
             toolName = "web_search",
             modelToolName = "web_search",
             arguments = "{\"query\": \"Compose preview\"}",
+            result = "Found results for Compose preview",
+            resultType = ToolEventResultType.TEXT,
             status = ToolEventStatus.COMPLETED,
             sequence = 0,
-            result = "Found results for Compose preview",
             startedAt = Instant.now().epochSecond - 5,
             completedAt = Instant.now().epochSecond
         )
@@ -743,12 +747,16 @@ private fun ToolTraceBlockPreview() {
 private fun ToolTraceBlockRunningPreview() {
     GPTMobileTheme {
         val mockEvent = ToolEvent(
-            id = 2,
-            messageId = 1,
+            eventId = "evt_2",
+            runId = "run_1",
             callId = "call_456",
+            connectionUidSnapshot = null,
+            connectionNameSnapshot = null,
             toolName = "calculate_expression",
             modelToolName = "calculate_expression",
             arguments = "{\"expression\": \"2 + 2\"}",
+            result = null,
+            resultType = null,
             status = ToolEventStatus.RUNNING,
             sequence = 0,
             startedAt = Instant.now().epochSecond

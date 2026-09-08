@@ -1,6 +1,7 @@
-name: Finalize OpenRouter picker wiring (one-shot)
+name: Finalize OpenRouter picker wiring
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - .github/workflows/validate-openrouter-picker.yml
@@ -13,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Format wiring
+      - name: Fix source formatting and remove workflow
         shell: python
         run: |
           from pathlib import Path
@@ -38,15 +39,14 @@ jobs:
                     } else {
                         ModelDialog(dialogState, platformData.model, settingViewModel)
                     }'''
-          count = source.count(old)
-          if count != 1:
-              raise SystemExit(f"Expected malformed wiring block exactly once, found {count}")
-          path.write_text(source.replace(old, new))
-      - name: Commit and remove workflow
+          if old not in source:
+              raise SystemExit("Expected OpenRouter picker block was not found")
+          path.write_text(source.replace(old, new, 1))
+          Path(".github/workflows/validate-openrouter-picker.yml").unlink()
+      - name: Commit finalized source
         run: |
-          rm .github/workflows/validate-openrouter-picker.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
-          git commit -m "Format OpenRouter model picker wiring"
+          git commit -m "Finalize OpenRouter model picker wiring"
           git push

@@ -323,6 +323,9 @@
     <string name="tool_name_calculator">Calculator</string>
     <string name="tool_name_location">Location</string>
     <string name="tool_name_date">Date</string>
+    <string name="tool_trace_block_content_description">Tool trace block</string>
+    <string name="search_tool_trace">Search tool trace</string>
+    <string name="no_matching_tool_calls">No matching tool calls</string>
 
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>

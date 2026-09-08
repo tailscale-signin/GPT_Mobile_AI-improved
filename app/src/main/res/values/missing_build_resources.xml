@@ -133,7 +133,6 @@
     <string name="feedback">Feedback</string>
     <string name="feedback_description">Share feedback or request a feature</string>
     <string name="feedback_icon">Feedback</string>
-    <string name="max_tokens">Max tokens</string>
 
     <plurals name="duration_seconds">
         <item quantity="one">%1$d second</item>

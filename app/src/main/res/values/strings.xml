@@ -97,4 +97,7 @@
     <string name="stop">Stop</string>
     <string name="close">Close</string>
     <string name="arrow_icon">Arrow icon</string>
+    <string name="advanced">Advanced</string>
+    <string name="max_tool_calls">Max Tool Calls</string>
+    <string name="max_tool_calls_description">Maximum tool calls permitted per turn (default: 12)</string>
 </resources>

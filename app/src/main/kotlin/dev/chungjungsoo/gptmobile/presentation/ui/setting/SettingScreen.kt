@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -290,6 +291,31 @@ fun SettingScreen(
                     Icon(
                         ImageVector.vectorResource(id = R.drawable.ic_restore),
                         contentDescription = stringResource(R.string.chat_restore),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Advanced Category
+            Text(
+                stringResource(R.string.advanced),
+                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            SettingItem(
+                title = stringResource(R.string.max_tool_calls),
+                description = stringResource(R.string.max_tool_calls_description),
+                onItemClick = {},
+                showTrailingIcon = false,
+                showLeadingIcon = true,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = stringResource(R.string.max_tool_calls),
                         modifier = Modifier.size(24.dp)
                     )
                 }

@@ -83,7 +83,7 @@ fun OpponentChatBubble(
 ) {
     val normalColor = MaterialTheme.colorScheme.background
     val bubbleColor = animateColorAsState(
-        targetValue = if (isFavorite) Color.Cyan else normalColor,
+        targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.2f) else normalColor,
         animationSpec = tween(durationMillis = 500),
         label = "favoriteBubbleColor"
     ).value
@@ -101,7 +101,12 @@ fun OpponentChatBubble(
     Column(modifier = modifier) {
         RunNoticeChips(notices = noticeMessages, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
         AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
-        Column(modifier = Modifier.background(bubbleColor)) {
+        Column(
+            modifier = Modifier.background(
+                color = bubbleColor,
+                shape = RoundedCornerShape(32.dp)
+            )
+        ) {
             val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
                 hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
             }
@@ -210,7 +215,7 @@ private fun LegacyAssistantContent(
         events = toolEvents, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp),
         contentIdentity = contentIdentity
     )
-    Card(shape = RoundedCornerShape(0.dp), colors = cardColor) {
+    Card(shape = RoundedCornerShape(32.dp), colors = cardColor) {
         Column {
             ChatMarkdown(
                 content = response + if (isLoading) "●" else "", contentIdentity = contentIdentity,

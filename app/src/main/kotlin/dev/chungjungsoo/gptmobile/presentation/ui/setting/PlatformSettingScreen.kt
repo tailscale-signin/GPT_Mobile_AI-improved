@@ -416,7 +416,7 @@ fun PlatformSettingScreen(
                 GeminiSafetySettingsDialog(dialogState, platformData, settingViewModel)
                 DeletePlatformDialog(dialogState, settingViewModel)
                 SearchBackendDialog(toolBindingState, settingViewModel)
-                McpToolsDialog(toolBindingState, settingViewModel)
+                FancyMcpToolsDialog(toolBindingState, settingViewModel)
                 toolBindingState.errorMessage?.let { message ->
                     AlertDialog(
                         title = { Text(stringResource(R.string.error)) },
@@ -435,7 +435,7 @@ fun PlatformSettingScreen(
 }
 
 @Composable
-private fun McpToolsDialog(
+private fun LegacyMcpToolsDialog(
     toolBindingState: PlatformSettingViewModel.ToolBindingState,
     settingViewModel: PlatformSettingViewModel
 ) {

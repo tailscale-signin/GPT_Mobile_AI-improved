@@ -303,7 +303,7 @@ open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
             gh issue create \
               --repo "$GITHUB_REPOSITORY" \
               --title "$ISSUE_TITLE" \
-              --label "build-failure,bug" \
+              --label "build-failure" \
               --body-file "$BODY_FILE"
           fi
           rm -f "$BODY_FILE"

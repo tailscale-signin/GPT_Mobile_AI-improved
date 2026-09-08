@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
@@ -33,6 +34,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -42,11 +44,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -67,28 +73,30 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsState()
     val context = LocalContext.current
 
+    var passphrase by remember { mutableStateOf("") }
+
     val exportConfigLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        uri?.let { settingViewModel.exportConfigurationToFile(it) }
+        uri?.let { settingViewModel.exportConfigurationToFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
     }
 
     val importConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let { settingViewModel.restoreConfigurationFromFile(it) }
+        uri?.let { settingViewModel.restoreConfigurationFromFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
     }
 
     val exportDbLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        uri?.let { settingViewModel.exportDatabaseToFile(it) }
+        uri?.let { settingViewModel.exportDatabaseToFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
     }
 
     val importDbLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let { settingViewModel.restoreDatabaseFromFile(it) }
+        uri?.let { settingViewModel.restoreDatabaseFromFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
     }
 
     LaunchedEffect(settingViewModel) {
@@ -234,8 +242,8 @@ fun SettingScreen(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         SettingNavigationRow(
                             icon = Icons.Default.UploadFile,
-                            title = "Backup & Restore",
-                            subtitle = "Export or import configurations and chats",
+                            title = "Encrypted Backup & Restore",
+                            subtitle = "Export or import AES-256-GCM encrypted configs and chats",
                             onClick = { settingViewModel.openBackupRestoreDialog() }
                         )
                         SettingNavigationRow(
@@ -275,9 +283,36 @@ fun SettingScreen(
     if (dialogState.isBackupRestoreDialogOpen) {
         AlertDialog(
             onDismissRequest = { settingViewModel.closeBackupRestoreDialog() },
-            title = { Text(text = "Backup & Restore") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Encrypted Backup & Restore")
+                }
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "All backup files are encrypted with AES-256-GCM. You can optionally supply a custom passphrase below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        label = { Text("Encryption Passphrase (Optional)") },
+                        placeholder = { Text("Leave blank to use default key") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Configuration",
                         style = MaterialTheme.typography.labelLarge,
@@ -289,7 +324,7 @@ fun SettingScreen(
                     ) {
                         TextButton(
                             onClick = {
-                                exportConfigLauncher.launch("gpt_mobile_config.json")
+                                exportConfigLauncher.launch("gpt_mobile_config.enc")
                             },
                             modifier = Modifier.weight(1f)
                         ) {
@@ -297,7 +332,7 @@ fun SettingScreen(
                         }
                         TextButton(
                             onClick = {
-                                importConfigLauncher.launch(arrayOf("application/json"))
+                                importConfigLauncher.launch(arrayOf("*/*"))
                             },
                             modifier = Modifier.weight(1f)
                         ) {
@@ -317,7 +352,7 @@ fun SettingScreen(
                     ) {
                         TextButton(
                             onClick = {
-                                exportDbLauncher.launch("gpt_mobile_chats.json")
+                                exportDbLauncher.launch("gpt_mobile_chats.enc")
                             },
                             modifier = Modifier.weight(1f)
                         ) {
@@ -325,7 +360,7 @@ fun SettingScreen(
                         }
                         TextButton(
                             onClick = {
-                                importDbLauncher.launch(arrayOf("application/json"))
+                                importDbLauncher.launch(arrayOf("*/*"))
                             },
                             modifier = Modifier.weight(1f)
                         ) {

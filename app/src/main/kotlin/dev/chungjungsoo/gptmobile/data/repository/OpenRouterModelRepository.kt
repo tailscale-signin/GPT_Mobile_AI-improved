@@ -22,13 +22,12 @@ class OpenRouterModelRepository @Inject constructor() {
     private var cachedModels: List<OpenRouterModelItem>? = null
 
     suspend fun fetchModels(forceRefresh: Boolean = false): Result<List<OpenRouterModelItem>> = withContext(Dispatchers.IO) {
-        if (!forceRefresh && cachedModels != null) {
-            return@withContext Result.success(cachedModels!!)
+        cachedModels?.takeIf { !forceRefresh }?.let {
+            return@withContext Result.success(it)
         }
 
         runCatching {
-            val url = URL("https://openrouter.ai/api/v1/models")
-            val connection = (url.openConnection() as HttpURLConnection).apply {
+            val connection = (URL(MODELS_URL).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 15000
                 readTimeout = 15000
@@ -36,18 +35,35 @@ class OpenRouterModelRepository @Inject constructor() {
                 setRequestProperty("User-Agent", "GPTMobile/1.0")
             }
 
-            val responseCode = connection.responseCode
-            if (responseCode !in 200..299) {
-                throw IllegalStateException("Failed to fetch OpenRouter models: HTTP $responseCode")
-            }
+            try {
+                val responseCode = connection.responseCode
+                if (responseCode !in 200..299) {
+                    val errorBody = connection.errorStream
+                        ?.bufferedReader()
+                        ?.use { it.readText() }
+                        ?.takeIf { it.isNotBlank() }
+                    throw IllegalStateException(
+                        buildString {
+                            append("Failed to fetch OpenRouter models: HTTP ")
+                            append(responseCode)
+                            if (errorBody != null) append(" - ").append(errorBody)
+                        }
+                    )
+                }
 
-            val responseBody = connection.inputStream.bufferedReader().use { it.readText() }
-            val parsed = json.decodeFromString<OpenRouterModelsResponse>(responseBody)
-            val sorted = parsed.data.sortedWith(
-                compareBy(String.CASE_INSENSITIVE_ORDER) { it.name ?: it.id }
-            )
-            cachedModels = sorted
-            sorted
+                val responseBody = connection.inputStream.bufferedReader().use { it.readText() }
+                val sorted = json.decodeFromString<OpenRouterModelsResponse>(responseBody)
+                    .data
+                    .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name ?: it.id })
+                cachedModels = sorted
+                sorted
+            } finally {
+                connection.disconnect()
+            }
         }
+    }
+
+    private companion object {
+        const val MODELS_URL = "https://openrouter.ai/api/v1/models"
     }
 }

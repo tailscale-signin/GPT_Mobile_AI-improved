@@ -311,6 +311,18 @@
     <string name="tool_trace_result">Result</string>
     <string name="tool_trace_export_header">Tool Calls (%1$d)</string>
     <string name="tool_trace_timing_started_at">Started at</string>
+    <string name="tool_name_github">GitHub</string>
+    <string name="tool_name_brave">Brave</string>
+    <string name="tool_name_microsoft">Microsoft</string>
+    <string name="tool_name_mcp">MCP</string>
+    <string name="tool_name_web">Web</string>
+    <string name="tool_name_system">System</string>
+    <string name="tool_name_tool">Tool</string>
+    <string name="tool_name_search">Search</string>
+    <string name="tool_name_crawl">Crawl</string>
+    <string name="tool_name_calculator">Calculator</string>
+    <string name="tool_name_location">Location</string>
+    <string name="tool_name_date">Date</string>
 
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>

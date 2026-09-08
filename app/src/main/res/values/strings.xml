@@ -43,6 +43,8 @@
     <string name="custom">Custom</string>
     <string name="not_set">Not set</string>
     <string name="enable">Enable</string>
+    <string name="enable_platform">Enable Platform</string>
+    <string name="max_tokens">Max Output Tokens</string>
     <string name="danger_zone">Danger Zone</string>
     <string name="delete_all_chats">Delete All Chats</string>
     <string name="delete_all_chats_summary">Permanently delete all chat histories</string>

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -23,10 +26,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,7 +38,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -51,11 +55,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
+import dev.chungjungsoo.gptmobile.presentation.common.LocalDynamicTheme
+import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeMode
+import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeViewModel
+import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
+import dev.chungjungsoo.gptmobile.util.getDynamicThemeTitle
+import dev.chungjungsoo.gptmobile.util.getThemeModeTitle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,30 +86,32 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsState()
     val context = LocalContext.current
 
-    var passphrase by remember { mutableStateOf("") }
-
+    // SAF Activity Launchers matching exact .enc backup specification
     val exportConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        uri?.let { settingViewModel.exportConfigurationToFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.exportConfigurationToFile(it) }
     }
 
-    val importConfigLauncher = rememberLauncherForActivityResult(
+    val restoreConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { settingViewModel.restoreConfigurationFromFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.restoreConfigurationFromFile(it) }
     }
 
-    val exportDbLauncher = rememberLauncherForActivityResult(
+    val exportDatabaseLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        uri?.let { settingViewModel.exportDatabaseToFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.exportDatabaseToFile(it) }
     }
 
-    val importDbLauncher = rememberLauncherForActivityResult(
+    var pendingRestoreDatabaseUri by remember { mutableStateOf<Uri?>(null) }
+    val confirmRestoreDatabaseLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { settingViewModel.restoreDatabaseFromFile(it, passphrase.takeIf { p -> p.isNotBlank() }) }
+    ) { uri: Uri? ->
+        if (uri != null) {
+            pendingRestoreDatabaseUri = uri
+        }
     }
 
     LaunchedEffect(settingViewModel) {
@@ -113,12 +128,12 @@ fun SettingScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text(text = "Settings") },
+                title = { Text(text = stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.go_back)
                         )
                     }
                 }
@@ -132,7 +147,7 @@ fun SettingScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add Platform"
+                    contentDescription = stringResource(R.string.add_platform)
                 )
             }
         }
@@ -167,12 +182,12 @@ fun SettingScreen(
                                 .padding(16.dp)
                         ) {
                             Text(
-                                text = "No platforms configured yet.",
+                                text = stringResource(R.string.no_platforms_yet),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             TextButton(onClick = onNavigateToAddPlatform) {
-                                Text("Add your first platform")
+                                Text(stringResource(R.string.add_your_first_platform))
                             }
                         }
                     }
@@ -208,14 +223,14 @@ fun SettingScreen(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         SettingNavigationRow(
                             icon = Icons.Default.Storage,
-                            title = "Local Models (On-Device)",
-                            subtitle = "Manage on-device LLMs and download models",
+                            title = stringResource(R.string.local_models),
+                            subtitle = stringResource(R.string.local_models_description),
                             onClick = onNavigateToLocalModels
                         )
                         SettingNavigationRow(
                             icon = Icons.Default.Build,
-                            title = "Tool Connections (MCP)",
-                            subtitle = "Configure Model Context Protocol tools and servers",
+                            title = stringResource(R.string.tool_connections),
+                            subtitle = stringResource(R.string.web_tools_description),
                             onClick = onNavigateToToolConnections
                         )
                     }
@@ -241,15 +256,21 @@ fun SettingScreen(
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         SettingNavigationRow(
+                            icon = Icons.Default.Palette,
+                            title = stringResource(R.string.theme_settings),
+                            subtitle = stringResource(R.string.theme_description),
+                            onClick = { settingViewModel.openThemeDialog() }
+                        )
+                        SettingNavigationRow(
                             icon = Icons.Default.UploadFile,
-                            title = "Encrypted Backup & Restore",
-                            subtitle = "Export or import AES-256-GCM encrypted configs and chats",
+                            title = stringResource(R.string.backup_and_restore),
+                            subtitle = stringResource(R.string.backup_and_restore_description),
                             onClick = { settingViewModel.openBackupRestoreDialog() }
                         )
                         SettingNavigationRow(
                             icon = Icons.Default.Info,
-                            title = "About",
-                            subtitle = "Version, licenses, and project info",
+                            title = stringResource(R.string.about),
+                            subtitle = stringResource(R.string.about_description),
                             onClick = onNavigateToAboutPage
                         )
                     }
@@ -262,123 +283,217 @@ fun SettingScreen(
         }
     }
 
+    if (dialogState.isThemeDialogOpen) {
+        ThemeSettingDialog(settingViewModel)
+    }
+
     if (dialogState.isDeleteDialogOpen) {
         AlertDialog(
             onDismissRequest = { settingViewModel.closeDeleteDialog() },
-            title = { Text(text = "Delete Platform") },
-            text = { Text(text = "Are you sure you want to delete this platform? This action cannot be undone.") },
+            title = { Text(text = stringResource(R.string.delete_platform)) },
+            text = { Text(text = stringResource(R.string.delete_platform_confirmation)) },
             confirmButton = {
                 TextButton(onClick = { settingViewModel.confirmDelete() }) {
-                    Text(text = "Delete", color = MaterialTheme.colorScheme.error)
+                    Text(text = stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { settingViewModel.closeDeleteDialog() }) {
-                    Text(text = "Cancel")
+                    Text(text = stringResource(R.string.cancel))
                 }
             }
         )
     }
 
     if (dialogState.isBackupRestoreDialogOpen) {
+        BackupRestoreOptionsDialog(
+            onDismiss = settingViewModel::closeBackupRestoreDialog,
+            onExportConfig = {
+                settingViewModel.closeBackupRestoreDialog()
+                exportConfigLauncher.launch("gpt_mobile_config_${System.currentTimeMillis()}.enc")
+            },
+            onRestoreConfig = {
+                settingViewModel.closeBackupRestoreDialog()
+                restoreConfigLauncher.launch(arrayOf("*/*"))
+            },
+            onExportDatabase = {
+                settingViewModel.closeBackupRestoreDialog()
+                exportDatabaseLauncher.launch("gpt_mobile_database_${System.currentTimeMillis()}.enc")
+            },
+            onRestoreDatabase = {
+                settingViewModel.closeBackupRestoreDialog()
+                confirmRestoreDatabaseLauncher.launch(arrayOf("*/*"))
+            }
+        )
+    }
+
+    pendingRestoreDatabaseUri?.let { restoreUri ->
         AlertDialog(
-            onDismissRequest = { settingViewModel.closeBackupRestoreDialog() },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Encrypted Backup & Restore")
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "All backup files are encrypted with AES-256-GCM. You can optionally supply a custom passphrase below.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    OutlinedTextField(
-                        value = passphrase,
-                        onValueChange = { passphrase = it },
-                        label = { Text("Encryption Passphrase (Optional)") },
-                        placeholder = { Text("Leave blank to use default key") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = openBackupRestorePassphraseModifier
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Configuration",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                exportConfigLauncher.launch("gpt_mobile_config.enc")
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Export Config")
-                        }
-                        TextButton(
-                            onClick = {
-                                importConfigLauncher.launch(arrayOf("*/*"))
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Import Config")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Chat History & Data",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TextButton(
-                            onClick = {
-                                exportDbLauncher.launch("gpt_mobile_chats.enc")
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Export Chats")
-                        }
-                        TextButton(
-                            onClick = {
-                                importDbLauncher.launch(arrayOf("*/*"))
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Import Chats")
-                        }
-                    }
-                }
-            },
+            title = { Text(stringResource(R.string.restore_database_dialog_title)) },
+            text = { Text(stringResource(R.string.restore_database_dialog_description)) },
+            onDismissRequest = { pendingRestoreDatabaseUri = null },
             confirmButton = {
-                TextButton(onClick = { settingViewModel.closeBackupRestoreDialog() }) {
-                    Text(text = "Done")
+                Button(
+                    onClick = {
+                        settingViewModel.restoreDatabaseFromFile(restoreUri)
+                        pendingRestoreDatabaseUri = null
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreDatabaseUri = null }) {
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
     }
 }
 
-private val openBackupRestorePassphraseModifier = Modifier.fillMaxWidth()
+@Composable
+fun BackupRestoreOptionsDialog(
+    onDismiss: () -> Unit,
+    onExportConfig: () -> Unit,
+    onRestoreConfig: () -> Unit,
+    onExportDatabase: () -> Unit,
+    onRestoreDatabase: () -> Unit
+) {
+    AlertDialog(
+        title = {
+            Text(stringResource(R.string.backup_and_restore))
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.backup_configuration_section),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.backup_configuration_section_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onExportConfig
+                ) {
+                    Text(stringResource(R.string.export_configuration))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onRestoreConfig
+                ) {
+                    Text(stringResource(R.string.restore_configuration))
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = stringResource(R.string.backup_database_section),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.backup_database_section_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onExportDatabase
+                ) {
+                    Text(stringResource(R.string.export_database))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onRestoreDatabase
+                ) {
+                    Text(stringResource(R.string.restore_database))
+                }
+            }
+        },
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
+}
+
+@Composable
+fun ThemeSettingDialog(
+    settingViewModel: SettingViewModelV2
+) {
+    val themeViewModel = LocalThemeViewModel.current
+    AlertDialog(
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Text(text = stringResource(R.string.dynamic_theme), style = MaterialTheme.typography.titleMedium)
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp)
+                )
+                DynamicTheme.entries.forEach { theme ->
+                    RadioItem(
+                        title = getDynamicThemeTitle(theme),
+                        description = null,
+                        value = theme.name,
+                        selected = LocalDynamicTheme.current == theme
+                    ) {
+                        themeViewModel.updateDynamicTheme(theme)
+                    }
+                }
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp)
+                )
+                Text(text = stringResource(R.string.dark_mode), style = MaterialTheme.typography.titleMedium)
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp)
+                )
+                ThemeMode.entries.forEach { theme ->
+                    RadioItem(
+                        title = getThemeModeTitle(theme),
+                        description = null,
+                        value = theme.name,
+                        selected = LocalThemeMode.current == theme
+                    ) {
+                        themeViewModel.updateThemeMode(theme)
+                    }
+                }
+            }
+        },
+        onDismissRequest = settingViewModel::closeThemeDialog,
+        confirmButton = {
+            TextButton(
+                onClick = settingViewModel::closeThemeDialog
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        }
+    )
+}
 
 @Composable
 private fun PlatformItemCard(

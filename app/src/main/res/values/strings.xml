@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">GPT Mobile</string>
+    <string name="quick_settings_tile_name">GPT Assistant</string>
+    <string name="voice_assistant_name">GPT Voice Assistant</string>
     <string name="user">User</string>
     <string name="assistant">Assistant</string>
     <string name="send">Send</string>

@@ -130,7 +130,7 @@ jobs:
           echo "Using apksigner at: $APKSIGNER"
 
           shopt -s nullglob globstar
-          FOUND_APKS=(app/build/outputs/**/release*/**/*.apk app/build/outputs/**/release/*.apk)
+          FOUND_APKS=($(find app/build/outputs -type f -name "*.apk" ! -path "*/signed/*"))
           echo "Found ${#FOUND_APKS[@]} candidate APK(s) to sign"
 
           if [ ${#FOUND_APKS[@]} -eq 0 ]; then
@@ -224,21 +224,16 @@ jobs:
         run: |
           echo "Publishing GitHub Pre-release for tag: $TAG_NAME"
 
-          shopt -s nullglob globstar
           ASSETS_TO_UPLOAD=()
-          for signed in app/build/outputs/apk/release/signed/*.apk; do
-            if [ -f "$signed" ]; then
-              ASSETS_TO_UPLOAD+=("$signed")
-            fi
-          done
+          while IFS= read -r f; do
+            [ -n "$f" ] && ASSETS_TO_UPLOAD+=("$f")
+          done < <(find app/build/outputs/apk/release/signed/ -maxdepth 1 -name "*.apk" 2>/dev/null || true)
 
           if [ ${#ASSETS_TO_UPLOAD[@]} -eq 0 ]; then
             echo "Signed release directory had no apks, searching all build outputs..."
-            for any_apk in app/build/outputs/**/*.apk; do
-              if [ -f "$any_apk" ]; then
-                ASSETS_TO_UPLOAD+=("$any_apk")
-              fi
-            done
+            while IFS= read -r f; do
+              [ -n "$f" ] && ASSETS_TO_UPLOAD+=("$f")
+            done < <(find app/build/outputs/ -type f -name "*.apk" ! -path "*/intermediates/*" 2>/dev/null || true)
           fi
 
           if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then

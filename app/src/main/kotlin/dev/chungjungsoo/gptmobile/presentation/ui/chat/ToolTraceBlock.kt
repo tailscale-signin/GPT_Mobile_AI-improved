@@ -237,9 +237,10 @@ fun ToolTraceBlock(
 
     Column(
         modifier = modifier
-            .fillMaxWidth()
+            .padding(start = 16.dp)
+            .fillMaxWidth(0.75f)
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -258,7 +259,7 @@ fun ToolTraceBlock(
             Text(
                 text = summary,
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 modifier = Modifier.weight(1f),
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -490,7 +491,7 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
         "$count $noun"
     }
 
-    return "$subject - $status"
+    return if (status == labels.completed) subject else "$subject - $status"
 }
 
 internal fun formatToolDuration(event: ToolEvent): String? {

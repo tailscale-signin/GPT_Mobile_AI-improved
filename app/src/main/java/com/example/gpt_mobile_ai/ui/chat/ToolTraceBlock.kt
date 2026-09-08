@@ -108,8 +108,8 @@ val ToolRegistry = listOf(
         override fun getDisplayName() = stringResource(R.string.mcp_server)
     },
     object : ToolDefinition {
-        override fun matches(toolName: String) = 
-            toolName.contains("web", ignoreCase = true) || 
+        override fun matches(toolName: String) =
+            toolName.contains("web", ignoreCase = true) ||
             toolName.contains("search", ignoreCase = true)
         override val iconResId = R.drawable.ic_web_search
         override val color = Color(0xFF4285F4)
@@ -161,9 +161,9 @@ fun ToolTraceBlock(
             .lastOrNull()
             ?.replace("_", " ")
             ?.replaceFirstChar { it.uppercase() }
-            
-        if (specificAction != null && 
-            specificAction.isNotBlank() && 
+
+        if (specificAction != null &&
+            specificAction.isNotBlank() &&
             !specificAction.equals(displayName, ignoreCase = true)
         ) {
             append(" — $specificAction")
@@ -258,7 +258,7 @@ fun ToolTraceBlock(
                     .padding(top = 12.dp)
             ) {
                 Divider(
-                    color = MaterialTheme.colorScheme.outlineVariant, 
+                    color = MaterialTheme.colorScheme.outlineVariant,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 

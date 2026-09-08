@@ -296,6 +296,7 @@ fun ChatScreen(
                             onPlatformClick = chatViewModel::updateChatPlatformIndex,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
+                            onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
                             onShowNextRevision = chatViewModel::showNextAssistantRevision
                         )
@@ -456,6 +457,7 @@ private fun ChatMessagePair(
     onPlatformClick: (Int, Int) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    onFavoriteClick: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
     onShowNextRevision: (Int, Int) -> Unit
 ) {
@@ -574,6 +576,7 @@ private fun ChatMessagePair(
                 onSelectClick = { onSelectText(assistantContent) },
                 onRetryClick = { onRetry(messageIndex, platformIndexState) },
                 onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
+                onFavoriteClick = onFavoriteClick,
                 onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
                 onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) }
             )

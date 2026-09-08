@@ -15,12 +15,9 @@ permissions:
   contents: write
   issues: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
-
 jobs:
   build:
+    name: Build APK
     runs-on: ubuntu-latest
 
     steps:
@@ -49,101 +46,46 @@ jobs:
       - name: Build Debug APK
         id: build_debug
         run: |
-          ./gradlew assembleDebug --no-daemon --info --stacktrace 2>&1 | tee gradle-debug-build.log || {
-            echo "::error title=Debug Build Failed::$(tail -n 30 gradle-debug-build.log | tr '\n' ' ')"
+          ./gradlew assembleDebug --no-daemon --info 2>&1 | tee gradle-debug-build.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error title=Debug Build Failed::$(grep -E '^(e:|error:|FAILURE:|Caused by:)' gradle-debug-build.log | head -n 5 | tr '\n' ' ')"
+            echo "=== GRADLE FAILURE TAIL ==="
+            tail -n 120 gradle-debug-build.log
             exit 1
-          }
-          echo "Listing all generated APK files:"
-          find app/build/outputs/ -type f -name "*.apk" || true
+          fi
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v4
         if: steps.build_debug.outcome == 'success'
         with:
           name: app-debug
-          path: |
-            app/build/outputs/apk/debug/**/*.apk
-            app/build/outputs/apk/**/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
 
       - name: Build Release APK
         id: build_release
         run: |
-          ./gradlew assembleRelease --no-daemon --info --stacktrace 2>&1 | tee gradle-release-build.log || {
-            echo "::error title=Release Build Failed::$(tail -n 30 gradle-release-build.log | tr '\n' ' ')"
-            exit 1
-          }
+          ./gradlew assembleRelease --no-daemon --info 2>&1 | tee gradle-release-build.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::warning title=Release Build Failed::$(grep -E '^(e:|error:|FAILURE:|Caused by:)' gradle-release-build.log | head -n 5 | tr '\n' ' ')"
+            echo "=== RELEASE BUILD FAILURE LOG ==="
+            tail -n 120 gradle-release-build.log
+          fi
         continue-on-error: true
 
       - name: Upload Release APK artifact (if built)
         uses: actions/upload-artifact@v4
         if: steps.build_release.outcome == 'success'
-        id: upload-release
         with:
           name: app-release-unsigned
-          path: |
-            app/build/outputs/apk/release/**/*.apk
-            app/build/outputs/**/*.apk
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: ignore
-
-      - name: Output Failure Summary for Logs
-        if: failure()
-        run: |
-          echo "========================================================"
-          echo "         CI BUILD ERROR LOG SUMMARY (LAST 150 LINES)    "
-          echo "========================================================"
-          if [ -f gradle-debug-build.log ]; then
-            echo "=== GRADLE DEBUG BUILD LOG (ERRORS) ==="
-            grep -E -C 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:|FAILURE:)" gradle-debug-build.log || true
-            echo "=== LAST 120 LINES OF LOG ==="
-            tail -n 120 gradle-debug-build.log
-          fi
-          if [ -f gradle-release-build.log ]; then
-            echo "=== GRADLE RELEASE BUILD LOG (ERRORS) ==="
-            grep -E -C 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:|FAILURE:)" gradle-release-build.log || true
-            echo "=== LAST 120 LINES OF LOG ==="
-            tail -n 120 gradle-release-build.log
-          fi
-          echo "========================================================"
-
-      - name: Create Failure Issue with Full Log
-        if: failure()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          COMMIT_SHA: ${{ github.sha }}
-          REF_NAME: ${{ github.ref_name }}
-          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          WORKFLOW_NAME: ${{ github.workflow }}
-        run: |
-          LOG_CONTENT="No build log found"
-          if [ -f gradle-debug-build.log ]; then
-            LOG_CONTENT=$(tail -n 120 gradle-debug-build.log)
-          elif [ -f gradle-release-build.log ]; then
-            LOG_CONTENT=$(tail -n 120 gradle-release-build.log)
-          fi
-
-          SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
-          ISSUE_TITLE="CI Build Failure on $REF_NAME ($SHORT_COMMIT)"
-
-          gh issue create \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$ISSUE_TITLE" \
-            --label "build-failure" \
-            --body "### CI Build Failure Log
-**Workflow:** $WORKFLOW_NAME
-**Commit:** \`$COMMIT_SHA\`
-**Run:** [View Run]($RUN_URL)
-
-\`\`\`text
-$LOG_CONTENT
-\`\`\`" || true
 
       - name: Upload Build Log on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-build-failure-log
+          name: build-failure-logs
           path: |
             gradle-debug-build.log
             gradle-release-build.log

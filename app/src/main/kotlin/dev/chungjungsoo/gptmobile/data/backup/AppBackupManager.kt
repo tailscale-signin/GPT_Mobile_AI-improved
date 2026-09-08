@@ -42,7 +42,7 @@ class AppBackupManager @Inject constructor(
     private val secretVault: SecretVault
 ) {
 
-    suspend fun exportConfiguration(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+    suspend fun exportConfiguration(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val platforms = settingRepository.fetchPlatformV2s()
             val theme = settingRepository.fetchThemes()
@@ -77,7 +77,7 @@ class AppBackupManager @Inject constructor(
             )
 
             context.contentResolver.openOutputStream(uri)?.use { outStream ->
-                AppBackupCrypto.encryptConfig(payload, outStream)
+                AppBackupCrypto.encryptConfig(payload, outStream, passphrase)
             } ?: throw IllegalStateException("Could not open destination file for writing.")
 
             BackupRestoreResult(
@@ -93,10 +93,10 @@ class AppBackupManager @Inject constructor(
         }
     }
 
-    suspend fun restoreConfiguration(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+    suspend fun restoreConfiguration(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val payload = context.contentResolver.openInputStream(uri)?.use { inStream ->
-                AppBackupCrypto.decryptConfig(inStream)
+                AppBackupCrypto.decryptConfig(inStream, passphrase)
             } ?: throw IllegalStateException("Could not read backup file.")
 
             payload.theme?.let { themeDto ->
@@ -156,7 +156,7 @@ class AppBackupManager @Inject constructor(
         }
     }
 
-    suspend fun exportDatabase(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+    suspend fun exportDatabase(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val chatRooms = chatRoomV2Dao.getChatRooms()
             val allMessages = chatRooms.flatMap { room ->
@@ -175,7 +175,7 @@ class AppBackupManager @Inject constructor(
             )
 
             context.contentResolver.openOutputStream(uri)?.use { outStream ->
-                AppBackupCrypto.encryptDatabase(payload, outStream)
+                AppBackupCrypto.encryptDatabase(payload, outStream, passphrase)
             } ?: throw IllegalStateException("Could not open destination file for writing.")
 
             BackupRestoreResult(
@@ -191,10 +191,10 @@ class AppBackupManager @Inject constructor(
         }
     }
 
-    suspend fun restoreDatabase(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+    suspend fun restoreDatabase(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val payload = context.contentResolver.openInputStream(uri)?.use { inStream ->
-                AppBackupCrypto.decryptDatabase(inStream)
+                AppBackupCrypto.decryptDatabase(inStream, passphrase)
             } ?: throw IllegalStateException("Could not read database backup.")
 
             // Overwrite and replace database cleanly

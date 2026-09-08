@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.Manifest
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -10,7 +9,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -47,6 +45,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -110,6 +109,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
+import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -180,10 +180,10 @@ fun ChatScreen(
         if (sendAfterNotificationPermission) {
             if (needsLocalNetworkAccess &&
                 Build.VERSION.SDK_INT >= 37 &&
-                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
             ) {
                 sendAfterLocalNetworkPermission = true
-                localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
             } else {
                 chatViewModel.askQuestion()
                 focusManager.clearFocus()
@@ -340,10 +340,10 @@ fun ChatScreen(
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else if (needsLocalNetworkAccess &&
                     Build.VERSION.SDK_INT >= 37 &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                    ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
                 ) {
                     sendAfterLocalNetworkPermission = true
-                    localNetworkPermissionLauncher.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                    localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
                 } else {
                     chatViewModel.askQuestion()
                     focusManager.clearFocus()
@@ -475,11 +475,7 @@ private fun ChatMessagePair(
     val selectedPlatformUid = enabledPlatformsInChat.getOrElse(platformIndexState) { "" }
     val isCurrentPlatformLoading =
         loadingStates.getOrElse(platformIndexState) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
-    val canEdit = canUseChat && isIdle
-    val canRetry = canUseChat && isActiveMessage && !isCurrentPlatformLoading
-    val isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent)
-    val isFailedResponse = agentRun?.status == AgentRunStatus.FAILED || isAssistantErrorMessage(assistantContent)
-    val showInlineRetry = canRetry && isFailedResponse
+    var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -488,15 +484,21 @@ private fun ChatMessagePair(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.End
         ) {
-            UserChatBubble(
-                modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
-                text = message.content,
-                files = message.attachments.map { it.filePathForDisplay },
-                contentIdentity = chatMessagePairKey(message, messageIndex),
-                canEdit = canEdit,
-                onCopyClick = { onCopyText(message.content) },
-                onEditClick = { onEditQuestion(message) }
-            )
+            Box {
+                UserChatBubble(
+                    modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
+                    text = message.content,
+                    files = message.attachments.map { it.filePathForDisplay },
+                    onLongPress = { isDropDownMenuExpanded = true }
+                )
+                ChatBubbleDropdownMenu(
+                    isChatBubbleDropdownMenuExpanded = isDropDownMenuExpanded,
+                    canEdit = canUseChat && isIdle,
+                    onDismissRequest = { isDropDownMenuExpanded = false },
+                    onEditItemClick = { onEditQuestion(message) },
+                    onCopyItemClick = { onCopyText(message.content) }
+                )
+            }
         }
 
         Column(
@@ -510,7 +512,7 @@ private fun ChatMessagePair(
                     .padding(top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                GPTMobileIcon()
+                GPTMobileIcon(loading = isActiveMessage && !isIdle)
                 if (enabledPlatformsInChat.size > 1) {
                     Row(
                         modifier = Modifier
@@ -520,6 +522,7 @@ private fun ChatMessagePair(
                     ) {
                         enabledPlatformsInChat.forEachIndexed { platformIndex, uid ->
                             PlatformButton(
+                                isLoading = isActiveMessage && loadingStates[platformIndex] == ChatViewModel.LoadingState.Loading,
                                 name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
                                 selected = platformIndexState == platformIndex,
                                 onPlatformClick = { onPlatformClick(messageIndex, platformIndex) }
@@ -534,10 +537,11 @@ private fun ChatMessagePair(
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp)
                     .widthIn(max = maximumOpponentChatBubbleWidth),
-                canEdit = canEdit,
-                canRetry = canRetry,
+                canEdit = canUseChat && isIdle,
+                canRetry = canUseChat && isActiveMessage && !isCurrentPlatformLoading,
                 isLoading = isActiveMessage && isCurrentPlatformLoading,
-                isError = isError,
+                isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
+                isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                 text = assistantContent,
                 thoughts = assistantThoughts,
                 timeline = assistantTimeline,
@@ -564,10 +568,8 @@ private fun ChatMessagePair(
                 },
                 canShowPreviousRevision = canShowPreviousRevision,
                 canShowNextRevision = canShowNextRevision,
-                showInlineRetry = showInlineRetry,
                 onCopyClick = { onCopyText(assistantContent) },
                 onSelectClick = { onSelectText(assistantContent) },
-                onViewFull = onSelectText,
                 onRetryClick = { onRetry(messageIndex, platformIndexState) },
                 onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
                 onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
@@ -707,6 +709,49 @@ fun ChatDropdownMenu(
             onClick = {
                 onExportChatItemClick()
                 onDismissRequest()
+            }
+        )
+    }
+}
+
+@Composable
+fun ChatBubbleDropdownMenu(
+    isChatBubbleDropdownMenuExpanded: Boolean,
+    canEdit: Boolean,
+    onDismissRequest: () -> Unit,
+    onEditItemClick: () -> Unit,
+    onCopyItemClick: () -> Unit
+) {
+    DropdownMenu(
+        modifier = Modifier.wrapContentSize(),
+        expanded = isChatBubbleDropdownMenuExpanded,
+        onDismissRequest = onDismissRequest
+    ) {
+        DropdownMenuItem(
+            enabled = canEdit,
+            leadingIcon = {
+                Icon(
+                    Icons.Outlined.Edit,
+                    contentDescription = stringResource(R.string.edit)
+                )
+            },
+            text = { Text(text = stringResource(R.string.edit)) },
+            onClick = {
+                onEditItemClick.invoke()
+                onDismissRequest.invoke()
+            }
+        )
+        DropdownMenuItem(
+            leadingIcon = {
+                Icon(
+                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_copy),
+                    contentDescription = stringResource(R.string.copy_text)
+                )
+            },
+            text = { Text(text = stringResource(R.string.copy_text)) },
+            onClick = {
+                onCopyItemClick.invoke()
+                onDismissRequest.invoke()
             }
         )
     }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="maximum_tool_calls">Maximum tool calls</string>
+    <string name="unlimited">Unlimited</string>
+    <string name="maximum_tool_calls_dialog_title">Maximum tool calls</string>
+    <string name="maximum_tool_calls_label">Tool calls per run</string>
+    <string name="maximum_tool_calls_description">Limit how many tools the agent can call during one run. Leave blank for no limit.</string>
+    <string name="maximum_tool_calls_blank_hint">Leave blank for unlimited.</string>
+    <string name="maximum_tool_calls_invalid">Enter a whole number greater than zero, or leave blank for unlimited.</string>
+</resources>

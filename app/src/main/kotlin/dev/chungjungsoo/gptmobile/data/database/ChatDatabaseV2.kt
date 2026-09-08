@@ -37,7 +37,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         ToolEvent::class,
         LocalModel::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 @TypeConverters(
@@ -47,7 +47,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     AssistantTimelineListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
-
     abstract fun platformDao(): PlatformV2Dao
     abstract fun chatRoomDao(): ChatRoomV2Dao
     abstract fun messageDao(): MessageV2Dao

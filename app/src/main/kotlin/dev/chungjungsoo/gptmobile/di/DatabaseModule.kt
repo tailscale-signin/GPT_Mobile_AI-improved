@@ -24,12 +24,9 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
-
     @Provides
     @Singleton
-    fun provideChatDatabaseV2(
-        @ApplicationContext context: Context
-    ): ChatDatabaseV2 = Room.databaseBuilder(
+    fun provideChatDatabaseV2(@ApplicationContext context: Context): ChatDatabaseV2 = Room.databaseBuilder(
         context,
         ChatDatabaseV2::class.java,
         "chat_database_v2"
@@ -37,7 +34,8 @@ object DatabaseModule {
         .addMigrations(
             ChatDatabaseV2Migrations.MIGRATION_10_11,
             ChatDatabaseV2Migrations.MIGRATION_11_12,
-            ChatDatabaseV2Migrations.MIGRATION_12_13
+            ChatDatabaseV2Migrations.MIGRATION_12_13,
+            ChatDatabaseV2Migrations.MIGRATION_13_14
         )
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .addCallback(object : RoomDatabase.Callback() {
@@ -49,27 +47,12 @@ object DatabaseModule {
         .fallbackToDestructiveMigrationOnDowngrade(false)
         .build()
 
-    @Provides
-    fun providePlatformV2Dao(database: ChatDatabaseV2): PlatformV2Dao = database.platformDao()
-
-    @Provides
-    fun provideChatRoomV2Dao(database: ChatDatabaseV2): ChatRoomV2Dao = database.chatRoomDao()
-
-    @Provides
-    fun provideMessageV2Dao(database: ChatDatabaseV2): MessageV2Dao = database.messageDao()
-
-    @Provides
-    fun provideChatPlatformModelV2Dao(database: ChatDatabaseV2): ChatPlatformModelV2Dao = database.chatPlatformModelDao()
-
-    @Provides
-    fun provideAgentRunDao(database: ChatDatabaseV2): AgentRunDao = database.agentRunDao()
-
-    @Provides
-    fun provideAgentPersistenceDao(database: ChatDatabaseV2): AgentPersistenceDao = database.agentPersistenceDao()
-
-    @Provides
-    fun provideToolConnectionDao(database: ChatDatabaseV2): ToolConnectionDao = database.toolConnectionDao()
-
-    @Provides
-    fun provideLocalModelDao(database: ChatDatabaseV2): LocalModelDao = database.localModelDao()
+    @Provides fun providePlatformV2Dao(database: ChatDatabaseV2): PlatformV2Dao = database.platformDao()
+    @Provides fun provideChatRoomV2Dao(database: ChatDatabaseV2): ChatRoomV2Dao = database.chatRoomDao()
+    @Provides fun provideMessageV2Dao(database: ChatDatabaseV2): MessageV2Dao = database.messageDao()
+    @Provides fun provideChatPlatformModelV2Dao(database: ChatDatabaseV2): ChatPlatformModelV2Dao = database.chatPlatformModelDao()
+    @Provides fun provideAgentRunDao(database: ChatDatabaseV2): AgentRunDao = database.agentRunDao()
+    @Provides fun provideAgentPersistenceDao(database: ChatDatabaseV2): AgentPersistenceDao = database.agentPersistenceDao()
+    @Provides fun provideToolConnectionDao(database: ChatDatabaseV2): ToolConnectionDao = database.toolConnectionDao()
+    @Provides fun provideLocalModelDao(database: ChatDatabaseV2): LocalModelDao = database.localModelDao()
 }

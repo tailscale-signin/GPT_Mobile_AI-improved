@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Build-critical resources referenced by chat, local-model, and about screens. -->
+    <string name="previous_revision">Previous revision</string>
+    <string name="next_revision">Next revision</string>
+    <string name="select_text">Select text</string>
+    <string name="unfavorite">Remove from favorites</string>
+    <string name="chat_models_description">Choose the models used in this chat</string>
+    <string name="chat_model_for_platform">Model for %1$s</string>
+    <string name="update_chat_models">Update models</string>
+    <string name="untitled_chat">Untitled chat</string>
+    <string name="chat_title">Chat title</string>
+    <string name="title_length_limit">Title must be %1$d characters or fewer</string>
+    <string name="update">Update</string>
+    <string name="default_mode">Default mode</string>
+    <string name="edit_question">Edit question</string>
+    <string name="user_message">User message</string>
+    <string name="edit_assistant_message">Edit assistant message</string>
+    <string name="assistant_message">Assistant message</string>
+    <string name="assistant_thoughts">Assistant thoughts</string>
+    <string name="code">Code</string>
+    <string name="copy_code">Copy code</string>
+    <string name="local_network_check_failed">Local network check failed</string>
+    <string name="hide_thinking">Hide thinking</string>
+    <string name="view_thinking">View thinking</string>
+    <string name="thinking_in_progress">Thinking in progress</string>
+    <string name="collapse">Collapse</string>
+    <string name="expand">Expand</string>
+    <string name="search_tool_trace">Search tool calls</string>
+    <string name="no_matching_tool_calls">No matching tool calls</string>
+    <string name="tool_trace_block_content_description">Tool trace: %1$s</string>
+    <string name="tool_trace_call_content_description">Tool call %1$s, status %2$s</string>
+    <string name="tool_event_error_interrupted_app_stopped">Interrupted because the app stopped</string>
+
+    <string name="local_model_ram_warning_title">Memory warning</string>
+    <string name="local_model_ram_warning_message">This model may require more memory than is available on this device.</string>
+    <string name="local_model_metered_title">Metered network</string>
+    <string name="local_model_metered_message">Downloading this model may use a significant amount of mobile data.</string>
+    <string name="local_model_delete">Delete model</string>
+    <string name="local_model_delete_confirmation">Delete this downloaded model?</string>
+    <string name="local_model_open_link_failed">Could not open link</string>
+    <string name="show">Show</string>
+    <string name="local_model_oauth_not_configured_title">Hugging Face sign-in unavailable</string>
+    <string name="local_model_oauth_not_configured_message">OAuth is not configured. Enter an access token instead.</string>
+    <string name="huggingface_enter_access_token">Enter access token</string>
+    <string name="local_model_probe_error_title">Model access check failed</string>
+    <string name="local_model_probe_error_message">Could not verify access to this model.</string>
+    <string name="local_model_sign_in_title">Sign in to Hugging Face</string>
+    <string name="local_model_sign_in_failed">Sign-in failed. Please try again.</string>
+    <string name="local_model_sign_in_message">Sign in to access gated models.</string>
+    <string name="local_model_sign_in_action">Sign in</string>
+    <string name="local_model_license_title">Model license</string>
+    <string name="local_model_open_license">Open license</string>
+    <string name="local_model_license_retry">Retry license check</string>
+    <string name="huggingface_token_dialog_title">Hugging Face access token</string>
+    <string name="huggingface_token_dialog_guidance">Create a read token in your Hugging Face settings and paste it here.</string>
+    <string name="huggingface_token_label">Access token</string>
+    <string name="huggingface_open_token_settings">Open token settings</string>
+    <string name="local_model_requirements">Model requirements</string>
+    <string name="local_model_checking_access">Checking model access…</string>
+    <string name="local_model_gated_hint">This is a gated model and may require sign-in and license acceptance.</string>
+    <string name="local_model_cancel_download">Cancel download</string>
+    <string name="local_model_on_disk">On disk: %1$s</string>
+    <string name="local_model_download_rate">%1$s/s</string>
+    <string name="local_model_download_progress">%1$s of %2$s</string>
+    <string name="local_model_download_progress_rate">%1$s of %2$s · %3$s/s</string>
+    <string name="local_model_download_percent">%1$d%%</string>
+    <string name="local_model_eta_hours_minutes">%1$d h %2$d min remaining</string>
+    <string name="local_model_eta_minutes_seconds">%1$d min %2$d s remaining</string>
+    <string name="local_model_eta_seconds">%1$d s remaining</string>
+    <string name="capability_vision">Vision</string>
+    <string name="capability_tools">Tools</string>
+    <string name="capability_thinking">Thinking</string>
+
+    <string name="github_link" translatable="false">https://github.com/tailscale-signin/GPT_Mobile_AI-improved</string>
+    <string name="f_droid_link" translatable="false">https://f-droid.org/</string>
+    <string name="play_store_link" translatable="false">https://play.google.com/store</string>
+    <string name="bug_report_link" translatable="false">https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues</string>
+    <string name="feedback_link" translatable="false">https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues</string>
+    <string name="version">Version</string>
+    <string name="version_icon">Version information</string>
+    <string name="license">License</string>
+    <string name="license_description">View open-source licenses</string>
+    <string name="license_icon">License information</string>
+    <string name="github">GitHub</string>
+    <string name="github_icon">GitHub repository</string>
+    <string name="f_droid">F-Droid</string>
+    <string name="f_droid_icon">F-Droid listing</string>
+    <string name="play_store">Google Play</string>
+    <string name="play_store_icon">Google Play listing</string>
+    <string name="bug_report">Report a bug</string>
+    <string name="bug_report_description">Open the issue tracker</string>
+    <string name="bug_report_icon">Bug report</string>
+    <string name="feedback">Feedback</string>
+    <string name="feedback_description">Share feedback or request a feature</string>
+    <string name="feedback_icon">Feedback</string>
+    <string name="max_tokens">Max tokens</string>
+
+    <plurals name="duration_seconds">
+        <item quantity="one">%1$d second</item>
+        <item quantity="other">%1$d seconds</item>
+    </plurals>
+</resources>

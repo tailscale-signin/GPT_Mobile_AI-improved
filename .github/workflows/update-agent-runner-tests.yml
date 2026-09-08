@@ -15,83 +15,60 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Update incompatible legacy tests and remove this workflow
+      - name: Update tests
         shell: python
         run: |
           from pathlib import Path
+          import re
 
           path = Path("app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt")
           text = path.read_text()
-          text = text.replace(
-              "val events = AgentRunner().run(session, listOf(tool)).toList()\n\n        assertEquals(4, maxActive.get())",
-              "val events = AgentRunner(\n            limits = AgentRunLimits(maxConcurrentTools = 4)\n        ).run(session, listOf(tool)).toList()\n\n        assertEquals(4, maxActive.get())",
-              1,
-          )
-          old = '''    @Test
-              fun `tool call ceiling stops before any excess call executes`() = runBlocking {
-                  val executions = AtomicInteger()
-                  val session = session { _, _ ->
-                      flow {
-                          repeat(11) { emit(toolCall("call_$it")) }
-                          emit(ProviderEvent.Completed)
-                      }
-                  }
-                  val tool = tool { callId, _ ->
-                      executions.incrementAndGet()
-                      AgentToolResult(callId, ToolResultContent.Text("unexpected"), isError = false)
-                  }
+          marker = "val events = AgentRunner().run(session, listOf(tool)).toList()\n\n        assertEquals(4, maxActive.get())"
+          replacement = "val events = AgentRunner(\n            limits = AgentRunLimits(maxConcurrentTools = 4)\n        ).run(session, listOf(tool)).toList()\n\n        assertEquals(4, maxActive.get())"
+          if marker not in text:
+              raise SystemExit("Concurrency test marker not found")
+          text = text.replace(marker, replacement, 1)
 
-                  val events = AgentRunner().run(session, listOf(tool)).toList()
+          pattern = r'''    @Test\n    fun `tool call ceiling stops before any excess call executes`\(\) = runBlocking \{.*?\n    \}\n\n    @Test\n    fun `round ceiling stops repeated tool loops`'''
+          replacement_test = '''    @Test
+    fun `tool call ceiling executes available calls and finalizes gracefully`() = runBlocking {
+        val executions = AtomicInteger()
+        val providerCalls = AtomicInteger()
+        val exposedToolCounts = mutableListOf<Int>()
+        val session = session { tools, exchanges ->
+            exposedToolCounts += tools.size
+            when (providerCalls.getAndIncrement()) {
+                0 -> flow {
+                    repeat(11) { emit(toolCall("call_$it")) }
+                    emit(ProviderEvent.Completed)
+                }
+                else -> flow {
+                    assertEquals(11, exchanges.single().results.size)
+                    emit(ProviderEvent.TextDelta("final"))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        }
+        val tool = tool { callId, _ ->
+            executions.incrementAndGet()
+            AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
+        }
 
-                  assertEquals(0, executions.get())
-                  assertTrue(events.last() is AgentRunEvent.Provider)
-                  assertTrue((events.last() as AgentRunEvent.Provider).event is ProviderEvent.Failed)
-                  assertEquals(
-                      "Agent stopped before exceeding 10 tool calls.",
-                      ((events.last() as AgentRunEvent.Provider).event as ProviderEvent.Failed).message
-                  )
-              }
-          '''
-          # Normalize indentation introduced by this Python literal.
-          old = "\n".join(line[10:] if line.startswith("          ") else line for line in old.splitlines()) + "\n"
-          new = '''    @Test
-              fun `tool call ceiling executes available calls and finalizes gracefully`() = runBlocking {
-                  val executions = AtomicInteger()
-                  val providerCalls = AtomicInteger()
-                  val exposedToolCounts = mutableListOf<Int>()
-                  val session = session { tools, exchanges ->
-                      exposedToolCounts += tools.size
-                      when (providerCalls.getAndIncrement()) {
-                          0 -> flow {
-                              repeat(11) { emit(toolCall("call_$it")) }
-                              emit(ProviderEvent.Completed)
-                          }
+        val events = AgentRunner().run(session, listOf(tool)).toList()
 
-                          else -> flow {
-                              assertEquals(11, exchanges.single().results.size)
-                              emit(ProviderEvent.TextDelta("final"))
-                              emit(ProviderEvent.Completed)
-                          }
-                      }
-                  }
-                  val tool = tool { callId, _ ->
-                      executions.incrementAndGet()
-                      AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
-                  }
+        assertEquals(11, executions.get())
+        assertEquals(listOf(1, 0), exposedToolCounts)
+        assertTrue(events.any { it is AgentRunEvent.Notice })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
 
-                  val events = AgentRunner().run(session, listOf(tool)).toList()
-
-                  assertEquals(11, executions.get())
-                  assertEquals(listOf(1, 0), exposedToolCounts)
-                  assertTrue(events.any { it is AgentRunEvent.Notice })
-                  assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
-                  assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
-              }
-          '''
-          new = "\n".join(line[10:] if line.startswith("          ") else line for line in new.splitlines()) + "\n"
-          if old not in text:
-              raise SystemExit("Expected legacy tool ceiling test was not found")
-          path.write_text(text.replace(old, new, 1))
+    @Test
+    fun `round ceiling stops repeated tool loops`'''
+          text, count = re.subn(pattern, replacement_test, text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit("Legacy ceiling test not found")
+          path.write_text(text)
           Path(".github/workflows/update-agent-runner-tests.yml").unlink()
       - name: Commit updates
         run: |

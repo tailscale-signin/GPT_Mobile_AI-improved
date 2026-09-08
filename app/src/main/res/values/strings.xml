@@ -32,6 +32,10 @@
     <string name="language_default">System Default</string>
     <string name="dynamic_color">Dynamic Color</string>
     <string name="dynamic_color_summary">Enable dynamic colors on supported devices</string>
+    <string name="dynamic_theme">Dynamic Theme</string>
+    <string name="dark_mode">Dark Mode</string>
+    <string name="theme_settings">Theme Settings</string>
+    <string name="theme_description">Customize the app visual theme</string>
     <string name="auto_generate_title">Auto Generate Title</string>
     <string name="auto_generate_title_summary">Automatically generate chat title using AI model</string>
     <string name="font_size">Font Size</string>
@@ -157,6 +161,7 @@
     <string name="thought_process">Thought Process</string>
     <string name="error_occurred">An error occurred</string>
     <string name="local_models">Local Models</string>
+    <string name="local_models_description">Manage on-device AI models</string>
     <string name="download">Download</string>
     <string name="downloading">Downloading…</string>
     <string name="fetch_models">Refresh models</string>
@@ -219,6 +224,7 @@
 
     <!-- Tool Connections / MCP -->
     <string name="tool_connections">Tool Connections</string>
+    <string name="web_tools_description">Configure external tool connections</string>
     <string name="add_tool_connection">Add Tool Connection</string>
     <string name="edit_tool_connection">Edit Tool Connection</string>
     <string name="delete_tool_connection">Delete Tool Connection</string>
@@ -339,6 +345,18 @@
     <string name="remote">Remote</string>
     <string name="arrow_icon">Back</string>
     <string name="backup_restore">Backup &amp; Restore</string>
+    <string name="backup_and_restore">Backup &amp; Restore</string>
+    <string name="backup_and_restore_description">Export and restore encrypted configurations and chat data</string>
+    <string name="backup_configuration_section">Configuration Backup</string>
+    <string name="backup_configuration_section_desc">Export or restore encrypted platform configurations and tool connections (.enc).</string>
+    <string name="export_configuration">Export Configuration (.enc)</string>
+    <string name="restore_configuration">Restore Configuration (.enc)</string>
+    <string name="backup_database_section">Chat Database Backup</string>
+    <string name="backup_database_section_desc">Export or restore all conversations, messages, and model revisions (.enc).</string>
+    <string name="export_database">Export Chats (.enc)</string>
+    <string name="restore_database">Restore Chats (.enc)</string>
+    <string name="restore_database_dialog_title">Restore Database?</string>
+    <string name="restore_database_dialog_description">Restoring will replace existing chat history with the backup. Proceed?</string>
     <string name="chat_backup">Backup Data</string>
     <string name="chat_backup_description">Export encrypted backup of chats and platforms</string>
     <string name="chat_restore">Restore Data</string>
@@ -347,4 +365,5 @@
     <string name="max_tool_calls">Max Tool Calls</string>
     <string name="max_tool_calls_description">Maximum consecutive tool executions per message</string>
     <string name="about">About</string>
+    <string name="about_description">Application information, licenses, and links</string>
 </resources>

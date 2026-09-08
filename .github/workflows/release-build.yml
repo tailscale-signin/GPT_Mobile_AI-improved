@@ -70,7 +70,7 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Using repository secret keystore"
-            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "$KEYSTORE_BASE64" | base4 -d > release.keystore
             echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
             echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
             echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
@@ -251,7 +251,7 @@ jobs:
           SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
           ISSUE_TITLE="Release Build Failure on $REF_NAME ($SHORT_COMMIT)"
 
-          EXISTING_ISSUE=$(gh issue list --repo "${{ github.repository }}" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
+          EXISTING_ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
 
           BODY_FILE=$(mktemp)
           if [ -n "$EXISTING_ISSUE" ]; then
@@ -271,7 +271,7 @@ content = open('$BODY_FILE').read()
 err = sys.stdin.read()
 open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
 " <<< "$ERROR_SNIPPET"
-            gh issue comment "$EXISTING_ISSUE" --repo "${{ github.repository }}" --body-file "$BODY_FILE"
+            gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
           else
             cat <<'EOF' > "$BODY_FILE"
 ### 🚨 Automated CI Build Failure Report
@@ -302,7 +302,7 @@ err = sys.stdin.read()
 open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
 " <<< "$ERROR_SNIPPET"
             gh issue create \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "$ISSUE_TITLE" \
               --label "build-failure,bug" \
               --body-file "$BODY_FILE"

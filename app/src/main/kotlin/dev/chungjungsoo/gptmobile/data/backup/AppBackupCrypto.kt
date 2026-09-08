@@ -18,6 +18,7 @@ object AppBackupCrypto {
     private const val FORMAT_VERSION: Byte = 1
     private const val PAYLOAD_CONFIG: Byte = 1
     private const val PAYLOAD_DATABASE: Byte = 2
+    private const val PAYLOAD_USER_BACKUP: Byte = 3
 
     private const val ITERATIONS = 65536
     private const val KEY_LENGTH_BITS = 256
@@ -35,41 +36,58 @@ object AppBackupCrypto {
         encodeDefaults = true
     }
 
-    private fun deriveKey(salt: ByteArray): SecretKeySpec {
+    private fun deriveKey(salt: ByteArray, passphrase: String? = null): SecretKeySpec {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val spec = PBEKeySpec(INTERNAL_SECRET, salt, ITERATIONS, KEY_LENGTH_BITS)
+        val secretChars = if (!passphrase.isNullOrEmpty()) passphrase.toCharArray() else INTERNAL_SECRET
+        val spec = PBEKeySpec(secretChars, salt, ITERATIONS, KEY_LENGTH_BITS)
         val keyBytes = factory.generateSecret(spec).encoded
         return SecretKeySpec(keyBytes, "AES")
     }
 
-    fun encryptConfig(payload: ConfigBackupPayload, outputStream: OutputStream) {
+    fun encryptConfig(payload: ConfigBackupPayload, outputStream: OutputStream, passphrase: String? = null) {
         val jsonBytes = json.encodeToString(payload).toByteArray(Charsets.UTF_8)
-        encryptBytes(PAYLOAD_CONFIG, jsonBytes, outputStream)
+        encryptBytes(PAYLOAD_CONFIG, jsonBytes, outputStream, passphrase)
     }
 
-    fun decryptConfig(inputStream: InputStream): ConfigBackupPayload {
-        val (type, plaintext) = decryptBytes(inputStream)
+    fun decryptConfig(inputStream: InputStream, passphrase: String? = null): ConfigBackupPayload {
+        val (type, plaintext) = decryptBytes(inputStream, passphrase)
         require(type == PAYLOAD_CONFIG) { "Selected file is not a GPT Mobile Configuration backup." }
         return json.decodeFromString(plaintext.decodeToString())
     }
 
-    fun encryptDatabase(payload: DatabaseBackupPayload, outputStream: OutputStream) {
+    fun encryptDatabase(payload: DatabaseBackupPayload, outputStream: OutputStream, passphrase: String? = null) {
         val jsonBytes = json.encodeToString(payload).toByteArray(Charsets.UTF_8)
-        encryptBytes(PAYLOAD_DATABASE, jsonBytes, outputStream)
+        encryptBytes(PAYLOAD_DATABASE, jsonBytes, outputStream, passphrase)
     }
 
-    fun decryptDatabase(inputStream: InputStream): DatabaseBackupPayload {
-        val (type, plaintext) = decryptBytes(inputStream)
+    fun decryptDatabase(inputStream: InputStream, passphrase: String? = null): DatabaseBackupPayload {
+        val (type, plaintext) = decryptBytes(inputStream, passphrase)
         require(type == PAYLOAD_DATABASE) { "Selected file is not a GPT Mobile Database backup." }
         return json.decodeFromString(plaintext.decodeToString())
     }
 
-    private fun encryptBytes(payloadType: Byte, plaintext: ByteArray, outputStream: OutputStream) {
+    fun encryptUserBackup(payload: UserBackupData, outputStream: OutputStream, passphrase: String? = null) {
+        val jsonBytes = json.encodeToString(payload).toByteArray(Charsets.UTF_8)
+        encryptBytes(PAYLOAD_USER_BACKUP, jsonBytes, outputStream, passphrase)
+    }
+
+    fun decryptUserBackup(inputStream: InputStream, passphrase: String? = null): UserBackupData {
+        val (type, plaintext) = decryptBytes(inputStream, passphrase)
+        require(type == PAYLOAD_USER_BACKUP) { "Selected file is not a GPT Mobile User Backup." }
+        return json.decodeFromString(plaintext.decodeToString())
+    }
+
+    private fun encryptBytes(
+        payloadType: Byte,
+        plaintext: ByteArray,
+        outputStream: OutputStream,
+        passphrase: String? = null
+    ) {
         val random = SecureRandom()
         val salt = ByteArray(SALT_SIZE_BYTES).also(random::nextBytes)
         val iv = ByteArray(IV_SIZE_BYTES).also(random::nextBytes)
 
-        val keySpec = deriveKey(salt)
+        val keySpec = deriveKey(salt, passphrase)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, keySpec, GCMParameterSpec(GCM_TAG_BITS, iv))
         cipher.updateAAD(byteArrayOf(payloadType))
@@ -84,11 +102,11 @@ object AppBackupCrypto {
         outputStream.flush()
     }
 
-    private fun decryptBytes(inputStream: InputStream): Pair<Byte, ByteArray> {
+    private fun decryptBytes(inputStream: InputStream, passphrase: String? = null): Pair<Byte, ByteArray> {
         val magic = ByteArray(MAGIC.size)
         val readMagic = inputStream.readNBytes(magic, 0, magic.size)
         if (readMagic != magic.size || !magic.contentEquals(MAGIC)) {
-            throw IllegalArgumentException("Not a valid GPT Mobile backup file.")
+            throw IllegalArgumentException("Not a valid encrypted GPT Mobile backup file.")
         }
 
         val version = inputStream.read()
@@ -128,7 +146,7 @@ object AppBackupCrypto {
             throw IllegalArgumentException("Unexpected end of backup file.")
         }
 
-        val keySpec = deriveKey(salt)
+        val keySpec = deriveKey(salt, passphrase)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, keySpec, GCMParameterSpec(GCM_TAG_BITS, iv))
         cipher.updateAAD(byteArrayOf(payloadType))

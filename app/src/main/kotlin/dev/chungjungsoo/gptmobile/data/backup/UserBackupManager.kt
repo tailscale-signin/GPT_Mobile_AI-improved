@@ -3,24 +3,18 @@ package dev.chungjungsoo.gptmobile.data.backup
 import android.content.Context
 import android.net.Uri
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.InputStream
 import java.io.OutputStream
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
 
 /**
  * Backup payload data structure representing user chats, settings, models, and tools.
@@ -50,7 +44,7 @@ data class BackupExportOptions(
     val includeTokens: Boolean = false,
     val includeModels: Boolean = true,
     val includeTools: Boolean = true,
-    val compress: Boolean = true
+    val passphrase: String? = null
 )
 
 /**
@@ -66,20 +60,14 @@ data class BackupImportResult(
 )
 
 /**
- * Manages user-facing export and import of chats, platforms, models, and tools.
+ * Manages user-facing export and import of chats, platforms, models, and tools with encryption.
  */
 class UserBackupManager(
     private val context: Context,
     private val database: ChatDatabaseV2
 ) {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        prettyPrint = false
-    }
-
     /**
-     * Exports backup data to the destination URI.
+     * Exports backup data with AES-256-GCM encryption to the destination URI.
      */
     suspend fun exportBackup(
         destinationUri: Uri,
@@ -87,27 +75,25 @@ class UserBackupManager(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val backupData = buildBackupData(options)
-            val jsonString = json.encodeToString(backupData)
-
             context.contentResolver.openOutputStream(destinationUri)?.use { rawOutput ->
-                writePayload(rawOutput, jsonString, options.compress)
+                AppBackupCrypto.encryptUserBackup(backupData, rawOutput, options.passphrase)
             } ?: throw IllegalStateException("Could not open output stream for URI: $destinationUri")
         }
     }
 
     /**
-     * Imports backup data from the source URI into the database.
+     * Decrypts and imports backup data from the source URI into the database.
      */
     suspend fun importBackup(
         sourceUri: Uri,
-        clearExisting: Boolean = false
+        clearExisting: Boolean = false,
+        passphrase: String? = null
     ): Result<BackupImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            val jsonString = context.contentResolver.openInputStream(sourceUri)?.use { rawInput ->
-                readPayload(rawInput)
+            val backupData = context.contentResolver.openInputStream(sourceUri)?.use { rawInput ->
+                AppBackupCrypto.decryptUserBackup(rawInput, passphrase)
             } ?: throw IllegalStateException("Could not open input stream for URI: $sourceUri")
 
-            val backupData = json.decodeFromString<UserBackupData>(jsonString)
             restoreBackupData(backupData, clearExisting)
         }
     }
@@ -217,34 +203,5 @@ class UserBackupManager(
             toolConnectionsImported = toolConnectionsCount,
             localModelsImported = localModelsCount
         )
-    }
-
-    private fun writePayload(outputStream: OutputStream, content: String, compress: Boolean) {
-        if (compress) {
-            GZIPOutputStream(outputStream).bufferedWriter(Charsets.UTF_8).use { writer ->
-                writer.write(content)
-            }
-        } else {
-            outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
-                writer.write(content)
-            }
-        }
-    }
-
-    private fun readPayload(inputStream: java.io.InputStream): String {
-        val bufferedInput = inputStream.buffered()
-        bufferedInput.mark(2)
-        val header = ByteArray(2)
-        val read = bufferedInput.read(header)
-        bufferedInput.reset()
-
-        val isGzip = read == 2 && (header[0] == 0x1f.toByte()) && (header[1] == 0x8b.toByte())
-        val effectiveInput: InputStream = if (isGzip) {
-            GZIPInputStream(bufferedInput)
-        } else {
-            bufferedInput
-        }
-
-        return effectiveInput.bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
 }

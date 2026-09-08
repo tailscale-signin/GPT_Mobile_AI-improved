@@ -1,16 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -22,23 +15,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.Calculate
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.DateRange
-import androidx.compose.material.icons.rounded.Dns
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Http
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Memory
-import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,8 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -66,8 +46,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
@@ -77,59 +59,140 @@ import java.util.Locale
 
 private const val TOOL_TRACE_TEXT_LIMIT = 1024
 
-enum class ToolStatusState {
-    RUNNING,
-    COMPLETED,
-    FAILED
+internal data class ToolServiceInfo(
+    val serviceName: String,
+    val toolDisplayName: String,
+    val monogram: String,
+    val badgeColor: Color,
+    val textColor: Color = Color.White,
+)
+
+internal fun resolveToolServiceInfo(
+    toolName: String,
+    modelToolName: String,
+    connectionNameSnapshot: String? = null,
+    connectionUidSnapshot: String? = null,
+): ToolServiceInfo {
+    val rawName = toolName.ifBlank { modelToolName }.trim()
+    val rawLower = rawName.lowercase(Locale.ROOT)
+    val connLower = (connectionNameSnapshot ?: "").lowercase(Locale.ROOT)
+    val uidLower = (connectionUidSnapshot ?: "").lowercase(Locale.ROOT)
+
+    val serviceName: String
+    val monogram: String
+    val badgeColor: Color
+
+    when {
+        connLower.contains("github") || uidLower.contains("github") || rawLower.startsWith("github") -> {
+            serviceName = "GitHub"
+            monogram = "GH"
+            badgeColor = Color(0xFF24292F)
+        }
+        connLower.contains("brave") || uidLower.contains("brave") || rawLower.contains("brave") -> {
+            serviceName = "Brave"
+            monogram = "B"
+            badgeColor = Color(0xFFFB542B)
+        }
+        connLower.contains("microsoft") || uidLower.contains("microsoft") || rawLower.contains("microsoft") -> {
+            serviceName = "Microsoft"
+            monogram = "MS"
+            badgeColor = Color(0xFF0078D4)
+        }
+        connLower.contains("mcp") || uidLower.contains("mcp") || rawLower.contains("mcp") -> {
+            serviceName = if (!connectionNameSnapshot.isNullOrBlank()) {
+                connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
+            } else {
+                "MCP"
+            }
+            monogram = "M"
+            badgeColor = Color(0xFF00838F)
+        }
+        rawLower.contains("search") || rawLower.contains("web") -> {
+            serviceName = "Web"
+            monogram = "W"
+            badgeColor = Color(0xFF00897B)
+        }
+        rawLower.contains("calc") || rawLower.contains("date") || rawLower.contains("location") -> {
+            serviceName = "System"
+            monogram = "SYS"
+            badgeColor = Color(0xFF5E35B1)
+        }
+        !connectionNameSnapshot.isNullOrBlank() -> {
+            serviceName = connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
+            monogram = serviceName.take(2).uppercase(Locale.ROOT)
+            badgeColor = Color(0xFF455A64)
+        }
+        else -> {
+            serviceName = "Tool"
+            monogram = "T"
+            badgeColor = Color(0xFF546E7A)
+        }
+    }
+
+    val toolDisplayName = friendlyToolDisplayName(rawName).let {
+        if (it.endsWith("Tool", ignoreCase = true)) it else "$it tool"
+    }
+
+    return ToolServiceInfo(
+        serviceName = serviceName,
+        toolDisplayName = toolDisplayName,
+        monogram = monogram,
+        badgeColor = badgeColor,
+    )
 }
 
-sealed class ToolBrandIcon {
-    data class Resource(val resId: Int) : ToolBrandIcon()
-    data class Vector(val imageVector: ImageVector) : ToolBrandIcon()
-}
-
-internal fun resolveToolBrandIcon(toolName: String, connectionName: String? = null): ToolBrandIcon {
-    val norm = listOfNotNull(toolName, connectionName).joinToString(" ").lowercase(Locale.ROOT)
-    return when {
-        norm.contains("brave") -> ToolBrandIcon.Resource(R.drawable.ic_brave)
-        norm.contains("github") -> ToolBrandIcon.Resource(R.drawable.ic_github)
-        norm.contains("postgres") || norm.contains("sqlite") || norm.contains("database") || norm.contains("dns") -> ToolBrandIcon.Vector(Icons.Rounded.Dns)
-        norm.contains("folder") || norm.contains("filesystem") || norm.contains("file") -> ToolBrandIcon.Vector(Icons.Rounded.Folder)
-        norm.contains("puppeteer") || norm.contains("browser") -> ToolBrandIcon.Vector(Icons.Rounded.Public)
-        norm.contains("fetch") || norm.contains("curl") || norm.contains("download") -> ToolBrandIcon.Vector(Icons.Rounded.Download)
-        norm.contains("memory") || norm.contains("context") -> ToolBrandIcon.Vector(Icons.Rounded.Memory)
-        norm.contains("terminal") || norm.contains("bash") || norm.contains("sh") -> ToolBrandIcon.Vector(Icons.Rounded.Terminal)
-        norm.contains("calculate") || norm.contains("calc") -> ToolBrandIcon.Vector(Icons.Rounded.Calculate)
-        norm.contains("location") -> ToolBrandIcon.Vector(Icons.Rounded.LocationOn)
-        norm.contains("date") || norm.contains("time") -> ToolBrandIcon.Vector(Icons.Rounded.DateRange)
-        norm.contains("search") -> ToolBrandIcon.Vector(Icons.Rounded.Search)
-        norm.contains("read_url") || norm.contains("crawl") || norm.contains("http") -> ToolBrandIcon.Vector(Icons.Rounded.Http)
-        else -> ToolBrandIcon.Vector(Icons.Rounded.Build)
+@Composable
+internal fun ToolServiceCircleIcon(
+    info: ToolServiceInfo,
+    modifier: Modifier = Modifier,
+    sizeDp: Int = 24,
+) {
+    Box(
+        modifier = modifier
+            .size(sizeDp.dp)
+            .clip(CircleShape)
+            .background(info.badgeColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = info.monogram,
+            color = info.textColor,
+            fontSize = if (info.monogram.length > 2) 8.sp else 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.SansSerif,
+        )
     }
 }
 
 @Composable
-fun ToolBrandIconImage(
-    brandIcon: ToolBrandIcon,
-    contentDescription: String?,
+internal fun ToolStatusIndicator(
+    status: String,
     modifier: Modifier = Modifier,
-    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant
+    isError: Boolean = false,
 ) {
-    when (brandIcon) {
-        is ToolBrandIcon.Resource -> {
-            Icon(
-                painter = painterResource(id = brandIcon.resId),
-                contentDescription = contentDescription,
-                tint = Color.Unspecified,
-                modifier = modifier
+    val normStatus = status.uppercase(Locale.ROOT)
+    when {
+        normStatus == ToolEventStatus.RUNNING || normStatus == ToolEventStatus.PENDING -> {
+            CircularProgressIndicator(
+                modifier = modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
-        is ToolBrandIcon.Vector -> {
+        isError || normStatus == ToolEventStatus.FAILED || normStatus == ToolEventStatus.CANCELED -> {
             Icon(
-                imageVector = brandIcon.imageVector,
-                contentDescription = contentDescription,
-                tint = tint,
-                modifier = modifier
+                imageVector = Icons.Default.Close,
+                contentDescription = "Failed",
+                tint = Color(0xFFD32F2F),
+                modifier = modifier.size(18.dp),
+            )
+        }
+        else -> {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Completed",
+                tint = Color(0xFF2E7D32),
+                modifier = modifier.size(18.dp),
             )
         }
     }
@@ -139,7 +202,7 @@ fun ToolBrandIconImage(
 fun ToolTraceBlock(
     events: List<ToolEvent>,
     modifier: Modifier = Modifier,
-    contentIdentity: Any = events
+    contentIdentity: Any = events,
 ) {
     if (events.isEmpty()) return
 
@@ -148,51 +211,37 @@ fun ToolTraceBlock(
     var query by remember(contentIdentity) { mutableStateOf("") }
     val rotationAngle by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
-        label = "tool trace rotation"
+        label = "tool trace rotation",
     )
-    val statusState = toolTraceStatusState(events)
-    val baseTitle = toolTraceStatusSummary(events, labels)
-    val isRunning = statusState == ToolStatusState.RUNNING
-
-    // Primary tool brand icon for the block
-    val primaryEvent = events.firstOrNull()
-    val brandIcon = remember(primaryEvent?.toolName, primaryEvent?.connectionNameSnapshot) {
-        resolveToolBrandIcon(
-            toolName = primaryEvent?.toolName ?: "",
-            connectionName = primaryEvent?.connectionNameSnapshot
+    val summary = toolTraceStatusSummary(events, labels)
+    val firstEvent = events.first()
+    val primaryServiceInfo = remember(firstEvent) {
+        resolveToolServiceInfo(
+            toolName = firstEvent.toolName,
+            modelToolName = firstEvent.modelToolName,
+            connectionNameSnapshot = firstEvent.connectionNameSnapshot,
+            connectionUidSnapshot = firstEvent.connectionUidSnapshot,
         )
     }
-
-    // Sequential 3-dot animation while running (cycling 0 -> 1 -> 2 -> 3)
-    val infiniteTransition = rememberInfiniteTransition(label = "dots-animation")
-    val dotCountFloat by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "dot-count"
-    )
-
-    val animatedTitle = if (isRunning && baseTitle.endsWith("...")) {
-        val root = baseTitle.removeSuffix("...")
-        val dots = ".".repeat(dotCountFloat.toInt().coerceIn(1, 3))
-        root + dots
-    } else {
-        baseTitle
+    val overallStatus = remember(events) {
+        when {
+            events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING } -> ToolEventStatus.RUNNING
+            events.any { it.status == ToolEventStatus.FAILED || it.isError } -> ToolEventStatus.FAILED
+            events.any { it.status == ToolEventStatus.CANCELED } -> ToolEventStatus.CANCELED
+            else -> ToolEventStatus.COMPLETED
+        }
     }
-
     val searchToolTrace = stringResource(R.string.search_tool_trace)
     val noMatchingToolCalls = stringResource(R.string.no_matching_tool_calls)
-    val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, animatedTitle)
+    val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
 
     Column(
         modifier = modifier
-            .fillMaxWidth()
+            .padding(start = 16.dp)
+            .fillMaxWidth(0.75f)
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .semantics { contentDescription = traceBlockDescription }
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+            .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
             modifier = Modifier
@@ -203,71 +252,37 @@ fun ToolTraceBlock(
                     contentDescription = if (isExpanded) labels.collapseToolTrace else labels.expandToolTrace
                 }
                 .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Status icon: animating circle while searching/running, green checkmark if completed, red X if failed
-            when (statusState) {
-                ToolStatusState.RUNNING -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                ToolStatusState.COMPLETED -> {
-                    Icon(
-                        imageVector = Icons.Rounded.CheckCircle,
-                        contentDescription = "Completed",
-                        tint = Color(0xFF4CAF50), // Green checkmark
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                ToolStatusState.FAILED -> {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = "Failed",
-                        tint = MaterialTheme.colorScheme.error, // Red X
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
+            ToolServiceCircleIcon(info = primaryServiceInfo)
             Spacer(modifier = Modifier.width(8.dp))
-
-            // Dedicated MCP Tool Brand Icon displayed on the left side of the title
-            ToolBrandIconImage(
-                brandIcon = brandIcon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-
-            Spacer(modifier = Modifier.width(6.dp))
-
             Text(
-                text = animatedTitle,
+                text = summary,
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                modifier = Modifier.weight(1f),
             )
-
+            Spacer(modifier = Modifier.width(8.dp))
+            ToolStatusIndicator(status = overallStatus)
+            Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = if (isExpanded) labels.collapse else labels.expand,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.rotate(rotationAngle)
+                modifier = Modifier.rotate(rotationAngle),
             )
         }
 
         AnimatedVisibility(
             visible = isExpanded,
             enter = expandVertically(),
-            exit = shrinkVertically()
+            exit = shrinkVertically(),
         ) {
             key(contentIdentity) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 ) {
                     if (events.size > 1) {
                         OutlinedTextField(
@@ -277,7 +292,7 @@ fun ToolTraceBlock(
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .semantics { contentDescription = searchToolTrace }
+                                .semantics { contentDescription = searchToolTrace },
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -286,7 +301,7 @@ fun ToolTraceBlock(
                         Text(
                             text = noMatchingToolCalls,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     } else {
                         filteredEvents.forEach { event -> ToolTraceEventCard(event, labels) }
@@ -320,7 +335,7 @@ private fun toolTraceLabels(): ToolTraceLabels = ToolTraceLabels(
     arguments = stringResource(R.string.tool_trace_arguments),
     result = stringResource(R.string.tool_trace_result),
     exportHeader = ToolTraceLabels.Default.exportHeader,
-    startedAt = stringResource(R.string.tool_trace_timing_started_at)
+    startedAt = stringResource(R.string.tool_trace_timing_started_at),
 )
 
 @Composable
@@ -328,37 +343,39 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
     val callDescription = stringResource(
         R.string.tool_trace_call_content_description,
         event.callId,
-        event.status.lowercase(Locale.ROOT)
+        event.status.lowercase(Locale.ROOT),
     )
-
-    val itemBrandIcon = remember(event.toolName, event.connectionNameSnapshot) {
-        resolveToolBrandIcon(event.toolName, event.connectionNameSnapshot)
-    }
+    val serviceInfo = resolveToolServiceInfo(
+        toolName = event.toolName,
+        modelToolName = event.modelToolName,
+        connectionNameSnapshot = event.connectionNameSnapshot,
+        connectionUidSnapshot = event.connectionUidSnapshot,
+    )
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
-            .semantics { contentDescription = callDescription }
+            .semantics { contentDescription = callDescription },
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
             ) {
-                ToolBrandIconImage(
-                    brandIcon = itemBrandIcon,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                ToolServiceCircleIcon(info = serviceInfo, sizeDp = 20)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "${event.sequence + 1}. ${serviceInfo.serviceName} — ${serviceInfo.toolDisplayName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "${event.sequence + 1}. ${event.toolName}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                ToolStatusIndicator(status = event.status, isError = event.isError)
             }
+            Spacer(modifier = Modifier.height(4.dp))
             if (event.modelToolName != event.toolName) {
                 ToolTraceLine(labels.modelTool, event.modelToolName)
             }
@@ -380,7 +397,7 @@ private fun ToolTraceLine(label: String, value: String) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 2,
-        overflow = TextOverflow.Ellipsis
+        overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -390,14 +407,14 @@ private fun ToolTraceBlockText(label: String, value: String) {
         text = "$label:",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp)
+        modifier = Modifier.padding(top = 8.dp),
     )
     Text(
         text = boundedText(value),
         style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 6,
-        overflow = TextOverflow.Ellipsis
+        overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -417,7 +434,7 @@ internal fun filterToolEvents(events: List<ToolEvent>, query: String): List<Tool
             event.arguments,
             event.result,
             event.error,
-            timingLabel(event, ToolTraceLabels.Default)
+            timingLabel(event, ToolTraceLabels.Default),
         ).any { normalizedQuery in it.lowercase(Locale.ROOT) }
     }
 }
@@ -431,40 +448,16 @@ internal fun friendlyToolDisplayName(toolName: String): String {
         lower == "device_location" || lower == "location" || lower.endsWith("__device_location") -> "Location"
         lower == "current_date" || lower == "date" || lower == "time" || lower.endsWith("__current_date") -> "Date"
         else -> {
-            // For other tools (e.g. MCP tools: bash, read_file, etc.)
             val leafName = toolName.substringAfterLast("__").replace('_', ' ').replace('-', ' ').trim()
-            if (leafName.isEmpty()) "Tool"
-            else leafName.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
-                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
-            }
-        }
-    }
-}
-
-internal fun smartToolVerb(toolName: String): String {
-    val friendly = friendlyToolDisplayName(toolName)
-    return when (friendly.lowercase(Locale.ROOT)) {
-        "search" -> "Searching"
-        "crawl" -> "Crawling"
-        "calculator" -> "Calculating"
-        "location" -> "Locating"
-        "date" -> "Getting date"
-        else -> {
-            if (friendly.endsWith("e", ignoreCase = true) && !friendly.endsWith("ee", ignoreCase = true)) {
-                "${friendly.dropLast(1)}ing"
+            if (leafName.isEmpty()) {
+                "Tool"
             } else {
-                "${friendly}ing"
+                leafName.split(" ").filter { it.isNotBlank() }.joinToString(" ") { word ->
+                    word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+                }
             }
         }
     }
-}
-
-internal fun toolTraceStatusState(events: List<ToolEvent>): ToolStatusState {
-    if (events.isEmpty()) return ToolStatusState.COMPLETED
-    val hasActive = events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
-    if (hasActive) return ToolStatusState.RUNNING
-    val hasFailure = events.any { it.status == ToolEventStatus.FAILED || it.isError }
-    return if (hasFailure) ToolStatusState.FAILED else ToolStatusState.COMPLETED
 }
 
 internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLabels = ToolTraceLabels.Default): String {
@@ -474,19 +467,8 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
     val hasActive = events.any { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
     val failed = events.count { it.status == ToolEventStatus.FAILED || it.isError }
     val completed = events.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
-
-    val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
-    val isSingleTool = distinctToolNames.size == 1
-
-    if (hasActive) {
-        return if (isSingleTool) {
-            "${smartToolVerb(distinctToolNames.first())}..."
-        } else {
-            "Running $count ${labels.calls}..."
-        }
-    }
-
     val status = when {
+        hasActive -> labels.running
         failed == events.size -> labels.failed
         failed > 0 && completed > 0 -> labels.completedWithErrors
         failed > 0 -> labels.failed
@@ -494,31 +476,22 @@ internal fun toolTraceStatusSummary(events: List<ToolEvent>, labels: ToolTraceLa
         else -> labels.completed
     }
 
-    val subject = if (isSingleTool) {
-        val friendly = friendlyToolDisplayName(distinctToolNames.first())
-        when (status) {
-            labels.completed -> {
-                when (friendly.lowercase(Locale.ROOT)) {
-                    "search" -> "Searched"
-                    "crawl" -> "Crawled"
-                    "calculator" -> "Calculated"
-                    "location" -> "Located"
-                    "date" -> "Got date"
-                    else -> "$friendly tool"
-                }
-            }
-            else -> "$friendly tool"
-        }
+    val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
+    val subject = if (distinctToolNames.size == 1) {
+        val first = events.first()
+        val info = resolveToolServiceInfo(
+            toolName = first.toolName,
+            modelToolName = first.modelToolName,
+            connectionNameSnapshot = first.connectionNameSnapshot,
+            connectionUidSnapshot = first.connectionUidSnapshot,
+        )
+        "${info.serviceName} — ${info.toolDisplayName}"
     } else {
         val noun = if (count == 1) labels.call else labels.calls
         "$count $noun"
     }
 
-    return if (subject.endsWith("tool") || !isSingleTool) {
-        "$subject - $status"
-    } else {
-        subject
-    }
+    return if (status == labels.completed) subject else "$subject - $status"
 }
 
 internal fun formatToolDuration(event: ToolEvent): String? {
@@ -550,7 +523,7 @@ private fun toolTimingLabel(event: ToolEvent, labels: ToolTraceLabels): String? 
 
 internal fun formatToolTraceMarkdown(
     events: List<ToolEvent>,
-    labels: ToolTraceLabels = ToolTraceLabels.Default
+    labels: ToolTraceLabels = ToolTraceLabels.Default,
 ): String {
     if (events.isEmpty()) return ""
 
@@ -634,7 +607,7 @@ data class ToolTraceLabels(
     val arguments: String,
     val result: String,
     val exportHeader: (Int) -> String,
-    val startedAt: String
+    val startedAt: String,
 ) {
     companion object {
         val Default = ToolTraceLabels(
@@ -659,7 +632,7 @@ data class ToolTraceLabels(
             arguments = "Arguments",
             result = "Result",
             exportHeader = { count -> "Tool calls ($count)" },
-            startedAt = "started at"
+            startedAt = "started at",
         )
     }
 }

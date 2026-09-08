@@ -98,9 +98,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMIT_SHA: ${{ github.sha }}
           REF_NAME: ${{ github.ref_name }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           WORKFLOW_NAME: ${{ github.workflow }}
         run: |
+          set -e
           ERROR_SNIPPET="No build log captured"
           if [ -f gradle-debug-build.log ]; then
             ERROR_SNIPPET=$(grep -E -A 10 -B 3 -i "(e: |error:|FAILED|Exception in thread|Caused by:)" gradle-debug-build.log | tail -n 60 || true)
@@ -114,57 +115,34 @@ jobs:
             fi
           fi
 
-          ISSUE_TITLE="CI Build Failure on $REF_NAME (${COMMIT_SHA:0:7})"
-
+          SHORT_COMMIT=$(echo "$COMMIT_SHA" | cut -c1-7)
+          ISSUE_TITLE="CI Build Failure on $REF_NAME ($SHORT_COMMIT)"
           EXISTING_ISSUE=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ISSUE_TITLE" --json number --jq '.[0].number')
 
           BODY_FILE=$(mktemp)
+          {
+            echo "### 🚨 Automated CI Build Failure Report"
+            echo ""
+            echo "**Workflow:** $WORKFLOW_NAME"
+            echo "**Branch / Ref:** \`$REF_NAME\`"
+            echo "**Commit:** \`$COMMIT_SHA\`"
+            echo "**Run Details:** [View Actions Run]($RUN_URL)"
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Exact Build Error / Failure Log (For AI & Maintainers)"
+            echo "\`\`\`text"
+            echo "$ERROR_SNIPPET"
+            echo "\`\`\`"
+            echo ""
+            echo "---"
+            echo "*Generated automatically by CI workflow.*"
+          } > "$BODY_FILE"
+
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this build failure."
-            cat <<'EOF' > "$BODY_FILE"
-Build failure reoccurred on run: RUN_URL_PLACEHOLDER
-
-```
-ERROR_SNIPPET_PLACEHOLDER
-```
-EOF
-            sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" "$BODY_FILE"
-            python3 -c "
-import sys
-content = open('$BODY_FILE').read()
-err = sys.stdin.read()
-open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
-" <<< "$ERROR_SNIPPET"
             gh issue comment "$EXISTING_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
           else
-            cat <<'EOF' > "$BODY_FILE"
-### 🚨 Automated CI Build Failure Report
-
-**Workflow:** WORKFLOW_NAME_PLACEHOLDER
-**Branch / Ref:** `REF_NAME_PLACEHOLDER`
-**Commit:** `COMMIT_SHA_PLACEHOLDER`
-**Run Details:** [View Actions Run](RUN_URL_PLACEHOLDER)
-
----
-
-### Exact Build Error / Failure Log (For AI & Maintainers)
-```text
-ERROR_SNIPPET_PLACEHOLDER
-```
-
----
-*Generated automatically by CI workflow.*
-EOF
-            sed -i "s|WORKFLOW_NAME_PLACEHOLDER|$WORKFLOW_NAME|g" "$BODY_FILE"
-            sed -i "s|REF_NAME_PLACEHOLDER|$REF_NAME|g" "$BODY_FILE"
-            sed -i "s|COMMIT_SHA_PLACEHOLDER|$COMMIT_SHA|g" "$BODY_FILE"
-            sed -i "s|RUN_URL_PLACEHOLDER|$RUN_URL|g" "$BODY_FILE"
-            python3 -c "
-import sys
-content = open('$BODY_FILE').read()
-err = sys.stdin.read()
-open('$BODY_FILE', 'w').write(content.replace('ERROR_SNIPPET_PLACEHOLDER', err))
-" <<< "$ERROR_SNIPPET"
             gh issue create \
               --repo "$GITHUB_REPOSITORY" \
               --title "$ISSUE_TITLE" \

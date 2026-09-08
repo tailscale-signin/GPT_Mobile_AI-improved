@@ -1,0 +1,43 @@
+name: Wire OpenRouter model picker (one-shot)
+
+on:
+  push:
+    paths:
+      - .github/workflows/wire-openrouter-model-picker.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply UI wiring and remove one-shot workflow
+        shell: python
+        run: |
+          from pathlib import Path
+
+          screen = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt")
+          source = screen.read_text()
+          old = "                    ModelDialog(dialogState, platformData.model, settingViewModel)"
+          new = """                    if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
+                        OpenRouterModelPickerDialog(
+                            currentModel = platformData.model,
+                            onDismiss = settingViewModel::closeApiModelDialog,
+                            onModelSelected = settingViewModel::updateApiModel
+                        )
+                    } else {
+                        ModelDialog(dialogState, platformData.model, settingViewModel)
+                    }"""
+          if source.count(old) != 1:
+              raise SystemExit(f"Expected exactly one generic model dialog call, found {source.count(old)}")
+          screen.write_text(source.replace(old, new))
+          Path(".github/workflows/wire-openrouter-model-picker.yml").unlink()
+      - name: Commit wiring fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Wire OpenRouter model lookup into platform settings"
+          git push

@@ -19,7 +19,8 @@ data class AgentRunLimits(
     val maxToolCalls: Int = 12,
     val maxConcurrentTools: Int = 32,
     val toolTimeoutMillis: Long = Long.MAX_VALUE,
-    val maxToolOutputBytes: Int = Int.MAX_VALUE
+    val maxToolOutputBytes: Int = Int.MAX_VALUE,
+    val finalResponseToolCallReserve: Int = 1
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 12
@@ -74,8 +75,22 @@ class AgentRunner(
         var toolCallCount = initialToolCallCount
         var toolMayHaveExecuted = initialToolMayHaveExecuted
         var retriedWithoutTools = initialRetriedWithoutTools
+        var finalResponseRequested = false
+        val executionToolCallLimit = if (limits.maxToolCalls == Int.MAX_VALUE) {
+            Int.MAX_VALUE
+        } else {
+            (limits.maxToolCalls - limits.finalResponseToolCallReserve.coerceAtLeast(0)).coerceAtLeast(0)
+        }
 
         while (true) {
+            if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                if (!finalResponseRequested) {
+                    finalResponseRequested = true
+                    emit(AgentRunEvent.Notice(FINAL_RESPONSE_NOTICE, persistent = false))
+                }
+            }
             if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
                 emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
                 return
@@ -141,16 +156,20 @@ class AgentRunner(
                 emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
                 return
             }
-            if (limits.maxToolCalls < Int.MAX_VALUE && toolCallCount + calls.size > limits.maxToolCalls) {
-                emit(failed("Agent stopped before exceeding ${limits.maxToolCalls} tool calls."))
-                return
-            }
 
-            calls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
-            toolMayHaveExecuted = true
+            val remainingCalls = if (executionToolCallLimit == Int.MAX_VALUE) {
+                calls.size
+            } else {
+                (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
+            }
+            val executableCalls = calls.take(remainingCalls)
+            val deferredCalls = calls.drop(executableCalls.size)
+
+            executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
+            if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
             val semaphore = Semaphore(limits.maxConcurrentTools)
-            val results = coroutineScope {
-                calls.map { call ->
+            val executedResults = coroutineScope {
+                executableCalls.map { call ->
                     async {
                         semaphore.withPermit {
                             executeBounded(call, executableToolByName[call.name])
@@ -158,12 +177,36 @@ class AgentRunner(
                     }
                 }.awaitAll()
             }
-            toolCallCount += calls.size
-            calls.zip(results).forEach { (call, result) ->
+            toolCallCount += executableCalls.size
+
+            val deferredResults = deferredCalls.map { call ->
+                AgentToolResult(
+                    callId = call.callId,
+                    content = ToolResultContent.Text(FINAL_RESPONSE_INSTRUCTION),
+                    isError = true
+                )
+            }
+            val allResults = (executedResults + deferredResults).toMutableList()
+            val mustFinalize = executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit
+            if (mustFinalize && allResults.isNotEmpty()) {
+                allResults[allResults.lastIndex] = appendFinalResponseInstruction(allResults.last())
+            }
+
+            calls.zip(allResults).forEach { (call, result) ->
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
-            exchanges += AgentToolExchange(calls, results)
+            exchanges += AgentToolExchange(calls, allResults)
         }
+    }
+
+    private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult {
+        val existing = when (val content = result.content) {
+            is ToolResultContent.Text -> content.text
+            is ToolResultContent.Json -> Json.encodeToString(content.value)
+            is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
+        }
+        if (existing.contains(FINAL_RESPONSE_INSTRUCTION)) return result
+        return result.copy(content = ToolResultContent.Text("$existing\n\n$FINAL_RESPONSE_INSTRUCTION"))
     }
 
     private suspend fun executeBounded(
@@ -233,5 +276,10 @@ class AgentRunner(
 
     private companion object {
         const val TOOLS_UNAVAILABLE_MESSAGE = "Tools unavailable for this model."
+        const val FINAL_RESPONSE_NOTICE = "Tool-call limit is approaching; generating a final response."
+        const val FINAL_RESPONSE_INSTRUCTION =
+            "Tool-call allowance is exhausted. Do not request more tools in this response. " +
+                "Finish with a concise summary of what was completed and what remains. " +
+                "If more tool work is required, ask the user to reply exactly \"continue\" so a new response can continue with a fresh tool-call allowance."
     }
 }

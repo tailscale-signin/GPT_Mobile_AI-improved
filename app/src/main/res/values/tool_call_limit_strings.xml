@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="maximum_tool_calls">Maximum tool calls</string>
+    <string name="maximum_tool_calls_summary">Limit tool calls per prompt. Leave blank for unlimited.</string>
+    <string name="maximum_tool_calls_dialog_title">Maximum tool calls</string>
+    <string name="maximum_tool_calls_input_label">Tool calls</string>
+    <string name="maximum_tool_calls_invalid">Enter a positive whole number or leave blank for unlimited.</string>
+    <string name="tool_calls_unlimited">Unlimited</string>
+</resources>

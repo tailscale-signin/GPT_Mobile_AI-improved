@@ -46,6 +46,16 @@ cd GPT_Mobile_AI-improved
 ./gradlew lintDebug
 ```
 
+### Run the shared validation entry point
+
+The repository provides one validation command shared by local development and remote CI:
+
+```bash
+bash scripts/validate.sh all
+```
+
+Use `resources`, `test`, `lint`, or `build` instead of `all` to run one focused check. See [Remote CI diagnostics](docs/remote-ci-diagnostics.md) for commands, GitHub Actions behavior, artifacts, troubleshooting, and the GitHub MCP workflow.
+
 ---
 
 ## 📐 Architecture & Code Conventions
@@ -65,6 +75,6 @@ The codebase follows Clean Architecture with MVVM:
 ## 🔀 Submitting a Pull Request
 
 1. Fork or branch off `main` with a descriptive branch name (`feature/xyz` or `fix/issue-description`).
-2. Make your changes and verify with `./gradlew assembleDebug` and `./gradlew testDebugUnitTest`.
+2. Make your changes and verify with `bash scripts/validate.sh all`.
 3. Open a Pull Request against `main`. Fill out the Pull Request template details.
-4. Ensure all CI validation checks pass.
+4. Ensure all CI validation checks pass. Use the **Remote diagnostics** summaries, PR report, and artifacts to investigate failures.

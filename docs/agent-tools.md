@@ -27,6 +27,7 @@ Retrying creates a new run and may invoke tools again. Prior tool results are sh
 ### External & Protocol Tools
 - `web_search`: Firecrawl, Perplexity, or Exa; one search backend per profile.
 - MCP: Current Streamable HTTP servers, including JSON and SSE responses, bearer auth, and OAuth 2.1/PKCE.
+- For operational guidance and troubleshooting when integrating GitHub MCP, see [docs/github-mcp-guide.md](github-mcp-guide.md).
 
 Each profile run is limited to 15 minutes, eight model/tool rounds, 24 tool calls, and four concurrent tool calls. Individual calls time out after 60 seconds. Model-visible and persisted output is bounded to 64 KiB per tool call.
 

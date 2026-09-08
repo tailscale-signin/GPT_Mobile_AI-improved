@@ -26,10 +26,6 @@
     <string name="thinking_in_progress">Thinking in progress</string>
     <string name="collapse">Collapse</string>
     <string name="expand">Expand</string>
-    <string name="search_tool_trace">Search tool calls</string>
-    <string name="no_matching_tool_calls">No matching tool calls</string>
-    <string name="tool_trace_block_content_description">Tool trace: %1$s</string>
-    <string name="tool_trace_call_content_description">Tool call %1$s, status %2$s</string>
     <string name="tool_event_error_interrupted_app_stopped">Interrupted because the app stopped</string>
     <string name="retry_tools_warning">Retrying may run tools again and repeat their side effects.</string>
 

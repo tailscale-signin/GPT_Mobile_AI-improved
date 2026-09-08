@@ -64,6 +64,9 @@ data class PlatformV2(
     @ColumnInfo(name = "timeout")
     val timeout: Int = 30,
 
+    @ColumnInfo(name = "max_tool_calls", defaultValue = "2147483647")
+    val maxToolCalls: Int = Int.MAX_VALUE,
+
     @ColumnInfo(name = "harassment_safety_threshold", defaultValue = "'BLOCK_NONE'")
     val harassmentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
 

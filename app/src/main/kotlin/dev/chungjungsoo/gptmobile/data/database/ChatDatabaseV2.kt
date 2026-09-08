@@ -37,7 +37,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         ToolEvent::class,
         LocalModel::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(

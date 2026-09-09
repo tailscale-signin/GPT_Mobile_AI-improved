@@ -2,7 +2,7 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved. Latest Official Release: `v0.8.9` (branch `v0.8.9`, release branch `release-v0.8.9`, tag `v0.8.9-pre.de18a0e`).
+> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved. Latest Official Release: `v0.8.9` (branch `v0.8.9`, release branch `release-v0.8.9`, release workflow configured to publish official latest releases with `RELEASE_NOTES.md`).
 
 ## 1. Repository Overview
 
@@ -20,7 +20,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Latest Official Release: `v0.8.9` (branches `v0.8.9` and `release-v0.8.9`, tag `v0.8.9-pre.de18a0e`).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Latest Official Release: `v0.8.9` (branches `v0.8.9` and `release-v0.8.9`).
 - **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing, and ktlint 1.3.1 using Android Studio style.
 
 ### Source layout

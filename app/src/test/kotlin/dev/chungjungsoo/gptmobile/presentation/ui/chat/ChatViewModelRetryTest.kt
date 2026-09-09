@@ -627,4 +627,58 @@ class ChatViewModelRetryTest {
         assertEquals(true, partialErrorMessage.hasSendableAssistantPayload())
         assertEquals(true, attachmentOnlyMessage.hasSendableAssistantPayload())
     }
+
+    @Test
+    fun `reply loading indicator shows only for active message with loading state`() {
+        assertFalse(
+            shouldShowReplyLoadingIndicator(
+                isActiveMessage = false,
+                loadingStates = listOf(ChatViewModel.LoadingState.Loading)
+            )
+        )
+        assertFalse(
+            shouldShowReplyLoadingIndicator(
+                isActiveMessage = true,
+                loadingStates = listOf(ChatViewModel.LoadingState.Idle)
+            )
+        )
+        assertTrue(
+            shouldShowReplyLoadingIndicator(
+                isActiveMessage = true,
+                loadingStates = listOf(ChatViewModel.LoadingState.Idle, ChatViewModel.LoadingState.Loading)
+            )
+        )
+    }
+
+    @Test
+    fun `hasAssistantProcessDetails detects timeline details and fallback thoughts or tools`() {
+        assertFalse(
+            hasAssistantProcessDetails(
+                timeline = emptyList(),
+                fallbackThoughts = "",
+                hasToolEvents = false
+            )
+        )
+        assertTrue(
+            hasAssistantProcessDetails(
+                timeline = emptyList(),
+                fallbackThoughts = "thinking...",
+                hasToolEvents = false
+            )
+        )
+        assertTrue(
+            hasAssistantProcessDetails(
+                timeline = emptyList(),
+                fallbackThoughts = "",
+                hasToolEvents = true
+            )
+        )
+        assertTrue(
+            hasAssistantProcessDetails(
+                timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.THINKING, content = "reasoning")),
+                fallbackThoughts = "",
+                hasToolEvents = false
+            )
+        )
+    }
 }

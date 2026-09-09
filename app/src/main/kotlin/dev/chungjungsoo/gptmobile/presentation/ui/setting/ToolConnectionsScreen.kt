@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -43,9 +44,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -68,6 +71,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
@@ -876,33 +880,106 @@ private fun CredentialField(
     onCredentialChange: (String) -> Unit,
     onClearCredentialChange: (Boolean) -> Unit
 ) {
-    OutlinedTextField(
+    val initialKeys = remember(credential) {
+        val parsed = ApiCredentialRotator.parseKeys(credential)
+        if (parsed.isEmpty()) listOf("") else parsed
+    }
+    val credentialKeys = remember { mutableStateListOf<String>().apply { addAll(initialKeys) } }
+
+    fun syncCredential() {
+        onCredentialChange(ApiCredentialRotator.formatKeys(credentialKeys.toList()))
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp),
-        value = credential,
-        onValueChange = onCredentialChange,
-        label = { Text(label) },
-        supportingText = {
-            Text(
-                if (connection?.secretRef == null) {
-                    stringResource(R.string.credential_not_set)
-                } else {
-                    stringResource(R.string.blank_key_preserves_credential)
-                }
-            )
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-        visualTransformation = PasswordVisualTransformation()
-    )
-    if (connection?.secretRef != null) {
-        LabeledCheckbox(
-            checked = clearCredential,
-            label = stringResource(R.string.clear_saved_credential),
-            contentDescription = stringResource(R.string.clear_saved_credential),
-            onCheckedChange = onClearCredentialChange
+            .padding(top = 12.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.multi_api_keys_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp)
         )
+        credentialKeys.forEachIndexed { index, keyVal ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier.weight(1f),
+                    value = keyVal,
+                    onValueChange = { newVal ->
+                        credentialKeys[index] = newVal
+                        syncCredential()
+                    },
+                    label = {
+                        Text(
+                            if (credentialKeys.size > 1) {
+                                stringResource(R.string.api_key_number, index + 1)
+                            } else {
+                                label
+                            }
+                        )
+                    },
+                    supportingText = {
+                        Text(
+                            if (connection?.secretRef == null) {
+                                stringResource(R.string.credential_not_set)
+                            } else {
+                                stringResource(R.string.blank_key_preserves_credential)
+                            }
+                        )
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (credentialKeys.size > 1) {
+                    IconButton(
+                        onClick = {
+                            credentialKeys.removeAt(index)
+                            syncCredential()
+                        },
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.remove_api_key),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(
+                onClick = {
+                    credentialKeys.add("")
+                    syncCredential()
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = stringResource(R.string.add_api_key),
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text(stringResource(R.string.add_api_key))
+            }
+        }
+        if (connection?.secretRef != null) {
+            LabeledCheckbox(
+                checked = clearCredential,
+                label = stringResource(R.string.clear_saved_credential),
+                contentDescription = stringResource(R.string.clear_saved_credential),
+                onCheckedChange = onClearCredentialChange
+            )
+        }
     }
 }
 

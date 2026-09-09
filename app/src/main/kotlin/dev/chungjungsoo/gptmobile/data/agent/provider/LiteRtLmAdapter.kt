@@ -18,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalConversationConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
@@ -29,6 +30,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -150,6 +152,7 @@ class LiteRtLmAdapter(
                 try {
                     var failed = false
                     val assistantReply = StringBuilder()
+                    var latestMetrics: LocalInferenceMetrics? = null
                     localRuntime.runExclusiveFlow(
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
@@ -229,7 +232,9 @@ class LiteRtLmAdapter(
 
                             is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
 
-                            is LocalRuntimeEvent.Metrics -> Unit
+                            is LocalRuntimeEvent.Metrics -> {
+                                latestMetrics = event.metrics
+                            }
 
                             is LocalRuntimeEvent.Error -> {
                                 failed = true
@@ -241,6 +246,12 @@ class LiteRtLmAdapter(
                         }
                     }
                     if (!failed) {
+                        latestMetrics?.let { metrics ->
+                            val telemetryNotice = formatTelemetryNotice(metrics, localRuntime)
+                            if (telemetryNotice.isNotBlank()) {
+                                send(ProviderEvent.Notice(telemetryNotice))
+                            }
+                        }
                         send(ProviderEvent.Completed)
                         val snapshot = openConversation
                         if (snapshot != null) {
@@ -467,6 +478,23 @@ class LiteRtLmAdapter(
         is ToolResultContent.Text -> value.text
         is ToolResultContent.Json -> value.value.toString()
         is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
+    }
+
+    internal fun formatTelemetryNotice(
+        metrics: LocalInferenceMetrics,
+        runtime: LocalRuntime
+    ): String {
+        if (metrics.totalDurationMs <= 0L && metrics.totalChunks <= 0) return ""
+        val tpsFormatted = String.format(Locale.US, "%.1f", metrics.tokensPerSecond)
+        val baseNotice = "Local: ${tpsFormatted} tok/s · TTFT ${metrics.timeToFirstTokenMs}ms · ~${metrics.estimatedTokens} tokens"
+
+        val hwState = runtime.getHardwareState()
+        val throttleSuffix = when {
+            hwState.isThrottlingRequired -> " · ⚡ Throttled"
+            hwState.isModeratePressure -> " · 🌡️ Warm"
+            else -> ""
+        }
+        return baseNotice + throttleSuffix
     }
 
     companion object {

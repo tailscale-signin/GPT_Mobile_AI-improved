@@ -217,6 +217,9 @@ class PlatformSettingViewModel @Inject constructor(
     fun openGeminiSafetyDialog() = _dialogState.update { it.copy(isGeminiSafetyDialogOpen = true) }
     fun closeGeminiSafetyDialog() = _dialogState.update { it.copy(isGeminiSafetyDialogOpen = false) }
 
+    fun openOpenRouterSettingsDialog() = _dialogState.update { it.copy(isOpenRouterSettingsDialogOpen = true) }
+    fun closeOpenRouterSettingsDialog() = _dialogState.update { it.copy(isOpenRouterSettingsDialogOpen = false) }
+
     fun updatePlatformName(name: String) {
         _platformState.value?.let { platform ->
             updatePlatform(platform.copy(name = name.trim()))
@@ -362,6 +365,13 @@ class PlatformSettingViewModel @Inject constructor(
                 )
             )
             closeGeminiSafetyDialog()
+        }
+    }
+
+    fun updateOpenRouterRouting(routingJson: String?) {
+        _platformState.value?.let { platform ->
+            updatePlatform(platform.copy(openRouterRouting = routingJson?.takeIf { it.isNotBlank() }))
+            closeOpenRouterSettingsDialog()
         }
     }
 
@@ -515,6 +525,7 @@ class PlatformSettingViewModel @Inject constructor(
         val isSystemPromptDialogOpen: Boolean = false,
         val isTimeoutDialogOpen: Boolean = false,
         val isGeminiSafetyDialogOpen: Boolean = false,
+        val isOpenRouterSettingsDialogOpen: Boolean = false,
         val isDeleteDialogOpen: Boolean = false
     )
 

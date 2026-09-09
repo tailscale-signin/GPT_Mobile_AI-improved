@@ -22,6 +22,9 @@ class LocalEngineHolder(
     private val mutex = Mutex()
     private var loadedSpec: LocalEngineSpec? = null
 
+    override val deviceRamGb: Long
+        get() = delegate.deviceRamGb
+
     override suspend fun loadEngine(spec: LocalEngineSpec) = withGenerationLock {
         if (loadedSpec == spec && delegate.isEngineLoaded(spec)) {
             return@withGenerationLock

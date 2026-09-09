@@ -1,8 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.mcp
 
 /**
- * Built-in tool definitions for the MCPSearch Android / Termux toolset.
- * Integrated from https://github.com/tailscale-signin/mcpsearch-installer-android-termux
+ * Built-in tool definitions for Online Search via droid-mcp-web (native Android web search and fetch).
+ * Integrated from https://github.com/stixez/droid-mcp (droid-mcp-web)
+ * Preinstalled and enabled by default for all models unless explicitly turned off.
  */
 data class McpToolParameter(
     val name: String,
@@ -19,105 +20,54 @@ data class McpBuiltinTool(
 )
 
 object McpSearchToolSet {
-    const val PRESET_ID = "mcpsearch-android-termux"
-    const val DEFAULT_LAUNCHER_PATH = "~/.mcpsearch/run.sh"
-    const val INSTALLER_SCRIPT_URL =
-        "https://raw.githubusercontent.com/tailscale-signin/mcpsearch-installer-android-termux/main/install_mcpsearch.sh"
-    const val INSTALL_COMMAND =
-        "curl -fsSL -o ~/install_mcpsearch.sh $INSTALLER_SCRIPT_URL && bash ~/install_mcpsearch.sh"
+    const val PRESET_ID = "droid-mcp-web"
+    const val PRESET_NAME = "Online Search"
+    const val REPOSITORY_URL = "https://github.com/stixez/droid-mcp"
+    const val DEFAULT_LAUNCHER_PATH = "droid-mcp-web"
+    const val IS_PREINSTALLED = true
 
     /**
-     * Set of built-in tools provided by MCPSearch on Android / Termux.
+     * Set of built-in tools provided by droid-mcp-web on Android.
+     * Powered by DuckDuckGo and lightweight webpage extraction, requiring only INTERNET permission.
      */
     val tools: List<McpBuiltinTool> = listOf(
         McpBuiltinTool(
-            name = "search",
-            description = "Multi-engine web search with AI summarization and async caching via hishel.",
+            name = "web_search",
+            description = "Search the web using DuckDuckGo. Returns relevant search results with titles, snippets, and URLs.",
             parameters = listOf(
                 McpToolParameter(
                     name = "query",
                     type = "string",
-                    description = "Search query or natural language question",
+                    description = "Search query or question to find online information",
                     required = true
                 ),
                 McpToolParameter(
-                    name = "max_results",
+                    name = "num_results",
                     type = "integer",
-                    description = "Maximum number of search results to retrieve",
+                    description = "Number of search results to return (1-20)",
                     required = false,
                     default = "5"
                 )
             )
         ),
         McpBuiltinTool(
-            name = "investigate",
-            description = "Deep multi-source research agent across web search, news, and social platforms.",
+            name = "fetch_webpage",
+            description = "Fetch and extract readable plain text content from a web page URL.",
             parameters = listOf(
                 McpToolParameter(
-                    name = "topic",
+                    name = "url",
                     type = "string",
-                    description = "Topic or hypothesis to thoroughly investigate",
+                    description = "Full HTTP or HTTPS URL of the webpage to fetch",
                     required = true
                 ),
                 McpToolParameter(
-                    name = "depth",
-                    type = "string",
-                    description = "Investigation depth: quick, normal, or deep",
-                    required = false,
-                    default = "normal"
-                ),
-                McpToolParameter(
-                    name = "include_social",
+                    name = "raw",
                     type = "boolean",
-                    description = "Whether to include Reddit and social discussions",
+                    description = "If true, returns raw HTML content instead of parsed text",
                     required = false,
-                    default = "true"
-                ),
-                McpToolParameter(
-                    name = "max_sources",
-                    type = "integer",
-                    description = "Maximum distinct sources to query and synthesize",
-                    required = false,
-                    default = "10"
+                    default = "false"
                 )
             )
-        ),
-        McpBuiltinTool(
-            name = "compare",
-            description = "Comparative analysis between multiple topics, technologies, or entities.",
-            parameters = listOf(
-                McpToolParameter(
-                    name = "topics",
-                    type = "string",
-                    description = "Comma-separated topics or entities to compare",
-                    required = true
-                ),
-                McpToolParameter(
-                    name = "depth",
-                    type = "string",
-                    description = "Comparison depth level: quick, normal, or deep",
-                    required = false,
-                    default = "normal"
-                )
-            )
-        ),
-        McpBuiltinTool(
-            name = "trending",
-            description = "Discover trending topics, discussions, and repositories across GitHub, Reddit, and web.",
-            parameters = listOf(
-                McpToolParameter(
-                    name = "platforms",
-                    type = "string",
-                    description = "Target platforms to check (e.g. 'github', 'reddit', 'all')",
-                    required = false,
-                    default = "all"
-                )
-            )
-        ),
-        McpBuiltinTool(
-            name = "get_crawl_stats",
-            description = "Retrieve crawler statistics, cache hit rates, and crawl status.",
-            parameters = emptyList()
         )
     )
 }

@@ -34,7 +34,7 @@ class McpPresetCatalogTest {
         assertNotNull("droid-mcp-web online search preset must exist", searchPreset)
         assertEquals(McpCategory.SEARCH, searchPreset?.category)
         assertEquals(McpTransportType.STDIO, searchPreset?.transportType)
-        assertEquals("https://github.com/stixez/droid-mcp", searchPreset?.commandOrUrl)
+        assertEquals(McpSearchToolSet.DEFAULT_LAUNCHER_PATH, searchPreset?.commandOrUrl)
         assertTrue("Online Search should be preinstalled", searchPreset?.isPreinstalled == true)
         assertTrue(
             "Online Search should have built-in tools registered",

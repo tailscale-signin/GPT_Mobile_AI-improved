@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
+import dev.chungjungsoo.gptmobile.data.localruntime.MAX_HIGH_RAM_CONTEXT_TOKENS
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
@@ -318,6 +319,74 @@ class PlatformSettingViewModelTest {
 
         assertEquals(1280, viewModel.platformState.value?.maxTokens)
         assertEquals(1280, settings.updatedPlatforms.single().maxTokens)
+    }
+
+    @Test
+    fun `maxTokensCap returns variant context limit when local platform uses NPU`() = runTest {
+        val settings = FakeSettingRepository(
+            localPlatform(model = "cpu-npu", accelerator = LocalAccelerators.NPU)
+        )
+        val viewModel = localSettingsViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    catalogEntry(
+                        id = "cpu-npu",
+                        supportedAccelerators = listOf("cpu", "npu"),
+                        socToModelFiles = mapOf(
+                            "SM8750" to SocVariant(modelFile = "npu.litertlm", contextSize = 1280)
+                        )
+                    )
+                )
+            ),
+            deviceSocModel = "SM8750",
+            deviceRamGb = 16L
+        )
+
+        assertEquals(1280, viewModel.maxTokensCap())
+    }
+
+    @Test
+    fun `maxTokensCap returns MAX_HIGH_RAM_CONTEXT_TOKENS on high RAM device with GPU`() = runTest {
+        val settings = FakeSettingRepository(
+            localPlatform(model = "gpu-model", accelerator = LocalAccelerators.GPU)
+        )
+        val viewModel = localSettingsViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    catalogEntry(
+                        id = "gpu-model",
+                        supportedAccelerators = listOf("gpu", "cpu"),
+                        defaults = CatalogDefaultConfig(maxTokens = 2048)
+                    )
+                )
+            ),
+            deviceRamGb = 16L
+        )
+
+        assertEquals(MAX_HIGH_RAM_CONTEXT_TOKENS, viewModel.maxTokensCap())
+    }
+
+    @Test
+    fun `maxTokensCap returns DEFAULT_MAX_TOKENS_CAP for remote cloud platforms`() = runTest {
+        val settings = FakeSettingRepository(
+            PlatformV2(
+                uid = "remote-1",
+                name = "OpenAI",
+                compatibleType = ClientType.OPENAI,
+                enabled = true,
+                apiUrl = "https://example.com",
+                model = "gpt-4o"
+            )
+        )
+        val viewModel = testViewModel(
+            dao = FakeToolConnectionDao(),
+            settingRepository = settings,
+            platformUid = "remote-1"
+        )
+
+        assertEquals(PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP, viewModel.maxTokensCap())
     }
 
     @Test

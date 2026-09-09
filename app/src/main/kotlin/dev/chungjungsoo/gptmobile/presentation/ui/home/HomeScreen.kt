@@ -358,10 +358,12 @@ fun HomeScreen(
                     homeViewModel.assignFavoriteMessageGroup(detailMessage.id, group)
                 },
                 onViewInChat = {
-                    val targetChat = chatListState.chats.find { it.id == detailMessage.chatId }
+                    val targetMessage = detailMessage
                     selectedDetailMessage = null
-                    if (targetChat != null) {
-                        onExistingChatClick(targetChat, detailMessage.id)
+                    homeViewModel.getChatRoom(targetMessage.chatId) { targetChat ->
+                        if (targetChat != null) {
+                            onExistingChatClick(targetChat, targetMessage.id)
+                        }
                     }
                 },
                 onUnfavorite = {

@@ -548,7 +548,7 @@ private fun ChatMessagePair(
                         .padding(top = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GPTMobileIcon(loading = isActiveMessage && !isIdle)
+                    GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
                     if (enabledPlatformsInChat.size > 1) {
                         Row(
                             modifier = Modifier
@@ -617,6 +617,11 @@ private fun ChatMessagePair(
         }
     }
 }
+
+internal fun shouldShowReplyLoadingIndicator(
+    isActiveMessage: Boolean,
+    loadingStates: List<ChatViewModel.LoadingState>
+): Boolean = isActiveMessage && loadingStates.any { it == ChatViewModel.LoadingState.Loading }
 
 private fun chatMessagePairKey(message: MessageV2, index: Int): String = if (message.id > 0) {
     "message-${message.id}"

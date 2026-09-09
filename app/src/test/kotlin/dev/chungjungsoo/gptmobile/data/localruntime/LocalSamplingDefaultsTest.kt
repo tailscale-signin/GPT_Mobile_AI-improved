@@ -45,4 +45,52 @@ class LocalSamplingDefaultsTest {
 
         assertEquals(LocalAccelerators.CPU, defaults.accelerator)
     }
+
+    @Test
+    fun `scales default maxTokens to 4096 on high RAM device with GPU accelerator`() {
+        val defaults = localSamplingDefaults(
+            entry = CatalogEntry(
+                id = "qwen2.5-3b-it",
+                supportedAccelerators = listOf("gpu", "cpu"),
+                defaultConfig = CatalogDefaultConfig(topK = 40, topP = 0.9f, temperature = 0.7f, maxTokens = 2048)
+            ),
+            deviceRamGb = 16L
+        )
+
+        assertEquals(4096, defaults.maxTokens)
+        assertEquals(LocalAccelerators.GPU, defaults.accelerator)
+    }
+
+    @Test
+    fun `clamps default maxTokens to 1024 on low-memory device`() {
+        val defaults = localSamplingDefaults(
+            entry = CatalogEntry(
+                id = "qwen2.5-3b-it",
+                supportedAccelerators = listOf("gpu", "cpu"),
+                defaultConfig = CatalogDefaultConfig(topK = 40, topP = 0.9f, temperature = 0.7f, maxTokens = 2048)
+            ),
+            deviceRamGb = 4L
+        )
+
+        assertEquals(1024, defaults.maxTokens)
+    }
+
+    @Test
+    fun `clamps default maxTokens to SoC variant context when NPU accelerator is selected`() {
+        val defaults = localSamplingDefaults(
+            entry = CatalogEntry(
+                id = "gemma3-1b-it",
+                supportedAccelerators = listOf("npu", "cpu"),
+                defaultConfig = CatalogDefaultConfig(topK = 64, topP = 0.95f, temperature = 1.0f, maxTokens = 2048),
+                socToModelFiles = mapOf(
+                    "SM8750" to SocVariant(modelFile = "npu-sm8750.litertlm", contextSize = 1280)
+                )
+            ),
+            deviceSocModel = "SM8750",
+            deviceRamGb = 16L
+        )
+
+        assertEquals(1280, defaults.maxTokens)
+        assertEquals(LocalAccelerators.NPU, defaults.accelerator)
+    }
 }

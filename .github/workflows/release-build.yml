@@ -208,17 +208,18 @@ jobs:
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "tag_name=v${VERSION_NAME}-pre.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=v${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "pre_tag_name=v${VERSION_NAME}-pre.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "Detected version: v$VERSION_NAME (code: $VERSION_CODE, sha: $SHORT_SHA)"
 
-      - name: Publish or Update GitHub Pre-Release
+      - name: Publish or Update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.version_info.outputs.tag_name }}
           VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
           SHORT_SHA: ${{ steps.version_info.outputs.short_sha }}
         run: |
-          echo "Publishing GitHub Pre-release for tag: $TAG_NAME"
+          echo "Publishing GitHub Official Latest Release for tag: $TAG_NAME"
 
           shopt -s nullglob globstar
           ASSETS_TO_UPLOAD=()
@@ -248,18 +249,24 @@ jobs:
 
           echo "Found ${#ASSETS_TO_UPLOAD[@]} asset(s) to publish: ${ASSETS_TO_UPLOAD[*]}"
 
+          RELEASE_NOTES_BODY="Official release build for v${VERSION_NAME} (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
+          if [ -f "RELEASE_NOTES.md" ]; then
+            RELEASE_NOTES_BODY=$(cat RELEASE_NOTES.md)
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Release $TAG_NAME already exists, uploading/overwriting release assets..."
+            echo "Release $TAG_NAME already exists, uploading/overwriting release assets and updating to latest non-prerelease..."
+            gh release edit "$TAG_NAME" --prerelease=false --latest --title "v${VERSION_NAME} - GPT Mobile Improved" --notes "$RELEASE_NOTES_BODY"
             gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
-            echo "Creating fresh GitHub Pre-Release $TAG_NAME..."
+            echo "Creating fresh Official Latest GitHub Release $TAG_NAME..."
             gh release create "$TAG_NAME" \
               "${ASSETS_TO_UPLOAD[@]}" \
-              --prerelease \
-              --title "v${VERSION_NAME} (Build ${SHORT_SHA})" \
-              --notes "Automated pre-release build for commit ${SHORT_SHA} on main branch. Includes signed APKs (universal and ABI-specific) built with R8 optimization."
+              --latest \
+              --title "v${VERSION_NAME} - GPT Mobile Improved" \
+              --notes "$RELEASE_NOTES_BODY"
           fi
-          echo "GitHub Pre-Release $TAG_NAME published successfully."
+          echo "Official GitHub Latest Release $TAG_NAME published successfully."
 
       - name: Resolve existing build failure issues on success
         if: success()

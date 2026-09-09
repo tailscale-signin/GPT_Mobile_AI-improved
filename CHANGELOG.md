@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.9.1] - 2026-09-09
+
+### Added & Improved
+- **OpenRouter Advanced Provider Routing & Reasoning**:
+  - Configure provider ordering, fallback providers, sorting strategy (`price`, `throughput`, `latency`), data collection policies (`allow`, `deny`), and quantizations (`fp16`, `int8`, `int4`, `bf16`).
+  - Added custom max reasoning tokens configuration.
+  - Interactive UI with `OpenRouterAdvancedSettingsDialog` inside Platform Settings.
+  - Added Room Schema 15 and `MIGRATION_14_15` (`open_router_routing` column on `platform_v2`).
+- **Chat Presentation & Responsiveness**:
+  - Instant bottom anchoring via `rememberChatListState` keyed on message counts.
+  - Collapsible details toggle button with accessible spring animations (`Motion.kt`).
+  - Continuous streaming heartbeat pulse (`●`) during response generation and tool execution.
+
 ## [0.8.9] - 2026-09-09
 
 ### Added & Improved

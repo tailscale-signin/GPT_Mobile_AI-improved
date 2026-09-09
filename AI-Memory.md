@@ -59,7 +59,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/proguard-rules.pro` — Application-specific R8/ProGuard obfuscation and preservation rules.
 - `app/schemas/` — Exported Room schemas (v1 through v14) used to validate database migration evolution.
 - `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
-- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`; `no_custom_groups` and `none_group` are declared in `strings.xml`; `max_tokens_hardware_cap_hint` and `max_tokens_standard_hint` provide clear context limits).
+- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`; `no_custom_groups` and `none_group` are declared in `strings.xml`; `max_tokens_hardware_cap_hint`, `max_tokens_standard_hint`, and `max_tokens_with_cap` provide clear context limits).
 
 ### Main Kotlin package (`dev.chungjungsoo.gptmobile`)
 
@@ -198,7 +198,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `assignFavoriteMessageGroup(messageId: Int, groupName: String?)`: Accepts nullable `groupName` to properly remove associations when unassigned/cleared via "None".
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format; `MaxTokensDialog` displays hardware context ceiling hint (`max_tokens_hardware_cap_hint` or `max_tokens_standard_hint`) when input is valid.
-- `PlatformSettingScreen.kt` — Configures existing platforms, manages tool traces, MCP connections, and hosts `PlatformMaxToolCallsSettingHost`.
+- `PlatformSettingScreen.kt` — Configures existing platforms, manages tool traces, MCP connections, and hosts `PlatformMaxToolCallsSettingHost`; shows hardware context ceiling alongside configured tokens in local model Max Tokens item description (`max_tokens_with_cap`).
 - `MaxToolCallsSetting.kt` — Max tool calls UI component for platform settings.
 - `PlatformMaxToolCallsSettingHost.kt` — Host composable integrating `MaxToolCallsSetting` with `PlatformSettingViewModel`.
 - `PlatformSettingViewModelExtensions.kt` — Extension functions on `PlatformSettingViewModel` including `updateMaxToolCalls`.

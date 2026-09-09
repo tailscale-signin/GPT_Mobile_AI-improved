@@ -335,6 +335,15 @@
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>
     <string name="favorite">Favorite</string>
+    <string name="unfavorite">Unfavorite</string>
+    <string name="all">All</string>
+    <string name="custom_groups">Custom Groups</string>
+    <string name="add_group">Add Group</string>
+    <string name="group_name">Group Name</string>
+    <string name="assign_group">Assign Group</string>
+    <string name="view_in_chat">View</string>
+    <string name="unfavorite_confirm_title">Remove from Favorites?</string>
+    <string name="unfavorite_confirm_message">Are you sure you want to remove this message from your favorites?</string>
     <string name="search_favorites">Search favorites…</string>
     <string name="no_favorites_yet">No favorite messages yet</string>
     <string name="no_favorites_found">No favorites matching search</string>

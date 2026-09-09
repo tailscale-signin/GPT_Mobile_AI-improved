@@ -1147,6 +1147,52 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `high RAM device allows expanded 8192 context on GPU`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+
+        adapter.openSession(
+            turns("hello"),
+            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192)
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(8192, runtime.loadEngineCalls.single().maxTokens)
+    }
+
+    @Test
+    fun `high RAM device still respects NPU context clamp`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(
+            runtime,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    CatalogEntry(
+                        id = "gemma3-1b-it",
+                        supportedAccelerators = listOf("gpu", "cpu", "npu"),
+                        socToModelFiles = mapOf(
+                            "SM8750" to SocVariant(modelFile = "npu.litertlm", contextSize = 1280)
+                        )
+                    )
+                )
+            ),
+            deviceSocModel = "SM8750"
+        )
+
+        adapter.openSession(
+            turns("hello"),
+            localPlatform().copy(accelerator = LocalAccelerators.NPU, maxTokens = 8192)
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(1280, runtime.loadEngineCalls.single().maxTokens)
+    }
+
+    @Test
     fun `cpu fallback failure surfaces a clean engine error instead of the native dump`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             failLoadEngineIf = {

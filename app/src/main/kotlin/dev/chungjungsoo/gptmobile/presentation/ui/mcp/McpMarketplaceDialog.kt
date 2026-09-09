@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -120,6 +121,11 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
     val isDark = MaterialTheme.colorScheme.background.red < 0.5f
 
     return when (iconName) {
+        "online_search" -> ServiceBrand(
+            iconVector = Icons.Default.TravelExplore,
+            brandColor = Color(0xFF00B0FF),
+            containerColor = Color(0xFF00B0FF).copy(alpha = 0.15f)
+        )
         "github" -> ServiceBrand(
             iconResId = R.drawable.ic_github,
             brandColor = if (isDark) Color(0xFFF0F6FC) else Color(0xFF24292F),
@@ -167,7 +173,7 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
         )
         else -> when (category) {
             McpCategory.SEARCH -> ServiceBrand(
-                iconVector = Icons.Default.Search,
+                iconVector = Icons.Default.TravelExplore,
                 brandColor = Color(0xFF0288D1),
                 containerColor = Color(0xFF0288D1).copy(alpha = 0.15f)
             )
@@ -386,7 +392,8 @@ fun McpMarketplaceScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filteredPresets, key = { it.id }) { preset ->
-                    val isInstalled = installedAliases.contains(preset.alias) ||
+                    val isInstalled = preset.isPreinstalled ||
+                        installedAliases.contains(preset.alias) ||
                         installedAliases.contains(ToolConnectionsViewModel.normalizeAlias(preset.alias))
 
                     McpMarketplaceDetailCard(

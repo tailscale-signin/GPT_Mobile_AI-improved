@@ -282,6 +282,7 @@
     <string name="update_chat_title">Rename Chat</string>
     <string name="export_chat">Export Chat</string>
     <string name="copy_text">Copy Text</string>
+    <string name="select_text">Select Text</string>
     <string name="cancel_active_runs">Cancel</string>
     <string name="ask_a_question">Ask a question…</string>
     <string name="some_platforms_disabled">Some configured platforms are disabled</string>
@@ -291,6 +292,15 @@
     <string name="chat_models">Models</string>
     <string name="legacy_assistant_order_unavailable">Assistant order history unavailable</string>
     <string name="credential_migration_warning">Some credentials could not be migrated securely</string>
+    <string name="previous_revision">Previous revision</string>
+    <string name="next_revision">Next revision</string>
+    <string name="retry_tools_warning">Retrying will generate a new response</string>
+    <string name="details">Details</string>
+    <string name="details_unavailable">Details unavailable</string>
+    <string name="view_full">View full</string>
+    <string name="view_full_value">View full %1$s</string>
+    <string name="tool_in_progress">Tool execution in progress</string>
+    <string name="message_actions">Message actions</string>
 
     <!-- Tool Trace Strings -->
     <string name="tool_trace_expand_content_description">Expand tool trace</string>
@@ -335,6 +345,7 @@
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>
     <string name="favorite">Favorite</string>
+    <string name="unfavorite">Unfavorite</string>
     <string name="all">All</string>
     <string name="custom_groups">Custom Groups</string>
     <string name="add_group">Add Group</string>

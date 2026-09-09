@@ -46,5 +46,6 @@ object BuiltInAgentTool {
     const val CURRENT_DATE = "current_date"
     const val CALCULATE_EXPRESSION = "calculate_expression"
     const val READ_URL = "read_url"
+    const val READ_FILE_SLICE = "read_file_slice"
     const val DEVICE_LOCATION = "device_location"
 }

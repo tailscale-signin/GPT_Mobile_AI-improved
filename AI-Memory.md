@@ -2,7 +2,7 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
+> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved.
 
 ## 1. Repository Overview
 
@@ -54,7 +54,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/proguard-rules.pro` — Application-specific R8/ProGuard obfuscation and preservation rules.
 - `app/schemas/` — Exported Room schemas (v1 through v14) used to validate database migration evolution.
 - `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
-- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources.
+- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`).
 
 ### Main Kotlin package (`dev.chungjungsoo.gptmobile`)
 

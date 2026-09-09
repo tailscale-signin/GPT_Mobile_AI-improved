@@ -47,11 +47,13 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseInProgressEve
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -68,7 +70,8 @@ class OpenAIResponsesAdapter @Inject constructor(
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialInput = attachmentEncoder.responsesInput(turns, platform.uid)
-        val config = ProviderRequestConfig(platform.apiUrl, platform.token)
+        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val keyIndexCounter = AtomicInteger(0)
         var previousResponseId: String? = null
         return object : AgentProviderSession {
             override fun streamRound(
@@ -94,30 +97,67 @@ class OpenAIResponsesAdapter @Inject constructor(
                         ResponseFunctionTool(definition.name, definition.description, definition.inputSchema)
                     }
                 )
-                val assembler = OpenAIResponsesEventAssembler()
-                var failed = false
-                api.streamResponses(request, platform.timeout, config).collect { event ->
-                    when (event) {
-                        is ResponseCreatedEvent -> previousResponseId = event.response.id
-                        is ResponseInProgressEvent -> previousResponseId = event.response.id
-                        is ResponseCompletedEvent -> previousResponseId = event.response.id
-                        is ResponseFailedEvent -> previousResponseId = event.response.id
-                        else -> Unit
-                    }
-                    assembler.accept(event).forEach { mapped ->
-                        when (mapped) {
-                            ProviderEvent.Completed -> Unit
 
-                            is ProviderEvent.Failed -> {
-                                failed = true
-                                emit(mapped)
+                val attempts = candidateKeys.size
+                val startIndex = keyIndexCounter.getAndIncrement()
+                var lastFailedMessage: String? = null
+
+                for (attempt in 0 until attempts) {
+                    val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    val activeKey = candidateKeys[keyIndex]
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val assembler = OpenAIResponsesEventAssembler()
+                    var roundFailed = false
+                    var canRotate = false
+
+                    try {
+                        api.streamResponses(request, platform.timeout, config).collect { event ->
+                            when (event) {
+                                is ResponseCreatedEvent -> previousResponseId = event.response.id
+                                is ResponseInProgressEvent -> previousResponseId = event.response.id
+                                is ResponseCompletedEvent -> previousResponseId = event.response.id
+                                is ResponseFailedEvent -> previousResponseId = event.response.id
+                                else -> Unit
                             }
+                            assembler.accept(event).forEach { mapped ->
+                                when (mapped) {
+                                    ProviderEvent.Completed -> Unit
 
-                            else -> emit(mapped)
+                                    is ProviderEvent.Failed -> {
+                                        roundFailed = true
+                                        lastFailedMessage = mapped.message
+                                        if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
+                                            canRotate = true
+                                        } else {
+                                            emit(mapped)
+                                        }
+                                    }
+
+                                    else -> emit(mapped)
+                                }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        roundFailed = true
+                        lastFailedMessage = t.message
+                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                            canRotate = true
+                        } else {
+                            emit(ProviderEvent.Failed(t.message ?: "OpenAI stream request failed"))
+                            return@flow
                         }
                     }
+
+                    if (!roundFailed) {
+                        emit(ProviderEvent.Completed)
+                        return@flow
+                    } else if (canRotate && attempt < attempts - 1) {
+                        continue
+                    } else if (roundFailed) {
+                        lastFailedMessage?.let { emit(ProviderEvent.Failed(it)) }
+                        return@flow
+                    }
                 }
-                if (!failed) emit(ProviderEvent.Completed)
             }
         }
     }
@@ -130,7 +170,8 @@ class OpenAICompatibleAdapter @Inject constructor(
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
-        val config = ProviderRequestConfig(platform.apiUrl, platform.token)
+        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val keyIndexCounter = AtomicInteger(0)
         return object : AgentProviderSession {
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
@@ -140,66 +181,128 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                     ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
                 }
-                if (platform.compatibleType == ClientType.GROQ) {
-                    val request = createGroqChatCompletionRequest(messages, platform).copy(tools = requestTools)
-                    val assembler = ChatCompletionsEventAssembler()
-                    val reasoningParser = GroqReasoningParser()
-                    var failed = false
-                    groqAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
-                        chunk.error?.let { error ->
-                            failed = true
-                            emit(ProviderEvent.Failed(error.message))
-                        } ?: chunk.choices.orEmpty().forEach { choice ->
-                            reasoningParser.append(
-                                contentChunk = choice.delta?.content ?: choice.message?.content,
-                                reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning
-                            ).forEach { state ->
+
+                val attempts = candidateKeys.size
+                val startIndex = keyIndexCounter.getAndIncrement()
+                var lastFailedMessage: String? = null
+
+                for (attempt in 0 until attempts) {
+                    val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    val activeKey = candidateKeys[keyIndex]
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    var roundFailed = false
+                    var canRotate = false
+
+                    if (platform.compatibleType == ClientType.GROQ) {
+                        val request = createGroqChatCompletionRequest(messages, platform).copy(tools = requestTools)
+                        val assembler = ChatCompletionsEventAssembler()
+                        val reasoningParser = GroqReasoningParser()
+
+                        try {
+                            groqAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                chunk.error?.let { error ->
+                                    roundFailed = true
+                                    lastFailedMessage = error.message
+                                    if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
+                                        canRotate = true
+                                    } else {
+                                        emit(ProviderEvent.Failed(error.message))
+                                    }
+                                } ?: chunk.choices.orEmpty().forEach { choice ->
+                                    reasoningParser.append(
+                                        contentChunk = choice.delta?.content ?: choice.message?.content,
+                                        reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning
+                                    ).forEach { state ->
+                                        state.toProviderEvent()?.let { emit(it) }
+                                    }
+                                    if (choice.finishReason == "length") {
+                                        roundFailed = true
+                                        emit(ProviderEvent.Failed(GROQ_OUTPUT_LIMIT_MESSAGE))
+                                    } else {
+                                        assembler.accept(
+                                            content = null,
+                                            reasoning = null,
+                                            toolCalls = choice.delta?.toolCalls,
+                                            finishReason = choice.finishReason
+                                        ).forEach { emit(it) }
+                                    }
+                                }
+                            }
+                            reasoningParser.flush().forEach { state ->
                                 state.toProviderEvent()?.let { emit(it) }
                             }
-                            if (choice.finishReason == "length") {
-                                failed = true
-                                emit(ProviderEvent.Failed(GROQ_OUTPUT_LIMIT_MESSAGE))
+                        } catch (t: Throwable) {
+                            roundFailed = true
+                            lastFailedMessage = t.message
+                            if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                                canRotate = true
                             } else {
+                                emit(ProviderEvent.Failed(t.message ?: "Groq stream request failed"))
+                                return@flow
+                            }
+                        }
+
+                        if (!roundFailed) {
+                            emit(ProviderEvent.Completed)
+                            return@flow
+                        } else if (canRotate && attempt < attempts - 1) {
+                            continue
+                        } else {
+                            if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
+                            return@flow
+                        }
+                    }
+
+                    val request = ChatCompletionRequest(
+                        model = platform.model,
+                        messages = messages,
+                        stream = platform.stream,
+                        temperature = platform.temperature,
+                        topP = platform.topP,
+                        tools = requestTools
+                    )
+                    val assembler = ChatCompletionsEventAssembler()
+
+                    try {
+                        openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                            chunk.error?.let { error ->
+                                roundFailed = true
+                                lastFailedMessage = error.message
+                                if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
+                                    canRotate = true
+                                } else {
+                                    emit(ProviderEvent.Failed(error.message))
+                                }
+                            } ?: chunk.choices.orEmpty().forEach { choice ->
                                 assembler.accept(
-                                    content = null,
-                                    reasoning = null,
-                                    toolCalls = choice.delta?.toolCalls,
+                                    content = choice.delta.content,
+                                    reasoning = choice.delta.reasoning,
+                                    toolCalls = choice.delta.toolCalls,
                                     finishReason = choice.finishReason
                                 ).forEach { emit(it) }
                             }
                         }
+                    } catch (t: Throwable) {
+                        roundFailed = true
+                        lastFailedMessage = t.message
+                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                            canRotate = true
+                        } else {
+                            emit(ProviderEvent.Failed(t.message ?: "OpenAI-compatible stream request failed"))
+                            return@flow
+                        }
                     }
-                    reasoningParser.flush().forEach { state ->
-                        state.toProviderEvent()?.let { emit(it) }
-                    }
-                    if (!failed) emit(ProviderEvent.Completed)
-                    return@flow
-                }
 
-                val request = ChatCompletionRequest(
-                    model = platform.model,
-                    messages = messages,
-                    stream = platform.stream,
-                    temperature = platform.temperature,
-                    topP = platform.topP,
-                    tools = requestTools
-                )
-                val assembler = ChatCompletionsEventAssembler()
-                var failed = false
-                openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
-                    chunk.error?.let { error ->
-                        failed = true
-                        emit(ProviderEvent.Failed(error.message))
-                    } ?: chunk.choices.orEmpty().forEach { choice ->
-                        assembler.accept(
-                            content = choice.delta.content,
-                            reasoning = choice.delta.reasoning,
-                            toolCalls = choice.delta.toolCalls,
-                            finishReason = choice.finishReason
-                        ).forEach { emit(it) }
+                    if (!roundFailed) {
+                        emit(ProviderEvent.Completed)
+                        return@flow
+                    } else if (canRotate && attempt < attempts - 1) {
+                        continue
+                    } else {
+                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
+                        return@flow
                     }
                 }
-                if (!failed) emit(ProviderEvent.Completed)
             }
         }
     }
@@ -212,6 +315,8 @@ class AnthropicMessagesAdapter @Inject constructor(
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialMessages = attachmentEncoder.anthropicMessages(turns, platform.uid)
         val assistantContentByRound = mutableMapOf<Int, List<MessageContent>>()
+        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val keyIndexCounter = AtomicInteger(0)
         return object : AgentProviderSession {
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
@@ -238,32 +343,68 @@ class AnthropicMessagesAdapter @Inject constructor(
                         AnthropicTool(definition.name, definition.description, definition.inputSchema)
                     }
                 )
-                val assembler = AnthropicEventAssembler()
-                var failed = false
-                api.streamChatMessage(
-                    request,
-                    platform.timeout,
-                    ProviderRequestConfig(
-                        apiUrl = platform.apiUrl,
-                        token = platform.token,
-                        anthropicBetaFeatures = thinkingPolicy.betaFeatures
-                    )
-                ).collect { chunk ->
-                    assembler.accept(chunk).forEach { mapped ->
-                        when (mapped) {
-                            ProviderEvent.Completed -> Unit
 
-                            is ProviderEvent.Failed -> {
-                                failed = true
-                                emit(mapped)
+                val attempts = candidateKeys.size
+                val startIndex = keyIndexCounter.getAndIncrement()
+                var lastFailedMessage: String? = null
+
+                for (attempt in 0 until attempts) {
+                    val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    val activeKey = candidateKeys[keyIndex]
+                    val assembler = AnthropicEventAssembler()
+                    var roundFailed = false
+                    var canRotate = false
+
+                    try {
+                        api.streamChatMessage(
+                            request,
+                            platform.timeout,
+                            ProviderRequestConfig(
+                                apiUrl = platform.apiUrl,
+                                token = activeKey,
+                                anthropicBetaFeatures = thinkingPolicy.betaFeatures
+                            )
+                        ).collect { chunk ->
+                            assembler.accept(chunk).forEach { mapped ->
+                                when (mapped) {
+                                    ProviderEvent.Completed -> Unit
+
+                                    is ProviderEvent.Failed -> {
+                                        roundFailed = true
+                                        lastFailedMessage = mapped.message
+                                        if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
+                                            canRotate = true
+                                        } else {
+                                            emit(mapped)
+                                        }
+                                    }
+
+                                    else -> emit(mapped)
+                                }
                             }
-
-                            else -> emit(mapped)
+                        }
+                    } catch (t: Throwable) {
+                        roundFailed = true
+                        lastFailedMessage = t.message
+                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                            canRotate = true
+                        } else {
+                            emit(ProviderEvent.Failed(t.message ?: "Anthropic stream request failed"))
+                            return@flow
                         }
                     }
+
+                    if (!roundFailed) {
+                        assembler.replayContent().takeIf { it.isNotEmpty() }?.let { assistantContentByRound[exchanges.size] = it }
+                        emit(ProviderEvent.Completed)
+                        return@flow
+                    } else if (canRotate && attempt < attempts - 1) {
+                        continue
+                    } else {
+                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
+                        return@flow
+                    }
                 }
-                assembler.replayContent().takeIf { it.isNotEmpty() }?.let { assistantContentByRound[exchanges.size] = it }
-                if (!failed) emit(ProviderEvent.Completed)
             }
         }
     }
@@ -353,7 +494,8 @@ class GeminiAdapter @Inject constructor(
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialContents = attachmentEncoder.googleContents(turns, platform.uid)
-        val config = ProviderRequestConfig(platform.apiUrl, platform.token)
+        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val keyIndexCounter = AtomicInteger(0)
         val modelPartsByRound = mutableMapOf<Int, List<Part>>()
         return object : AgentProviderSession {
             override fun streamRound(
@@ -390,32 +532,74 @@ class GeminiAdapter @Inject constructor(
                         GoogleToolConfig(GoogleFunctionCallingConfig(mode = "AUTO"))
                     }
                 )
-                var failed = false
-                api.streamGenerateContent(request, platform.model, platform.timeout, config).collect { response ->
-                    val parts = response.candidates.orEmpty().flatMap { it.content?.parts.orEmpty() }
-                    if (parts.isNotEmpty()) {
-                        modelPartsByRound[exchanges.size] = modelPartsByRound[exchanges.size].orEmpty() + parts
-                    }
-                    val safetyError = when {
-                        response.promptFeedback?.blockReason != null ->
-                            "Gemini safety settings blocked the prompt: ${response.promptFeedback.blockReason}"
 
-                        response.candidates.orEmpty().any { it.finishReason == "SAFETY" } ->
-                            "Gemini safety settings blocked the response."
+                val attempts = candidateKeys.size
+                val startIndex = keyIndexCounter.getAndIncrement()
+                var lastFailedMessage: String? = null
 
-                        else -> null
-                    }
-                    if (safetyError != null) {
-                        failed = true
-                        emit(ProviderEvent.Failed(safetyError))
-                    } else {
-                        GeminiEventMapper.accept(response).forEach { mapped ->
-                            if (mapped is ProviderEvent.Failed) failed = true
-                            emit(mapped)
+                for (attempt in 0 until attempts) {
+                    val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    val activeKey = candidateKeys[keyIndex]
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    var roundFailed = false
+                    var canRotate = false
+
+                    try {
+                        api.streamGenerateContent(request, platform.model, platform.timeout, config).collect { response ->
+                            val parts = response.candidates.orEmpty().flatMap { it.content?.parts.orEmpty() }
+                            if (parts.isNotEmpty()) {
+                                modelPartsByRound[exchanges.size] = modelPartsByRound[exchanges.size].orEmpty() + parts
+                            }
+                            val safetyError = when {
+                                response.promptFeedback?.blockReason != null ->
+                                    "Gemini safety settings blocked the prompt: ${response.promptFeedback.blockReason}"
+
+                                response.candidates.orEmpty().any { it.finishReason == "SAFETY" } ->
+                                    "Gemini safety settings blocked the response."
+
+                                else -> null
+                            }
+                            if (safetyError != null) {
+                                roundFailed = true
+                                lastFailedMessage = safetyError
+                                emit(ProviderEvent.Failed(safetyError))
+                            } else {
+                                GeminiEventMapper.accept(response).forEach { mapped ->
+                                    if (mapped is ProviderEvent.Failed) {
+                                        roundFailed = true
+                                        lastFailedMessage = mapped.message
+                                        if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
+                                            canRotate = true
+                                        } else {
+                                            emit(mapped)
+                                        }
+                                    } else {
+                                        emit(mapped)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        roundFailed = true
+                        lastFailedMessage = t.message
+                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                            canRotate = true
+                        } else {
+                            emit(ProviderEvent.Failed(t.message ?: "Gemini stream request failed"))
+                            return@flow
                         }
                     }
+
+                    if (!roundFailed) {
+                        emit(ProviderEvent.Completed)
+                        return@flow
+                    } else if (canRotate && attempt < attempts - 1) {
+                        continue
+                    } else {
+                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
+                        return@flow
+                    }
                 }
-                if (!failed) emit(ProviderEvent.Completed)
             }
         }
     }

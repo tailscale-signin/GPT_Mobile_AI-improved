@@ -351,26 +351,6 @@ internal fun DetailsButton(
     }
 }
 
-internal fun hasAssistantProcessDetails(
-    timeline: List<AssistantTimelineItem>,
-    fallbackThoughts: String,
-    hasToolEvents: Boolean
-): Boolean {
-    val hasTimelineDetails = timeline.any { item ->
-        when (item.type) {
-            AssistantTimelineItemType.THINKING -> !item.content.isNullOrBlank()
-            AssistantTimelineItemType.TOOL -> true
-            AssistantTimelineItemType.TEXT -> {
-                val parsed = ThinkingParser.extractThinking(item.content.orEmpty())
-                !parsed.thinking.isNullOrBlank()
-            }
-            AssistantTimelineItemType.NOTICE,
-            AssistantTimelineItemType.LEGACY_ORDER -> false
-        }
-    }
-    return hasTimelineDetails || fallbackThoughts.isNotBlank() || hasToolEvents
-}
-
 @Composable
 private fun AssistantProcessContent(
     timeline: List<AssistantTimelineItem>,

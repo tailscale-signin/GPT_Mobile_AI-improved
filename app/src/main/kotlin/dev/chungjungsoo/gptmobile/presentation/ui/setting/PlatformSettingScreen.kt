@@ -392,19 +392,21 @@ fun PlatformSettingScreen(
                     showLeadingIcon = false
                 )
 
+                PlatformMaxToolCallsSettingHost(settingViewModel)
+
                 PlatformNameDialog(dialogState, platformData.name, settingViewModel)
                 if (!isLocalPlatform) {
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
                     APIKeyDialog(dialogState, platformData.token, settingViewModel)
                     if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
-              OpenRouterModelPickerDialog(
-                  currentModel = platformData.model,
-                  onDismiss = settingViewModel::closeApiModelDialog,
-                  onModelSelected = settingViewModel::updateApiModel
-              )
-          } else {
-              ModelDialog(dialogState, platformData.model, settingViewModel)
-          }
+                        OpenRouterModelPickerDialog(
+                            currentModel = platformData.model,
+                            onDismiss = settingViewModel::closeApiModelDialog,
+                            onModelSelected = settingViewModel::updateApiModel
+                        )
+                    } else {
+                        ModelDialog(dialogState, platformData.model, settingViewModel)
+                    }
                     TimeoutDialog(dialogState, platformData.timeout, settingViewModel)
                 } else {
                     LocalModelDialog(
@@ -424,7 +426,7 @@ fun PlatformSettingScreen(
                 GeminiSafetySettingsDialog(dialogState, platformData, settingViewModel)
                 DeletePlatformDialog(dialogState, settingViewModel)
                 SearchBackendDialog(toolBindingState, settingViewModel)
-                FancyMcpToolsDialog(toolBindingState, settingViewModel)
+                LegacyMcpToolsDialog(toolBindingState, settingViewModel)
                 toolBindingState.errorMessage?.let { message ->
                     AlertDialog(
                         title = { Text(stringResource(R.string.error)) },

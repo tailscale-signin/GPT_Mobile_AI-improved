@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.updateAssistantSlot
 import kotlinx.coroutines.flow.Flow
@@ -72,6 +73,7 @@ suspend fun Flow<ApiState>.handleStates(
 internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onUpdate: suspend (content: String, thoughts: String, timeline: List<AssistantTimelineItem>) -> Unit,
     onNotice: (String, Boolean) -> Unit = { _, _ -> },
+    onPhaseChanged: ((LocalInferencePhase) -> Unit)? = null,
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 ): ApiStateFlowOutcome {
@@ -105,6 +107,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     if (chunk.persistent) {
                         buffer.publishNow(onUpdate)
                     }
+                }
+
+                is ApiState.PhaseChanged -> {
+                    onPhaseChanged?.invoke(chunk.phase)
                 }
 
                 ApiState.Done -> {

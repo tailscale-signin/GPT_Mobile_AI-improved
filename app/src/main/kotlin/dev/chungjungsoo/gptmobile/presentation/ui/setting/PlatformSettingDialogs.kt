@@ -10,12 +10,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -23,9 +29,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -40,6 +48,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorOption
 import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
@@ -367,7 +376,7 @@ private fun APIKeyDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (token: String) -> Unit
 ) {
-    var token by remember { mutableStateOf("") }
+    val tokens = remember { mutableStateListOf("") }
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
@@ -379,19 +388,78 @@ private fun APIKeyDialog(
             .heightIn(max = screenHeight - 80.dp),
         title = { Text(text = stringResource(R.string.api_key)) },
         text = {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = token,
-                onValueChange = { token = it },
-                label = { Text(stringResource(R.string.api_key)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.multi_api_keys_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                tokens.forEachIndexed { index, tokenValue ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            modifier = Modifier.weight(1f),
+                            value = tokenValue,
+                            onValueChange = { tokens[index] = it },
+                            label = {
+                                Text(
+                                    if (tokens.size > 1) {
+                                        stringResource(R.string.api_key_number, index + 1)
+                                    } else {
+                                        stringResource(R.string.api_key)
+                                    }
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                        )
+                        if (tokens.size > 1) {
+                            IconButton(
+                                onClick = { tokens.removeAt(index) },
+                                modifier = Modifier.padding(start = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Delete,
+                                    contentDescription = stringResource(R.string.remove_api_key),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = { tokens.add("") }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.add_api_key),
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                        Text(stringResource(R.string.add_api_key))
+                    }
+                }
+            }
         },
         onDismissRequest = onDismissRequest,
         confirmButton = {
             TextButton(
-                onClick = { onConfirmRequest(token) }
+                onClick = {
+                    val combined = ApiCredentialRotator.formatKeys(tokens.toList())
+                    onConfirmRequest(combined)
+                }
             ) {
                 Text(stringResource(R.string.confirm))
             }

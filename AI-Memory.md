@@ -22,7 +22,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
 - **Persistence:** Room (`ChatDatabaseV2`, Schema version 14) with full FTS search and DataStore preferences (`SettingDataSource`).
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
-- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention across conversational turns, and tier-aware context window scaling up to 8,192 tokens on >=12GB RAM hardware); Ollama supported for self-hosted network inference.
+- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention across conversational turns, and tier-aware context window scaling up to 8,192 tokens on >=12GB RAM hardware via `deviceRamGb`); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
 - **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`).
@@ -72,7 +72,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `AgentRunner.kt` — Core bounded tool execution loop. Enforces `AgentRunLimits` (timeouts, max rounds, tool-call ceilings, concurrency semaphores, output byte limits). Collects round flows directly without intermediate abort-throwing operators (`transformWhile`) to preserve Flow exception transparency, injects final-response instructions when approaching tool limits, and falls back cleanly when models reject tool definitions.
   - `PlatformAgentRunner.kt` — Factory function `agentRunnerForPlatform` providing isolated runner instances per platform and run override to prevent budget leakage.
   - `provider/` — Model provider streaming adapters:
-    - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution.
+    - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution. Integrates hardware context scaling derived from `localRuntime.deviceRamGb` and SoC variant clamps.
     - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, rotatable error detection, and explicit rethrow of `CancellationException` in all catch blocks to maintain Kotlin coroutine cancellation and Flow exception transparency.
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
@@ -119,10 +119,10 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `localruntime/` — Local inference runtime via LiteRT:
   - `ConversationFingerprint.kt` — Generates unique state hashes to avoid unnecessary prompt re-evaluations.
   - `LocalAccelerators.kt` — Detection and configuration of NPU, GPU, and CPU hardware accelerators.
-  - `LocalEngineHolder.kt` — Thread-safe lifecycle holder for the native LiteRT model instance with warm engine retention.
+  - `LocalEngineHolder.kt` — Thread-safe lifecycle holder for the native LiteRT model instance with warm engine retention. Exposes `deviceRamGb` delegated to the underlying runtime.
   - `LocalEngineMaxTokens.kt` — Max token calculations and context boundary limits supporting high-RAM tier (up to 8,192 tokens for >=12GB/16GB devices).
   - `LocalModelValidator.kt` — File integrity and schema validation for downloaded `.tflite` / `.bin` model files.
-  - `LocalRuntime.kt` / `LocalRuntimeImpl.kt` — Native on-device execution engine coordinating prompt evaluations, sampling parameters, and streaming token responses.
+  - `LocalRuntime.kt` / `LocalRuntimeImpl.kt` — Native on-device execution engine coordinating prompt evaluations, sampling parameters, and streaming token responses. Directly exposes `deviceRamGb: Long`.
   - `LocalSamplingDefaults.kt` — Default temperature, top-p, and top-k hyperparameters for local models.
 - `mcp/` — Model Context Protocol search and integration:
   - `McpIntegratedSearchManager.kt` — Federated search coordination across active MCP tool providers (defaults to preinstalled `droid-mcp-web` Online Search tools: `web_search` and `fetch_webpage`).
@@ -209,7 +209,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`), tools (`ReadFileSliceToolTest`, `McpToolMapperTest`), catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime (`LocalEngineMaxTokensTest`), MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`), tools (`ReadFileSliceToolTest`, `McpToolMapperTest`), catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime (`LocalEngineMaxTokensTest`, `LiteRtLmAdapterTest` verifying hardware memory tier scaling up to 8192 context on high-RAM hardware and strict NPU SoC variant clamping), MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 

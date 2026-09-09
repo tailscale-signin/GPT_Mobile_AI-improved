@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
 import dev.chungjungsoo.gptmobile.data.localmodel.GatedDownloadCoordinator
 import dev.chungjungsoo.gptmobile.data.localruntime.localSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -147,9 +148,17 @@ class SetupViewModelV2 @Inject constructor(
         _selectedClientType.value = clientType
         _platformName.value = getDefaultPlatformName(clientType)
         _apiUrl.value = getDefaultApiUrl(clientType)
-        _apiKey.value = ""
+        _apiKey.value = findExistingApiKeyFor(clientType)
         _model.value = ModelConstants.defaultModel(clientType)
         _wizardStep.value = 0
+    }
+
+    fun findExistingApiKeyFor(clientType: ClientType): String {
+        if (clientType == ClientType.LITERT_LM) return ""
+        val matchingPlatform = _platforms.value.firstOrNull {
+            it.compatibleType == clientType && !it.token.isNullOrBlank()
+        }
+        return matchingPlatform?.token.orEmpty()
     }
 
     fun updatePlatformName(name: String) {

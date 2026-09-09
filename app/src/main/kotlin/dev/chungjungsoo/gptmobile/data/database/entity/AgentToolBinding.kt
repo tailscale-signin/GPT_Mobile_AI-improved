@@ -47,4 +47,5 @@ object BuiltInAgentTool {
     const val CALCULATE_EXPRESSION = "calculate_expression"
     const val READ_URL = "read_url"
     const val DEVICE_LOCATION = "device_location"
+    const val READ_FILE_SLICE = "read_file_slice"
 }

@@ -56,7 +56,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
 - `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`; `no_custom_groups` and `none_group` are declared in `strings.xml`).
 
-### Main Kotlin package (`dev.chungjungsoo.gptmobile`)
+### Main Kotlin package (`dev.chungjungsoo/gptmobile`)
 
 #### `data/` — Data & Integration Layer
 

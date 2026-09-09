@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.parser
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ThinkingParserTest {
@@ -70,5 +72,25 @@ class ThinkingParserTest {
 
         assertEquals("Capitalized reasoning", thinking)
         assertEquals("Output response", content)
+    }
+
+    @Test
+    fun `extractThinking delegates to presentation reasoning parser`() {
+        val input = "<think>Delegated thinking...</think>Answer here"
+        val parsed = ThinkingParser.extractThinking(input)
+
+        assertEquals("Delegated thinking...", parsed.thinking)
+        assertEquals("Answer here", parsed.response)
+        assertFalse(parsed.isThinking)
+    }
+
+    @Test
+    fun `extractThinking detects active streaming thinking block`() {
+        val input = "<think>Streaming thoughts without close tag"
+        val parsed = ThinkingParser.extractThinking(input)
+
+        assertEquals("Streaming thoughts without close tag", parsed.thinking)
+        assertEquals("", parsed.response)
+        assertTrue(parsed.isThinking)
     }
 }

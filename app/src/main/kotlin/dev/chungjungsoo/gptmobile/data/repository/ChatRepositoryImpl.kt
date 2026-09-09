@@ -176,6 +176,8 @@ class ChatRepositoryImpl @Inject constructor(
             customRunner.run(session, runnerTools).collect { runEvent ->
                 when (runEvent) {
                     is AgentRunEvent.Provider -> when (val providerEvent = runEvent.event) {
+                        is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
+
                         is ProviderEvent.ThinkingDelta -> emit(ApiState.Thinking(providerEvent.text))
 
                         is ProviderEvent.TextDelta -> emit(ApiState.Success(providerEvent.text))

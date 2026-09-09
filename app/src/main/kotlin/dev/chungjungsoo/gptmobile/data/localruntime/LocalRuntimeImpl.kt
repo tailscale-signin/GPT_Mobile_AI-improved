@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -166,6 +167,7 @@ class LocalRuntimeImpl(
         withContext(Dispatchers.IO) {
             val currentEngine = engine ?: error("LiteRT-LM engine is not loaded")
             conversation?.close()
+            yield() // Cooperative yield checkpoint before creating conversation and allocating KV-cache
             val toolProviders = config.tools.map { descriptor ->
                 tool(BridgedOpenApiTool(descriptor, config.toolExecutor))
             }
@@ -207,6 +209,9 @@ class LocalRuntimeImpl(
             return@callbackFlow
         }
 
+        // Notify downstream consumers that prompt prefill is underway
+        trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
+
         val startTimeMs = SystemClock.elapsedRealtime()
         val firstTokenTimeMs = AtomicLong(0L)
         val chunkCount = AtomicInteger(0)
@@ -220,6 +225,7 @@ class LocalRuntimeImpl(
                     val now = SystemClock.elapsedRealtime()
                     if (firstTokenTimeMs.compareAndSet(0L, now)) {
                         hasEmittedAny.set(true)
+                        trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
                     }
 
                     message.channels[THOUGHT_CHANNEL]?.takeIf { it.isNotEmpty() }?.let { thought ->

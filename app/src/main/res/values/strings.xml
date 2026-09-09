@@ -335,7 +335,6 @@
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>
     <string name="favorite">Favorite</string>
-    <string name="unfavorite">Unfavorite</string>
     <string name="all">All</string>
     <string name="custom_groups">Custom Groups</string>
     <string name="add_group">Add Group</string>

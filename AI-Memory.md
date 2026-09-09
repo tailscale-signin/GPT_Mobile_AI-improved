@@ -90,7 +90,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `SanitizedChatBackup.kt` — Full-backup integration. Creates sanitized SQLite snapshots via `VACUUM INTO`, strips sensitive tokens (`platform_v2.token`), restores via `AtomicFile`, and purges stale WAL/SHM sidecars.
   - `UserBackupManager.kt` — High-level user backup coordinator supporting selective export/import of platforms, credentials, chats, models, and tools.
 - `catalog/` — Model and MCP catalog metadata:
-  - `McpPresetCatalog.kt` — Defines MCP transport/category/pricing enums and preset models; exposes built-in server presets, compatibility aliases, category filtering, ID/alias lookup, and search.
+  - `McpPresetCatalog.kt` — Defines MCP transport/category/pricing enums and preset models; exposes built-in server presets including preinstalled `droid-mcp-web` Online Search (`web_search`, `fetch_webpage`), compatibility aliases, category filtering, ID/alias lookup, and search.
   - `ModelCatalog.kt` — Serializable model-catalog schema, including capabilities, default generation configuration, and SoC-specific model variants.
   - `ModelCatalogParser.kt` — Parses lenient JSON while ignoring unknown fields, validates schema compatibility and minimum app versions, formats model download sizes, and compares dotted app versions.
 - `context/` — Context-window budgeting and compaction:
@@ -119,9 +119,9 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `LocalRuntime.kt` / `LocalRuntimeImpl.kt` — Native on-device execution engine coordinating prompt evaluations, sampling parameters, and streaming token responses.
   - `LocalSamplingDefaults.kt` — Default temperature, top-p, and top-k hyperparameters for local models.
 - `mcp/` — Model Context Protocol search and integration:
-  - `McpIntegratedSearchManager.kt` — Federated search coordination across active MCP tool providers.
-  - `McpPresetCatalog.kt` — Catalog definitions and presets for MCP servers.
-  - `McpSearchToolSet.kt` — Dynamic toolset wrappers for search operations.
+  - `McpIntegratedSearchManager.kt` — Federated search coordination across active MCP tool providers (defaults to preinstalled `droid-mcp-web` Online Search tools: `web_search` and `fetch_webpage`).
+  - `McpPresetCatalog.kt` — Catalog definitions and presets for MCP servers including `droid-mcp-web`.
+  - `McpSearchToolSet.kt` — Dynamic toolset wrappers for search operations based on `droid-mcp-web` (`web_search` and `fetch_webpage`).
 - `model/` — Domain models:
   - `ApiType.kt`, `ChatAttachment.kt`, `ChatMcpToolConfig.kt`, `ClientType.kt`, `DynamicTheme.kt`, `GeminiSafetySettings.kt`, `ThemeMode.kt`.
 - `network/` — Networking layer & provider APIs:
@@ -169,6 +169,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - UI features: `chat/`, `home/`, `localmodel/`, `main/`, `mcpmarketplace/`, `migrate/`, `setting/`, `setup/`, `startscreen/`, and `thinking/`.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, and seamless combination into `ApiCredentialRotator` format.
 - `ToolConnectionsScreen.kt` — External tool connection and MCP setup screen featuring multi-key dynamic credential input with `+API` button and per-key removal.
+- `McpMarketplaceDialog.kt` — MCP marketplace and integration dialog featuring brand icons (`online_search`, `github`, `brave`, `terminal`, etc.), search/pricing filters, and preinstalled status presentation.
 - Maintains unidirectional data flow: ViewModels expose immutable `StateFlow` consumed via `collectAsStateWithLifecycle()`.
 
 ### Kotlin in `app/src/main/java/`
@@ -177,7 +178,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization, Hugging Face auth, local runtime, MCP search/tools, network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), repositories, and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization, Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), repositories, and ViewModels.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 

@@ -136,12 +136,13 @@ jobs:
 
           for apk in "${FOUND_APKS[@]}"; do
             case "$apk" in
-              *"-signed.apk"*) continue ;;
+              *"/signed/"*) continue ;;
               *) ;;
             esac
             echo "Signing $apk..."
             basename=$(basename "$apk")
-            signed_apk="app/build/outputs/apk/release/signed/$basename"
+            clean_name="${basename/-unsigned/}"
+            signed_apk="app/build/outputs/apk/release/signed/$clean_name"
 
             "$APKSIGNER" sign \
               --ks "$KEYSTORE_PATH" \
@@ -187,9 +188,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gpt-mobile-release-apks-${{ github.sha }}
-          path: |
-            app/build/outputs/apk/release/signed/*.apk
-            app/build/outputs/**/*.apk
+          path: app/build/outputs/apk/release/signed/*.apk
           if-no-files-found: error
 
       - name: Upload Release Bundle
@@ -228,15 +227,6 @@ jobs:
               ASSETS_TO_UPLOAD+=("$signed")
             fi
           done
-
-          if [ ${#ASSETS_TO_UPLOAD[@]} -eq 0 ]; then
-            echo "Signed release directory had no apks, searching all build outputs..."
-            for any_apk in app/build/outputs/**/*.apk; do
-              if [ -f "$any_apk" ]; then
-                ASSETS_TO_UPLOAD+=("$any_apk")
-              fi
-            done
-          fi
 
           if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then
             ASSETS_TO_UPLOAD+=("app/build/outputs/bundle/release/app-release.aab")

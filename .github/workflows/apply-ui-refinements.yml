@@ -1,0 +1,28 @@
+name: Apply UI source refinements
+
+on:
+  push:
+    branches:
+      - fix/tool-trace-official-icon-summary
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/tool-trace-official-icon-summary
+      - name: Apply and commit source changes
+        run: |
+          python3 .github/scripts/apply_ui_refinements.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/apply-ui-refinements.yml .github/scripts/apply_ui_refinements.py
+          git add app/src/main
+          git diff --cached --check
+          git commit -m 'Refine tool and favorite bubbles'
+          git push origin HEAD:fix/tool-trace-official-icon-summary

@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.agentRunnerForPlatform
 import dev.chungjungsoo.gptmobile.data.agent.provider.AnthropicMessagesAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.GeminiAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
@@ -166,8 +167,8 @@ class ChatRepositoryImpl @Inject constructor(
             }
             val trace = ToolTraceSession(runId, resolvedTools, toolEventRecorder)
 
-            val customRunner = if (chatToolConfig?.maxToolCalls != null) {
-                AgentRunner(limits = AgentRunLimits(maxToolCalls = chatToolConfig.maxToolCalls))
+            val customRunner = if (chatToolConfig?.maxToolCalls != null || platform.maxToolCalls != Int.MAX_VALUE) {
+                agentRunnerForPlatform(platform, chatToolConfig?.maxToolCalls)
             } else {
                 defaultAgentRunner
             }

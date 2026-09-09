@@ -2,7 +2,7 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved. Latest Official Release: `v0.8.9` (branch `v0.8.9`, release branch `release-v0.8.9`, release workflow configured to publish official latest releases with `RELEASE_NOTES.md`).
+> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved. Latest Official Release: `v0.8.9` (branch `v0.8.9`, release branch `release-v0.8.9`, release promotion workflow `.github/workflows/promote-latest-release.yml` configured to publish official latest releases with `RELEASE_NOTES.md`).
 
 ## 1. Repository Overview
 
@@ -35,7 +35,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 ### Root
 
 - `.editorconfig` — Editor and ktlint-compatible formatting rules.
-- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations).
+- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations, as well as `promote-latest-release.yml`).
 - `.gitignore` — Version-control exclusions; do not scan ignored files for secrets.
 - `AGENTS.md` — Authoritative agent-facing build, style, architecture, and test guidance.
 - `AI-Memory.md` — This persistent architecture and structural index file.

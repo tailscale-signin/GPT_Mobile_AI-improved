@@ -79,6 +79,8 @@ sealed interface LocalRuntimeEvent {
 }
 
 interface LocalRuntime {
+    val deviceRamGb: Long get() = 8L
+
     suspend fun loadEngine(spec: LocalEngineSpec)
     suspend fun createConversation(config: LocalConversationConfig)
     fun sendMessage(text: String, images: List<ByteArray> = emptyList()): Flow<LocalRuntimeEvent>

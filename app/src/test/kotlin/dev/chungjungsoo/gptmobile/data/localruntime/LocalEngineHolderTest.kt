@@ -158,4 +158,57 @@ class LocalEngineHolderTest {
         assertEquals(1, fake.unloadEngineCalls)
         assertFalse(fake.isEngineLoaded(spec))
     }
+
+    @Test
+    fun `unloadIfIdle unloads engine when idle duration exceeds threshold`() = runTest {
+        var simulatedTime = 1_000L
+        val fake = FakeLocalRuntime()
+        val holder = LocalEngineHolder(fake, timeProvider = { simulatedTime })
+        val spec = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
+
+        holder.loadEngine(spec)
+        assertTrue(holder.isEngineLoaded(spec))
+        assertEquals(1_000L, holder.lastAccessedTimestamp)
+
+        // Advance time by 5 minutes: below 10-minute threshold
+        simulatedTime += 5 * 60 * 1000L
+        val unloadedEarly = holder.unloadIfIdle(10 * 60 * 1000L)
+        assertFalse(unloadedEarly)
+        assertTrue(holder.isEngineLoaded(spec))
+
+        // Advance time past threshold (additional 6 minutes -> 11 minutes total)
+        simulatedTime += 6 * 60 * 1000L
+        val unloaded = holder.unloadIfIdle(10 * 60 * 1000L)
+        assertTrue(unloaded)
+        assertFalse(holder.isEngineLoaded(spec))
+        assertEquals(1, fake.unloadEngineCalls)
+
+        // Calling again returns false because it is already unloaded
+        assertFalse(holder.unloadIfIdle(10 * 60 * 1000L))
+    }
+
+    @Test
+    fun `sendMessage updates lastAccessedTimestamp and resets idle timer`() = runTest {
+        var simulatedTime = 10_000L
+        val fake = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(
+                listOf(LocalRuntimeEvent.TextDelta("res"), LocalRuntimeEvent.Done)
+            )
+        }
+        val holder = LocalEngineHolder(fake, timeProvider = { simulatedTime })
+        val spec = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
+
+        holder.loadEngine(spec)
+        assertEquals(10_000L, holder.lastAccessedTimestamp)
+
+        // Move clock forward and send message
+        simulatedTime = 50_000L
+        holder.sendMessage("hello").toList()
+        assertEquals(50_000L, holder.lastAccessedTimestamp)
+
+        // Check idle threshold with respect to new timestamp
+        simulatedTime = 50_000L + 5 * 60 * 1000L
+        assertFalse(holder.unloadIfIdle(10 * 60 * 1000L))
+        assertTrue(holder.isEngineLoaded(spec))
+    }
 }

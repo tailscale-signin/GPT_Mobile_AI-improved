@@ -5,7 +5,7 @@ Persistent repository context for AI coding agents. Keep this file synchronized 
 > Index status: comprehensive and actively maintained on `0.9.0` and `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 
 > **CRITICAL BRANCH MERGE POLICY (`0.9.0`):**
-> Branch `0.9.0` is dedicated to high-performance hardware acceleration (NPU/GPU speculative decoding, phase-split scheduling, cooperative yielding, persistent in-memory KV-cache pooling, anchor prefix preservation and rolling context truncation, expanded long context up to 8192 tokens for >=12GB/16GB devices, 120Hz frame-synced streaming, real-time inference telemetry, dynamic thermal/battery throttling via DeviceHardwareGovernor, dynamic hardware-aware sampling defaults, and hardware-aware context ceiling resolution).
+> Branch `0.9.0` is dedicated to high-performance hardware acceleration (NPU/GPU speculative decoding, phase-split scheduling, cooperative yielding, persistent in-memory KV-cache pooling, anchor prefix preservation and rolling context truncation, expanded long context up to 8192 tokens for >=12GB/16GB devices, 120Hz frame-synced streaming, real-time inference telemetry, dynamic thermal/battery throttling via DeviceHardwareGovernor, dynamic hardware-aware sampling defaults, and hardware-aware context ceiling resolution & UI guidance).
 > **DO NOT EVER MERGE `0.9.0` INTO `main` WITHOUT USER APPROVAL.**
 > Even if the user says "yes" to merging, **ALWAYS WARN THE USER FIRST** with an explicit confirmation check before executing any merge into `main`.
 
@@ -59,7 +59,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/proguard-rules.pro` — Application-specific R8/ProGuard obfuscation and preservation rules.
 - `app/schemas/` — Exported Room schemas (v1 through v14) used to validate database migration evolution.
 - `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
-- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`; `no_custom_groups` and `none_group` are declared in `strings.xml`).
+- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`; `no_custom_groups` and `none_group` are declared in `strings.xml`; `max_tokens_hardware_cap_hint` and `max_tokens_standard_hint` provide clear context limits).
 
 ### Main Kotlin package (`dev.chungjungsoo.gptmobile`)
 
@@ -74,7 +74,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `provider/` — Model provider streaming adapters:
     - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution. Integrates hardware context scaling derived from `localRuntime.deviceRamGb`, SoC variant clamps, cooperative thread yield checkpoints during conversation creation/message dispatch, dynamic context compaction budgeted against `throttlingPolicy.maxTokensClamp` via `RollingContextWindowCompactor`, adaptive thermal/battery throttling, formatted generation telemetry notice emission (`formatTelemetryNotice` providing tok/s, TTFT ms, token estimates, and thermal throttling badges), and ignores raw phase transitions.
     - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, rotatable error detection, and explicit rethrow of `CancellationException` in all catch blocks to maintain Kotlin coroutine cancellation and Flow exception transparency.
-    - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
+    - `ProviderAttachmentEncoder.kt` — Formats and base4-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
     - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats. McpAgentTool automatically extracts optional `start_line` / `end_line` parameters for file-reading tools (like GitHub's `get_file_contents`), sanitizes outgoing payloads to the remote server, and applies line slicing to the result. Baseline tools include: `CurrentDateTool`, `CalculatorTool`, `ReadUrlTool`, and `ReadFileSliceTool`.
@@ -197,7 +197,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `ChatsTitle`: Added `@Composable` annotation to resolve Kotlin Compose compiler requirement.
   - `assignFavoriteMessageGroup(messageId: Int, groupName: String?)`: Accepts nullable `groupName` to properly remove associations when unassigned/cleared via "None".
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
-- `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format.
+- `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format; `MaxTokensDialog` displays hardware context ceiling hint (`max_tokens_hardware_cap_hint` or `max_tokens_standard_hint`) when input is valid.
 - `PlatformSettingScreen.kt` — Configures existing platforms, manages tool traces, MCP connections, and hosts `PlatformMaxToolCallsSettingHost`.
 - `MaxToolCallsSetting.kt` — Max tool calls UI component for platform settings.
 - `PlatformMaxToolCallsSettingHost.kt` — Host composable integrating `MaxToolCallsSetting` with `PlatformSettingViewModel`.

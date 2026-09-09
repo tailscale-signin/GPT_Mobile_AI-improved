@@ -118,6 +118,7 @@
     <string name="max_tokens_invalid">Max tokens must be between 1 and %1$d</string>
     <string name="max_tokens_hardware_cap_hint">Hardware context limit: up to %1$d tokens</string>
     <string name="max_tokens_standard_hint">Up to %1$d tokens supported</string>
+    <string name="max_tokens_with_cap">%1$d (Hardware cap: %2$d)</string>
     <string name="accelerator_setting">Accelerator</string>
     <string name="accelerator_setting_description">Hardware acceleration for model inference</string>
     <string name="accelerator_gpu">GPU</string>

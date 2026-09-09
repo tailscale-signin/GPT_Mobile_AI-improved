@@ -142,7 +142,7 @@ class AgentRunner(
                 }
                 emit(failed(error.message ?: "Tools are unavailable for this model."))
                 return
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 emit(failed(error.message ?: "Provider request failed."))
                 return
             }

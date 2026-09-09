@@ -7,6 +7,7 @@ on:
       - main
       - master
       - release-*
+      - "0.9.0"
 
 permissions:
   contents: write
@@ -257,7 +258,7 @@ jobs:
               "${ASSETS_TO_UPLOAD[@]}" \
               --prerelease \
               --title "v${VERSION_NAME} (Build ${SHORT_SHA})" \
-              --notes "Automated pre-release build for commit ${SHORT_SHA} on main branch. Includes signed APKs (universal and ABI-specific) built with R8 optimization."
+              --notes "Automated pre-release build for commit ${SHORT_SHA} on branch ${GITHUB_REF_NAME}. Includes signed APKs (universal and ABI-specific) built with R8 optimization."
           fi
           echo "GitHub Pre-Release $TAG_NAME published successfully."
 

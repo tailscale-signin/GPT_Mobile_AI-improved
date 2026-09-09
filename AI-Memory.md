@@ -35,7 +35,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 ### Root
 
 - `.editorconfig` — Editor and ktlint-compatible formatting rules.
-- `.github/workflows/` — CI build, check, formatting, and release automation workflows.
+- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations).
 - `.gitignore` — Version-control exclusions; do not scan ignored files for secrets.
 - `AGENTS.md` — Authoritative agent-facing build, style, architecture, and test guidance.
 - `AI-Memory.md` — This persistent architecture and structural index file.
@@ -72,7 +72,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
-    - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats.
+    - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats. Includes baseline tools: `CurrentDateTool`, `CalculatorTool`, `ReadUrlTool`, and `ReadFileSliceTool`.
     - `CalculatorTool.kt` — Built-in mathematical expression evaluation engine.
     - `CurrentDateTool.kt` — Supplies localized current date, time, and timezone information.
     - `DeviceLocationProvider.kt` — Android location services integration with permission verification.
@@ -81,6 +81,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
     - `McpOAuthClient.kt` — Handles OAuth2 flows, PKCE, token refresh, and auth endpoints for protected MCP tools.
     - `McpOAuthCoordinator.kt` — Coordinates user authorization UX and callback dispatch for MCP OAuth services.
     - `McpToolMapper.kt` — Translates MCP tool definitions and execution schemas into native `AgentTool` interfaces.
+    - `ReadFileSliceTool.kt` — Built-in tool (`read_file_slice`) reading bounded line ranges with line-number prefixing to minimize context token usage.
     - `ReadUrlTool.kt` — Securely fetches and boundedly extracts readable text content from public HTTP/HTTPS URLs.
     - `WebSearchTool.kt` — Built-in web search tool supporting search providers and result parsing.
 - `backup/` — Backup and restore data management:
@@ -101,7 +102,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `ChatDatabase.kt` / `ChatDatabaseV2.kt` — Primary Room database holder with schema versioning and type converter declarations.
   - `ChatDatabaseV2Migrations.kt` — Production schema migrations covering versions 10 through 14 (adding tool connections, assistant timeline items, agent runs, agent tool bindings, and local models; v14 adds `max_tool_calls` column to `platform_v2`).
   - DAOs: `AgentPersistenceDao.kt`, `AgentRunDao.kt`, `ChatPlatformModelV2Dao.kt`, `ChatRoomDao.kt`, `ChatRoomV2Dao.kt`, `LocalModelDao.kt`, `MessageDao.kt`, `MessageV2Dao.kt`, `PlatformV2Dao.kt`, `ToolConnectionDao.kt`.
-  - Entities & Converters: `AgentRun.kt`, `AgentToolBinding.kt`, `AssistantTimelineItem.kt`, `ChatPlatformModelV2.kt`, `ChatRoom.kt`, `ChatRoomV2.kt`, `Converters.kt`, `LocalModel.kt`, `Message.kt`, `MessageV2.kt`, `Platform.kt`, `PlatformV2.kt`, `ToolConnection.kt`, `ToolEvent.kt`, `ToolExecutionConverters.kt`.
+  - Entities & Converters: `AgentRun.kt`, `AgentToolBinding.kt` (declares `BuiltInAgentTool` constants including `READ_FILE_SLICE`), `AssistantTimelineItem.kt`, `ChatPlatformModelV2.kt`, `ChatRoom.kt`, `ChatRoomV2.kt`, `Converters.kt`, `LocalModel.kt`, `Message.kt`, `MessageV2.kt`, `Platform.kt`, `PlatformV2.kt`, `ToolConnection.kt`, `ToolEvent.kt`, `ToolExecutionConverters.kt`.
 - `datastore/` — Preferences & key-value configuration:
   - `SettingDataSource.kt` / `SettingDataSourceImpl.kt` — DataStore implementation persisting UI preferences, active platform selections, streaming toggles, theme configurations, and tool-call ceilings.
 - `dto/` — Serializable data transport objects:
@@ -200,7 +201,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`), catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`), tools (`ReadFileSliceToolTest`), catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 

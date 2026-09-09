@@ -72,7 +72,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
-    - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats. McpAgentTool automatically extracts optional `start_line` / `end_line` parameters for file-reading tools (like GitHub's `get_file_contents`), sanitizes outgoing payloads to the remote server, and applies line slicing to the result. Baseline tools include: `CurrentDateTool`, `CalculatorTool`, `ReadUrlTool`, and `ReadFileSliceTool`.
+    - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats. McpAgentTool automatically extracts optional `start_line` / `end_line` parameters for file-reading tools (like GitHub's `get_file_contents`), sanitizes outgoing payloads to the remote server, and applies line slicing to the result. Baseline tools include: `CurrentDateTool`, `CalculatorTool`, `ReadUrlTool`, `ReadFileSliceTool`, and default `WebSearchTool`.
     - `CalculatorTool.kt` — Built-in mathematical expression evaluation engine.
     - `CurrentDateTool.kt` — Supplies localized current date, time, and timezone information.
     - `DeviceLocationProvider.kt` — Android location services integration with permission verification.

@@ -2,7 +2,9 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved. Latest Official Release: `v0.8.9` (branch `v0.8.9`, release branch `release-v0.8.9`, release promotion workflow `.github/workflows/promote-latest-release.yml` configured to publish official latest releases with `RELEASE_NOTES.md`).
+> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved.
+>
+> **Latest Official Release:** [v0.8.9](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.9) (`prerelease: false`, `draft: false`, official latest release). Complete with release assets: universal APK (`app-universal-release-unsigned.apk`), ARM64 APK (`app-arm64-v8a-release-unsigned.apk`), and x86_64 APK (`app-x86_64-release-unsigned.apk`).
 
 ## 1. Repository Overview
 
@@ -20,22 +22,15 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Latest Official Release: `v0.8.9` (branches `v0.8.9` and `release-v0.8.9`).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Official Latest Release: `v0.8.9` (tag `v0.8.9`, branches `v0.8.9` and `release-v0.8.9`).
 - **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing, and ktlint 1.3.1 using Android Studio style.
-
-### Source layout
-
-- Main Kotlin tree: `app/src/main/kotlin/dev/chungjungsoo/gptmobile/`
-- Additional Kotlin source in the Java source set: `app/src/main/java/dev/chungjungsoo/gptmobile/`
-- JVM tests: `app/src/test/kotlin/` and `app/src/test/java/`
-- Instrumented tests: `app/src/androidTest/kotlin/`
 
 ## 2. Repository Index
 
 ### Root
 
 - `.editorconfig` — Editor and ktlint-compatible formatting rules.
-- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations, as well as `promote-latest-release.yml`).
+- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations, `release-build.yml` publishing non-prerelease latest releases, and `promote-latest-release.yml`).
 - `.gitignore` — Version-control exclusions; do not scan ignored files for secrets.
 - `AGENTS.md` — Authoritative agent-facing build, style, architecture, and test guidance.
 - `AI-Memory.md` — This persistent architecture and structural index file.

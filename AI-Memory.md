@@ -207,7 +207,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `MaxToolCallsSetting.kt` — Max tool calls UI component for platform settings.
 - `PlatformMaxToolCallsSettingHost.kt` — Host composable integrating `MaxToolCallsSetting` with `PlatformSettingViewModel`.
 - `PlatformSettingViewModelExtensions.kt` — Extension functions on `PlatformSettingViewModel` including `updateMaxToolCalls`.
-- `PlatformSettingViewModel.kt` — Injects `@DeviceRamGb private val deviceRamGb: Long = 8L`, dynamically propagating device RAM to `localSamplingDefaults` and `resolvedEngineMaxTokens`, and computes hardware-aware context caps in `maxTokensCap()` (variant limit for NPU, `MAX_HIGH_RAM_CONTEXT_TOKENS` for high-RAM GPU/CPU, and default 32768 for remote platforms).
+- `PlatformSettingViewModel.kt` — Injects `@param:DeviceRamGb private val deviceRamGb: Long = 8L`, dynamically propagating device RAM to `localSamplingDefaults` and `resolvedEngineMaxTokens`, and computes hardware-aware context caps in `maxTokensCap()` (variant limit for NPU, `MAX_HIGH_RAM_CONTEXT_TOKENS` for high-RAM GPU/CPU, and default 32768 for remote platforms).
 - `AddPlatformViewModel.kt` — Injects `@DeviceRamGb private val deviceRamGb: Long = 8L`, propagating hardware RAM tier into `localSamplingDefaults(it, deviceSocModel, deviceRamGb)`.
 - `SetupPlatformWizardScreen.kt` — Step-by-step setup wizard with dynamic multi-key API credentials (`+API`, delete row), keeping keys visible and formatted via `ApiCredentialRotator`.
 - `SetupViewModelV2.kt` — Wizard ViewModel retaining and prefilling existing API keys when adding similar platform types, injecting `@DeviceRamGb private val deviceRamGb: Long = 8L` for hardware-scaled local model defaults.

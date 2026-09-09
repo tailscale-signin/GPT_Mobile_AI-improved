@@ -53,6 +53,56 @@ class McpToolMapperTest {
     }
 
     @Test
+    fun `file reading tool schema is augmented with start_line and end_line`() {
+        val definition = mcpToolDefinition(
+            alias = "github",
+            tool = Tool(
+                name = "get_file_contents",
+                description = "Get file contents from repository",
+                inputSchema = ToolSchema(
+                    properties = buildJsonObject {
+                        put("path", buildJsonObject { put("type", "string") })
+                    },
+                    required = listOf("path")
+                )
+            )
+        )
+
+        val properties = definition.inputSchema["properties"]!!.jsonObject
+        assertTrue(properties.containsKey("path"))
+        assertTrue(properties.containsKey("start_line"))
+        assertTrue(properties.containsKey("end_line"))
+        assertEquals("integer", properties["start_line"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("integer", properties["end_line"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `mapMcpToolResult slices text lines when line range is provided`() {
+        val content = """
+            line one
+            line two
+            line three
+            line four
+            line five
+        """.trimIndent()
+
+        val mapped = mapMcpToolResult(
+            callId = "call-slice",
+            result = CallToolResult(content = listOf(TextContent(content))),
+            startLine = 2,
+            endLine = 4
+        )
+
+        val text = (mapped.content as ToolResultContent.Text).text
+        assertTrue(text.contains("[Showing lines 2-4 of 5]"))
+        assertTrue(text.contains("2: line two"))
+        assertTrue(text.contains("3: line three"))
+        assertTrue(text.contains("4: line four"))
+        assertTrue(!text.contains("line one"))
+        assertTrue(!text.contains("line five"))
+    }
+
+    @Test
     fun `text and resource results are forwarded without binary blocks`() {
         val mapped = mapMcpToolResult(
             callId = "call-1",

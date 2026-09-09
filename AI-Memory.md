@@ -45,7 +45,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Core Application & UI Architecture
 
-- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt` — Core conversation screen. Renders chat messages, tool execution progress cards, multi-turn tool calling logs, auto-scroll to favorited message on deep navigation, and platform tab switching.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt` — Core conversation screen. Renders chat messages, tool execution progress cards, multi-turn tool calling logs, auto-scroll to favorited message on deep navigation, platform tab switching, and `rememberChatListState(messageCount)` for instant bottom anchoring without scroll lag on initial layout pass.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt` — User and assistant speech bubbles. Includes `OpponentResponseContainer` with animated cyan highlight bubble (`Color.Cyan.copy(alpha = 0.2f)`), 32.dp rounded corners, and padded borders around the entire assistant response block.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt` — Home dashboard, conversation list, favorites modal dialog (`FavoriteDetailDialog`) with custom category groups ("All", user groups, "+ Add Group"), category assignments, LaTeX/Markdown/code rendering, un-favorite confirmation, and direct navigation to favorited message in chat.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt` — ViewModel driving conversation listings, favorite grouping/filtering, and asynchronous `getChatRoom(chatId, onResult)` resolution for reliable navigation.

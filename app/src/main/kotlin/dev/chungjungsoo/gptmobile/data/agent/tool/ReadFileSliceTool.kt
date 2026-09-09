@@ -5,11 +5,12 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
-import dev.chungjungsoo.gptmobile.data.dto.openai.FunctionParameters
-import dev.chungjungsoo.gptmobile.data.dto.openai.PropertyDetail
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
  * Built-in tool that extracts a bounded slice of lines from text content.
@@ -21,31 +22,49 @@ class ReadFileSliceTool : AgentTool {
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = BuiltInAgentTool.READ_FILE_SLICE,
         description = "Extracts a bounded line slice (start_line to end_line, 1-indexed) from text content with prefixed line numbers.",
-        parameters = FunctionParameters(
-            type = "object",
-            properties = mapOf(
-                "content" to PropertyDetail(
-                    type = "string",
-                    description = "The raw file or text content to slice."
-                ),
-                "start_line" to PropertyDetail(
-                    type = "integer",
-                    description = "The 1-indexed starting line number of the slice (inclusive)."
-                ),
-                "end_line" to PropertyDetail(
-                    type = "integer",
-                    description = "The 1-indexed ending line number of the slice (inclusive)."
-                )
-            ),
-            required = listOf("content", "start_line", "end_line")
-        )
+        inputSchema = buildJsonObject {
+            put("type", "object")
+            put(
+                "properties",
+                buildJsonObject {
+                    put(
+                        "content",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "The raw file or text content to slice.")
+                        }
+                    )
+                    put(
+                        "start_line",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("description", "The 1-indexed starting line number of the slice (inclusive).")
+                        }
+                    )
+                    put(
+                        "end_line",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("description", "The 1-indexed ending line number of the slice (inclusive).")
+                        }
+                    )
+                }
+            )
+            put(
+                "required",
+                buildJsonArray {
+                    add(kotlinx.serialization.json.JsonPrimitive("content"))
+                    add(kotlinx.serialization.json.JsonPrimitive("start_line"))
+                    add(kotlinx.serialization.json.JsonPrimitive("end_line"))
+                }
+            )
+        }
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val content = arguments["content"]?.jsonPrimitive?.content
             ?: return AgentToolResult(
                 callId = callId,
-                toolName = definition.name,
                 content = ToolResultContent.Text("Missing or invalid 'content' argument."),
                 isError = true
             )
@@ -53,7 +72,6 @@ class ReadFileSliceTool : AgentTool {
         if (content.isEmpty()) {
             return AgentToolResult(
                 callId = callId,
-                toolName = definition.name,
                 content = ToolResultContent.Text("Provided content cannot be empty."),
                 isError = true
             )
@@ -62,7 +80,6 @@ class ReadFileSliceTool : AgentTool {
         val startLine = arguments["start_line"]?.jsonPrimitive?.intOrNull
             ?: return AgentToolResult(
                 callId = callId,
-                toolName = definition.name,
                 content = ToolResultContent.Text("Missing or invalid 'start_line' integer argument."),
                 isError = true
             )
@@ -70,7 +87,6 @@ class ReadFileSliceTool : AgentTool {
         val endLine = arguments["end_line"]?.jsonPrimitive?.intOrNull
             ?: return AgentToolResult(
                 callId = callId,
-                toolName = definition.name,
                 content = ToolResultContent.Text("Missing or invalid 'end_line' integer argument."),
                 isError = true
             )
@@ -78,7 +94,6 @@ class ReadFileSliceTool : AgentTool {
         if (startLine < 1) {
             return AgentToolResult(
                 callId = callId,
-                toolName = definition.name,
                 content = ToolResultContent.Text("start_line must be >= 1, received: $startLine"),
                 isError = true
             )
@@ -87,7 +102,6 @@ class ReadFileSliceTool : AgentTool {
         if (startLine > endLine) {
             return AgentToolResult(
                 callId = callId,
-                toolName = definition.name,
                 content = ToolResultContent.Text("start_line cannot be greater than end_line ($startLine > $endLine)."),
                 isError = true
             )
@@ -99,7 +113,6 @@ class ReadFileSliceTool : AgentTool {
         if (startLine > totalLines) {
             return AgentToolResult(
                 callId = callId,
-                toolName = definition.name,
                 content = ToolResultContent.Text("start_line ($startLine) exceeds total line count ($totalLines)."),
                 isError = true
             )
@@ -128,7 +141,6 @@ class ReadFileSliceTool : AgentTool {
 
         return AgentToolResult(
             callId = callId,
-            toolName = definition.name,
             content = ToolResultContent.Text(resultText),
             isError = false
         )

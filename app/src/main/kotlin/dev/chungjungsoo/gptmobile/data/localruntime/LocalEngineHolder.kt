@@ -25,6 +25,10 @@ class LocalEngineHolder(
     override val deviceRamGb: Long
         get() = delegate.deviceRamGb
 
+    override fun getHardwareState(): DeviceHardwareState = delegate.getHardwareState()
+
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy = delegate.getAdaptiveThrottlingPolicy()
+
     override suspend fun loadEngine(spec: LocalEngineSpec) = withGenerationLock {
         if (loadedSpec == spec && delegate.isEngineLoaded(spec)) {
             return@withGenerationLock

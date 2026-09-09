@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.yield
 
 class FakeLocalRuntime : LocalRuntime {
+    override var deviceRamGb: Long = 8L
+
     val loadEngineCalls = mutableListOf<LocalEngineSpec>()
     val createConversationCalls = mutableListOf<LocalConversationConfig>()
     val sendMessageCalls = mutableListOf<String>()

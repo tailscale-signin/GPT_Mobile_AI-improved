@@ -56,6 +56,7 @@ import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonArray
@@ -139,6 +140,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                             }
                         }
                     } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
                         roundFailed = true
                         lastFailedMessage = t.message
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
@@ -247,6 +249,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 state.toProviderEvent()?.let { emit(it) }
                             }
                         } catch (t: Throwable) {
+                            if (t is CancellationException) throw t
                             roundFailed = true
                             lastFailedMessage = t.message
                             if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
@@ -299,6 +302,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             }
                         }
                     } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
                         roundFailed = true
                         lastFailedMessage = t.message
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
@@ -400,6 +404,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                             }
                         }
                     } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
                         roundFailed = true
                         lastFailedMessage = t.message
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
@@ -596,6 +601,7 @@ class GeminiAdapter @Inject constructor(
                             }
                         }
                     } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
                         roundFailed = true
                         lastFailedMessage = t.message
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {

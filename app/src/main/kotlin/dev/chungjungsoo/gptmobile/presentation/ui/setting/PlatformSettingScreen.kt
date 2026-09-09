@@ -395,7 +395,7 @@ fun PlatformSettingScreen(
                 PlatformNameDialog(dialogState, platformData.name, settingViewModel)
                 if (!isLocalPlatform) {
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
-                    APIKeyDialog(dialogState, settingViewModel)
+                    APIKeyDialog(dialogState, platformData.token, settingViewModel)
                     if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
               OpenRouterModelPickerDialog(
                   currentModel = platformData.model,

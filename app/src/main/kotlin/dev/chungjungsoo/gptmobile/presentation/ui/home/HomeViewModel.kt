@@ -150,8 +150,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun assignFavoriteMessageGroup(messageId: Int, groupName: String) {
-        _messageGroups.update { it + (messageId to groupName) }
+    fun assignFavoriteMessageGroup(messageId: Int, groupName: String?) {
+        _messageGroups.update { current ->
+            if (groupName != null) {
+                current + (messageId to groupName)
+            } else {
+                current - messageId
+            }
+        }
     }
 
     fun toggleFavorite(messageId: Int, isFavorite: Boolean) {

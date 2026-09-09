@@ -56,6 +56,45 @@ class LocalEngineMaxTokensTest {
     }
 
     @Test
+    fun `GPU on high RAM device allows expanded context up to 8192 tokens`() {
+        val maxTokens = resolvedEngineMaxTokens(
+            requestedMaxTokens = 8192,
+            accelerator = LocalAccelerators.GPU,
+            entry = npuEntry(),
+            deviceSocModel = "SM8750",
+            deviceRamGb = 16L
+        )
+
+        assertEquals(8192, maxTokens)
+    }
+
+    @Test
+    fun `GPU on high RAM device clamps when requested tokens exceed high RAM limit`() {
+        val maxTokens = resolvedEngineMaxTokens(
+            requestedMaxTokens = 16384,
+            accelerator = LocalAccelerators.GPU,
+            entry = npuEntry(),
+            deviceSocModel = "SM8750",
+            deviceRamGb = 16L
+        )
+
+        assertEquals(MAX_HIGH_RAM_CONTEXT_TOKENS, maxTokens)
+    }
+
+    @Test
+    fun `NPU on high RAM device still respects hardware NPU context clamp`() {
+        val maxTokens = resolvedEngineMaxTokens(
+            requestedMaxTokens = 8192,
+            accelerator = LocalAccelerators.NPU,
+            entry = npuEntry(),
+            deviceSocModel = "SM8750",
+            deviceRamGb = 16L
+        )
+
+        assertEquals(1280, maxTokens)
+    }
+
+    @Test
     fun `NPU without a matching variant uses the requested max tokens`() {
         val maxTokens = resolvedEngineMaxTokens(
             requestedMaxTokens = 4096,

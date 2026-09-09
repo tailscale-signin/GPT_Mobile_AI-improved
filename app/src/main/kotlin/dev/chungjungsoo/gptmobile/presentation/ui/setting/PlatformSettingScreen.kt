@@ -342,6 +342,27 @@ fun PlatformSettingScreen(
                         }
                     )
                 }
+                if (platformData.compatibleType == ClientType.OPENROUTER) {
+                    SettingItem(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.openrouter_advanced_settings),
+                        description = if (platformData.openRouterRouting.isNullOrBlank()) {
+                            stringResource(R.string.default_label)
+                        } else {
+                            stringResource(R.string.custom)
+                        },
+                        enabled = platformData.enabled,
+                        onItemClick = settingViewModel::openOpenRouterSettingsDialog,
+                        showTrailingIcon = true,
+                        showLeadingIcon = true,
+                        leadingIcon = {
+                            Icon(
+                                ImageVector.vectorResource(id = R.drawable.ic_instructions),
+                                contentDescription = stringResource(R.string.openrouter_advanced_settings)
+                            )
+                        }
+                    )
+                }
                 if (!isLocalPlatform) {
                     ExtendedThinkingSwitch(
                         modifier = Modifier.height(64.dp),
@@ -424,6 +445,7 @@ fun PlatformSettingScreen(
                 TopPDialog(dialogState, platformData.topP, settingViewModel)
                 SystemPromptDialog(dialogState, platformData.systemPrompt ?: "", settingViewModel)
                 GeminiSafetySettingsDialog(dialogState, platformData, settingViewModel)
+                OpenRouterAdvancedSettingsDialog(dialogState, platformData.openRouterRouting, settingViewModel)
                 DeletePlatformDialog(dialogState, settingViewModel)
                 SearchBackendDialog(toolBindingState, settingViewModel)
                 LegacyMcpToolsDialog(toolBindingState, settingViewModel)
@@ -510,94 +532,47 @@ private fun LegacyMcpToolsDialog(
     )
 }
 
-@Composable
-private fun SearchBackendDialog(
-    toolBindingState: PlatformSettingViewModel.ToolBindingState,
-    settingViewModel: PlatformSettingViewModel
-) {
-    if (toolBindingState.isSearchBackendDialogOpen) {
-        AlertDialog(
-            title = { Text(stringResource(R.string.web_search)) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    RadioItem(
-                        modifier = Modifier.semantics { contentDescription = "Search backend None" },
-                        title = stringResource(R.string.not_set),
-                        description = null,
-                        value = "",
-                        selected = toolBindingState.selectedSearchConnectionUid == null
-                    ) {
-                        settingViewModel.selectSearchBackend(null)
-                    }
-                    toolBindingState.searchConnections.forEach { connection ->
-                        RadioItem(
-                            modifier = Modifier.semantics { contentDescription = "Search backend ${connection.name}" },
-                            title = connection.name,
-                            description = connection.alias,
-                            value = connection.connectionUid,
-                            selected = toolBindingState.selectedSearchConnectionUid == connection.connectionUid
-                        ) {
-                            settingViewModel.selectSearchBackend(connection.connectionUid)
-                        }
-                    }
-                }
-            },
-            onDismissRequest = settingViewModel::closeSearchBackendDialog,
-            confirmButton = {
-                TextButton(onClick = settingViewModel::closeSearchBackendDialog) {
-                    Text(stringResource(R.string.close))
-                }
-            }
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlatformTopAppBar(
+private fun PlatformTopAppBar(
     title: String,
     onNavigationClick: () -> Unit,
     onDeleteClick: () -> Unit,
     scrollBehavior: TopAppBarScrollBehavior
 ) {
-    var showMenu by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
 
     LargeTopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background,
-            titleContentColor = MaterialTheme.colorScheme.onBackground
-        ),
         title = {
             Text(
-                modifier = Modifier.padding(4.dp),
                 text = title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         },
         navigationIcon = {
-            IconButton(
-                modifier = Modifier.padding(4.dp),
-                onClick = onNavigationClick
-            ) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
+            IconButton(onClick = onNavigationClick) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.go_back)
+                )
             }
         },
         actions = {
-            IconButton(onClick = { showMenu = true }) {
+            IconButton(onClick = { expanded = true }) {
                 Icon(
-                    imageVector = Icons.Filled.MoreVert,
+                    imageVector = Icons.Default.MoreVert,
                     contentDescription = stringResource(R.string.options)
                 )
             }
             DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
             ) {
                 DropdownMenuItem(
-                    text = { Text(stringResource(R.string.delete_platform)) },
+                    text = { Text(stringResource(R.string.delete)) },
                     onClick = {
-                        showMenu = false
+                        expanded = false
                         onDeleteClick()
                     }
                 )
@@ -608,156 +583,140 @@ fun PlatformTopAppBar(
 }
 
 @Composable
-private fun acceleratorLabel(accelerator: String?): String = when (accelerator?.lowercase()) {
-    LocalAccelerators.GPU -> stringResource(R.string.accelerator_gpu)
-    LocalAccelerators.CPU -> stringResource(R.string.accelerator_cpu)
-    LocalAccelerators.NPU -> stringResource(R.string.accelerator_npu)
-    else -> stringResource(R.string.not_set)
-}
-
-@Composable
-fun ExtendedThinkingSwitch(
-    modifier: Modifier,
-    enabled: Boolean,
-    isChecked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    PreferenceListSwitch(
-        modifier = modifier,
-        title = stringResource(R.string.extended_thinking),
-        description = stringResource(R.string.extended_thinking_description),
-        icon = ImageVector.vectorResource(id = R.drawable.ic_model),
-        enabled = enabled,
-        isChecked = isChecked,
-        onCheckedChange = onCheckedChange
-    )
-}
-
-@Composable
-private fun PreferenceListSwitch(
-    modifier: Modifier,
+private fun PreferenceSwitchWithContainer(
     title: String,
-    description: String? = null,
-    icon: ImageVector,
-    enabled: Boolean,
     isChecked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: () -> Unit
 ) {
-    val colors = ListItemDefaults.colors()
-
     ListItem(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .toggleable(
                 value = isChecked,
-                enabled = enabled,
-                role = Role.Switch,
-                onValueChange = onCheckedChange
+                onValueChange = { onCheckedChange() },
+                role = Role.Switch
             )
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         headlineContent = {
             Text(
                 text = title,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        supportingContent = description?.let {
-            {
-                Text(
-                    text = description,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        },
-        leadingContent = {
-            Icon(
-                imageVector = icon,
-                contentDescription = title
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
         trailingContent = {
             Switch(
                 checked = isChecked,
                 onCheckedChange = null,
-                enabled = enabled
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                    uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
             )
         },
         colors = ListItemDefaults.colors(
-            headlineColor = if (enabled) colors.headlineColor else colors.disabledHeadlineColor,
-            supportingColor = if (enabled) colors.supportingTextColor else colors.disabledHeadlineColor,
-            leadingIconColor = if (enabled) colors.leadingIconColor else colors.disabledLeadingIconColor,
-            trailingIconColor = if (enabled) colors.trailingIconColor else colors.disabledTrailingIconColor
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     )
 }
 
 @Composable
-fun PreferenceSwitchWithContainer(
-    title: String,
-    icon: ImageVector? = null,
+fun ExtendedThinkingSwitch(
+    modifier: Modifier = Modifier,
+    enabled: Boolean,
     isChecked: Boolean,
-    onClick: () -> Unit
+    onCheckedChange: () -> Unit
 ) {
-    val thumbContent: (@Composable () -> Unit)? = remember(isChecked) {
-        if (isChecked) {
-            {
-                Icon(
-                    imageVector = Icons.Outlined.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(SwitchDefaults.IconSize)
-                )
-            }
-        } else {
-            null
-        }
-    }
-
-    val interactionSource = remember { MutableInteractionSource() }
-    Row(
-        modifier = Modifier
+    ListItem(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .clip(MaterialTheme.shapes.extraLarge)
-            .background(
-                MaterialTheme.colorScheme.primaryContainer
-            )
             .toggleable(
                 value = isChecked,
-                onValueChange = { onClick() },
-                interactionSource = interactionSource,
-                indication = LocalIndication.current
+                enabled = enabled,
+                onValueChange = { onCheckedChange() },
+                role = Role.Switch
+            ),
+        headlineContent = {
+            Text(
+                text = stringResource(R.string.extended_thinking),
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
             )
-            .padding(horizontal = 16.dp, vertical = 20.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        icon?.let {
+        },
+        supportingContent = {
+            Text(
+                text = stringResource(R.string.extended_thinking_description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+            )
+        },
+        leadingContent = {
             Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(start = 8.dp, end = 16.dp)
-                    .size(24.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                ImageVector.vectorResource(id = R.drawable.ic_model),
+                contentDescription = stringResource(R.string.extended_thinking),
+                tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+            )
+        },
+        trailingContent = {
+            Switch(
+                checked = isChecked,
+                enabled = enabled,
+                onCheckedChange = null
             )
         }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = if (icon == null) 12.dp else 0.dp, end = 12.dp)
-        ) {
+    )
+}
+
+@Composable
+fun PreferenceListSwitch(
+    modifier: Modifier = Modifier,
+    title: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    isChecked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    ListItem(
+        modifier = modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = isChecked,
+                enabled = enabled,
+                onValueChange = { onCheckedChange(!isChecked) },
+                role = Role.Switch
+            ),
+        headlineContent = {
             Text(
                 text = title,
-                maxLines = 1,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            )
+        },
+        leadingContent = {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+            )
+        },
+        trailingContent = {
+            Switch(
+                checked = isChecked,
+                enabled = enabled,
+                onCheckedChange = null
             )
         }
-        Switch(
-            checked = isChecked,
-            interactionSource = interactionSource,
-            onCheckedChange = null,
-            modifier = Modifier.padding(start = 12.dp, end = 6.dp),
-            thumbContent = thumbContent
-        )
-    }
+    )
+}
+
+@Composable
+private fun acceleratorLabel(accelerator: String?): String = when (LocalAccelerators.normalize(accelerator)) {
+    LocalAccelerators.GPU -> stringResource(R.string.accelerator_gpu)
+    LocalAccelerators.NPU -> stringResource(R.string.accelerator_npu)
+    else -> stringResource(R.string.accelerator_cpu)
 }

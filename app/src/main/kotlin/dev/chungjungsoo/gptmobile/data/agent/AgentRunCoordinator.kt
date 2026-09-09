@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
@@ -53,7 +54,8 @@ data class AgentRunRequest(
 data class ActiveAgentRun(
     val runId: String,
     val chatId: Int,
-    val profileUid: String
+    val profileUid: String,
+    val phase: LocalInferencePhase? = null
 )
 
 data class AgentRunNotice(

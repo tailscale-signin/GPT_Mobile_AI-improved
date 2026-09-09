@@ -291,6 +291,12 @@
     <string name="chat_models">Models</string>
     <string name="legacy_assistant_order_unavailable">Assistant order history unavailable</string>
     <string name="credential_migration_warning">Some credentials could not be migrated securely</string>
+    <string name="details">Details</string>
+    <string name="details_unavailable">Details unavailable</string>
+    <string name="view_full">View full</string>
+    <string name="view_full_value">View full %1$s</string>
+    <string name="tool_in_progress">Tool execution in progress</string>
+    <string name="message_actions">Message actions</string>
 
     <!-- Tool Trace Strings -->
     <string name="tool_trace_expand_content_description">Expand tool trace</string>

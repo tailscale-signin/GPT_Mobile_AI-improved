@@ -548,7 +548,7 @@ private fun ChatMessagePair(
                         .padding(top = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GPTMobileIcon(loading = isActiveMessage && !isIdle)
+                    GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
                     if (enabledPlatformsInChat.size > 1) {
                         Row(
                             modifier = Modifier

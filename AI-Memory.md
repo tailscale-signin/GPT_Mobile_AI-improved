@@ -205,7 +205,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - Keep one primary class per file and match its filename.
 - Use PascalCase for classes/Composables/ViewModels, camelCase for functions/variables, and `SCREAMING_SNAKE_CASE` for constants.
 - Suffix implementations with `Impl`, ViewModels with `ViewModel`, and versioned V2 models with `V2`.
-- Prefix mutable StateFlow backing fields with `_` and expose them via `asStateFlow()`.
+- Prefix mutable StateFlow backing fields with `_` and expose them via `asStateFlow()`, or avoid leading underscores if there is no identical public property name without an underscore (comply with ktlint `standard:backing-property-naming`).
 - Preserve the repository's grouped/alphabetized import style.
 
 ### State, coroutines, and Compose

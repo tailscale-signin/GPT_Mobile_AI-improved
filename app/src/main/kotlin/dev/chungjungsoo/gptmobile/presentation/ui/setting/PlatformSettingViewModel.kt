@@ -27,6 +27,7 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.chungjungsoo.gptmobile.di.DeviceRamGb
 import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import javax.inject.Inject
@@ -53,6 +54,7 @@ class PlatformSettingViewModel @Inject constructor(
     private val modelCatalogRepository: ModelCatalogRepository,
     private val localModelRepository: LocalModelRepository,
     @param:DeviceSocModel private val deviceSocModel: String,
+    @param:DeviceRamGb private val deviceRamGb: Long = 8L,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
@@ -254,7 +256,7 @@ class PlatformSettingViewModel @Inject constructor(
     private fun reseedLocalModelDefaults(platform: PlatformV2, catalogEntryId: String): PlatformV2 {
         val defaults = _catalogEntries.value
             .firstOrNull { it.id == catalogEntryId }
-            ?.let { localSamplingDefaults(it, deviceSocModel) }
+            ?.let { localSamplingDefaults(it, deviceSocModel, deviceRamGb) }
         return platform.copy(
             model = catalogEntryId,
             temperature = defaults?.temperature ?: platform.temperature,
@@ -293,7 +295,8 @@ class PlatformSettingViewModel @Inject constructor(
                     requestedMaxTokens = requested.coerceIn(MIN_MAX_TOKENS, DEFAULT_MAX_TOKENS_CAP),
                     accelerator = platform.accelerator.orEmpty(),
                     entry = catalogEntryFor(platform),
-                    deviceSocModel = deviceSocModel
+                    deviceSocModel = deviceSocModel,
+                    deviceRamGb = deviceRamGb
                 )
             }
             updatePlatform(platform.copy(maxTokens = capped))

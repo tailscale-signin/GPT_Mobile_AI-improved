@@ -54,7 +54,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/proguard-rules.pro` — Application-specific R8/ProGuard obfuscation and preservation rules.
 - `app/schemas/` — Exported Room schemas (v1 through v14) used to validate database migration evolution.
 - `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
-- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`).
+- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite` is retained only in `missing_build_resources.xml`; `no_custom_groups` and `none_group` are declared in `strings.xml`).
 
 ### Main Kotlin package (`dev.chungjungsoo.gptmobile`)
 
@@ -180,6 +180,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `HomeScreen.kt` / `HomeViewModel.kt`:
   - `HomeTab.CHATS`: Displays chat list with search, duplicate, delete actions, and model selection dialog.
   - `HomeTab.FAVORITES`: Redesigned favorites management with search bar removed. Features custom group filter chips ("All", user-created categories, "+ Add Group"), assignment of favorites to custom groups, and a full-screen favorite detail view/dialog (`DialogProperties(usePlatformDefaultWidth = false)`). The detail view renders rich content via `ChatMarkdown` (Markdown, LaTeX math, code highlighting, typography, assistant `GPTMobileIcon`), vertical scrolling, a persistent "View" button navigating directly to the message in the chat room (`targetMessageId`), a middle Group button with dropdown assignment, and a persistent Cyan-highlighted favorite star button that confirms removal via `AlertDialog`.
+  - `assignFavoriteMessageGroup(messageId: Int, groupName: String?)`: Accepts nullable `groupName` to properly remove associations when unassigned/cleared via "None".
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format.
 - `PlatformSettingScreen.kt` — Configures existing platforms and passes current tokens (`platformData.token`) to `APIKeyDialog`.

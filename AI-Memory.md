@@ -24,8 +24,8 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention across conversational turns, cooperative `yield()` checkpoints, phase-split scheduling `LocalInferencePhase.PREFILL` / `GENERATING`, phase-split background progress in `AgentRunForegroundService` displaying "Processing prompt…" and "Generating response…", idle memory auto-unload (`unloadIfIdle`, `DEFAULT_IDLE_UNLOAD_TIMEOUT_MS`) in `LocalEngineHolder` protecting RAM after inactive sessions, `RollingContextWindowCompactor` with anchor turn preservation dynamically budgeted against thermal/battery `maxTokensClamp`, `DeviceHardwareGovernor` with adaptive thermal/battery throttling, live `LocalInferenceMetrics` generation telemetry with user notice propagation (`formatTelemetryNotice`), tier-aware context window scaling up to 8,192 tokens on >=12GB RAM hardware via `deviceRamGb`, hardware-aware context ceiling capping via `maxTokensCap()`, and hardware-aware sampling & context default resolution via `localSamplingDefaults(entry, deviceSocModel, deviceRamGb)`); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks and phase-split notification state tracking (`resolveNotificationContentText`) for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
-- **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`).
+- **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs. Version: 0.9.0 (versionCode 31).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Automated release workflow (`Generate Release Version`) configured to build and sign pre-releases on branch `0.9.0`.
 - **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing, and ktlint 1.3.1 using Android Studio style.
 
 ### Source layout
@@ -40,7 +40,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 ### Root
 
 - `.editorconfig` — Editor and ktlint-compatible formatting rules.
-- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations).
+- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation, debug builds, and automated pre-release builds on `0.9.0`).
 - `.gitignore` — Version-control exclusions; do not scan ignored files for secrets.
 - `AGENTS.md` — Authoritative agent-facing build, style, architecture, and test guidance.
 - `AI-Memory.md` — This persistent architecture and structural index file.
@@ -55,7 +55,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### `app/`
 
-- `app/build.gradle.kts` — Android application configuration: Jetpack Compose, Hilt/KSP, Room schemas, SDK targets (min 31, target 36), ABI splits, R8 rules, OAuth placeholders, LiteRT-LM, Ktor, WorkManager, and test dependencies.
+- `app/build.gradle.kts` — Android application configuration: Jetpack Compose, Hilt/KSP, Room schemas, SDK targets (min 31, target 36), version 0.9.0 (versionCode 31), ABI splits, R8 rules, OAuth placeholders, LiteRT-LM, Ktor, WorkManager, and test dependencies.
 - `app/proguard-rules.pro` — Application-specific R8/ProGuard obfuscation and preservation rules.
 - `app/schemas/` — Exported Room schemas (v1 through v14) used to validate database migration evolution.
 - `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.

@@ -18,31 +18,40 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelListItem
@@ -383,6 +392,16 @@ private fun ApiKeyStep(
     onApiKeyChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val initialList = remember(apiKey) {
+        val parsed = ApiCredentialRotator.parseKeys(apiKey)
+        if (parsed.isEmpty()) listOf("") else parsed
+    }
+    val tokens = remember(apiKey) {
+        mutableStateListOf<String>().apply {
+            addAll(initialList)
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -412,21 +431,80 @@ private fun ApiKeyStep(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // API Key
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = onApiKeyChange,
-            label = { Text(stringResource(R.string.api_key)) },
-            placeholder = { Text(stringResource(R.string.api_key_hint)) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            supportingText = {
-                Text(stringResource(R.string.api_key_supporting))
-            }
+        Text(
+            text = stringResource(R.string.multi_api_keys_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
         )
+
+        // API Keys list
+        tokens.forEachIndexed { index, tokenValue ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = tokenValue,
+                    onValueChange = { newValue ->
+                        tokens[index] = newValue
+                        onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
+                    },
+                    label = {
+                        Text(
+                            if (tokens.size > 1) {
+                                stringResource(R.string.api_key_number, index + 1)
+                            } else {
+                                stringResource(R.string.api_key)
+                            }
+                        )
+                    },
+                    placeholder = { Text(stringResource(R.string.api_key_hint)) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                )
+                if (tokens.size > 1) {
+                    IconButton(
+                        onClick = {
+                            tokens.removeAt(index)
+                            onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
+                        },
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.remove_api_key),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(
+                onClick = {
+                    tokens.add("")
+                    onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = stringResource(R.string.add_api_key),
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text(stringResource(R.string.add_api_key))
+            }
+        }
 
         // Help link based on client type
         clientType?.let { type ->

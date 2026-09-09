@@ -7,7 +7,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
@@ -102,11 +101,8 @@ class AgentRunner(
             var failed = false
             try {
                 session.streamRound(exposedDefinitions, exchanges)
-                    .transformWhile { event ->
-                        emit(event)
-                        event !is ProviderEvent.Failed
-                    }
                     .collect { event ->
+                        if (failed) return@collect
                         when (event) {
                             is ProviderEvent.ToolCall -> {
                                 if (!session.handlesToolsInternally) {

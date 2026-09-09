@@ -120,7 +120,8 @@ class LiteRtLmAdapter(
                         requestedMaxTokens = platform.maxTokens ?: DEFAULT_MAX_TOKENS,
                         accelerator = platform.accelerator.orEmpty(),
                         entry = catalogEntry,
-                        deviceSocModel = deviceSocModel
+                        deviceSocModel = deviceSocModel,
+                        deviceRamGb = localRuntime.deviceRamGb
                     ),
                     isVisionEnabled = visionCapable
                 )

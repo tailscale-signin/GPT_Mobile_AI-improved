@@ -14,14 +14,11 @@ class McpIntegratedSearchManagerTest {
         val manager = McpIntegratedSearchManager()
         val config = manager.getSearchConfig()
 
-        assertTrue("MCPSearch should be an integrated search option turned ON by default", config.isIntegratedSearchEnabled)
+        assertTrue("Online Search should be an integrated search option turned ON by default", config.isIntegratedSearchEnabled)
         val activeTools = manager.getActiveTools()
         assertEquals("All McpSearchToolSet tools should be active by default", McpSearchToolSet.tools.size, activeTools.size)
-        assertTrue(activeTools.any { it.name == "search" })
-        assertTrue(activeTools.any { it.name == "investigate" })
-        assertTrue(activeTools.any { it.name == "compare" })
-        assertTrue(activeTools.any { it.name == "trending" })
-        assertTrue(activeTools.any { it.name == "get_crawl_stats" })
+        assertTrue(activeTools.any { it.name == "web_search" })
+        assertTrue(activeTools.any { it.name == "fetch_webpage" })
         assertNull("Default maxTools should be null (unbounded)", config.maxTools)
     }
 
@@ -32,43 +29,39 @@ class McpIntegratedSearchManagerTest {
 
         assertFalse(manager.getSearchConfig().isIntegratedSearchEnabled)
         assertTrue("When integrated search is disabled, active tools should be empty", manager.getActiveTools().isEmpty())
-        assertFalse(manager.getSearchConfig().isToolEnabled("search"))
+        assertFalse(manager.getSearchConfig().isToolEnabled("web_search"))
     }
 
     @Test
     fun testCanToggleIndividualMcpTools() {
         val manager = McpIntegratedSearchManager()
 
-        // Turn off investigate and compare
-        manager.setToolEnabled("investigate", false)
-        manager.setToolEnabled("compare", false)
+        // Turn off fetch_webpage
+        manager.setToolEnabled("fetch_webpage", false)
 
         val activeTools = manager.getActiveTools()
-        assertEquals(3, activeTools.size)
-        assertTrue(manager.getSearchConfig().isToolEnabled("search"))
-        assertFalse(manager.getSearchConfig().isToolEnabled("investigate"))
-        assertFalse(manager.getSearchConfig().isToolEnabled("compare"))
-        assertTrue(manager.getSearchConfig().isToolEnabled("trending"))
-        assertTrue(manager.getSearchConfig().isToolEnabled("get_crawl_stats"))
+        assertEquals(1, activeTools.size)
+        assertTrue(manager.getSearchConfig().isToolEnabled("web_search"))
+        assertFalse(manager.getSearchConfig().isToolEnabled("fetch_webpage"))
 
-        // Re-enable compare
-        manager.setToolEnabled("compare", true)
-        assertTrue(manager.getSearchConfig().isToolEnabled("compare"))
-        assertEquals(4, manager.getActiveTools().size)
+        // Re-enable fetch_webpage
+        manager.setToolEnabled("fetch_webpage", true)
+        assertTrue(manager.getSearchConfig().isToolEnabled("fetch_webpage"))
+        assertEquals(2, manager.getActiveTools().size)
     }
 
     @Test
     fun testResetToDefaults() {
         val manager = McpIntegratedSearchManager()
         manager.setIntegratedSearchEnabled(false)
-        manager.setToolEnabled("search", false)
-        manager.setMaxTools(2)
+        manager.setToolEnabled("web_search", false)
+        manager.setMaxTools(1)
 
         manager.resetToDefaults()
 
         val config = manager.getSearchConfig()
         assertTrue(config.isIntegratedSearchEnabled)
-        assertTrue(config.isToolEnabled("search"))
+        assertTrue(config.isToolEnabled("web_search"))
         assertNull(config.maxTools)
         assertEquals(McpSearchToolSet.tools.size, manager.getActiveTools().size)
     }
@@ -77,12 +70,11 @@ class McpIntegratedSearchManagerTest {
     fun testSetMaxToolsLimitsActiveTools() {
         val manager = McpIntegratedSearchManager()
 
-        manager.setMaxTools(2)
-        assertEquals(2, manager.getSearchConfig().maxTools)
+        manager.setMaxTools(1)
+        assertEquals(1, manager.getSearchConfig().maxTools)
         val activeTools = manager.getActiveTools()
-        assertEquals(2, activeTools.size)
-        assertEquals("search", activeTools[0].name)
-        assertEquals("investigate", activeTools[1].name)
+        assertEquals(1, activeTools.size)
+        assertEquals("web_search", activeTools[0].name)
 
         // Clamping negative limit to 0
         manager.setMaxTools(-5)
@@ -98,16 +90,16 @@ class McpIntegratedSearchManagerTest {
     @Test
     fun testApplyToChatMcpToolConfig() {
         val manager = McpIntegratedSearchManager()
-        manager.setMaxTools(3)
-        manager.setToolEnabled("trending", false)
+        manager.setMaxTools(1)
+        manager.setToolEnabled("fetch_webpage", false)
 
         val chatMcpToolConfig = manager.getSearchConfig().applyToChatMcpToolConfig(
             baseConfig = ChatMcpToolConfig(maxToolCalls = 5)
         )
 
-        assertEquals(3, chatMcpToolConfig.maxTools)
+        assertEquals(1, chatMcpToolConfig.maxTools)
         assertEquals(5, chatMcpToolConfig.maxToolCalls)
-        assertFalse(chatMcpToolConfig.isToolEnabled("trending"))
-        assertTrue(chatMcpToolConfig.isToolEnabled("search"))
+        assertFalse(chatMcpToolConfig.isToolEnabled("fetch_webpage"))
+        assertTrue(chatMcpToolConfig.isToolEnabled("web_search"))
     }
 }

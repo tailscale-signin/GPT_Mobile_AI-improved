@@ -223,7 +223,13 @@ internal fun ToolServiceCircleIcon(
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),
+            painter = painterResource(
+                id = if (info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor) {
+                    R.drawable.ic_github
+                } else {
+                    R.drawable.ic_gpt_mobile_foreground
+                },
+            ),
             contentDescription = null,
             tint = Color.Unspecified,
             modifier = Modifier.size((sizeDp * 0.7).dp),
@@ -283,10 +289,10 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
 
     Column(
         modifier = modifier
-            .padding(start = 16.dp)
+            .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(Color.Black.copy(alpha = 0.18f))
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -297,7 +303,7 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
                     role = Role.Button
                     contentDescription = if (isExpanded) labels.collapseToolTrace else labels.expandToolTrace
                 }
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ToolServiceCircleIcon(primaryServiceInfo)

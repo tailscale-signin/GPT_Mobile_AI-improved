@@ -168,6 +168,9 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 #### `presentation/` — Presentation Layer (Compose & ViewModels)
 
 - UI features: `chat/`, `home/`, `localmodel/`, `main/`, `mcpmarketplace/`, `migrate/`, `setting/`, `setup/`, `startscreen/`, and `thinking/`.
+- `HomeScreen.kt` / `HomeViewModel.kt`:
+  - `HomeTab.CHATS`: Displays chat list with search, duplicate, delete actions, and model selection dialog.
+  - `HomeTab.FAVORITES`: Redesigned favorites management with search bar removed. Features custom group filter chips ("All", user-created categories, "+ Add Group"), assignment of favorites to custom groups, and a full-screen favorite detail view/dialog (`DialogProperties(usePlatformDefaultWidth = false)`). The detail view renders rich content via `ChatMarkdown` (Markdown, LaTeX math, code highlighting, typography, assistant `GPTMobileIcon`), vertical scrolling, a persistent "View" button navigating into the chat, and a persistent Cyan-highlighted favorite star button that confirms removal via `AlertDialog`.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format.
 - `PlatformSettingScreen.kt` — Configures existing platforms and passes current tokens (`platformData.token`) to `APIKeyDialog`.
 - `SetupPlatformWizardScreen.kt` — Step-by-step setup wizard with dynamic multi-key API credentials (`+API`, delete row), keeping keys visible and formatted via `ApiCredentialRotator`.

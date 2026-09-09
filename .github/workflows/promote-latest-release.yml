@@ -1,0 +1,64 @@
+name: Promote Latest Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/promote-latest-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    name: Promote v0.8.9 to Latest Official Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Promote Release via GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Inspecting release v0.8.9-pre.de18a0e and creating/promoting official latest release v0.8.9..."
+          
+          # Find the latest release with assets
+          TARGET_TAG="v0.8.9-pre.de18a0e"
+          
+          echo "Downloading artifacts from existing pre-release $TARGET_TAG..."
+          mkdir -p release_assets
+          gh release download "$TARGET_TAG" --dir release_assets || echo "No assets downloaded via tag download"
+          
+          ls -la release_assets/ || true
+          
+          RELEASE_NOTES="Official release build for v0.8.9 (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
+          if [ -f "RELEASE_NOTES.md" ]; then
+            RELEASE_NOTES=$(cat RELEASE_NOTES.md)
+          fi
+
+          echo "Ensuring tag v0.8.9 exists on current HEAD..."
+          git tag -f v0.8.9
+          git push origin v0.8.9 --force || true
+          
+          ASSETS=(release_assets/*)
+          
+          if gh release view "v0.8.9" >/dev/null 2>&1; then
+            echo "Release v0.8.9 already exists; editing to set prerelease=false and latest=true..."
+            gh release edit "v0.8.9" --prerelease=false --latest --title "v0.8.9 - GPT Mobile Improved" --notes "$RELEASE_NOTES"
+            if [ ${#ASSETS[@]} -gt 0 ] && [ -f "${ASSETS[0]}" ]; then
+              gh release upload "v0.8.9" "${ASSETS[@]}" --clobber
+            fi
+          else
+            echo "Creating official latest release v0.8.9..."
+            if [ ${#ASSETS[@]} -gt 0 ] && [ -f "${ASSETS[0]}" ]; then
+              gh release create "v0.8.9" "${ASSETS[@]}" --latest --title "v0.8.9 - GPT Mobile Improved" --notes "$RELEASE_NOTES"
+            else
+              gh release create "v0.8.9" --latest --title "v0.8.9 - GPT Mobile Improved" --notes "$RELEASE_NOTES"
+            fi
+          fi
+          
+          echo "Verifying latest release:"
+          gh release view --json tagName,isPrerelease,isDraft,name

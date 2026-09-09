@@ -14,6 +14,7 @@ import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
+import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
@@ -45,6 +46,7 @@ class OpenAIAPIImpl @Inject constructor(
         val endpoint = config.buildEndpoint("files")
         val responseBody = networkClient().preparePost(endpoint) {
             config.token?.let { bearerAuth(it) }
+            config.extraHeaders.forEach { (key, value) -> header(key, value) }
             setBody(
                 MultiPartFormDataContent(
                     formData {
@@ -75,6 +77,7 @@ class OpenAIAPIImpl @Inject constructor(
         return try {
             networkClient().prepareGet(endpoint) {
                 config.token?.let { bearerAuth(it) }
+                config.extraHeaders.forEach { (key, value) -> header(key, value) }
             }.execute { response ->
                 response.status.isSuccess()
             }
@@ -97,6 +100,7 @@ class OpenAIAPIImpl @Inject constructor(
                 setBody(NetworkClient.openAIJson.encodeToString(request))
                 accept(ContentType.Text.EventStream)
                 config.token?.let { bearerAuth(it) }
+                config.extraHeaders.forEach { (key, value) -> header(key, value) }
             }.execute { response ->
                 if (!response.status.isSuccess()) {
                     val errorBody = response.body<String>()
@@ -174,6 +178,7 @@ class OpenAIAPIImpl @Inject constructor(
                 setBody(NetworkClient.openAIJson.encodeToString(request))
                 accept(ContentType.Text.EventStream)
                 config.token?.let { bearerAuth(it) }
+                config.extraHeaders.forEach { (key, value) -> header(key, value) }
             }.execute { response ->
                 if (!response.status.isSuccess()) {
                     val errorBody = response.body<String>()

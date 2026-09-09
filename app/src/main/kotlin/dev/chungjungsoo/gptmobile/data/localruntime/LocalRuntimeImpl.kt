@@ -50,7 +50,7 @@ class LocalRuntimeImpl(
         context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     }
 
-    private val deviceRamGb: Long by lazy {
+    val deviceRamGb: Long by lazy {
         val memoryInfo = ActivityManager.MemoryInfo()
         if (activityManager != null) {
             activityManager?.getMemoryInfo(memoryInfo)

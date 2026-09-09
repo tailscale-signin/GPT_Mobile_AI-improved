@@ -49,81 +49,69 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class PlatformSettingViewModel @Inject constructor(
     private val settingRepository: SettingRepository,
-    private val toolConnectionRepository: ToolConnectionRepository,
-    private val catalogRepository: ModelCatalogRepository,
+    toolConnectionDao: ToolConnectionDao,
+    secretVault: SecretVault,
+    private val agentToolResolver: AgentToolResolver,
+    private val modelCatalogRepository: ModelCatalogRepository,
     private val localModelRepository: LocalModelRepository,
-    private val toolConnectionDao: ToolConnectionDao,
-    private val secretVault: SecretVault,
-    savedStateHandle: SavedStateHandle,
-    @DeviceSocModel private val deviceSocModel: String = "",
-    @DeviceRamGb private val deviceRamGb: Long = 8L
+    @param:DeviceSocModel private val deviceSocModel: String,
+    @param:DeviceRamGb private val deviceRamGb: Long = 8L,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+    private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
 
-    private val platformUid: String = checkNotNull(savedStateHandle[PLATFORM_ID_KEY])
+    private val platformUid: String = checkNotNull(savedStateHandle["platformUid"])
 
     private val _platformState = MutableStateFlow<PlatformV2?>(null)
     val platformState: StateFlow<PlatformV2?> = _platformState.asStateFlow()
 
+    private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
+    val catalogEntries = _catalogEntries.asStateFlow()
+
+    val downloadedLocalModels: StateFlow<List<DownloadedLocalModelOption>> = combine(
+        localModelRepository.observeAll(),
+        _catalogEntries
+    ) { models, catalog ->
+        val names = catalog.associate { it.id to it.displayName }
+        models.filter { it.status == LocalModelStatus.READY }.map { model ->
+            DownloadedLocalModelOption(
+                catalogEntryId = model.catalogEntryId,
+                displayName = names[model.catalogEntryId]?.takeIf { it.isNotBlank() } ?: model.catalogEntryId
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val acceleratorOptions: StateFlow<List<AcceleratorOption>> = combine(_platformState, _catalogEntries) { platform, catalog ->
+        val entry = catalog.firstOrNull { it.id == platform?.model }
+        LocalAccelerators.choices(
+            supported = entry?.supportedAccelerators.orEmpty(),
+            socToModelFiles = entry?.socToModelFiles.orEmpty(),
+            deviceSocModel = deviceSocModel
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
 
-    private val _toolBindingState = MutableStateFlow(ToolBindingState())
-    val toolBindingState: StateFlow<ToolBindingState> = _toolBindingState.asStateFlow()
+    private val _isDeleted = MutableStateFlow(false)
+    val isDeleted: StateFlow<Boolean> = _isDeleted.asStateFlow()
 
     private val _userMessage = MutableStateFlow<Int?>(null)
     val userMessage: StateFlow<Int?> = _userMessage.asStateFlow()
 
-    private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
-    val catalogEntries: StateFlow<List<CatalogEntry>> = _catalogEntries.asStateFlow()
-
-    private val _downloadedLocalModels = MutableStateFlow<List<DownloadedLocalModelOption>>(emptyList())
-    val downloadedLocalModels: StateFlow<List<DownloadedLocalModelOption>> = _downloadedLocalModels.asStateFlow()
-
-    val acceleratorOptions: StateFlow<List<AcceleratorOption>> = combine(
-        _platformState,
-        _catalogEntries,
-        _downloadedLocalModels
-    ) { platform, entries, localModels ->
-        if (platform?.compatibleType != ClientType.LITERT_LM) {
-            emptyList()
-        } else {
-            val entry = entries.firstOrNull { it.id == platform.model }
-            val downloaded = localModels.firstOrNull { it.catalogEntryId == platform.model }
-            LocalAccelerators.optionsFor(
-                entry = entry,
-                deviceSocModel = deviceSocModel,
-                isModelDownloaded = downloaded?.isDownloaded == true
-            )
-        }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Eagerly,
-        initialValue = emptyList()
-    )
-
+    private val _toolBindingState = MutableStateFlow(ToolBindingState())
+    val toolBindingState: StateFlow<ToolBindingState> = _toolBindingState.asStateFlow()
     private var mcpDiscoveryJob: Job? = null
 
     init {
         loadPlatform()
         loadToolBindings()
-        loadCatalogEntries()
-        loadDownloadedLocalModels()
+        loadCatalog()
     }
 
-    private fun loadCatalogEntries() {
+    private fun loadCatalog() {
         viewModelScope.launch {
-            _catalogEntries.update { catalogRepository.fetchCatalog() }
-        }
-    }
-
-    private fun loadDownloadedLocalModels() {
-        viewModelScope.launch {
-            localModelRepository.localModels.collect { models ->
-                val ready = models
-                    .filter { it.status == LocalModelStatus.READY }
-                    .map { DownloadedLocalModelOption(catalogEntryId = it.catalogEntryId, isDownloaded = true) }
-                _downloadedLocalModels.update { ready }
-            }
+            _catalogEntries.value = modelCatalogRepository.getVisibleEntries()
         }
     }
 
@@ -166,17 +154,34 @@ class PlatformSettingViewModel @Inject constructor(
         val platform = _platformState.value ?: return
         val enabling = !platform.enabled
         if (enabling && platform.compatibleType == ClientType.LITERT_LM) {
-            val downloaded = _downloadedLocalModels.value.any { it.catalogEntryId == platform.model && it.isDownloaded }
-            if (!downloaded) {
-                _userMessage.update { R.string.local_platform_enable_model_not_ready }
-                return
+            viewModelScope.launch {
+                val model = localModelRepository.getById(platform.model)
+                if (model?.status != LocalModelStatus.READY) {
+                    _userMessage.value = R.string.local_platform_enable_model_not_ready
+                    return@launch
+                }
+                updatePlatform(platform.copy(enabled = true))
             }
+            return
         }
-        updatePlatform(platform.copy(enabled = enabling))
+        updatePlatform(platform.copy(enabled = !platform.enabled))
     }
 
-    fun clearUserMessage() {
-        _userMessage.update { null }
+    fun consumeUserMessage() {
+        _userMessage.value = null
+    }
+
+    fun toggleReasoning() {
+        _platformState.value?.let { platform ->
+            updatePlatform(platform.copy(reasoning = !platform.reasoning))
+        }
+    }
+
+    fun updatePlatform(platform: PlatformV2) {
+        viewModelScope.launch {
+            settingRepository.updatePlatformV2(platform)
+            _platformState.update { platform }
+        }
     }
 
     fun openPlatformNameDialog() = _dialogState.update { it.copy(isPlatformNameDialogOpen = true) }
@@ -215,44 +220,37 @@ class PlatformSettingViewModel @Inject constructor(
     fun openGeminiSafetyDialog() = _dialogState.update { it.copy(isGeminiSafetyDialogOpen = true) }
     fun closeGeminiSafetyDialog() = _dialogState.update { it.copy(isGeminiSafetyDialogOpen = false) }
 
-    fun openDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = true) }
-    fun closeDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = false) }
+    fun openOpenRouterSettingsDialog() = _dialogState.update { it.copy(isOpenRouterSettingsDialogOpen = true) }
+    fun closeOpenRouterSettingsDialog() = _dialogState.update { it.copy(isOpenRouterSettingsDialogOpen = false) }
 
     fun updatePlatformName(name: String) {
         _platformState.value?.let { platform ->
-            updatePlatform(platform.copy(name = name))
+            updatePlatform(platform.copy(name = name.trim()))
             closePlatformNameDialog()
         }
     }
 
     fun updateApiUrl(url: String) {
         _platformState.value?.let { platform ->
-            updatePlatform(platform.copy(url = url))
+            updatePlatform(platform.copy(apiUrl = url.trim()))
             closeApiUrlDialog()
         }
     }
 
     fun updateApiToken(token: String) {
         _platformState.value?.let { platform ->
-            viewModelScope.launch {
-                val ref = secretVault.write(platform.uid, token)
-                updatePlatform(platform.copy(token = ref))
-                closeApiTokenDialog()
-            }
+            updatePlatform(platform.copy(token = token.trim().takeIf { it.isNotEmpty() }))
+            closeApiTokenDialog()
         }
-    }
-
-    suspend fun readApiToken(): String {
-        val platform = _platformState.value ?: return ""
-        return secretVault.read(platform.uid, platform.token).orEmpty()
     }
 
     fun updateApiModel(model: String) {
         _platformState.value?.let { platform ->
+            val trimmed = model.trim()
             val updated = if (platform.compatibleType == ClientType.LITERT_LM) {
-                reseedLocalModelDefaults(platform, model)
+                reseedLocalModelDefaults(platform, trimmed)
             } else {
-                platform.copy(model = model)
+                platform.copy(model = trimmed)
             }
             updatePlatform(updated)
             closeApiModelDialog()
@@ -260,8 +258,9 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     private fun reseedLocalModelDefaults(platform: PlatformV2, catalogEntryId: String): PlatformV2 {
-        val entry = _catalogEntries.value.firstOrNull { it.id == catalogEntryId }
-        val defaults = entry?.let { localSamplingDefaults(it, deviceSocModel, deviceRamGb) }
+        val defaults = _catalogEntries.value
+            .firstOrNull { it.id == catalogEntryId }
+            ?.let { localSamplingDefaults(it, deviceSocModel, deviceRamGb) }
         return platform.copy(
             model = catalogEntryId,
             temperature = defaults?.temperature ?: platform.temperature,
@@ -324,124 +323,100 @@ class PlatformSettingViewModel @Inject constructor(
         if (deviceRamGb >= 12L) {
             return MAX_HIGH_RAM_CONTEXT_TOKENS
         }
-        return entry?.defaults?.maxTokens ?: MAX_HIGH_RAM_CONTEXT_TOKENS
+        return entry?.defaultConfig?.maxTokens ?: MAX_HIGH_RAM_CONTEXT_TOKENS
     }
 
     private fun catalogEntryFor(platform: PlatformV2): CatalogEntry? = _catalogEntries.value.firstOrNull { it.id == platform.model }
 
     fun updateAccelerator(accelerator: String) {
+        val normalized = LocalAccelerators.normalize(accelerator)
+        if (normalized != LocalAccelerators.CPU &&
+            normalized != LocalAccelerators.GPU &&
+            normalized != LocalAccelerators.NPU
+        ) {
+            return
+        }
+        val option = acceleratorOptions.value.firstOrNull { it.accelerator == normalized }
+        if (option?.enabled != true) return
         _platformState.value?.let { platform ->
-            val options = acceleratorOptions.value
-            val option = options.firstOrNull { it.accelerator.equals(accelerator, ignoreCase = true) }
-            if (option == null || !option.enabled) {
-                closeAcceleratorDialog()
-                return
-            }
-            val normalized = LocalAccelerators.normalize(accelerator)
-            val adjustedMaxTokens = platform.maxTokens?.let { current ->
-                resolvedEngineMaxTokens(
-                    requestedMaxTokens = current,
-                    accelerator = normalized,
-                    entry = catalogEntryFor(platform),
-                    deviceSocModel = deviceSocModel,
-                    deviceRamGb = deviceRamGb
-                )
-            }
-            updatePlatform(platform.copy(accelerator = normalized, maxTokens = adjustedMaxTokens))
+            updatePlatform(platform.copy(accelerator = normalized))
             closeAcceleratorDialog()
         }
     }
 
-    fun updateSystemPrompt(systemPrompt: String) {
+    fun updateSystemPrompt(prompt: String) {
         _platformState.value?.let { platform ->
-            updatePlatform(platform.copy(systemPrompt = systemPrompt.ifBlank { null }))
+            updatePlatform(platform.copy(systemPrompt = prompt.trim()))
             closeSystemPromptDialog()
         }
     }
 
     fun updateTimeout(timeoutSeconds: Int) {
         _platformState.value?.let { platform ->
-            updatePlatform(platform.copy(timeout = timeoutSeconds.coerceAtLeast(0)))
+            val normalizedTimeout = timeoutSeconds.coerceAtLeast(0)
+            updatePlatform(platform.copy(timeout = normalizedTimeout))
             closeTimeoutDialog()
         }
     }
 
-    fun updateGeminiSafetySettings(settings: GeminiSafetySettings) {
+    fun updateGeminiSafetySettings(
+        harassmentSafetyThreshold: String,
+        hateSpeechSafetyThreshold: String,
+        sexuallyExplicitSafetyThreshold: String,
+        dangerousContentSafetyThreshold: String
+    ) {
         _platformState.value?.let { platform ->
-            updatePlatform(platform.copy(geminiSafetySettings = settings))
+            updatePlatform(
+                platform.copy(
+                    harassmentSafetyThreshold = GeminiSafetySettings.normalizeThreshold(harassmentSafetyThreshold),
+                    hateSpeechSafetyThreshold = GeminiSafetySettings.normalizeThreshold(hateSpeechSafetyThreshold),
+                    sexuallyExplicitSafetyThreshold = GeminiSafetySettings.normalizeThreshold(sexuallyExplicitSafetyThreshold),
+                    dangerousContentSafetyThreshold = GeminiSafetySettings.normalizeThreshold(dangerousContentSafetyThreshold)
+                )
+            )
             closeGeminiSafetyDialog()
         }
     }
 
-    fun deletePlatform(onDeleted: () -> Unit) {
+    fun updateOpenRouterRouting(routingJson: String?) {
+        _platformState.value?.let { platform ->
+            updatePlatform(platform.copy(openRouterRouting = routingJson?.takeIf { it.isNotBlank() }))
+            closeOpenRouterSettingsDialog()
+        }
+    }
+
+    fun openDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = true) }
+    fun closeDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = false) }
+
+    fun deletePlatform() {
         _platformState.value?.let { platform ->
             viewModelScope.launch {
-                toolConnectionDao.deleteBindingsByProfile(platform.uid)
-                secretVault.delete(platform.uid, platform.token)
                 settingRepository.deletePlatformV2(platform)
                 closeDeleteDialog()
-                onDeleted()
+                _isDeleted.update { true }
             }
         }
     }
 
-    private fun updatePlatform(platform: PlatformV2) {
-        _platformState.update { platform }
-        viewModelScope.launch {
-            settingRepository.updatePlatformV2(platform)
-        }
-    }
+    fun openSearchBackendDialog() = _toolBindingState.update { it.copy(isSearchBackendDialogOpen = true) }
+    fun closeSearchBackendDialog() = _toolBindingState.update { it.copy(isSearchBackendDialogOpen = false) }
+    fun clearToolError() = _toolBindingState.update { it.copy(errorMessage = null) }
 
-    fun openSearchBackendDialog() {
-        _toolBindingState.update { it.copy(isSearchBackendDialogOpen = true) }
-    }
-
-    fun closeSearchBackendDialog() {
-        _toolBindingState.update { it.copy(isSearchBackendDialogOpen = false) }
-    }
-
-    fun selectSearchConnection(connectionUid: String?) {
+    fun selectSearchBackend(connectionUid: String?) {
         viewModelScope.launch {
             runCatching {
-                toolConnectionRepository.setSearchBinding(platformUid, connectionUid)
-            }.onSuccess {
-                _toolBindingState.update {
-                    it.copy(
-                        selectedSearchConnectionUid = connectionUid,
-                        isSearchBackendDialogOpen = false,
-                        errorMessage = null
-                    )
-                }
-            }.onFailure(::showToolError)
-        }
-    }
-
-    fun toggleBuiltInTool(toolName: String, enabled: Boolean) {
-        when (toolName) {
-            WEB_SEARCH_TOOL -> {
-                if (enabled) {
-                    val fallback = _toolBindingState.value.searchConnections.firstOrNull()?.connectionUid
-                    selectSearchConnection(fallback)
+                if (connectionUid == null) {
+                    toolConnectionRepository.removeWebSearchBinding(platformUid)
                 } else {
-                    selectSearchConnection(null)
+                    toolConnectionRepository.replaceWebSearchBinding(platformUid, connectionUid)
                 }
             }
-            BuiltInAgentTool.READ_URL -> toggleReadUrl(enabled)
-            else -> {
-                viewModelScope.launch {
-                    runCatching {
-                        if (enabled) {
-                            toolConnectionRepository.bindTool(platformUid, null, toolName)
-                        } else {
-                            toolConnectionRepository.unbindTool(platformUid, null, toolName)
-                        }
+                .onSuccess {
+                    _toolBindingState.update {
+                        it.copy(selectedSearchConnectionUid = connectionUid, isSearchBackendDialogOpen = false, errorMessage = null)
                     }
-                        .onSuccess {
-                            _toolBindingState.update { it.copy(errorMessage = null) }
-                        }
-                        .onFailure(::showToolError)
                 }
-            }
+                .onFailure(::showToolError)
         }
     }
 
@@ -462,7 +437,7 @@ class PlatformSettingViewModel @Inject constructor(
             it.copy(
                 isMcpToolsDialogOpen = true,
                 isMcpToolsLoading = true,
-                mcpToolOptions = emptyList>,
+                mcpToolOptions = emptyList(),
                 pendingMcpTools = it.selectedMcpTools,
                 errorMessage = null
             )
@@ -501,39 +476,33 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
-    private suspend fun discoverMcpTools(connection: ToolConnection) = runCatching {
-        val resolver = AgentToolResolver(
-            connections = listOf(connection),
-            authHeaderProvider = { secretVault.read(connection.connectionUid, connection.authSecretRef) }
-        )
-        resolver.discoverTools()
-    }
-
     fun closeMcpToolsDialog() {
         mcpDiscoveryJob?.cancel()
-        mcpDiscoveryJob = null
-        _toolBindingState.update {
-            it.copy(
-                isMcpToolsDialogOpen = false,
-                isMcpToolsLoading = false
+        _toolBindingState.update { it.copy(isMcpToolsDialogOpen = false, isMcpToolsLoading = false) }
+    }
+
+    private suspend fun discoverMcpTools(connection: ToolConnection) = try {
+        Result.success(agentToolResolver.discoverMcpTools(connection))
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
+    fun toggleMcpTool(connectionUid: String, toolName: String) {
+        val selection = ToolBindingSelection(connectionUid, toolName)
+        _toolBindingState.update { state ->
+            state.copy(
+                pendingMcpTools = state.pendingMcpTools.toMutableSet().apply {
+                    if (!add(selection)) remove(selection)
+                }
             )
         }
     }
 
-    fun toggleMcpTool(connectionUid: String, toolName: String) {
-        _toolBindingState.update { state ->
-            val selection = ToolBindingSelection(connectionUid, toolName)
-            val updated = if (selection in state.pendingMcpTools) {
-                state.pendingMcpTools - selection
-            } else {
-                state.pendingMcpTools + selection
-            }
-            state.copy(pendingMcpTools = updated)
-        }
-    }
-
     fun saveMcpTools() {
-        val selections = _toolBindingState.value.pendingMcpTools.toList()
+        val selections = _toolBindingState.value.pendingMcpTools
+            .sortedWith(compareBy<ToolBindingSelection> { it.connectionUid }.thenBy { it.toolName })
         viewModelScope.launch {
             runCatching { toolConnectionRepository.replaceMcpToolBindings(platformUid, selections) }
                 .onSuccess {
@@ -566,6 +535,7 @@ class PlatformSettingViewModel @Inject constructor(
         val isSystemPromptDialogOpen: Boolean = false,
         val isTimeoutDialogOpen: Boolean = false,
         val isGeminiSafetyDialogOpen: Boolean = false,
+        val isOpenRouterSettingsDialogOpen: Boolean = false,
         val isDeleteDialogOpen: Boolean = false
     )
 

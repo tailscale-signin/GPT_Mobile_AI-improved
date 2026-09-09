@@ -174,13 +174,16 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `homeScreenNavigation`: Passes `(ChatRoomV2, Int?) -> Unit` on existing chat click to support deep navigation directly to a target message.
 - `ChatScreen.kt` / `ChatViewModel.kt`:
   - Handles `targetMessageId` parameter from navigation bundle / `SavedStateHandle`.
-  - Automatically scrolls to the exact turn matching `targetMessageId` upon loading.
+  - Automatically scrolls to the exact turn matching `targetMessageId` upon loading, and automatically selects the matching assistant platform index tab (`chatViewModel.updateChatPlatformIndex(targetTurn, targetPlatformIndex)`).
+  - Integrates `OpponentResponseContainer` around the assistant header (`GPTMobileIcon` + circular progress loading indicator + platform selection pills) and `OpponentChatBubble`, ensuring the favorite cyan highlight bubble is taller and cleanly encloses the response icon and circular loading spinner with generous padding.
   - Connected `FavoriteIcon` with long-press gesture detection, haptic feedback vibration (`HapticFeedbackType.LongPress`), and instant feedback.
 - `ChatBubble.kt`:
+  - `OpponentResponseContainer`: Container composable wrapping the assistant header row and `OpponentChatBubble` with animated `bubbleColor` background (`Color.Cyan.copy(alpha = 0.2f)` when `isFavorite == true`), 32.dp rounded corners, and padded top/bottom.
   - `FavoriteIcon`: Uses `Modifier.pointerInput` with `detectTapGestures(onTap = ..., onLongPress = ...)` to trigger haptic feedback vibration (`HapticFeedbackType.LongPress`) on long press.
 - `HomeScreen.kt` / `HomeViewModel.kt`:
   - `HomeTab.CHATS`: Displays chat list with search, duplicate, delete actions, and model selection dialog.
   - `HomeTab.FAVORITES`: Redesigned favorites management with search bar removed. Features custom group filter chips ("All", user-created categories, "+ Add Group"), assignment of favorites to custom groups, and a full-screen favorite detail view/dialog (`DialogProperties(usePlatformDefaultWidth = false)`). The detail view renders rich content via `ChatMarkdown` (Markdown, LaTeX math, code highlighting, typography, assistant `GPTMobileIcon`), vertical scrolling, a persistent "View" button navigating directly to the message in the chat room (`targetMessageId`), a middle Group button with dropdown assignment, and a persistent Cyan-highlighted favorite star button that confirms removal via `AlertDialog`.
+  - `getChatRoom(chatId: Int, onResult: (ChatRoomV2?) -> Unit)`: Added to `HomeViewModel` to reliably look up any chat room in memory or via `chatRepository.fetchChatListV2()`, ensuring "View" navigation functions accurately even if the chat list state in memory was filtered or searched.
   - `ChatsTitle`: Added `@Composable` annotation to resolve Kotlin Compose compiler requirement.
   - `assignFavoriteMessageGroup(messageId: Int, groupName: String?)`: Accepts nullable `groupName` to properly remove associations when unassigned/cleared via "None".
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.

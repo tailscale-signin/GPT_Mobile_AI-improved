@@ -168,7 +168,10 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 #### `presentation/` — Presentation Layer (Compose & ViewModels)
 
 - UI features: `chat/`, `home/`, `localmodel/`, `main/`, `mcpmarketplace/`, `migrate/`, `setting/`, `setup/`, `startscreen/`, and `thinking/`.
-- `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, and seamless combination into `ApiCredentialRotator` format.
+- `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format.
+- `PlatformSettingScreen.kt` — Configures existing platforms and passes current tokens (`platformData.token`) to `APIKeyDialog`.
+- `SetupPlatformWizardScreen.kt` — Step-by-step setup wizard with dynamic multi-key API credentials (`+API`, delete row), keeping keys visible and formatted via `ApiCredentialRotator`.
+- `SetupViewModelV2.kt` — Wizard ViewModel retaining and prefilling existing API keys when adding similar platform types (e.g. OpenRouter).
 - `ToolConnectionsScreen.kt` — External tool connection and MCP setup screen featuring multi-key dynamic credential input with `+API` button and per-key removal.
 - `McpMarketplaceDialog.kt` — MCP marketplace and integration dialog featuring brand icons (`online_search`, `github`, `brave`, `terminal`, etc.), search/pricing filters, and preinstalled status presentation.
 - Maintains unidirectional data flow: ViewModels expose immutable `StateFlow` consumed via `collectAsStateWithLifecycle()`.

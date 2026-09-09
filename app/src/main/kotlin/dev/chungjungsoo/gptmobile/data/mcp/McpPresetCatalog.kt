@@ -14,7 +14,8 @@ data class McpPreset(
     val env: Map<String, String> = emptyMap(),
     val iconUrl: String? = null,
     val requiredEnvKeys: List<String> = emptyList(),
-    val builtInTools: List<McpBuiltinTool> = emptyList()
+    val builtInTools: List<McpBuiltinTool> = emptyList(),
+    val isPreinstalled: Boolean = false
 )
 
 enum class McpCategory {
@@ -40,14 +41,15 @@ object McpPresetCatalog {
 
     val presets: List<McpPreset> = listOf(
         McpPreset(
-            id = "mcpsearch-android-termux",
-            name = "MCPSearch (Android / Termux)",
-            description = "Multi-engine web search, deep investigation agent, comparison, and trending tracker running locally via Termux.",
+            id = McpSearchToolSet.PRESET_ID,
+            name = McpSearchToolSet.PRESET_NAME,
+            description = "Integrated online web search and webpage text extractor powered by droid-mcp. Preinstalled and enabled by default across all models.",
             category = McpCategory.SEARCH,
             transportType = McpTransportType.STDIO,
             commandOrUrl = McpSearchToolSet.DEFAULT_LAUNCHER_PATH,
             args = emptyList(),
-            builtInTools = McpSearchToolSet.tools
+            builtInTools = McpSearchToolSet.tools,
+            isPreinstalled = McpSearchToolSet.IS_PREINSTALLED
         ),
         McpPreset(
             id = "brave-search",

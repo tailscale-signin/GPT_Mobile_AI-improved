@@ -88,6 +88,11 @@ sealed interface LocalRuntimeEvent {
 interface LocalRuntime {
     val deviceRamGb: Long get() = 8L
 
+    fun getHardwareState(): DeviceHardwareState = DeviceHardwareState()
+
+    fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
+        DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), deviceRamGb >= 10L)
+
     suspend fun loadEngine(spec: LocalEngineSpec)
     suspend fun createConversation(config: LocalConversationConfig)
     fun sendMessage(text: String, images: List<ByteArray> = emptyList()): Flow<LocalRuntimeEvent>

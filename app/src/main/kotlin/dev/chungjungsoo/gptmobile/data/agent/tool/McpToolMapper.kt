@@ -21,6 +21,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 internal fun namespaceMcpToolName(alias: String, toolName: String): String {
@@ -34,6 +36,24 @@ internal fun namespaceMcpToolName(alias: String, toolName: String): String {
     return safe.take(MAX_MODEL_TOOL_NAME_LENGTH - suffix.length - 2).trimEnd('_') + "__" + suffix
 }
 
+/**
+ * Checks whether an MCP tool is a file-reading tool that would benefit from
+ * line-range slicing parameters (e.g. GitHub get_file_contents, Filesystem read_file).
+ */
+internal fun isFileReadingTool(toolName: String): Boolean {
+    val lower = toolName.lowercase()
+    return lower in FILE_READING_TOOL_NAMES ||
+        lower.endsWith("get_file_contents") ||
+        lower.endsWith("read_file")
+}
+
+private val FILE_READING_TOOL_NAMES = setOf(
+    "get_file_contents",
+    "read_file",
+    "read_file_contents",
+    "get_file"
+)
+
 internal fun mcpToolDefinition(alias: String, tool: Tool): AgentToolDefinition = AgentToolDefinition(
     name = namespaceMcpToolName(alias, tool.name),
     description = tool.description.orEmpty().safeTake(MAX_TOOL_DESCRIPTION_CHARS),
@@ -42,7 +62,36 @@ internal fun mcpToolDefinition(alias: String, tool: Tool): AgentToolDefinition =
             "MCP tool name is invalid."
         }
         put("type", tool.inputSchema.type)
-        put("properties", tool.inputSchema.properties ?: JsonObject(emptyMap()))
+
+        val properties = tool.inputSchema.properties ?: JsonObject(emptyMap())
+        if (isFileReadingTool(tool.name)) {
+            // Augment schema with optional line slicing parameters for file-reading tools
+            val augmentedProperties = buildJsonObject {
+                properties.forEach { (key, value) -> put(key, value) }
+                if (!properties.containsKey("start_line")) {
+                    put(
+                        "start_line",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Optional 1-indexed starting line number of the file slice to extract (inclusive).")
+                        }
+                    )
+                }
+                if (!properties.containsKey("end_line")) {
+                    put(
+                        "end_line",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Optional 1-indexed ending line number of the file slice to extract (inclusive).")
+                        }
+                    )
+                }
+            }
+            put("properties", augmentedProperties)
+        } else {
+            put("properties", properties)
+        }
+
         if (!tool.inputSchema.required.isNullOrEmpty()) {
             put("required", JsonArray(tool.inputSchema.required.orEmpty().map(::JsonPrimitive)))
         }
@@ -54,7 +103,48 @@ internal fun mcpToolDefinition(alias: String, tool: Tool): AgentToolDefinition =
     }
 )
 
-internal fun mapMcpToolResult(callId: String, result: CallToolResult): AgentToolResult {
+/**
+ * Extracts a 1-indexed line slice [startLine, endLine] from raw text content,
+ * prefixing lines with their line numbers.
+ */
+internal fun sliceTextLines(text: String, startLine: Int?, endLine: Int?): String {
+    if (startLine == null && endLine == null) return text
+    if (text.isEmpty()) return text
+
+    val lines = text.lines()
+    val totalLines = lines.size
+    val start = (startLine ?: 1).coerceAtLeast(1)
+    val end = (endLine ?: totalLines).coerceIn(start, totalLines)
+
+    if (start > totalLines) {
+        return "Requested start_line ($start) exceeds total lines ($totalLines)."
+    }
+
+    val sliced = (start..end).map { lineNum ->
+        "$lineNum: ${lines[lineNum - 1]}"
+    }
+
+    val header = if (start == end) {
+        "Line $start of $totalLines:"
+    } else {
+        "Lines $start-$end of $totalLines:"
+    }
+
+    return buildString {
+        appendLine(header)
+        sliced.forEachIndexed { index, line ->
+            append(line)
+            if (index < sliced.lastIndex) appendLine()
+        }
+    }
+}
+
+internal fun mapMcpToolResult(
+    callId: String,
+    result: CallToolResult,
+    startLine: Int? = null,
+    endLine: Int? = null
+): AgentToolResult {
     val text = mutableListOf<String>()
     val links = mutableListOf<AgentResourceLink>()
     val omitted = mutableListOf<String>()
@@ -65,9 +155,14 @@ internal fun mapMcpToolResult(callId: String, result: CallToolResult): AgentTool
     }
 
     fun addText(value: String) {
-        val bounded = budget.take(value)
+        val processedValue = if (startLine != null || endLine != null) {
+            sliceTextLines(value, startLine, endLine)
+        } else {
+            value
+        }
+        val bounded = budget.take(processedValue)
         if (bounded.isNotEmpty()) text += bounded
-        if (bounded.length != value.length) omit("text output truncated to the model-visible limit")
+        if (bounded.length != processedValue.length) omit("text output truncated to the model-visible limit")
     }
 
     fun addLink(uri: String, name: String? = null, mimeType: String? = null) {

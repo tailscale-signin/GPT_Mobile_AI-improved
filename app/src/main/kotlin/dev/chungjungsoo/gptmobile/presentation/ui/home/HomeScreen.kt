@@ -35,6 +35,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
@@ -50,6 +52,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -117,7 +121,7 @@ import dev.chungjungsoo.gptmobile.util.getPlatformName
 fun HomeScreen(
     homeViewModel: HomeViewModel = hiltViewModel(),
     settingOnClick: () -> Unit,
-    onExistingChatClick: (ChatRoomV2) -> Unit,
+    onExistingChatClick: (ChatRoomV2, Int?) -> Unit,
     navigateToNewChat: (enabledPlatforms: List<String>) -> Unit
 ) {
     val listState = rememberLazyListState()
@@ -284,7 +288,7 @@ fun HomeScreen(
                                             if (chatListState.isSelectionMode) {
                                                 homeViewModel.selectChat(idx)
                                             } else {
-                                                onExistingChatClick(chatRoom)
+                                                onExistingChatClick(chatRoom, null)
                                             }
                                         }
                                     )
@@ -343,15 +347,21 @@ fun HomeScreen(
         selectedDetailMessage?.let { detailMessage ->
             val platformName = detailMessage.platformType?.let { platformState.getPlatformName(it) }
                 ?: stringResource(R.string.unknown)
+            val currentGroup = messageGroups[detailMessage.id]
             FavoriteDetailDialog(
                 message = detailMessage,
                 platformName = platformName,
+                favoriteGroups = favoriteGroups,
+                currentGroup = currentGroup,
                 onDismiss = { selectedDetailMessage = null },
+                onAssignGroup = { group ->
+                    homeViewModel.assignFavoriteMessageGroup(detailMessage.id, group)
+                },
                 onViewInChat = {
                     val targetChat = chatListState.chats.find { it.id == detailMessage.chatId }
                     selectedDetailMessage = null
                     if (targetChat != null) {
-                        onExistingChatClick(targetChat)
+                        onExistingChatClick(targetChat, detailMessage.id)
                     }
                 },
                 onUnfavorite = {
@@ -591,11 +601,15 @@ fun AddFavoriteGroupDialog(
 fun FavoriteDetailDialog(
     message: MessageV2,
     platformName: String,
+    favoriteGroups: List<String> = emptyList(),
+    currentGroup: String? = null,
     onDismiss: () -> Unit,
+    onAssignGroup: ((String?) -> Unit)? = null,
     onViewInChat: () -> Unit,
     onUnfavorite: () -> Unit
 ) {
     var showUnfavoriteConfirmDialog by remember { mutableStateOf(false) }
+    var showGroupDropdown by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -674,25 +688,97 @@ fun FavoriteDetailDialog(
                                 )
                             }
 
-                            // Persistent Cyan Favorite Star Button
-                            Surface(
-                                shape = CircleShape,
-                                color = Color.Cyan.copy(alpha = 0.2f),
-                                border = BorderStroke(1.5.dp, Color.Cyan),
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clickable { showUnfavoriteConfirmDialog = true }
+                            // Middle Group Button & Cyan Favorite Star Button
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.fillMaxSize()
+                                if (onAssignGroup != null) {
+                                    Box {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clickable { showGroupDropdown = true }
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Folder,
+                                                    contentDescription = stringResource(R.string.assign_group),
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+
+                                        DropdownMenu(
+                                            expanded = showGroupDropdown,
+                                            onDismissRequest = { showGroupDropdown = false }
+                                        ) {
+                                            val validGroups = favoriteGroups.filter { it != HomeViewModel.GROUP_ALL }
+                                            if (validGroups.isEmpty()) {
+                                                DropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.no_custom_groups)) },
+                                                    onClick = { showGroupDropdown = false },
+                                                    enabled = false
+                                                )
+                                            } else {
+                                                DropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.none_group)) },
+                                                    leadingIcon = {
+                                                        if (currentGroup == null) {
+                                                            Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        onAssignGroup(null)
+                                                        showGroupDropdown = false
+                                                    }
+                                                )
+                                                validGroups.forEach { group ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(group) },
+                                                        leadingIcon = {
+                                                            if (currentGroup == group) {
+                                                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
+                                                            }
+                                                        },
+                                                        onClick = {
+                                                            onAssignGroup(group)
+                                                            showGroupDropdown = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Persistent Cyan Favorite Star Button
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.Cyan.copy(alpha = 0.2f),
+                                    border = BorderStroke(1.5.dp, Color.Cyan),
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clickable { showUnfavoriteConfirmDialog = true }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Star,
-                                        contentDescription = stringResource(R.string.unfavorite),
-                                        tint = Color.Cyan,
-                                        modifier = Modifier.size(28.dp)
-                                    )
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Star,
+                                            contentDescription = stringResource(R.string.unfavorite),
+                                            tint = Color.Cyan,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -900,7 +986,6 @@ fun HomeTopAppBar(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
 private fun ChatsTitle(scrollBehavior: TopAppBarScrollBehavior) {
     Text(
         modifier = Modifier

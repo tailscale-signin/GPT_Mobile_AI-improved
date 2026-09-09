@@ -15,7 +15,9 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
 import javax.inject.Inject
@@ -40,7 +42,7 @@ class AgentRunForegroundService : Service() {
         acquireWakeLock()
         createNotificationChannel()
         var wasActive = coordinator.activeRuns.value.isNotEmpty()
-        if (!showNotification(coordinator.activeRuns.value.size)) {
+        if (!showNotification(coordinator.activeRuns.value.values.toList())) {
             coordinator.interruptAll()
             releaseWakeLock()
             stopSelf()
@@ -48,7 +50,8 @@ class AgentRunForegroundService : Service() {
         }
         serviceScope.launch {
             coordinator.activeRuns.collectLatest { activeRuns ->
-                val isActive = activeRuns.isNotEmpty()
+                val runsList = activeRuns.values.toList()
+                val isActive = runsList.isNotEmpty()
                 if (!isActive) {
                     stoppedBecauseInactive = true
                     releaseWakeLock()
@@ -59,7 +62,7 @@ class AgentRunForegroundService : Service() {
                     stopSelf()
                 } else {
                     acquireWakeLock()
-                    if (!showNotification(activeRuns.size)) {
+                    if (!showNotification(runsList)) {
                         coordinator.interruptAll()
                         releaseWakeLock()
                         stopSelf()
@@ -120,16 +123,17 @@ class AgentRunForegroundService : Service() {
         }
     }
 
-    private fun showNotification(activeCount: Int): Boolean = runCatching {
+    private fun showNotification(activeRuns: List<ActiveAgentRun>): Boolean = runCatching {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            buildNotification(activeCount.coerceAtLeast(1)),
+            buildNotification(activeRuns),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
     }.isSuccess
 
-    private fun buildNotification(activeCount: Int): Notification {
+    private fun buildNotification(activeRuns: List<ActiveAgentRun>): Notification {
+        val count = activeRuns.size.coerceAtLeast(1)
         val openApp = buildOpenAppPendingIntent(0)
         val cancelRuns = PendingIntent.getService(
             this,
@@ -137,10 +141,12 @@ class AgentRunForegroundService : Service() {
             Intent(this, AgentRunForegroundService::class.java).setAction(ACTION_CANCEL_ALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val contentText = resolveNotificationContentText(this, activeRuns)
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_gpt_mobile_monochrome_foreground)
             .setContentTitle(getString(R.string.agent_notification_title))
-            .setContentText(resources.getQuantityString(R.plurals.agent_runs_active, activeCount, activeCount))
+            .setContentText(contentText)
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -201,6 +207,19 @@ class AgentRunForegroundService : Service() {
             )
         }
     }
+}
+
+internal fun resolveNotificationContentText(context: Context, activeRuns: List<ActiveAgentRun>): String {
+    val count = activeRuns.size.coerceAtLeast(1)
+    if (activeRuns.size == 1) {
+        val singleRun = activeRuns.first()
+        when (singleRun.phase) {
+            LocalInferencePhase.PREFILL -> return context.getString(R.string.agent_run_phase_prefill)
+            LocalInferencePhase.GENERATING -> return context.getString(R.string.agent_run_phase_generating)
+            null -> Unit
+        }
+    }
+    return context.resources.getQuantityString(R.plurals.agent_runs_active, count, count)
 }
 
 internal fun shouldNotifyAgentRunsCompleted(

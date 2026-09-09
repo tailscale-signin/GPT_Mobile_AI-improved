@@ -72,7 +72,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
-    - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats. Includes baseline tools: `CurrentDateTool`, `CalculatorTool`, `ReadUrlTool`, and `ReadFileSliceTool`.
+    - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats. McpAgentTool automatically extracts optional `start_line` / `end_line` parameters for file-reading tools (like GitHub's `get_file_contents`), sanitizes outgoing payloads to the remote server, and applies line slicing to the result. Baseline tools include: `CurrentDateTool`, `CalculatorTool`, `ReadUrlTool`, and `ReadFileSliceTool`.
     - `CalculatorTool.kt` — Built-in mathematical expression evaluation engine.
     - `CurrentDateTool.kt` — Supplies localized current date, time, and timezone information.
     - `DeviceLocationProvider.kt` — Android location services integration with permission verification.
@@ -80,7 +80,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
     - `McpClientManager.kt` — Manages active MCP client connections, transports, and tool life cycles.
     - `McpOAuthClient.kt` — Handles OAuth2 flows, PKCE, token refresh, and auth endpoints for protected MCP tools.
     - `McpOAuthCoordinator.kt` — Coordinates user authorization UX and callback dispatch for MCP OAuth services.
-    - `McpToolMapper.kt` — Translates MCP tool definitions and execution schemas into native `AgentTool` interfaces.
+    - `McpToolMapper.kt` — Translates MCP tool definitions and execution schemas into native `AgentTool` interfaces. Augments schemas for remote file-reading tools (e.g. `get_file_contents`, `read_file`) with optional `start_line` and `end_line` integer parameters, and provides `sliceTextLines` to extract bounded line ranges with line numbering into model context.
     - `ReadFileSliceTool.kt` — Built-in tool (`read_file_slice`) reading bounded line ranges with line-number prefixing to minimize context token usage.
     - `ReadUrlTool.kt` — Securely fetches and boundedly extracts readable text content from public HTTP/HTTPS URLs.
     - `WebSearchTool.kt` — Built-in web search tool supporting search providers and result parsing.
@@ -201,7 +201,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`), tools (`ReadFileSliceToolTest`), catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`), tools (`ReadFileSliceToolTest`, `McpToolMapperTest`), catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 

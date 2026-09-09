@@ -3,17 +3,25 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,11 +30,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -35,11 +45,15 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,6 +62,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,12 +76,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -76,10 +92,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -90,6 +108,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -109,8 +129,10 @@ fun HomeScreen(
     val platformState by homeViewModel.platformState.collectAsStateWithLifecycle()
     val activeChatIds by homeViewModel.activeChatIds.collectAsStateWithLifecycle()
     val searchQuery by homeViewModel.searchQuery.collectAsStateWithLifecycle()
-    val favoriteSearchQuery by homeViewModel.favoriteSearchQuery.collectAsStateWithLifecycle()
     val favoriteMessages by homeViewModel.favoriteMessages.collectAsStateWithLifecycle()
+    val favoriteGroups by homeViewModel.favoriteGroups.collectAsStateWithLifecycle()
+    val selectedFavoriteGroup by homeViewModel.selectedFavoriteGroup.collectAsStateWithLifecycle()
+    val messageGroups by homeViewModel.messageGroups.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -118,6 +140,9 @@ fun HomeScreen(
     val selectedChat = chatListState.chats.filterIndexed { index, _ -> chatListState.selectedChats.getOrElse(index) { false } }.singleOrNull()
     val duplicatedChatMessage = stringResource(R.string.duplicated_chat)
     val deletedChatsMessage = stringResource(R.string.deleted_chats, selectedChatCount)
+
+    var selectedDetailMessage by remember { mutableStateOf<MessageV2?>(null) }
+    var showAddGroupDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(lifecycleState) {
         if (lifecycleState == Lifecycle.State.RESUMED && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
@@ -287,14 +312,15 @@ fun HomeScreen(
 
                 HomeTab.FAVORITES -> {
                     FavoritesList(
-                        searchQuery = favoriteSearchQuery,
-                        onSearchQueryChanged = homeViewModel::updateFavoriteSearchQuery,
                         favorites = favoriteMessages,
+                        favoriteGroups = favoriteGroups,
+                        selectedGroup = selectedFavoriteGroup,
+                        messageGroups = messageGroups,
                         platformState = platformState,
+                        onSelectGroup = homeViewModel::selectFavoriteGroup,
+                        onAddGroupClick = { showAddGroupDialog = true },
                         onFavoriteClick = { message ->
-                            chatListState.chats.find { it.id == message.chatId }?.let { chatRoom ->
-                                onExistingChatClick(chatRoom)
-                            }
+                            selectedDetailMessage = message
                         },
                         onToggleFavorite = { message ->
                             homeViewModel.toggleFavorite(message.id, !message.isFavorite)
@@ -302,6 +328,37 @@ fun HomeScreen(
                     )
                 }
             }
+        }
+
+        if (showAddGroupDialog) {
+            AddFavoriteGroupDialog(
+                onDismissRequest = { showAddGroupDialog = false },
+                onAddGroup = { newGroupName ->
+                    homeViewModel.addFavoriteGroup(newGroupName)
+                    showAddGroupDialog = false
+                }
+            )
+        }
+
+        selectedDetailMessage?.let { detailMessage ->
+            val platformName = detailMessage.platformType?.let { platformState.getPlatformName(it) }
+                ?: stringResource(R.string.unknown)
+            FavoriteDetailDialog(
+                message = detailMessage,
+                platformName = platformName,
+                onDismiss = { selectedDetailMessage = null },
+                onViewInChat = {
+                    val targetChat = chatListState.chats.find { it.id == detailMessage.chatId }
+                    selectedDetailMessage = null
+                    if (targetChat != null) {
+                        onExistingChatClick(targetChat)
+                    }
+                },
+                onUnfavorite = {
+                    homeViewModel.toggleFavorite(detailMessage.id, false)
+                    selectedDetailMessage = null
+                }
+            )
         }
 
         if (showSelectModelDialog) {
@@ -332,51 +389,63 @@ fun HomeScreen(
 
 @Composable
 fun FavoritesList(
-    searchQuery: String,
-    onSearchQueryChanged: (String) -> Unit,
     favorites: List<MessageV2>,
+    favoriteGroups: List<String>,
+    selectedGroup: String,
+    messageGroups: Map<Int, String>,
     platformState: List<PlatformV2>,
+    onSelectGroup: (String) -> Unit,
+    onAddGroupClick: () -> Unit,
     onFavoriteClick: (MessageV2) -> Unit,
     onToggleFavorite: (MessageV2) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChanged,
+        // Custom Groups horizontal filter row
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text(stringResource(R.string.search_favorites)) },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Rounded.Search,
-                    contentDescription = stringResource(R.string.search_favorites)
-                )
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onSearchQueryChanged("") }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.clear)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            favoriteGroups.forEach { group ->
+                val isSelected = (group == selectedGroup)
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onSelectGroup(group) },
+                    label = {
+                        Text(
+                            text = if (group == HomeViewModel.GROUP_ALL) stringResource(R.string.all) else group,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
-                    }
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color.Cyan.copy(alpha = 0.25f),
+                        selectedLabelColor = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+            }
+            FilterChip(
+                selected = false,
+                onClick = onAddGroupClick,
+                label = { Text(stringResource(R.string.add_group)) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = stringResource(R.string.add_group),
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(24.dp)
-        )
+            )
+        }
 
         if (favorites.isEmpty()) {
             Text(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(32.dp),
-                text = if (searchQuery.isEmpty()) {
-                    stringResource(R.string.no_favorites_yet)
-                } else {
-                    stringResource(R.string.no_favorites_found)
-                },
+                text = stringResource(R.string.no_favorites_yet),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -392,9 +461,11 @@ fun FavoritesList(
                 ) { message ->
                     val platformName = message.platformType?.let { platformState.getPlatformName(it) }
                         ?: stringResource(R.string.unknown)
+                    val assignedGroup = messageGroups[message.id]
                     FavoriteMessageItem(
                         message = message,
                         platformName = platformName,
+                        groupName = assignedGroup,
                         onClick = { onFavoriteClick(message) },
                         onUnfavoriteClick = { onToggleFavorite(message) }
                     )
@@ -408,17 +479,18 @@ fun FavoritesList(
 fun FavoriteMessageItem(
     message: MessageV2,
     platformName: String,
+    groupName: String?,
     onClick: () -> Unit,
     onUnfavoriteClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(16.dp)
     val topColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val bottomColor = MaterialTheme.colorScheme.surfaceContainerHighest
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .heightIn(min = 120.dp)
+            .heightIn(min = 110.dp)
             .clip(shape)
             .background(Brush.verticalGradient(listOf(topColor, bottomColor)))
             .combinedClickable(onClick = onClick),
@@ -428,33 +500,251 @@ fun FavoriteMessageItem(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 18.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = platformName,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = platformName,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (!groupName.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.Cyan.copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = groupName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 IconButton(onClick = onUnfavoriteClick) {
                     Icon(
                         imageVector = Icons.Filled.Star,
-                        contentDescription = stringResource(R.string.favorite),
-                        tint = MaterialTheme.colorScheme.primary
+                        contentDescription = stringResource(R.string.unfavorite),
+                        tint = Color.Cyan
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = message.content,
                 style = MaterialTheme.typography.bodyMedium,
-                maxLines = 5,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+fun AddFavoriteGroupDialog(
+    onDismissRequest: () -> Unit,
+    onAddGroup: (String) -> Unit
+) {
+    var groupName by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = {
+            Text(text = stringResource(R.string.add_group))
+        },
+        text = {
+            OutlinedTextField(
+                value = groupName,
+                onValueChange = { groupName = it },
+                label = { Text(stringResource(R.string.group_name)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = groupName.isNotBlank(),
+                onClick = { onAddGroup(groupName) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+fun FavoriteDetailDialog(
+    message: MessageV2,
+    platformName: String,
+    onDismiss: () -> Unit,
+    onViewInChat: () -> Unit,
+    onUnfavorite: () -> Unit
+) {
+    var showUnfavoriteConfirmDialog by remember { mutableStateOf(false) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Scaffold(
+                topBar = {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            GPTMobileIcon(loading = false)
+                            Column {
+                                Text(
+                                    text = platformName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = stringResource(R.string.favorites),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = stringResource(R.string.close)
+                            )
+                        }
+                    }
+                },
+                bottomBar = {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        tonalElevation = 8.dp,
+                        shadowElevation = 8.dp,
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Persistent View Button to enter the chat room
+                            Button(
+                                onClick = onViewInChat,
+                                shape = RoundedCornerShape(24.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Visibility,
+                                    contentDescription = stringResource(R.string.view_in_chat),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(R.string.view_in_chat),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+
+                            // Persistent Cyan Favorite Star Button
+                            Surface(
+                                shape = CircleShape,
+                                color = Color.Cyan.copy(alpha = 0.2f),
+                                border = BorderStroke(1.5.dp, Color.Cyan),
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clickable { showUnfavoriteConfirmDialog = true }
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Star,
+                                        contentDescription = stringResource(R.string.unfavorite),
+                                        tint = Color.Cyan,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                // Fully scrollable message content with Markdown, LaTeX math, code highlighting, and custom typography
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    ChatMarkdown(
+                        content = message.content,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
+        }
+    }
+
+    if (showUnfavoriteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showUnfavoriteConfirmDialog = false },
+            title = {
+                Text(text = stringResource(R.string.unfavorite_confirm_title))
+            },
+            text = {
+                Text(text = stringResource(R.string.unfavorite_confirm_message))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUnfavoriteConfirmDialog = false
+                        onUnfavorite()
+                    }
+                ) {
+                    Text(
+                        text = stringResource(R.string.unfavorite),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUnfavoriteConfirmDialog = false }) {
+                    Text(text = stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 }
 

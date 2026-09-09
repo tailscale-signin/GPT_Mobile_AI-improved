@@ -14,6 +14,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 - **Architecture:** Clean MVVM with repository, domain-boundary abstractions, and data-source layers.
 - **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
+- **Motion & Transitions:** Theme motion primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`) in `presentation.theme.Motion.kt` backing collapsible details animations and responsive indicator state transitions.
 - **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
 - **Dependency injection:** Hilt/Dagger with KSP.
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
@@ -45,8 +46,10 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Core Application & UI Architecture
 
-- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt` — Core conversation screen. Renders chat messages, tool execution progress cards, multi-turn tool calling logs, auto-scroll to favorited message on deep navigation, platform tab switching, and `rememberChatListState(messageCount)` for instant bottom anchoring without scroll lag on initial layout pass.
-- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt` — User and assistant speech bubbles. Includes `OpponentResponseContainer` with animated cyan highlight bubble (`Color.Cyan.copy(alpha = 0.2f)`), 32.dp rounded corners, and padded borders around the entire assistant response block.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt` — Core conversation screen. Renders chat messages, tool execution progress cards, multi-turn tool calling logs, auto-scroll to favorited message on deep navigation, platform tab switching, and `rememberChatListState(messageCount)` for instant bottom anchoring without scroll lag on initial layout pass. Uses `shouldShowReplyLoadingIndicator` to orchestrate continuous loading indicator state across active assistant turns.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt` — User and assistant speech bubbles. Includes `OpponentResponseContainer` with animated cyan highlight bubble (`Color.Cyan.copy(alpha = 0.2f)`), 32.dp rounded corners, padded borders around the entire assistant response block, collapsible details toggle button (`DetailsButton`) with accessibility semantics, and continuous streaming pulse (`●`) during generation and active tool runs.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt` — Core conversation ViewModel and decoupled pure domain/presentation helper functions (`shouldShowReplyLoadingIndicator`, `hasAssistantProcessDetails`, `loadingStatesForLatestAssistant`, `groupPersistedMessages`, `normalizeAssistantRow`, `updateAssistantSlot`).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/theme/Motion.kt` — Shared motion and spring transition primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`).
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt` — Home dashboard, conversation list, favorites modal dialog (`FavoriteDetailDialog`) with custom category groups ("All", user groups, "+ Add Group"), category assignments, LaTeX/Markdown/code rendering, un-favorite confirmation, and direct navigation to favorited message in chat.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt` — ViewModel driving conversation listings, favorite grouping/filtering, and asynchronous `getChatRoom(chatId, onResult)` resolution for reliable navigation.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingScreen.kt` & `SettingViewModel.kt` — Settings screen managing dynamic multi-key API credential configurations, encrypted storage, and model choices.
@@ -66,6 +69,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - Prefer immutable data structures and explicit types where readability benefits.
 - Preserve backward-compatibility for Room schemas; always update database version and migration definitions when modifying entities.
 - Ensure all new tools are registered in baseline tools and exposed via appropriate interfaces.
+- Keep pure presentation and domain functions testable in headless JVM environments without coupling to Compose UI classes or layout contexts.
 
 ## 4. Anti-Patterns & Traps ("Don'ts")
 

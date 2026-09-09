@@ -378,6 +378,39 @@ class PlatformSettingViewModelTest {
     }
 
     @Test
+    fun `changing the local model on high RAM device scales maxTokens to 4096`() = runTest {
+        val settings = FakeSettingRepository(
+            localPlatform(
+                model = "gemma3-1b-it",
+                temperature = 0.2f,
+                topP = 0.4f,
+                topK = 8,
+                maxTokens = 256,
+                accelerator = LocalAccelerators.GPU
+            )
+        )
+        val viewModel = localSettingsViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    catalogEntry(
+                        id = "qwen2.5-3b-it",
+                        supportedAccelerators = listOf("cpu", "gpu"),
+                        defaults = CatalogDefaultConfig(topK = 40, topP = 0.9f, temperature = 0.7f, maxTokens = 2048)
+                    )
+                )
+            ),
+            deviceRamGb = 16L
+        )
+
+        viewModel.updateApiModel("qwen2.5-3b-it")
+
+        val updated = settings.updatedPlatforms.single()
+        assertEquals("qwen2.5-3b-it", updated.model)
+        assertEquals(4096, updated.maxTokens)
+    }
+
+    @Test
     fun `changing the local model preserves sampling fields when catalog defaults are missing`() = runTest {
         val settings = FakeSettingRepository(
             localPlatform(
@@ -457,14 +490,16 @@ class PlatformSettingViewModelTest {
             listOf(catalogEntry("gemma3-1b-it", supportedAccelerators = listOf("cpu", "gpu")))
         ),
         localModels: LocalModelRepository = FakeLocalModelRepository(),
-        deviceSocModel: String = ""
+        deviceSocModel: String = "",
+        deviceRamGb: Long = 8L
     ): PlatformSettingViewModel = testViewModel(
         dao = FakeToolConnectionDao(),
         settingRepository = settings,
         catalogRepository = catalog,
         localModelRepository = localModels,
         platformUid = "local-1",
-        deviceSocModel = deviceSocModel
+        deviceSocModel = deviceSocModel,
+        deviceRamGb = deviceRamGb
     )
 
     private fun testViewModel(
@@ -473,7 +508,8 @@ class PlatformSettingViewModelTest {
         catalogRepository: ModelCatalogRepository = FakeModelCatalogRepository(),
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
         platformUid: String = "profile-1",
-        deviceSocModel: String = ""
+        deviceSocModel: String = "",
+        deviceRamGb: Long = 8L
     ): PlatformSettingViewModel {
         val vault = FakeSecretVault()
         val repository = ToolConnectionRepository(dao, vault)
@@ -494,6 +530,7 @@ class PlatformSettingViewModelTest {
             modelCatalogRepository = catalogRepository,
             localModelRepository = localModelRepository,
             deviceSocModel = deviceSocModel,
+            deviceRamGb = deviceRamGb,
             savedStateHandle = SavedStateHandle(mapOf("platformUid" to platformUid))
         )
     }

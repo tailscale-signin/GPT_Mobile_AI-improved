@@ -23,7 +23,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
 - **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Official Latest Release: `v0.8.9` (tag `v0.8.9`, branches `v0.8.9` and `release-v0.8.9`). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
-- **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing, and ktlint 1.3.1 using Android Studio style.
+- **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing (`ChatDatabaseV2MigrationsTest`), and ktlint 1.3.1 using Android Studio style.
 
 ## 2. Repository Index
 
@@ -55,8 +55,9 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 ### Database & Migrations
 
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2.kt` — Room database definition (version 15).
-- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2Migrations.kt` — Incremental Room migrations, including `MIGRATION_14_15` (`open_router_routing` column added to `platform_v2`).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2Migrations.kt` — Incremental Room migrations, including `MIGRATION_10_11`, `MIGRATION_11_12`, `MIGRATION_12_13`, `MIGRATION_13_14`, and `MIGRATION_14_15` (`open_router_routing` column added to `platform_v2`).
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/PlatformV2.kt` — Room entity storing AI platform configs, tokens, endpoints, sampling parameters, and `openRouterRouting`.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2MigrationsTest.kt` — Migration unit tests verifying migration version ranges, default schema values, and entity conversion.
 
 ### Agent & Tooling
 

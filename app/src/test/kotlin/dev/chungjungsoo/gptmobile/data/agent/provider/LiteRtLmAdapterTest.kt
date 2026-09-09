@@ -11,6 +11,8 @@ import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState
+import dev.chungjungsoo.gptmobile.data.localruntime.DeviceThermalState
 import dev.chungjungsoo.gptmobile.data.localruntime.FakeLocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineHolder
@@ -1160,6 +1162,30 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(8192, runtime.loadEngineCalls.single().maxTokens)
+    }
+
+    @Test
+    fun `severe thermal status clamps engine context and throttles topK`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            simulatedHardwareState = DeviceHardwareState(
+                thermalState = DeviceThermalState.SEVERE,
+                batteryPct = 50,
+                isCharging = false
+            )
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+
+        adapter.openSession(
+            turns("hello"),
+            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192, topK = 40)
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        // 8192 should be clamped to 1024 by adaptive throttling policy
+        assertEquals(1024, runtime.loadEngineCalls.single().maxTokens)
+        // topK of 40 should be halved to 20
+        assertEquals(20, runtime.createConversationCalls.single().sampler.topK)
     }
 
     @Test

@@ -30,6 +30,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -100,9 +102,12 @@ fun OpponentChatBubble(
         visibleChatRunNotices(runNotices, timelineNoticeMessages(timeline), isLoading)
     }
     val contentTimeline = remember(timeline) { timeline.filter { it.type != AssistantTimelineItemType.NOTICE } }
+    val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
+        extractTelemetryNotice(noticeMessages)
+    }
 
     Column(modifier = modifier) {
-        RunNoticeChips(notices = noticeMessages, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
+        RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
         AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
         Column(
             modifier = Modifier.background(
@@ -136,6 +141,10 @@ fun OpponentChatBubble(
                         if (canEdit) { Spacer(Modifier.width(8.dp)); EditTextIcon(onEditClick) }
                     }
                     if (canRetry) { Spacer(Modifier.width(8.dp)); RetryIcon(onRetryClick) }
+                    telemetryNotice?.let { telemetry ->
+                        Spacer(Modifier.width(8.dp))
+                        TelemetryBadge(telemetry)
+                    }
                 }
                 if (canRetry) Text(
                     text = stringResource(R.string.retry_tools_warning),
@@ -334,6 +343,33 @@ private fun FavoriteIcon(
 }
 @Composable private fun EditTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(Icons.Outlined.Edit, stringResource(R.string.edit))
+}
+
+@Composable
+internal fun TelemetryBadge(notice: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.semantics { contentDescription = notice },
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Text(
+            text = notice,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+internal fun isTelemetryNotice(message: String): Boolean =
+    message.startsWith("Local: ") && message.contains("tok/s")
+
+internal fun extractTelemetryNotice(notices: List<String>): Pair<String?, List<String>> {
+    val telemetry = notices.firstOrNull(::isTelemetryNotice)
+    val remaining = notices.filterNot(::isTelemetryNotice)
+    return telemetry to remaining
 }
 
 @Preview

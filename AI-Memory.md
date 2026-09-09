@@ -2,7 +2,7 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: incremental and in progress on `main`. Architecture, core configuration, UI feature paths, encrypted backup code, and major test roots are indexed. Expand file-level entries as additional implementation files are inspected.
+> Index status: incremental and in progress on `main`. Architecture, core configuration, UI feature paths, encrypted backup/security code, selected catalog/context/parser files, and major test roots are indexed. Expand file-level entries as additional implementations are inspected.
 
 ## 1. Repository Overview
 
@@ -64,8 +64,14 @@ Data and integration layer:
 
 - `agents/` — Autonomous agent orchestration, tool-call loops, limits, logs, and result synthesis.
 - `backup/` — Backup/restore data behavior outside the encrypted manager in the Java source set.
-- `catalog/` — Model catalog loading and metadata.
+- `catalog/` — Model and MCP catalog metadata and parsing.
+  - `McpPresetCatalog.kt` — Defines MCP transport/category/pricing enums and preset models; exposes built-in server presets, compatibility aliases, category filtering, ID/alias lookup, and search.
+  - `ModelCatalog.kt` — Serializable model-catalog schema, including capabilities, default generation configuration, and SoC-specific model variants.
+  - `ModelCatalogParser.kt` — Parses lenient JSON while ignoring unknown fields, validates schema compatibility and minimum app versions, formats model download sizes, and compares dotted app versions.
 - `context/` — Context-window budgeting and compaction.
+  - `ContextBuilder.kt` — Builds provider-aware history: selects provider-specific assistant responses, strips error notes, excludes failed historical turns, applies recent-turn and character budgets, and removes attachments from older turns.
+  - `ConversationTurn.kt` — Models paired user/assistant messages and identifies the current turn.
+  - `ProviderContextPolicy.kt` — Defines provider-specific history, attachment, and character limits.
 - `database/` — Room V2 entities, DAOs, converters, database construction, search, and migrations.
 - `datastore/` — Preference-backed settings and app state.
 - `dto/` — Serialized transport models.
@@ -75,8 +81,10 @@ Data and integration layer:
 - `network/` — Shared clients, streaming/SSE, retries, and provider transport.
 - `openrouter/` — OpenRouter catalog/API behavior.
 - `parser/` — Provider and streaming payload parsing.
+  - `ThinkingParser.kt` — Extracts case-insensitive `<think>...</think>` blocks and returns reasoning plus cleaned response content. A second parser exists in `ui/thinking/ThinkingParser.kt`; inspect call sites and semantics before consolidating.
 - `repository/` — Repository interfaces and `*Impl` implementations coordinating data sources.
 - `security/` — Keystore-backed encryption and credential handling.
+  - `SecretVault.kt` — Defines `SecretVault`, `SecretVaultException`, and `AndroidSecretVault`. Stores bounded byte-array credentials as versioned AES-GCM records in `noBackupFilesDir`, using an Android Keystore key, randomized IVs, record-reference AAD, strict reference/record validation, `AtomicFile`, serialized access via `Mutex`, and `Dispatchers.IO`. Missing or permanently invalidated keys cause irrecoverable records to be deleted and read as absent.
 - `worker/` — WorkManager jobs.
 
 Dependencies should flow from repositories to database/DataStore/network/local/MCP sources. Presentation code consumes repositories instead of constructing transports or persistence objects.
@@ -119,7 +127,7 @@ Presentation dependencies should point to repository abstractions and expose imm
 
 #### `app/src/main/kotlin/dev/chungjungsoo/gptmobile/ui/`
 
-Additional UI package. It contains `ui/thinking/ThinkingAccordion.kt` and `ui/thinking/ThinkingParser.kt`, while another accordion exists under `presentation/ui/thinking/`. Inspect both before changing thinking/reasoning behavior; avoid introducing a third implementation and determine call sites before consolidation.
+Additional UI package. It contains `ui/thinking/ThinkingAccordion.kt` and `ui/thinking/ThinkingParser.kt`, while another accordion exists under `presentation/ui/thinking/` and a parser exists under `data/parser/`. Inspect all implementations and call sites before changing reasoning behavior; avoid introducing another implementation and preserve package-specific semantics unless deliberately consolidating them with tests.
 
 #### `app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/`
 
@@ -131,12 +139,13 @@ Cross-cutting helpers for API state, attachments/files, networking/platform beha
 
 ### Tests
 
-- `app/src/test/kotlin/` — JVM tests grouped under `data/`, `presentation/`, `ui/`, and `util/` for repositories, parsers, context/agent/MCP behavior, UI-independent presentation logic, and utilities.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/` — JVM data tests. Current groups include `agent/`, `catalog/`, `context/`, `database/`, `dto/`, `huggingface/`, `localmodel/`, `localruntime/`, `mcp/`, `model/`, `network/`, `parser/`, and `repository/`, plus `ModelConstantsTest.kt`.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/`, `ui/`, `util/` — JVM tests for UI-independent presentation state/logic, UI helpers, and utilities.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — JVM tests for configuration and SQLite encrypted backup/restore round trips, wrong-passphrase failure, and non-SQLite rejection. Uses a reduced PBKDF2 iteration count only for test speed.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/ExampleInstrumentedTest.kt` — Basic Android instrumented test.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/backup/` — Device backup integration tests.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/database/` — Room/database and migration integration tests.
-- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/security/` — Android Keystore/security integration tests.
+- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVaultInstrumentedTest.kt` — Verifies vault round-trip, overwrite/delete, `noBackupFilesDir` placement, unsafe-reference and oversized-secret rejection, malformed and reference-moved record rejection, and deletion of records whose Keystore key is missing.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/` — Instrumented/Compose presentation tests.
 
 ## 3. Engineering Guidelines (Do's)
@@ -174,7 +183,8 @@ Cross-cutting helpers for API state, attachments/files, networking/platform beha
 - Keep SSE parsing chunk-safe and retries bounded with backoff.
 - Enforce configurable agent/MCP tool-call ceilings.
 - Add Room migrations, exported schemas, and migration tests for schema changes.
-- Store credentials only through the established Keystore/AES-GCM path.
+- Store credentials only through the established `SecretVault`/Keystore AES-GCM path.
+- Preserve vault record versioning, secret-reference AAD binding, strict size/path validation, atomic writes, no-backup storage, and zeroing of temporary sensitive arrays.
 - Treat backups, logs, notifications, and errors as possible exfiltration surfaces.
 - For encrypted exports, keep production KDF iterations strong; tests may inject a reduced count. Never reuse a salt/IV or replace authenticated encryption with unauthenticated encryption.
 
@@ -195,12 +205,13 @@ Focused JVM test:
 ./gradlew test --tests "fully.qualified.TestClass"
 ```
 
-Add tests for behavior changes, especially parsers, compaction, migrations, repositories, MCP limits, streaming, retries, backup formats, and restore failure paths. Verify release-sensitive changes against ABI splits, R8, shrinking, and Java 21 compatibility.
+Add tests for behavior changes, especially parsers, compaction, migrations, repositories, MCP limits, streaming, retries, backup formats, vault record validation, and restore failure paths. Verify release-sensitive changes against ABI splits, R8, shrinking, and Java 21 compatibility.
 
 ## 4. Anti-Patterns & Traps (Don'ts)
 
 - Do not commit API keys, OAuth secrets, signing keys, passwords, tokens, private endpoints, or real credentials.
-- Do not bypass Keystore encryption or persist credentials in plain Room/DataStore, logs, backups, or UI snapshots.
+- Do not bypass `SecretVault`/Keystore encryption or persist credentials in plain Room/DataStore, logs, backups, or UI snapshots.
+- Do not weaken vault reference validation, remove AAD binding, move vault records out of `noBackupFilesDir`, reuse IVs, or retain irrecoverable ciphertext after key loss.
 - Do not log prompts, responses, authorization headers, credentials, or tool payloads in release paths.
 - Do not perform network, database, file, crypto, or inference work on the main thread.
 - Do not expose mutable flows, collect flows in Compose without lifecycle awareness, block cancellation, or swallow `CancellationException`.
@@ -213,4 +224,4 @@ Add tests for behavior changes, especially parsers, compaction, migrations, repo
 - Do not broaden permissions, exported components, service types, or URI/file access without a requirement and security review.
 - Do not add unsupported 32-bit ABIs, weaken R8/privacy rules merely to silence failures, or manually edit generated Room schemas.
 - Do not use wildcard imports unless explicitly permitted, and do not place comments inside/after annotation value parameters.
-- Do not duplicate feature screens/components across `presentation/` and `ui/`; inspect both trees and call sites first.
+- Do not duplicate thinking parsers/screens/components across `data/`, `presentation/`, and `ui/`; inspect implementations, call sites, and tests first.

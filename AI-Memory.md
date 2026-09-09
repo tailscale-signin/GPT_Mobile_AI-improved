@@ -99,7 +99,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `ProviderContextPolicy.kt` — Defines provider-specific history, attachment, and character limits.
 - `database/` — Room persistence layer (Database v14):
   - `ChatDatabase.kt` / `ChatDatabaseV2.kt` — Primary Room database holder with schema versioning and type converter declarations.
-  - `ChatDatabaseV2Migrations.kt` — Production schema migrations covering versions 10 through 14 (adding tool connections, assistant timeline items, agent runs, agent tool bindings, and local models).
+  - `ChatDatabaseV2Migrations.kt` — Production schema migrations covering versions 10 through 14 (adding tool connections, assistant timeline items, agent runs, agent tool bindings, and local models; v14 adds `max_tool_calls` column to `platform_v2`).
   - DAOs: `AgentPersistenceDao.kt`, `AgentRunDao.kt`, `ChatPlatformModelV2Dao.kt`, `ChatRoomDao.kt`, `ChatRoomV2Dao.kt`, `LocalModelDao.kt`, `MessageDao.kt`, `MessageV2Dao.kt`, `PlatformV2Dao.kt`, `ToolConnectionDao.kt`.
   - Entities & Converters: `AgentRun.kt`, `AgentToolBinding.kt`, `AssistantTimelineItem.kt`, `ChatPlatformModelV2.kt`, `ChatRoom.kt`, `ChatRoomV2.kt`, `Converters.kt`, `LocalModel.kt`, `Message.kt`, `MessageV2.kt`, `Platform.kt`, `PlatformV2.kt`, `ToolConnection.kt`, `ToolEvent.kt`, `ToolExecutionConverters.kt`.
 - `datastore/` — Preferences & key-value configuration:
@@ -171,6 +171,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `HomeScreen.kt` / `HomeViewModel.kt`:
   - `HomeTab.CHATS`: Displays chat list with search, duplicate, delete actions, and model selection dialog.
   - `HomeTab.FAVORITES`: Redesigned favorites management with search bar removed. Features custom group filter chips ("All", user-created categories, "+ Add Group"), assignment of favorites to custom groups, and a full-screen favorite detail view/dialog (`DialogProperties(usePlatformDefaultWidth = false)`). The detail view renders rich content via `ChatMarkdown` (Markdown, LaTeX math, code highlighting, typography, assistant `GPTMobileIcon`), vertical scrolling, a persistent "View" button navigating into the chat, and a persistent Cyan-highlighted favorite star button that confirms removal via `AlertDialog`.
+- `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format.
 - `PlatformSettingScreen.kt` — Configures existing platforms and passes current tokens (`platformData.token`) to `APIKeyDialog`.
 - `SetupPlatformWizardScreen.kt` — Step-by-step setup wizard with dynamic multi-key API credentials (`+API`, delete row), keeping keys visible and formatted via `ApiCredentialRotator`.

@@ -1190,6 +1190,41 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `severe thermal status clamps rolling compaction context budget`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            simulatedHardwareState = DeviceHardwareState(
+                thermalState = DeviceThermalState.SEVERE,
+                batteryPct = 50,
+                isCharging = false
+            )
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+        // 8192 max tokens requested on 16GB RAM, but severe thermal forces clamp to 1024 tokens (~4096 chars)
+        val platform = localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192)
+
+        val anchor = completedTurn("Anchor turn prompt setup", "Anchor reply")
+        // Create 20 historical turns with 300 chars each (~6000 chars total, which exceeds 1024 tokens / ~4096 chars)
+        val intermediateTurns = (1..20).map { i ->
+            completedTurn("Intermediate user question turn $i with repeating text to occupy buffer space 1234567890 1234567890 1234567890", "Intermediate answer $i with reply words filling context room 1234567890 1234567890")
+        }
+        val current = pendingTurn("Current user message")
+
+        adapter.openSession(
+            listOf(anchor) + intermediateTurns + current,
+            platform
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        val config = runtime.createConversationCalls.single()
+        // Anchor must be preserved
+        assertEquals("Anchor turn prompt setup", config.initialMessages[0].text)
+        assertEquals("Anchor reply", config.initialMessages[1].text)
+        // Middle turns should be compacted out to stay safely within the 1024 clamped tokens ceiling
+        assertTrue(config.initialMessages.size < (intermediateTurns.size * 2) + 2)
+    }
+
+    @Test
     fun `high RAM device still respects NPU context clamp`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             deviceRamGb = 16L

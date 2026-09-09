@@ -9,6 +9,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/**
+ * Thread-safe lifecycle holder for the native LiteRT model instance.
+ *
+ * Supports warm engine retention across conversational sessions when using the same
+ * model specification, preventing reinitialization overhead (2-5s latency savings)
+ * especially beneficial for high-RAM flagship devices.
+ */
 class LocalEngineHolder(
     private val delegate: LocalRuntime
 ) : LocalRuntime {
@@ -16,7 +23,9 @@ class LocalEngineHolder(
     private var loadedSpec: LocalEngineSpec? = null
 
     override suspend fun loadEngine(spec: LocalEngineSpec) = withGenerationLock {
-        if (loadedSpec == spec) return@withGenerationLock
+        if (loadedSpec == spec && delegate.isEngineLoaded(spec)) {
+            return@withGenerationLock
+        }
         if (loadedSpec != null) {
             delegate.closeConversation()
             delegate.unloadEngine()
@@ -58,7 +67,7 @@ class LocalEngineHolder(
         }
     }
 
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec
+    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec && delegate.isEngineLoaded(spec)
 
     override fun hasOpenConversation(): Boolean = delegate.hasOpenConversation()
 

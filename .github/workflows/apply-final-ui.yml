@@ -14,73 +14,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/tool-trace-official-icon-summary
-      - name: Apply changes
+      - name: Apply and commit source changes
+        shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          tool = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt')
+          tool = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt")
           text = tool.read_text()
-          old = 'painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),'
-          new = '''painter = painterResource(
+          text = text.replace(
+              "painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),",
+              """painter = painterResource(
                   id = if (info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor) {
                       R.drawable.ic_github
                   } else {
                       R.drawable.ic_gpt_mobile_foreground
                   },
-              ),'''
-          assert old in text
-          text = text.replace(old, new, 1)
-          old = '.padding(start = 16.dp)\n            .fillMaxWidth()'
-          assert old in text
-          text = text.replace(old, '.padding(horizontal = 16.dp)\n            .fillMaxWidth()', 1)
-          old = '.background(MaterialTheme.colorScheme.surfaceVariant)\n            .semantics { contentDescription = traceBlockDescription },'
-          assert old in text
-          text = text.replace(old, '.background(Color.Black.copy(alpha = 0.18f))\n            .semantics { contentDescription = traceBlockDescription },', 1)
-          old = '.padding(12.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)'
-          assert old in text
-          text = text.replace(old, '.padding(horizontal = 12.dp, vertical = 8.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)', 1)
+              ),""",
+              1,
+          )
+          text = text.replace(".padding(start = 16.dp)\n            .fillMaxWidth()", ".padding(horizontal = 16.dp)\n            .fillMaxWidth()", 1)
+          text = text.replace(".background(MaterialTheme.colorScheme.surfaceVariant)\n            .semantics { contentDescription = traceBlockDescription },", ".background(Color.Black.copy(alpha = 0.18f))\n            .semantics { contentDescription = traceBlockDescription },", 1)
+          text = text.replace(".padding(12.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)", ".padding(horizontal = 12.dp, vertical = 8.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)", 1)
           tool.write_text(text)
 
-          home = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt')
+          home = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt")
           text = home.read_text()
-          text = text.replace('import androidx.compose.foundation.ExperimentalFoundationApi\n', 'import androidx.compose.foundation.ExperimentalFoundationApi\nimport androidx.compose.foundation.background\n', 1)
-          text = text.replace('import androidx.compose.ui.Alignment\n', 'import androidx.compose.ui.Alignment\nimport androidx.compose.ui.draw.clip\nimport androidx.compose.ui.graphics.Brush\n', 1)
-          old = '''    Card(
-              modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(horizontal = 16.dp, vertical = 6.dp)
-                  .combinedClickable(onClick = onClick),
-              shape = RoundedCornerShape(12.dp),
-              colors = CardDefaults.cardColors(
-                  containerColor = MaterialTheme.colorScheme.surfaceVariant
-              )
-          ) {
-              Column(
-                  modifier = Modifier
-                      .fillMaxWidth()
-                      .padding(16.dp)
-              ) {'''
-          # Account for source indentation exactly as checked out.
-          old = old.replace('    Card(', '    Card(').replace('              modifier', '        modifier').replace('                  .', '            .').replace('              shape', '        shape').replace('              colors', '        colors').replace('                  container', '            container').replace('              )', '        )').replace('          ) {', '    ) {').replace('              Column(', '        Column(').replace('                  modifier', '            modifier').replace('                      .', '                .').replace('              ) {', '        ) {')
-          if old not in text:
-              old = '''    Card(
-                  modifier = Modifier
-                      .fillMaxWidth()
-                      .padding(horizontal = 16.dp, vertical = 6.dp)
-                      .combinedClickable(onClick = onClick),
-                  shape = RoundedCornerShape(12.dp),
-                  colors = CardDefaults.cardColors(
-                      containerColor = MaterialTheme.colorScheme.surfaceVariant
-                  )
-              ) {
-                  Column(
-                      modifier = Modifier
-                          .fillMaxWidth()
-                          .padding(16.dp)
-                  ) {'''.replace('        ', '    ', 1)
-          # Simpler exact literal from the repository.
-          old = '''    Card(
+          if "import androidx.compose.foundation.background\n" not in text:
+              text = text.replace("import androidx.compose.foundation.ExperimentalFoundationApi\n", "import androidx.compose.foundation.ExperimentalFoundationApi\nimport androidx.compose.foundation.background\n", 1)
+          if "import androidx.compose.ui.draw.clip\n" not in text:
+              text = text.replace("import androidx.compose.ui.Alignment\n", "import androidx.compose.ui.Alignment\nimport androidx.compose.ui.draw.clip\nimport androidx.compose.ui.graphics.Brush\n", 1)
+          old = """    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
@@ -94,8 +58,8 @@ jobs:
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
-        ) {'''
-          new = '''    val shape = RoundedCornerShape(12.dp)
+        ) {"""
+          new = """    val shape = RoundedCornerShape(12.dp)
     val topColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val bottomColor = MaterialTheme.colorScheme.surfaceContainerHighest
     Card(
@@ -113,14 +77,14 @@ jobs:
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 18.dp)
-        ) {'''
-          assert old in text
-          home.write_text(text.replace(old, new, 1))
+        ) {"""
+          text = text.replace(old, new, 1)
+          home.write_text(text)
           PY
-      - name: Commit changes
-        run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/apply-final-ui.yml
           git add app/src/main
+          git diff --cached --quiet && exit 1
           git commit -m 'Refine tool and favorite bubbles'
-          git push
+          git push origin HEAD:fix/tool-trace-official-icon-summary

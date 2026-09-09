@@ -5,7 +5,7 @@ Persistent repository context for AI coding agents. Keep this file synchronized 
 > Index status: comprehensive and actively maintained on `0.9.0` and `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 
 > **CRITICAL BRANCH MERGE POLICY (`0.9.0`):**
-> Branch `0.9.0` is dedicated to high-performance hardware acceleration (NPU/GPU speculative decoding, phase-split scheduling, persistent in-memory KV-cache pooling, expanded long context up to 8192 tokens for >=12GB/16GB devices, and 120Hz frame-synced streaming).
+> Branch `0.9.0` is dedicated to high-performance hardware acceleration (NPU/GPU speculative decoding, phase-split scheduling, cooperative yielding, persistent in-memory KV-cache pooling, expanded long context up to 8192 tokens for >=12GB/16GB devices, and 120Hz frame-synced streaming).
 > **DO NOT EVER MERGE `0.9.0` INTO `main` WITHOUT USER APPROVAL.**
 > Even if the user says "yes" to merging, **ALWAYS WARN THE USER FIRST** with an explicit confirmation check before executing any merge into `main`.
 
@@ -22,7 +22,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
 - **Persistence:** Room (`ChatDatabaseV2`, Schema version 14) with full FTS search and DataStore preferences (`SettingDataSource`).
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
-- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention across conversational turns, and tier-aware context window scaling up to 8,192 tokens on >=12GB RAM hardware via `deviceRamGb`); Ollama supported for self-hosted network inference.
+- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention across conversational turns, cooperative `yield()` checkpoints, phase-split scheduling `LocalInferencePhase.PREFILL` / `GENERATING`, and tier-aware context window scaling up to 8,192 tokens on >=12GB RAM hardware via `deviceRamGb`); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
 - **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`).
@@ -72,9 +72,9 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `AgentRunner.kt` — Core bounded tool execution loop. Enforces `AgentRunLimits` (timeouts, max rounds, tool-call ceilings, concurrency semaphores, output byte limits). Collects round flows directly without intermediate abort-throwing operators (`transformWhile`) to preserve Flow exception transparency, injects final-response instructions when approaching tool limits, and falls back cleanly when models reject tool definitions.
   - `PlatformAgentRunner.kt` — Factory function `agentRunnerForPlatform` providing isolated runner instances per platform and run override to prevent budget leakage.
   - `provider/` — Model provider streaming adapters:
-    - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution. Integrates hardware context scaling derived from `localRuntime.deviceRamGb` and SoC variant clamps.
+    - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution. Integrates hardware context scaling derived from `localRuntime.deviceRamGb`, SoC variant clamps, cooperative thread yield checkpoints during conversation creation/message dispatch, and ignores raw phase transitions.
     - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, rotatable error detection, and explicit rethrow of `CancellationException` in all catch blocks to maintain Kotlin coroutine cancellation and Flow exception transparency.
-    - `ProviderAttachmentEncoder.kt` — Formats and base4-encodes media and file attachments for various provider payload formats.
+    - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
     - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats. McpAgentTool automatically extracts optional `start_line` / `end_line` parameters for file-reading tools (like GitHub's `get_file_contents`), sanitizes outgoing payloads to the remote server, and applies line slicing to the result. Baseline tools include: `CurrentDateTool`, `CalculatorTool`, `ReadUrlTool`, and `ReadFileSliceTool`.
@@ -122,7 +122,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `LocalEngineHolder.kt` — Thread-safe lifecycle holder for the native LiteRT model instance with warm engine retention. Exposes `deviceRamGb` delegated to the underlying runtime.
   - `LocalEngineMaxTokens.kt` — Max token calculations and context boundary limits supporting high-RAM tier (up to 8,192 tokens for >=12GB/16GB devices).
   - `LocalModelValidator.kt` — File integrity and schema validation for downloaded `.tflite` / `.bin` model files.
-  - `LocalRuntime.kt` / `LocalRuntimeImpl.kt` — Native on-device execution engine coordinating prompt evaluations, sampling parameters, and streaming token responses. Directly exposes `deviceRamGb: Long`.
+  - `LocalRuntime.kt` / `LocalRuntimeImpl.kt` — Native on-device execution engine coordinating prompt evaluations, sampling parameters, cooperative yielding (`yield()`), phase-split scheduling (`LocalInferencePhase.PREFILL` and `GENERATING`), and streaming token responses. Directly exposes `deviceRamGb: Long`.
   - `LocalSamplingDefaults.kt` — Default temperature, top-p, and top-k hyperparameters for local models.
 - `mcp/` — Model Context Protocol search and integration:
   - `McpIntegratedSearchManager.kt` — Federated search coordination across active MCP tool providers (defaults to preinstalled `droid-mcp-web` Online Search tools: `web_search` and `fetch_webpage`).

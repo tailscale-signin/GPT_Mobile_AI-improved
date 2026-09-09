@@ -986,6 +986,7 @@ fun HomeTopAppBar(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun ChatsTitle(scrollBehavior: TopAppBarScrollBehavior) {
     Text(
         modifier = Modifier

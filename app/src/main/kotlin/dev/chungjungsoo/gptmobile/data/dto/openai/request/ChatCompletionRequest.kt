@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.dto.openai.request
 
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPlugin
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
@@ -52,7 +55,27 @@ data class ChatCompletionRequest(
 
     @SerialName("tools")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val tools: List<ChatFunctionTool>? = null
+    val tools: List<ChatFunctionTool>? = null,
+
+    @SerialName("models")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val models: List<String>? = null,
+
+    @SerialName("provider")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val provider: OpenRouterProviderRouting? = null,
+
+    @SerialName("transforms")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val transforms: List<String>? = null,
+
+    @SerialName("reasoning")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val reasoning: OpenRouterReasoning? = null,
+
+    @SerialName("plugins")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val plugins: List<OpenRouterPlugin>? = null
 )
 
 @Serializable

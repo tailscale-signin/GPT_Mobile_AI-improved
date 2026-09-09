@@ -13,6 +13,8 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome
+import dev.chungjungsoo.gptmobile.util.HIGH_REFRESH_FRAME_INTERVAL_MILLIS
+import dev.chungjungsoo.gptmobile.util.LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.assistantErrorAppendedText
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.collectApiStateUpdates
@@ -72,8 +74,8 @@ class AgentRunCoordinator @Inject constructor(
     private val _notices = MutableSharedFlow<AgentRunNotice>(extraBufferCapacity = 8)
 
     // On high-RAM (>= 10GB) flagship devices with 120Hz/144Hz displays, streaming database and UI
-    // dispatch can be throttled from 250ms down to 33ms (~30 FPS) for butter-smooth live token streaming
-    // without starving CPU/IO, while conserving disk IO on lower memory devices.
+    // dispatch targets an 8ms frame budget (~120 FPS) for buttery-smooth live token streaming without micro-stutter,
+    // while conserving disk IO on lower memory tiers with 250ms batching.
     private val isHighMemoryDevice by lazy {
         try {
             val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -86,7 +88,7 @@ class AgentRunCoordinator @Inject constructor(
     }
 
     private val publishIntervalMillis: Long
-        get() = if (isHighMemoryDevice) 33L else 250L
+        get() = if (isHighMemoryDevice) HIGH_REFRESH_FRAME_INTERVAL_MILLIS else LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
 
     val activeRuns = _activeRuns.asStateFlow()
     val notices = _notices.asSharedFlow()

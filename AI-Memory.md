@@ -64,11 +64,11 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `agent/` — Autonomous agent orchestration, tool-call loops, limits, background execution, provider adapters, and built-in/MCP tools:
   - `AgentContracts.kt` — Core agent interfaces and data types: `ProviderEvent` (deltas, tool calls/results, failures, notices), `AgentToolDefinition`, `AgentToolResult`, `ToolResultContent` (Text, Json, ResourceLinks), `AgentTool` interface, `AgentToolExchange`, `AgentProviderSession`, `AgentRunEvent`, and `ToolDefinitionsRejectedException`.
   - `AgentRunCoordinator.kt` — Singleton coordinator for background/foreground agent execution. Manages concurrent run jobs by `runId`, ensures per-chat serialization via `Mutex` gates, throttles database/UI updates (adaptive 33ms on >=10GB RAM devices, 250ms otherwise), starts `AgentRunForegroundService`, handles cancellation/interruption states, and writes terminal run records to `ChatRepository`.
-  - `AgentRunner.kt` — Core bounded tool execution loop. Enforces `AgentRunLimits` (timeouts, max rounds, tool-call ceilings, concurrency semaphores, output byte limits). Injects final-response instructions when approaching tool limits and falls back cleanly when models reject tool definitions.
+  - `AgentRunner.kt` — Core bounded tool execution loop. Enforces `AgentRunLimits` (timeouts, max rounds, tool-call ceilings, concurrency semaphores, output byte limits). Collects round flows directly without intermediate abort-throwing operators (`transformWhile`) to preserve Flow exception transparency, injects final-response instructions when approaching tool limits, and falls back cleanly when models reject tool definitions.
   - `PlatformAgentRunner.kt` — Factory function `agentRunnerForPlatform` providing isolated runner instances per platform and run override to prevent budget leakage.
   - `provider/` — Model provider streaming adapters:
     - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution.
-    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, and rotatable error detection.
+    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, rotatable error detection, and explicit rethrow of `CancellationException` in all catch blocks to maintain Kotlin coroutine cancellation and Flow exception transparency.
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
@@ -197,7 +197,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), repositories, and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 
@@ -225,6 +225,8 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - Model UI state with immutable data/sealed classes and StateFlow.
 - Collect in Compose with lifecycle-aware APIs such as `collectAsStateWithLifecycle()`.
 - Use `viewModelScope` and structured concurrency; preserve cancellation.
+- In Kotlin coroutine flows and provider adapters, preserve Flow exception transparency: always check `if (t is CancellationException) throw t` at the very beginning of any `catch (t: Throwable)` block. Never emit into a flow from a catch block that caught a cancellation or aborted downstream emission.
+- Avoid flow-aborting operators like `transformWhile` inside nested stream wrappers when standard collection loops with early return suffice.
 - Emit explicit loading/error/completion states.
 - Batch/throttle streaming UI updates instead of recomposing for every token.
 
@@ -266,6 +268,7 @@ Add tests for behavior changes, especially parsers, compaction, migrations, repo
 - Do not log prompts, responses, authorization headers, credentials, or tool payloads in release paths.
 - Do not perform network, database, file, crypto, or inference work on the main thread.
 - Do not expose mutable flows, collect flows in Compose without lifecycle awareness, block cancellation, or swallow `CancellationException`.
+- Do not catch `Throwable` inside a Flow collection and emit without rethrowing `CancellationException`, which causes `Flow exception transparency is violated: Previous 'emit' call has thrown exception kotlinx.coroutines.flow.internal.AbortFlowException...`
 - Do not instantiate repositories, databases, clients, MCP clients, or expensive runtimes directly in screens/ViewModels; use Hilt and abstractions.
 - Do not assume stream chunks align with JSON objects or character boundaries.
 - Do not remove bounded retry/backoff, context protection, tool-call limits, foreground-service compliance, or wake-lock release paths.

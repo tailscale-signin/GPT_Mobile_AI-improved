@@ -230,7 +230,7 @@ class LiteRtLmAdapter(
                     }.collect { event ->
                         when (event) {
                             is LocalRuntimeEvent.PhaseChanged -> {
-                                // Handled cooperatively for phase scheduling; no raw event propagation required
+                                send(ProviderEvent.PhaseChanged(event.phase))
                             }
 
                             is LocalRuntimeEvent.TextDelta -> {

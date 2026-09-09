@@ -16,8 +16,9 @@ jobs:
         with:
           ref: fix/tool-trace-official-icon-summary
       - name: Apply and validate source patch
-        shell: python
+        shell: bash
         run: |
+          python <<'PY'
           from pathlib import Path
 
           tool = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt")
@@ -35,7 +36,7 @@ jobs:
           )
           text = text.replace(
               ".background(MaterialTheme.colorScheme.surfaceVariant)\n            .semantics { contentDescription = traceBlockDescription },",
-              ".background(MaterialTheme.colorScheme.background.copy(alpha = 0.82f))\n            .semantics { contentDescription = traceBlockDescription },",
+              ".background(Color.Black.copy(alpha = 0.18f))\n            .semantics { contentDescription = traceBlockDescription },",
               1,
           )
           text = text.replace(
@@ -73,8 +74,8 @@ jobs:
                 .padding(16.dp)
         ) {"""
           new = """    val shape = RoundedCornerShape(12.dp)
-    val topColor = MaterialTheme.colorScheme.surfaceVariant
-    val bottomColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
+    val topColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val bottomColor = MaterialTheme.colorScheme.surfaceContainerHighest
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -101,6 +102,7 @@ jobs:
           if "Brush.verticalGradient" not in home.read_text():
               raise SystemExit("Favorite gradient patch failed")
           Path(".github/workflows/apply-requested-ui.yml").unlink()
+          PY
       - name: Commit source changes and workflow cleanup
         run: |
           git config user.name "github-actions[bot]"

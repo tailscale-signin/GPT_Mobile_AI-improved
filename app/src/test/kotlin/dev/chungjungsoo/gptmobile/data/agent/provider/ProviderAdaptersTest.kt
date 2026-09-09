@@ -51,9 +51,12 @@ import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
 import java.util.ArrayDeque
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -65,6 +68,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
@@ -729,6 +733,84 @@ class ProviderAdaptersTest {
             .toList()
 
         assertNull(api.requests.single().tools)
+    }
+
+    @Test
+    fun `adapters rethrow CancellationException without emitting failure or violating flow transparency`() = runBlocking {
+        val openAIChunk = ChatCompletionChunk(
+            choices = listOf(
+                Choice(
+                    index = 0,
+                    delta = Delta(content = "chunk"),
+                    finishReason = null
+                )
+            )
+        )
+        val cancellingOpenAIFlow = flow<ChatCompletionChunk> {
+            emit(openAIChunk)
+            throw CancellationException("cancelled downstream")
+        }
+        val openAICompatibleAdapter = OpenAICompatibleAdapter(
+            openAIAPI = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(cancellingOpenAIFlow))),
+            groqAPI = FakeGroqAPI(),
+            attachmentEncoder = attachmentEncoder()
+        )
+        val session = openAICompatibleAdapter.openSession(turns(), platform(ClientType.OPENAI))
+
+        try {
+            session.streamRound(emptyList(), emptyList()).toList()
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancelled downstream", e.message)
+        }
+
+        val cancellingResponsesFlow = flow<ResponsesStreamEvent> {
+            emit(OutputTextDeltaEvent("item_1", 0, 0, "chunk"))
+            throw CancellationException("cancelled responses")
+        }
+        val openAIResponsesAdapter = OpenAIResponsesAdapter(
+            FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(cancellingResponsesFlow))),
+            attachmentEncoder()
+        )
+        val responsesSession = openAIResponsesAdapter.openSession(turns(), platform(ClientType.OPENAI))
+        try {
+            responsesSession.streamRound(emptyList(), emptyList()).toList()
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancelled responses", e.message)
+        }
+
+        val cancellingAnthropicFlow = flow<MessageResponseChunk> {
+            emit(ContentDeltaResponseChunk(0, ContentBlock(type = ContentBlockType.DELTA, text = "chunk")))
+            throw CancellationException("cancelled anthropic")
+        }
+        val anthropicAdapter = AnthropicMessagesAdapter(
+            FakeAnthropicAPI(ArrayDeque(listOf(cancellingAnthropicFlow))),
+            attachmentEncoder()
+        )
+        val anthropicSession = anthropicAdapter.openSession(turns(), platform(ClientType.ANTHROPIC))
+        try {
+            anthropicSession.streamRound(emptyList(), emptyList()).toList()
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancelled anthropic", e.message)
+        }
+
+        val cancellingGeminiFlow = flow<GenerateContentResponse> {
+            emit(GenerateContentResponse(candidates = listOf(Candidate(content = Content(role = GoogleRole.MODEL, parts = listOf(Part.text("chunk")))))))
+            throw CancellationException("cancelled gemini")
+        }
+        val geminiAdapter = GeminiAdapter(
+            FakeGoogleAPI(ArrayDeque(listOf(cancellingGeminiFlow))),
+            attachmentEncoder()
+        )
+        val geminiSession = geminiAdapter.openSession(turns(), platform(ClientType.GOOGLE))
+        try {
+            geminiSession.streamRound(emptyList(), emptyList()).toList()
+            fail("Expected CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("cancelled gemini", e.message)
+        }
     }
 
     private fun turns() = listOf(

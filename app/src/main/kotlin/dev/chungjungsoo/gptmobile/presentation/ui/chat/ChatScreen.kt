@@ -135,11 +135,13 @@ fun ChatScreen(
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
     val listState = rememberLazyListState()
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
-    var isFollowingBottom by remember { mutableStateOf(true) }
+    var isFollowingBottom by remember { mutableStateOf(chatViewModel.targetMessageId <= 0) }
+    var hasScrolledToTarget by rememberSaveable { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
+    val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val runNoticesById by chatViewModel.runNoticesById.collectAsStateWithLifecycle()
     val toolEventsByRun by chatViewModel.toolEventsByRun.collectAsStateWithLifecycle()
@@ -200,6 +202,21 @@ fun ChatScreen(
         chatViewModel.refreshLocalNetworkRequirement()
     }
 
+    LaunchedEffect(isLoaded, groupedMessages.userMessages.size) {
+        if (isLoaded && !hasScrolledToTarget && chatViewModel.targetMessageId > 0) {
+            val targetTurn = groupedMessages.userMessages.indices.firstOrNull { turn ->
+                val userMatched = groupedMessages.userMessages.getOrNull(turn)?.id == chatViewModel.targetMessageId
+                val assistantMatched = groupedMessages.assistantMessages.getOrNull(turn)?.any { it.id == chatViewModel.targetMessageId } == true
+                userMatched || assistantMatched
+            }
+            if (targetTurn != null) {
+                hasScrolledToTarget = true
+                isFollowingBottom = false
+                listState.scrollToItem(targetTurn)
+            }
+        }
+    }
+
     LaunchedEffect(isUserDragging, listState.isScrollInProgress, listState.canScrollForward, listState.lastScrolledBackward) {
         isFollowingBottom = nextFollowBottom(
             isFollowing = isFollowingBottom,
@@ -210,7 +227,9 @@ fun ChatScreen(
     }
 
     LaunchedEffect(lastMessageIndex) {
-        isFollowingBottom = true
+        if (chatViewModel.targetMessageId <= 0 || hasScrolledToTarget) {
+            isFollowingBottom = true
+        }
     }
 
     ChatBottomAutoScroller(

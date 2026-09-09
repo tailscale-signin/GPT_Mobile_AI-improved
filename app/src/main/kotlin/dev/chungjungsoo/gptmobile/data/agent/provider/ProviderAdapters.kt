@@ -52,6 +52,7 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import java.util.concurrent.atomic.AtomicInteger
@@ -59,6 +60,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -171,6 +173,8 @@ class OpenAICompatibleAdapter @Inject constructor(
     private val groqAPI: GroqAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
+    private val routingJson = Json { ignoreUnknownKeys = true }
+
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
@@ -197,6 +201,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                     )
                 } else {
                     emptyMap()
+                }
+
+                val parsedRouting: OpenRouterProviderRouting? = if (isOpenRouter && !platform.openRouterRouting.isNullOrBlank()) {
+                    runCatching {
+                        routingJson.decodeFromString<OpenRouterProviderRouting>(platform.openRouterRouting)
+                    }.getOrNull()
+                } else {
+                    null
                 }
 
                 for (attempt in 0 until attempts) {
@@ -278,6 +290,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         temperature = platform.temperature,
                         topP = platform.topP,
                         tools = requestTools,
+                        provider = parsedRouting,
                         reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null
                     )
                     val assembler = ChatCompletionsEventAssembler()

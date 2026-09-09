@@ -35,7 +35,8 @@ object DatabaseModule {
             ChatDatabaseV2Migrations.MIGRATION_10_11,
             ChatDatabaseV2Migrations.MIGRATION_11_12,
             ChatDatabaseV2Migrations.MIGRATION_12_13,
-            ChatDatabaseV2Migrations.MIGRATION_13_14
+            ChatDatabaseV2Migrations.MIGRATION_13_14,
+            ChatDatabaseV2Migrations.MIGRATION_14_15
         )
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .addCallback(object : RoomDatabase.Callback() {

@@ -79,5 +79,8 @@ data class PlatformV2(
     val sexuallyExplicitSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
 
     @ColumnInfo(name = "dangerous_content_safety_threshold", defaultValue = "'BLOCK_NONE'")
-    val dangerousContentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE
+    val dangerousContentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
+
+    @ColumnInfo(name = "open_router_routing")
+    val openRouterRouting: String? = null
 )

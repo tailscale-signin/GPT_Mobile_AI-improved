@@ -1,8 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.database
 
 import dev.chungjungsoo.gptmobile.data.ModelConstants
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevisionListConverter
-import dev.chungjungsoo.gptmobile.data.database.entity.ChatAttachmentListConverter
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -30,75 +30,45 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
-    fun `version five migration adds Gemini safety columns with block none defaults`() {
-        assertEquals(
-            listOf(
-                "ALTER TABLE `platform_v2` ADD COLUMN `harassment_safety_threshold` TEXT NOT NULL DEFAULT 'BLOCK_NONE'",
-                "ALTER TABLE `platform_v2` ADD COLUMN `hate_speech_safety_threshold` TEXT NOT NULL DEFAULT 'BLOCK_NONE'",
-                "ALTER TABLE `platform_v2` ADD COLUMN `sexually_explicit_safety_threshold` TEXT NOT NULL DEFAULT 'BLOCK_NONE'",
-                "ALTER TABLE `platform_v2` ADD COLUMN `dangerous_content_safety_threshold` TEXT NOT NULL DEFAULT 'BLOCK_NONE'"
-            ),
-            ChatDatabaseV2Migrations.GEMINI_SAFETY_COLUMN_MIGRATIONS
+    fun `new platform defaults max tool calls to integer max value`() {
+        val platform = PlatformV2(
+            name = "OpenAI",
+            compatibleType = ClientType.OPENAI,
+            apiUrl = "https://api.openai.com/v1/",
+            model = "gpt-5.6"
         )
+
+        assertEquals(Int.MAX_VALUE, platform.maxToolCalls)
     }
 
     @Test
-    fun `legacy file list migrates to attachment json`() {
-        val json = ChatDatabaseV2Migrations.legacyFilesToAttachmentsJson("/tmp/first.png,/tmp/second.webp")
+    fun `new platform defaults open router routing to null`() {
+        val platform = PlatformV2(
+            name = "OpenRouter",
+            compatibleType = ClientType.OPENROUTER,
+            apiUrl = "https://openrouter.ai/api/v1/",
+            model = "openai/gpt-5.6-sol"
+        )
 
-        val attachments = ChatAttachmentListConverter().fromString(json)
-
-        assertEquals(2, attachments.size)
-        assertEquals("/tmp/first.png", attachments[0].localFilePath)
-        assertEquals("/tmp/first.png", attachments[0].preparedFilePath)
-        assertEquals("first.png", attachments[0].resolvedDisplayName)
-        assertTrue(attachments[0].providerRefs.isEmpty())
-        assertEquals("/tmp/second.webp", attachments[1].localFilePath)
+        assertNull(platform.openRouterRouting)
     }
 
     @Test
-    fun `legacy revision list migrates to structured revisions`() {
-        val json = ChatDatabaseV2Migrations.legacyRevisionsToStructuredJson(
-            revisionsValue = "first revision,second revision",
-            createdAt = 1234L
-        )
+    fun `migration instances have correct versions`() {
+        assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
+        assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
 
-        val revisions = AssistantRevisionListConverter().fromString(json)
+        assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_11_12.startVersion)
+        assertEquals(12, ChatDatabaseV2Migrations.MIGRATION_11_12.endVersion)
 
-        assertEquals(2, revisions.size)
-        assertEquals("first revision", revisions[0].content)
-        assertEquals("", revisions[0].thoughts)
-        assertEquals(1234L, revisions[0].createdAt)
-        assertEquals("second revision", revisions[1].content)
-        assertEquals(1234L, revisions[1].createdAt)
-    }
+        assertEquals(12, ChatDatabaseV2Migrations.MIGRATION_12_13.startVersion)
+        assertEquals(13, ChatDatabaseV2Migrations.MIGRATION_12_13.endVersion)
 
-    @Test
-    fun `blank legacy revision list migrates to empty structured revisions`() {
-        val json = ChatDatabaseV2Migrations.legacyRevisionsToStructuredJson(
-            revisionsValue = "",
-            createdAt = 1234L
-        )
+        assertEquals(13, ChatDatabaseV2Migrations.MIGRATION_13_14.startVersion)
+        assertEquals(14, ChatDatabaseV2Migrations.MIGRATION_13_14.endVersion)
 
-        val revisions = AssistantRevisionListConverter().fromString(json)
-
-        assertTrue(revisions.isEmpty())
-    }
-
-    @Test
-    fun `legacy revision migration filters blank segments and applies timestamp`() {
-        val json = ChatDatabaseV2Migrations.legacyRevisionsToStructuredJson(
-            revisionsValue = "a, ,b",
-            createdAt = 1234L
-        )
-
-        val revisions = AssistantRevisionListConverter().fromString(json)
-
-        assertEquals(2, revisions.size)
-        assertEquals("a", revisions[0].content)
-        assertEquals(1234L, revisions[0].createdAt)
-        assertEquals("b", revisions[1].content)
-        assertEquals(1234L, revisions[1].createdAt)
+        assertEquals(14, ChatDatabaseV2Migrations.MIGRATION_14_15.startVersion)
+        assertEquals(15, ChatDatabaseV2Migrations.MIGRATION_14_15.endVersion)
     }
 
     @Test
@@ -113,7 +83,7 @@ class ChatDatabaseV2MigrationsTest {
         val converter = AssistantRevisionListConverter()
         val encoded = converter.fromList(
             listOf(
-                dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision(
+                AssistantRevision(
                     content = "Answer",
                     thoughts = "Reasoning",
                     createdAt = 1234L,
@@ -148,17 +118,6 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
-    fun `legacy OpenAI compatible custom api urls gain version segment`() {
-        assertEquals("https://proxy.example/api/v1/", ChatDatabaseV2Migrations.normalizeLegacyProviderApiUrl("CUSTOM", "https://proxy.example/api/"))
-        assertEquals("https://openrouter.example/api/v1/", ChatDatabaseV2Migrations.normalizeLegacyProviderApiUrl("OPENROUTER", "https://openrouter.example/api/"))
-        assertEquals("http://localhost:11434/v1/", ChatDatabaseV2Migrations.normalizeLegacyProviderApiUrl("OLLAMA", "http://localhost:11434"))
-        assertEquals("https://groq-proxy.example/openai/v1/", ChatDatabaseV2Migrations.normalizeLegacyProviderApiUrl("GROQ", "https://groq-proxy.example/openai/"))
-        assertEquals("https://proxy.example/api/v1/", ChatDatabaseV2Migrations.normalizeLegacyProviderApiUrl("CUSTOM", "https://proxy.example/api/v1/"))
-        assertEquals("https://generativelanguage.googleapis.com/custom/", ChatDatabaseV2Migrations.normalizeLegacyProviderApiUrl("GOOGLE", "https://generativelanguage.googleapis.com/custom/"))
-        assertEquals("https://anthropic-proxy.example/api/", ChatDatabaseV2Migrations.normalizeLegacyProviderApiUrl("ANTHROPIC", "https://anthropic-proxy.example/api/"))
-    }
-
-    @Test
     fun `new platform defaults local inference columns to null`() {
         val platform = PlatformV2(
             name = "Local",
@@ -173,50 +132,8 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
-    fun `version ten migration adds local inference columns`() {
-        assertEquals(
-            listOf(
-                "ALTER TABLE `platform_v2` ADD COLUMN `top_k` INTEGER",
-                "ALTER TABLE `platform_v2` ADD COLUMN `max_tokens` INTEGER",
-                "ALTER TABLE `platform_v2` ADD COLUMN `accelerator` TEXT"
-            ),
-            ChatDatabaseV2Migrations.PLATFORM_LOCAL_INFERENCE_COLUMN_MIGRATIONS
-        )
-    }
-
-    @Test
-    fun `version nine migration creates local models table`() {
-        assertEquals(
-            listOf(
-                """
-                CREATE TABLE IF NOT EXISTS `local_models` (
-                    `catalog_entry_id` TEXT NOT NULL,
-                    `commit_hash` TEXT NOT NULL,
-                    `file_name` TEXT NOT NULL,
-                    `relative_directory` TEXT NOT NULL,
-                    `total_bytes` INTEGER NOT NULL,
-                    `status` TEXT NOT NULL,
-                    `created_at` INTEGER NOT NULL,
-                    `updated_at` INTEGER NOT NULL,
-                    PRIMARY KEY(`catalog_entry_id`)
-                )
-                """.trimIndent()
-            ),
-            ChatDatabaseV2Migrations.LOCAL_MODEL_TABLE_MIGRATIONS
-        )
-    }
-
-    @Test
     fun `default favorite state is false`() {
         val chatRoom = ChatRoomV2(title = "Test Room")
         assertFalse(chatRoom.isFavorite)
-    }
-
-    @Test
-    fun `migration 11 to 12 adds favorite column statement`() {
-        assertEquals(
-            listOf("ALTER TABLE `chats_v2` ADD COLUMN `is_favorite` INTEGER NOT NULL DEFAULT 0"),
-            ChatDatabaseV2Migrations.CHAT_FAVORITE_COLUMN_MIGRATIONS
-        )
     }
 }

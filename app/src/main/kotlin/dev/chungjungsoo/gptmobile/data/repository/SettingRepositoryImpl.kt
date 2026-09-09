@@ -283,7 +283,8 @@ class SettingRepositoryImpl @Inject constructor(
                     harassmentSafetyThreshold = p.harassmentSafetyThreshold,
                     hateSpeechSafetyThreshold = p.hateSpeechSafetyThreshold,
                     sexuallyExplicitSafetyThreshold = p.sexuallyExplicitSafetyThreshold,
-                    dangerousContentSafetyThreshold = p.dangerousContentSafetyThreshold
+                    dangerousContentSafetyThreshold = p.dangerousContentSafetyThreshold,
+                    openRouterRouting = p.openRouterRouting
                 )
             }
         )
@@ -326,7 +327,8 @@ class SettingRepositoryImpl @Inject constructor(
                     harassmentSafetyThreshold = pDto.harassmentSafetyThreshold,
                     hateSpeechSafetyThreshold = pDto.hateSpeechSafetyThreshold,
                     sexuallyExplicitSafetyThreshold = pDto.sexuallyExplicitSafetyThreshold,
-                    dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold
+                    dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold,
+                    openRouterRouting = pDto.openRouterRouting
                 )
                 updatePlatformV2(updated)
             } else {
@@ -349,7 +351,8 @@ class SettingRepositoryImpl @Inject constructor(
                     harassmentSafetyThreshold = pDto.harassmentSafetyThreshold,
                     hateSpeechSafetyThreshold = pDto.hateSpeechSafetyThreshold,
                     sexuallyExplicitSafetyThreshold = pDto.sexuallyExplicitSafetyThreshold,
-                    dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold
+                    dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold,
+                    openRouterRouting = pDto.openRouterRouting
                 )
                 addPlatformV2(newPlatform)
             }

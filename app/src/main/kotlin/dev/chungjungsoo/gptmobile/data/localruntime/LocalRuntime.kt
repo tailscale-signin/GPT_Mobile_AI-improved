@@ -100,6 +100,12 @@ interface LocalRuntime {
     suspend fun closeConversation()
     suspend fun unloadEngine()
 
+    /**
+     * Unloads the engine if it has been idle without active requests for at least [idleThresholdMs].
+     * Returns true if unloaded, false otherwise.
+     */
+    suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean = false
+
     fun isEngineLoaded(spec: LocalEngineSpec): Boolean = false
 
     fun hasOpenConversation(): Boolean = false

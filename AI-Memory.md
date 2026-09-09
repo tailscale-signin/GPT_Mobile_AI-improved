@@ -168,9 +168,18 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 #### `presentation/` — Presentation Layer (Compose & ViewModels)
 
 - UI features: `chat/`, `home/`, `localmodel/`, `main/`, `mcpmarketplace/`, `migrate/`, `setting/`, `setup/`, `startscreen/`, and `thinking/`.
+- `NavigationGraph.kt` / `Route.kt`:
+  - `chatScreenNavigation`: Configured with arguments `chatRoomId`, `enabledPlatforms`, and optional `targetMessageId: Int = -1`. Navigates to a specific turn when `targetMessageId` is supplied.
+  - `homeScreenNavigation`: Passes `(ChatRoomV2, Int?) -> Unit` on existing chat click to support deep navigation directly to a target message.
+- `ChatScreen.kt` / `ChatViewModel.kt`:
+  - Handles `targetMessageId` parameter from navigation bundle / `SavedStateHandle`.
+  - Automatically scrolls to the exact turn matching `targetMessageId` upon loading.
+  - Connected `FavoriteIcon` with long-press gesture detection, haptic feedback vibration (`HapticFeedbackType.LongPress`), and instant feedback.
+- `ChatBubble.kt`:
+  - `FavoriteIcon`: Uses `Modifier.pointerInput` with `detectTapGestures(onTap = ..., onLongPress = ...)` to trigger haptic feedback vibration (`HapticFeedbackType.LongPress`) on long press.
 - `HomeScreen.kt` / `HomeViewModel.kt`:
   - `HomeTab.CHATS`: Displays chat list with search, duplicate, delete actions, and model selection dialog.
-  - `HomeTab.FAVORITES`: Redesigned favorites management with search bar removed. Features custom group filter chips ("All", user-created categories, "+ Add Group"), assignment of favorites to custom groups, and a full-screen favorite detail view/dialog (`DialogProperties(usePlatformDefaultWidth = false)`). The detail view renders rich content via `ChatMarkdown` (Markdown, LaTeX math, code highlighting, typography, assistant `GPTMobileIcon`), vertical scrolling, a persistent "View" button navigating into the chat, and a persistent Cyan-highlighted favorite star button that confirms removal via `AlertDialog`.
+  - `HomeTab.FAVORITES`: Redesigned favorites management with search bar removed. Features custom group filter chips ("All", user-created categories, "+ Add Group"), assignment of favorites to custom groups, and a full-screen favorite detail view/dialog (`DialogProperties(usePlatformDefaultWidth = false)`). The detail view renders rich content via `ChatMarkdown` (Markdown, LaTeX math, code highlighting, typography, assistant `GPTMobileIcon`), vertical scrolling, a persistent "View" button navigating directly to the message in the chat room (`targetMessageId`), a middle Group button with dropdown assignment, and a persistent Cyan-highlighted favorite star button that confirms removal via `AlertDialog`.
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format.
 - `PlatformSettingScreen.kt` — Configures existing platforms and passes current tokens (`platformData.token`) to `APIKeyDialog`.

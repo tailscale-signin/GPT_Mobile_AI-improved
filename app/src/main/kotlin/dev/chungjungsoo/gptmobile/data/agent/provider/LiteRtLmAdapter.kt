@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
+import dev.chungjungsoo.gptmobile.data.context.RollingContextWindowCompactor
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.localruntime.ConversationFingerprint
@@ -110,21 +111,33 @@ class LiteRtLmAdapter(
                 } else {
                     emptyList()
                 }
+
+                val resolvedMaxTokens = resolvedEngineMaxTokens(
+                    requestedMaxTokens = platform.maxTokens ?: DEFAULT_MAX_TOKENS,
+                    accelerator = platform.accelerator.orEmpty(),
+                    entry = catalogEntry,
+                    deviceSocModel = deviceSocModel,
+                    deviceRamGb = localRuntime.deviceRamGb
+                )
+
+                // Compact prior turns with anchor prefix preservation (Turn 0 + rolling window)
+                val rawPriorTurns = turns.dropLast(1)
+                val compactedPriorTurns = RollingContextWindowCompactor.compactPriorTurns(
+                    priorTurns = rawPriorTurns,
+                    maxContextTokens = resolvedMaxTokens,
+                    systemPrompt = platform.systemPrompt,
+                    currentUserPrompt = latestUserText
+                )
+
                 val history = historyMessages(
-                    priorTurns = turns.dropLast(1),
+                    priorTurns = compactedPriorTurns,
                     visionCapable = visionCapable,
                     includeImageBytes = false
                 )
                 val spec = rememberedEngineSpec(
                     modelPath = modelPath,
                     accelerator = LocalAccelerators.normalize(platform.accelerator),
-                    maxTokens = resolvedEngineMaxTokens(
-                        requestedMaxTokens = platform.maxTokens ?: DEFAULT_MAX_TOKENS,
-                        accelerator = platform.accelerator.orEmpty(),
-                        entry = catalogEntry,
-                        deviceSocModel = deviceSocModel,
-                        deviceRamGb = localRuntime.deviceRamGb
-                    ),
+                    maxTokens = resolvedMaxTokens,
                     isVisionEnabled = visionCapable
                 )
                 val sampler = LocalSamplerConfig(
@@ -163,7 +176,7 @@ class LiteRtLmAdapter(
                             yield() // Cooperative yield before starting heavy conversation allocation
                             val seedHistory = if (visionCapable) {
                                 historyMessages(
-                                    priorTurns = turns.dropLast(1),
+                                    priorTurns = compactedPriorTurns,
                                     visionCapable = true,
                                     includeImageBytes = true
                                 )

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-09-09
+
+### Added & Improved
+- **Favorites Management & Deep Navigation**:
+  - Rich Favorite Detail View with custom category groups ("All", user groups, "+ Add Group"), assignment dropdowns, Markdown/LaTeX/code rendering, and confirmation dialog for unfavoriting.
+  - Reliable In-Chat Navigation: Tapping "View" in the favorite detail dialog seamlessly resolves chat rooms and navigates directly to the target favorited message.
+  - Platform Tab Auto-Switching: Switching automatically to the favorited message's provider tab when navigating into multi-platform chat rooms.
+  - Taller Highlight Container: `OpponentResponseContainer` with an animated cyan highlight surrounding the entire assistant response block (avatar, loading indicators, platform selection pills, and chat bubble).
+  - Haptic feedback when favoriting messages.
+- **Autonomous Agent Tooling & Line Slicing**:
+  - Built-in `read_file_slice` tool for extracting bounded text line slices with 1-based indexing, range validation, and line count metadata.
+  - MCP line slicing (`start_line`, `end_line`) for remote file-reading tools (e.g. GitHub `get_file_contents`) to prevent context window overflow and minimize token overhead.
+  - Prebundled `droid-mcp-web` Online Search (`web_search`, `fetch_webpage`).
+  - Restyled `ToolTraceBlock` with dark card backgrounds, brand icons, and collapsible tool outputs.
+- **Multi-Key API Credential Rotation**:
+  - `ApiCredentialRotator` with high-availability round-robin failover across multiple keys per provider.
+  - Automatic fallback on HTTP 429, 402, 401, and quota exhaustion without interrupting streaming sessions.
+  - Dynamic `+API` key management UI across Platform Settings, Setup Wizard, and MCP Tool Connections.
+- **Architecture & Persistence**:
+  - Room Database Schema v14 with full migrations supporting tool connections, timeline items, agent run persistence, agent tool bindings, and configurable platform tool-call limits (`max_tool_calls`).
+  - Target Android 16 (API 36), Java 21 bytecode, and modern 64-bit ABIs (`arm64-v8a`, `x86_64`).
+  - Local LiteRT-LM runtime integration with hardware acceleration selection (NPU, GPU, CPU) and background model downloading via WorkManager.
+
 ## [0.8.2] - 2026-09-05
 
 ### Added & Improved

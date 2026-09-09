@@ -23,6 +23,16 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+internal fun isFileReadingTool(toolName: String): Boolean {
+    val lower = toolName.lowercase()
+    return lower == "get_file_contents" ||
+        lower == "read_file" ||
+        lower == "read_file_contents" ||
+        lower == "get_file" ||
+        lower.endsWith("_get_file_contents") ||
+        lower.endsWith("_read_file")
+}
+
 internal fun namespaceMcpToolName(alias: String, toolName: String): String {
     val raw = "mcp__${alias}__$toolName"
     val safe = raw.map { character ->
@@ -42,7 +52,33 @@ internal fun mcpToolDefinition(alias: String, tool: Tool): AgentToolDefinition =
             "MCP tool name is invalid."
         }
         put("type", tool.inputSchema.type)
-        put("properties", tool.inputSchema.properties ?: JsonObject(emptyMap()))
+        val originalProperties = tool.inputSchema.properties ?: JsonObject(emptyMap())
+        val properties = if (isFileReadingTool(tool.name)) {
+            buildJsonObject {
+                originalProperties.forEach { (key, value) -> put(key, value) }
+                if (!originalProperties.containsKey("start_line")) {
+                    put(
+                        "start_line",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Optional 1-indexed line number to start reading from (inclusive).")
+                        }
+                    )
+                }
+                if (!originalProperties.containsKey("end_line")) {
+                    put(
+                        "end_line",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Optional 1-indexed line number to stop reading at (inclusive).")
+                        }
+                    )
+                }
+            }
+        } else {
+            originalProperties
+        }
+        put("properties", properties)
         if (!tool.inputSchema.required.isNullOrEmpty()) {
             put("required", JsonArray(tool.inputSchema.required.orEmpty().map(::JsonPrimitive)))
         }
@@ -54,7 +90,39 @@ internal fun mcpToolDefinition(alias: String, tool: Tool): AgentToolDefinition =
     }
 )
 
-internal fun mapMcpToolResult(callId: String, result: CallToolResult): AgentToolResult {
+internal fun sliceTextLines(
+    text: String,
+    startLine: Int?,
+    endLine: Int?
+): String {
+    if (startLine == null && endLine == null) return text
+    val lines = text.lines()
+    val totalLines = lines.size
+    val start = (startLine ?: 1).coerceAtLeast(1)
+    val end = (endLine ?: totalLines).coerceAtLeast(start)
+
+    if (start > totalLines) {
+        return "Requested start_line ($start) is beyond total lines ($totalLines)."
+    }
+
+    val actualEnd = minOf(end, totalLines)
+    val sliced = lines.subList(start - 1, actualEnd)
+    val numberWidth = actualEnd.toString().length
+    val formattedLines = sliced.mapIndexed { index, line ->
+        val lineNumber = (start + index).toString().padStart(numberWidth, ' ')
+        "$lineNumber: $line"
+    }
+
+    val header = "[Showing lines $start-$actualEnd of $totalLines]"
+    return "$header\n${formattedLines.joinToString("\n")}"
+}
+
+internal fun mapMcpToolResult(
+    callId: String,
+    result: CallToolResult,
+    startLine: Int? = null,
+    endLine: Int? = null
+): AgentToolResult {
     val text = mutableListOf<String>()
     val links = mutableListOf<AgentResourceLink>()
     val omitted = mutableListOf<String>()
@@ -65,9 +133,14 @@ internal fun mapMcpToolResult(callId: String, result: CallToolResult): AgentTool
     }
 
     fun addText(value: String) {
-        val bounded = budget.take(value)
+        val processed = if (startLine != null || endLine != null) {
+            sliceTextLines(value, startLine, endLine)
+        } else {
+            value
+        }
+        val bounded = budget.take(processed)
         if (bounded.isNotEmpty()) text += bounded
-        if (bounded.length != value.length) omit("text output truncated to the model-visible limit")
+        if (bounded.length != processed.length) omit("text output truncated to the model-visible limit")
     }
 
     fun addLink(uri: String, name: String? = null, mimeType: String? = null) {
@@ -285,12 +358,12 @@ private class ByteCounter(private val limit: Int) {
         var index = 0
         while (index < value.length) {
             val codePoint = value.codePointAt(index)
-            val bytes = when (codePoint) {
+            val size = when (codePoint) {
                 '"'.code, '\\'.code -> 2
                 in 0..0x1f -> 6
                 else -> codePoint.utf8Bytes()
             }
-            if (!consume(bytes)) return false
+            if (!consume(size)) return false
             index += Character.charCount(codePoint)
         }
         return true

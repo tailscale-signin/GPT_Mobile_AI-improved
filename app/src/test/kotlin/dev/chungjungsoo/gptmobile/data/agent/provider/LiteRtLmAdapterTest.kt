@@ -1193,6 +1193,35 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `excessive turns beyond context budget are compacted preserving anchor Turn 0`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+        val platform = localPlatform().copy(maxTokens = 60) // 240 chars budget
+
+        val anchor = completedTurn("Anchor prompt setup instructions", "Anchor reply confirmation")
+        val middle1 = completedTurn("Intermediate step 1 with lots and lots of text that overflows", "Intermediate reply 1")
+        val middle2 = completedTurn("Intermediate step 2 with lots and lots of text that overflows", "Intermediate reply 2")
+        val recent = completedTurn("Recent step question", "Recent step reply")
+        val current = pendingTurn("Current prompt")
+
+        adapter.openSession(
+            listOf(anchor, middle1, middle2, recent, current),
+            platform
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        val config = runtime.createConversationCalls.single()
+        // Anchor (first user & model message) must be preserved
+        assertEquals("Anchor prompt setup instructions", config.initialMessages[0].text)
+        assertEquals("Anchor reply confirmation", config.initialMessages[1].text)
+        // Recent step must be retained while middle turns are compacted out
+        assertEquals("Recent step question", config.initialMessages[2].text)
+        assertEquals("Recent step reply", config.initialMessages[3].text)
+        assertEquals(4, config.initialMessages.size)
+    }
+
+    @Test
     fun `cpu fallback failure surfaces a clean engine error instead of the native dump`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             failLoadEngineIf = {

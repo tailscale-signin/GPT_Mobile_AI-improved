@@ -160,6 +160,30 @@ fun OpponentChatBubble(
 }
 
 @Composable
+fun OpponentResponseContainer(
+    isFavorite: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val normalColor = Color.Transparent
+    val bubbleColor = animateColorAsState(
+        targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.2f) else normalColor,
+        animationSpec = tween(durationMillis = 500),
+        label = "favoriteResponseContainerColor"
+    ).value
+
+    Column(
+        modifier = modifier
+            .background(
+                color = bubbleColor,
+                shape = RoundedCornerShape(32.dp)
+            )
+            .padding(if (isFavorite) PaddingValues(top = 8.dp, bottom = 4.dp) else PaddingValues(0.dp)),
+        content = content
+    )
+}
+
+@Composable
 private fun AssistantTimelineContent(timeline: List<AssistantTimelineItem>, toolEvents: List<ToolEvent>, isLoading: Boolean, contentIdentity: Any) {
     val events = remember(toolEvents) { toolEvents.associateBy(ToolEvent::sequence) }
     timeline.forEachIndexed { index, item ->

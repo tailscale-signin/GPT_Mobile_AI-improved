@@ -212,6 +212,11 @@ fun ChatScreen(
             if (targetTurn != null) {
                 hasScrolledToTarget = true
                 isFollowingBottom = false
+                val assistantList = groupedMessages.assistantMessages.getOrNull(targetTurn).orEmpty()
+                val targetPlatformIndex = assistantList.indexOfFirst { it.id == chatViewModel.targetMessageId }
+                if (targetPlatformIndex >= 0) {
+                    chatViewModel.updateChatPlatformIndex(targetTurn, targetPlatformIndex)
+                }
                 listState.scrollToItem(targetTurn)
             }
         }
@@ -533,77 +538,82 @@ private fun ChatMessagePair(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            OpponentResponseContainer(
+                isFavorite = selectedAssistantMessage?.isFavorite ?: false,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                GPTMobileIcon(loading = isActiveMessage && !isIdle)
-                if (enabledPlatformsInChat.size > 1) {
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp)
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                    ) {
-                        enabledPlatformsInChat.forEachIndexed { platformIndex, uid ->
-                            PlatformButton(
-                                isLoading = isActiveMessage && loadingStates[platformIndex] == ChatViewModel.LoadingState.Loading,
-                                name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
-                                selected = platformIndexState == platformIndex,
-                                onPlatformClick = { onPlatformClick(messageIndex, platformIndex) }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GPTMobileIcon(loading = isActiveMessage && !isIdle)
+                    if (enabledPlatformsInChat.size > 1) {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            enabledPlatformsInChat.forEachIndexed { platformIndex, uid ->
+                                PlatformButton(
+                                    isLoading = isActiveMessage && loadingStates[platformIndex] == ChatViewModel.LoadingState.Loading,
+                                    name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
+                                    selected = platformIndexState == platformIndex,
+                                    onPlatformClick = { onPlatformClick(messageIndex, platformIndex) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
                         }
                     }
                 }
+                OpponentChatBubble(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                        .widthIn(max = maximumOpponentChatBubbleWidth),
+                    canEdit = canUseChat && isIdle,
+                    canRetry = canUseChat && isActiveMessage && !isCurrentPlatformLoading,
+                    isLoading = isActiveMessage && isCurrentPlatformLoading,
+                    isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
+                    isFavorite = selectedAssistantMessage?.isFavorite ?: false,
+                    text = assistantContent,
+                    thoughts = assistantThoughts,
+                    timeline = assistantTimeline,
+                    attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
+                    agentRun = agentRun,
+                    runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
+                    toolEvents = toolEvents,
+                    contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
+                    revisionIndexLabel = selectedAssistantMessage?.let { assistantMessage ->
+                        val totalRevisions = assistantMessage.revisions.size + 1
+                        if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
+                            stringResource(
+                                R.string.revision_counter,
+                                totalRevisions,
+                                totalRevisions
+                            )
+                        } else {
+                            stringResource(
+                                R.string.revision_counter,
+                                assistantMessage.revisions.size - assistantMessage.activeRevisionIndex,
+                                totalRevisions
+                            )
+                        }
+                    },
+                    canShowPreviousRevision = canShowPreviousRevision,
+                    canShowNextRevision = canShowNextRevision,
+                    onCopyClick = { onCopyText(assistantContent) },
+                    onSelectClick = { onSelectText(assistantContent) },
+                    onRetryClick = { onRetry(messageIndex, platformIndexState) },
+                    onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
+                    onFavoriteClick = onFavoriteClick,
+                    onFavoriteLongPress = onFavoriteLongPress,
+                    onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
+                    onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) }
+                )
             }
-            OpponentChatBubble(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-                    .widthIn(max = maximumOpponentChatBubbleWidth),
-                canEdit = canUseChat && isIdle,
-                canRetry = canUseChat && isActiveMessage && !isCurrentPlatformLoading,
-                isLoading = isActiveMessage && isCurrentPlatformLoading,
-                isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
-                isFavorite = selectedAssistantMessage?.isFavorite ?: false,
-                text = assistantContent,
-                thoughts = assistantThoughts,
-                timeline = assistantTimeline,
-                attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
-                agentRun = agentRun,
-                runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
-                toolEvents = toolEvents,
-                contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
-                revisionIndexLabel = selectedAssistantMessage?.let { assistantMessage ->
-                    val totalRevisions = assistantMessage.revisions.size + 1
-                    if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
-                        stringResource(
-                            R.string.revision_counter,
-                            totalRevisions,
-                            totalRevisions
-                        )
-                    } else {
-                        stringResource(
-                            R.string.revision_counter,
-                            assistantMessage.revisions.size - assistantMessage.activeRevisionIndex,
-                            totalRevisions
-                        )
-                    }
-                },
-                canShowPreviousRevision = canShowPreviousRevision,
-                canShowNextRevision = canShowNextRevision,
-                onCopyClick = { onCopyText(assistantContent) },
-                onSelectClick = { onSelectText(assistantContent) },
-                onRetryClick = { onRetry(messageIndex, platformIndexState) },
-                onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
-                onFavoriteClick = onFavoriteClick,
-                onFavoriteLongPress = onFavoriteLongPress,
-                onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
-                onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) }
-            )
         }
     }
 }

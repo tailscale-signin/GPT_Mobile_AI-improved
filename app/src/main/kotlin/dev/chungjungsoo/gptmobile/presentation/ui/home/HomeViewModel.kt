@@ -166,6 +166,19 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun getChatRoom(chatId: Int, onResult: (ChatRoomV2?) -> Unit) {
+        val existing = _chatListState.value.chats.find { it.id == chatId }
+        if (existing != null) {
+            onResult(existing)
+            return
+        }
+        viewModelScope.launch {
+            val allChats = chatRepository.fetchChatListV2()
+            val chat = allChats.find { it.id == chatId }
+            onResult(chat)
+        }
+    }
+
     fun updatePlatformCheckedState(idx: Int) {
         if (idx < 0 || idx >= _chatListState.value.selectedPlatforms.size) return
 

@@ -11,6 +11,7 @@ sealed interface ProviderEvent {
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
     data class Failed(val message: String) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false) : ProviderEvent
+    data class PhaseChanged(val phase: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase) : ProviderEvent
     data object Completed : ProviderEvent
 }
 

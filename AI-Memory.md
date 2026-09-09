@@ -2,7 +2,7 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: incremental and in progress on `main`. Architecture, core configuration, UI feature paths, encrypted backup/security code, selected catalog/context/parser files, and major test roots are indexed. Expand file-level entries as additional implementations are inspected.
+> Index status: incremental and in progress on `main`. Architecture, core configuration, UI feature paths, encrypted backup/security code, selected catalog/context/parser files, agent runtime/tools/adapters, and major test roots are indexed. Expand file-level entries as additional implementations are inspected.
 
 ## 1. Repository Overview
 
@@ -62,13 +62,39 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 Data and integration layer:
 
-- `agents/` — Autonomous agent orchestration, tool-call loops, limits, logs, and result synthesis.
-- `backup/` — Backup/restore data behavior outside the encrypted manager in the Java source set.
-- `catalog/` — Model and MCP catalog metadata and parsing.
+- `agent/` — Autonomous agent orchestration, tool-call loops, limits, background execution, provider adapters, and built-in/MCP tools.
+  - `AgentContracts.kt` — Core agent types: `ProviderEvent` (deltas, tool calls/results, failures, notices), `AgentToolDefinition`, `AgentToolResult`, `ToolResultContent` (Text, Json, ResourceLinks), `AgentTool` interface, `AgentToolExchange`, `AgentProviderSession`, `AgentRunEvent`, and `ToolDefinitionsRejectedException`.
+  - `AgentRunCoordinator.kt` — Singleton coordinator for background/foreground agent execution. Manages concurrent run jobs by `runId`, ensures per-chat serialization via `Mutex` gates, throttles database/UI updates (adaptive 33ms on >=10GB RAM devices, 250ms otherwise), starts `AgentRunForegroundService`, handles cancellation/interruption states, and writes terminal run records to `ChatRepository`.
+  - `AgentRunner.kt` — Core bounded tool execution loop. Enforces `AgentRunLimits` (timeouts, max rounds, tool-call ceilings, concurrency semaphores, output byte limits). Injects final-response instructions when approaching tool limits and falls back cleanly when models reject tool definitions.
+  - `PlatformAgentRunner.kt` — Factory function `agentRunnerForPlatform` providing isolated runner instances per platform and run override to prevent budget leakage.
+  - `provider/` — Model provider streaming adapters:
+    - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution.
+    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, and other providers to `AgentProviderSession`.
+    - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
+    - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
+  - `tool/` — Agent tool execution and resolution:
+    - `AgentToolResolver.kt` — Discovers, resolves, and binds available tools (built-in and MCP) for active profiles and chats.
+    - `CalculatorTool.kt` — Built-in mathematical expression evaluation engine.
+    - `CurrentDateTool.kt` — Supplies localized current date, time, and timezone information.
+    - `DeviceLocationProvider.kt` — Android location services integration with permission verification.
+    - `DeviceLocationTool.kt` — Built-in tool wrapping device location coordinates.
+    - `McpClientManager.kt` — Manages active MCP client connections, transports, and tool life cycles.
+    - `McpOAuthClient.kt` — Handles OAuth2 flows, PKCE, token refresh, and auth endpoints for protected MCP tools.
+    - `McpOAuthCoordinator.kt` — Coordinates user authorization UX and callback dispatch for MCP OAuth services.
+    - `McpToolMapper.kt` — Translates MCP tool definitions and execution schemas into native `AgentTool` interfaces.
+    - `ReadUrlTool.kt` — Securely fetches and boundedly extracts readable text content from public HTTP/HTTPS URLs.
+    - `WebSearchTool.kt` — Built-in web search tool supporting search providers and result parsing.
+- `backup/` — Backup and restore data management:
+  - `AppBackupCrypto.kt` — Typed PBKDF2-HMAC-SHA256 and AES-256-GCM encryption engine for backup archives. Uses random salts/IVs, payload-type AAD, magic headers, version checks, and a 128 MiB size limit.
+  - `AppBackupManager.kt` — Exports and imports themes, platforms, credentials (via `SecretVault`), chats, messages, and model associations. Operates on `Dispatchers.IO` and wipes temporary secret buffers.
+  - `AppBackupModels.kt` — Serializable data contracts for backup envelopes and records.
+  - `SanitizedChatBackup.kt` — Full-backup integration. Creates sanitized SQLite snapshots via `VACUUM INTO`, strips sensitive tokens (`platform_v2.token`), restores via `AtomicFile`, and purges stale WAL/SHM sidecars.
+  - `UserBackupManager.kt` — High-level user backup coordinator supporting selective export/import of platforms, credentials, chats, models, and tools.
+- `catalog/` — Model and MCP catalog metadata and parsing:
   - `McpPresetCatalog.kt` — Defines MCP transport/category/pricing enums and preset models; exposes built-in server presets, compatibility aliases, category filtering, ID/alias lookup, and search.
   - `ModelCatalog.kt` — Serializable model-catalog schema, including capabilities, default generation configuration, and SoC-specific model variants.
   - `ModelCatalogParser.kt` — Parses lenient JSON while ignoring unknown fields, validates schema compatibility and minimum app versions, formats model download sizes, and compares dotted app versions.
-- `context/` — Context-window budgeting and compaction.
+- `context/` — Context-window budgeting and compaction:
   - `ContextBuilder.kt` — Builds provider-aware history: selects provider-specific assistant responses, strips error notes, excludes failed historical turns, applies recent-turn and character budgets, and removes attachments from older turns.
   - `ConversationTurn.kt` — Models paired user/assistant messages and identifies the current turn.
   - `ProviderContextPolicy.kt` — Defines provider-specific history, attachment, and character limits.
@@ -80,10 +106,10 @@ Data and integration layer:
 - `mcp/` — MCP client/runtime, tools, marketplace, execution, and fallbacks.
 - `network/` — Shared clients, streaming/SSE, retries, and provider transport.
 - `openrouter/` — OpenRouter catalog/API behavior.
-- `parser/` — Provider and streaming payload parsing.
+- `parser/` — Provider and streaming payload parsing:
   - `ThinkingParser.kt` — Extracts case-insensitive `<think>...</think>` blocks and returns reasoning plus cleaned response content. A second parser exists in `ui/thinking/ThinkingParser.kt`; inspect call sites and semantics before consolidating.
 - `repository/` — Repository interfaces and `*Impl` implementations coordinating data sources.
-- `security/` — Keystore-backed encryption and credential handling.
+- `security/` — Keystore-backed encryption and credential handling:
   - `SecretVault.kt` — Defines `SecretVault`, `SecretVaultException`, and `AndroidSecretVault`. Stores bounded byte-array credentials as versioned AES-GCM records in `noBackupFilesDir`, using an Android Keystore key, randomized IVs, record-reference AAD, strict reference/record validation, `AtomicFile`, serialized access via `Mutex`, and `Dispatchers.IO`. Missing or permanently invalidated keys cause irrecoverable records to be deleted and read as absent.
 - `worker/` — WorkManager jobs.
 

@@ -11,13 +11,13 @@ permissions:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Check out branch
         uses: actions/checkout@v4
         with:
           ref: fix/tool-trace-official-icon-summary
+          token: ${{ secrets.GITHUB_TOKEN }}
       - name: Apply source changes
         run: |
           python3 - <<'PY'
@@ -33,9 +33,8 @@ jobs:
                       R.drawable.ic_gpt_mobile_foreground
                   },
               ),'''
-          if old not in text and 'R.drawable.ic_github' not in text:
-              raise SystemExit('Tool icon target not found')
-          text = text.replace(old, new, 1)
+          if old in text:
+              text = text.replace(old, new, 1)
           text = text.replace('.padding(start = 16.dp)\n            .fillMaxWidth()', '.padding(horizontal = 16.dp)\n            .fillMaxWidth()', 1)
           text = text.replace('.background(MaterialTheme.colorScheme.surfaceVariant)\n            .semantics { contentDescription = traceBlockDescription },', '.background(Color.Black.copy(alpha = 0.18f))\n            .semantics { contentDescription = traceBlockDescription },', 1)
           text = text.replace('.padding(12.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)', '.padding(horizontal = 12.dp, vertical = 8.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)', 1)
@@ -81,9 +80,8 @@ jobs:
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 18.dp)
         ) {'''
-          if old not in text and 'Brush.verticalGradient' not in text:
-              raise SystemExit('Favorite card target not found')
-          text = text.replace(old, new, 1)
+          if old in text:
+              text = text.replace(old, new, 1)
           home.write_text(text)
 
           assert 'R.drawable.ic_github' in tool.read_text()
@@ -98,4 +96,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'Refine tool and favorite bubbles'
-          git push
+          git push origin HEAD:fix/tool-trace-official-icon-summary

@@ -122,11 +122,19 @@ class LiteRtLmAdapter(
                     deviceRamGb = localRuntime.deviceRamGb
                 )
 
+                val throttlingPolicy = localRuntime.getAdaptiveThrottlingPolicy()
+                val effectiveContextTokens = if (throttlingPolicy.maxTokensClamp != null) {
+                    minOf(resolvedMaxTokens, throttlingPolicy.maxTokensClamp)
+                } else {
+                    resolvedMaxTokens
+                }
+
                 // Compact prior turns with anchor prefix preservation (Turn 0 + rolling window)
+                // budgeted against effectiveContextTokens to prevent KV-cache overflows under thermal/battery throttling
                 val rawPriorTurns = turns.dropLast(1)
                 val compactedPriorTurns = RollingContextWindowCompactor.compactPriorTurns(
                     priorTurns = rawPriorTurns,
-                    maxContextTokens = resolvedMaxTokens,
+                    maxContextTokens = effectiveContextTokens,
                     systemPrompt = platform.systemPrompt,
                     currentUserPrompt = latestUserText
                 )
@@ -139,7 +147,7 @@ class LiteRtLmAdapter(
                 val spec = rememberedEngineSpec(
                     modelPath = modelPath,
                     accelerator = LocalAccelerators.normalize(platform.accelerator),
-                    maxTokens = resolvedMaxTokens,
+                    maxTokens = effectiveContextTokens,
                     isVisionEnabled = visionCapable
                 )
                 val sampler = LocalSamplerConfig(

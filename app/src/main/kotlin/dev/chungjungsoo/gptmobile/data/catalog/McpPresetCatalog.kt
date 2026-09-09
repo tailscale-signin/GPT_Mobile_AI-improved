@@ -45,7 +45,8 @@ data class McpPreset(
     val pricing: McpPricingType = McpPricingType.FREE,
     val requiredFields: List<String> = emptyList(),
     val toolCapabilities: List<String> = emptyList(),
-    val websiteUrl: String = ""
+    val websiteUrl: String = "",
+    val isPreinstalled: Boolean = false
 ) {
     // Backward-compatibility aliases
     val url: String get() = commandOrUrl
@@ -56,6 +57,26 @@ typealias McpServerPreset = McpPreset
 
 object McpPresetCatalog {
     val presets = listOf(
+        McpPreset(
+            id = "droid-mcp-web",
+            name = "Online Search",
+            description = "Integrated online web search and webpage text extractor powered by droid-mcp. Preinstalled and enabled by default across all models.",
+            category = McpCategory.SEARCH,
+            commandOrUrl = "https://github.com/stixez/droid-mcp",
+            transportType = McpTransportType.STDIO,
+            iconName = "online_search",
+            author = "stixez / droid-mcp",
+            alias = "droid_mcp_web",
+            suggestedAuthType = "NONE",
+            pricing = McpPricingType.FREE,
+            requiredFields = emptyList(),
+            toolCapabilities = listOf(
+                "web_search: Search the web using DuckDuckGo with customizable result count",
+                "fetch_webpage: Fetch webpage content and extract clean, readable text"
+            ),
+            websiteUrl = "https://github.com/stixez/droid-mcp",
+            isPreinstalled = true
+        ),
         McpPreset(
             id = "brave-search",
             name = "Brave Search",

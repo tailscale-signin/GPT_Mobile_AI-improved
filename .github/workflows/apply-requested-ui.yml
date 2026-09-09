@@ -2,7 +2,9 @@ name: Apply requested UI refinements
 
 on:
   push:
-    branches: [fix/tool-trace-official-icon-summary]
+    branches:
+      - fix/tool-trace-official-icon-summary
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,53 +14,40 @@ jobs:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out branch
+        uses: actions/checkout@v4
         with:
           ref: fix/tool-trace-official-icon-summary
-      - name: Apply and validate source patch
-        shell: bash
+      - name: Apply source changes
         run: |
-          python <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
 
-          tool = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt")
+          tool = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt')
           text = tool.read_text()
-          text = text.replace(
-              "painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),",
-              """painter = painterResource(
+          old = 'painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),'
+          new = '''painter = painterResource(
                   id = if (info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor) {
                       R.drawable.ic_github
                   } else {
                       R.drawable.ic_gpt_mobile_foreground
                   },
-              ),""",
-              1,
-          )
-          text = text.replace(
-              ".background(MaterialTheme.colorScheme.surfaceVariant)\n            .semantics { contentDescription = traceBlockDescription },",
-              ".background(Color.Black.copy(alpha = 0.18f))\n            .semantics { contentDescription = traceBlockDescription },",
-              1,
-          )
-          text = text.replace(
-              ".padding(12.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)",
-              ".padding(horizontal = 12.dp, vertical = 8.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)",
-              1,
-          )
+              ),'''
+          if old not in text and 'R.drawable.ic_github' not in text:
+              raise SystemExit('Tool icon target not found')
+          text = text.replace(old, new, 1)
+          text = text.replace('.padding(start = 16.dp)\n            .fillMaxWidth()', '.padding(horizontal = 16.dp)\n            .fillMaxWidth()', 1)
+          text = text.replace('.background(MaterialTheme.colorScheme.surfaceVariant)\n            .semantics { contentDescription = traceBlockDescription },', '.background(Color.Black.copy(alpha = 0.18f))\n            .semantics { contentDescription = traceBlockDescription },', 1)
+          text = text.replace('.padding(12.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)', '.padding(horizontal = 12.dp, vertical = 8.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)', 1)
           tool.write_text(text)
 
-          home = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt")
+          home = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt')
           text = home.read_text()
-          text = text.replace(
-              "import androidx.compose.foundation.ExperimentalFoundationApi\n",
-              "import androidx.compose.foundation.ExperimentalFoundationApi\nimport androidx.compose.foundation.background\n",
-              1,
-          )
-          text = text.replace(
-              "import androidx.compose.ui.Alignment\n",
-              "import androidx.compose.ui.Alignment\nimport androidx.compose.ui.draw.clip\nimport androidx.compose.ui.graphics.Brush\n",
-              1,
-          )
-          old = """    Card(
+          if 'import androidx.compose.foundation.background\n' not in text:
+              text = text.replace('import androidx.compose.foundation.ExperimentalFoundationApi\n', 'import androidx.compose.foundation.ExperimentalFoundationApi\nimport androidx.compose.foundation.background\n', 1)
+          if 'import androidx.compose.ui.draw.clip\n' not in text:
+              text = text.replace('import androidx.compose.ui.Alignment\n', 'import androidx.compose.ui.Alignment\nimport androidx.compose.ui.draw.clip\nimport androidx.compose.ui.graphics.Brush\n', 1)
+          old = '''    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
@@ -72,8 +61,8 @@ jobs:
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
-        ) {"""
-          new = """    val shape = RoundedCornerShape(12.dp)
+        ) {'''
+          new = '''    val shape = RoundedCornerShape(12.dp)
     val topColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val bottomColor = MaterialTheme.colorScheme.surfaceContainerHighest
     Card(
@@ -91,22 +80,22 @@ jobs:
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 18.dp)
-        ) {"""
-          if old not in text:
-              raise SystemExit("Favorite card target not found")
+        ) {'''
+          if old not in text and 'Brush.verticalGradient' not in text:
+              raise SystemExit('Favorite card target not found')
           text = text.replace(old, new, 1)
           home.write_text(text)
 
-          if "R.drawable.ic_github" not in tool.read_text():
-              raise SystemExit("GitHub icon patch failed")
-          if "Brush.verticalGradient" not in home.read_text():
-              raise SystemExit("Favorite gradient patch failed")
-          Path(".github/workflows/apply-requested-ui.yml").unlink()
+          assert 'R.drawable.ic_github' in tool.read_text()
+          assert '.padding(horizontal = 16.dp)' in tool.read_text()
+          assert 'Color.Black.copy(alpha = 0.18f)' in tool.read_text()
+          assert 'Brush.verticalGradient' in home.read_text()
+          Path('.github/workflows/apply-requested-ui.yml').unlink()
           PY
-      - name: Commit source changes and workflow cleanup
+      - name: Commit changes
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m "Refine tool and favorite bubbles"
+          git commit -m 'Refine tool and favorite bubbles'
           git push

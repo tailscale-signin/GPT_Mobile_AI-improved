@@ -2,7 +2,7 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
+> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 
 ## 1. Repository Overview
 
@@ -14,7 +14,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
 - **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
 - **Dependency injection:** Hilt/Dagger with KSP.
-- **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, and OpenAI-compatible services).
+- **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
 - **Persistence:** Room (`ChatDatabaseV2`, Schema version 14) with full FTS search and DataStore preferences (`SettingDataSource`).
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
@@ -68,7 +68,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `PlatformAgentRunner.kt` — Factory function `agentRunnerForPlatform` providing isolated runner instances per platform and run override to prevent budget leakage.
   - `provider/` — Model provider streaming adapters:
     - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution.
-    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`) and rotatable error detection.
+    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, and rotatable error detection.
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
@@ -106,7 +106,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `SettingDataSource.kt` / `SettingDataSourceImpl.kt` — DataStore implementation persisting UI preferences, active platform selections, streaming toggles, theme configurations, and tool-call ceilings.
 - `dto/` — Serializable data transport objects:
   - `APIModel.kt`, `ApiState.kt`, `ConfigBackupDto.kt`, `Platform.kt`, `ThemeSetting.kt`.
-  - Subpackages: `anthropic/` (messages, content blocks), `google/` (generate content requests/responses), `groq/` (chat completions), `openai/` (chat completions, function callings, tool definitions).
+  - Subpackages: `anthropic/` (messages, content blocks), `google/` (generate content requests/responses), `groq/` (chat completions), `openai/` (chat completions, function callings, tool definitions, OpenRouter extensions).
 - `huggingface/` — Hugging Face Hub integration:
   - `HuggingFaceOAuthConfig.kt`, `HuggingFaceOAuthRequests.kt`, `HuggingFaceTokenStore.kt`, `HuggingFaceUrls.kt` — OAuth2 authentication flow, secure token persistence, and API endpoint routing for model downloads.
 - `localmodel/` — Metadata and models for downloaded on-device models.
@@ -128,12 +128,13 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `ApiCredentialRotator.kt` — Multi-key parsing, serialization, error detection (HTTP 429 rate limit, 402 payment required, 401/403 auth failures, quota limits), and round-robin fallback execution.
   - `NetworkClient.kt` — Configured Ktor client factory supporting HTTP/SSE engines and timeouts.
   - `NetworkRetryUtils.kt` — Bounded retry loop with exponential backoff and jitter for transient network failures.
-  - `ProviderRequestConfig.kt` — Provider timeout, auth header, and proxy specifications.
+  - `ProviderRequestConfig.kt` — Provider timeout, auth header, custom `extraHeaders`, and proxy specifications.
   - `SseUtils.kt` — Robust Server-Sent Events parser handling multiline chunks and field extraction.
   - `UploadedProviderFile.kt` — Remote provider file upload metadata.
   - Provider interfaces & implementations: `AnthropicAPI.kt`, `AnthropicAPIImpl.kt`, `GoogleAPI.kt`, `GoogleAPIImpl.kt`, `GroqAPI.kt`, `GroqAPIImpl.kt`, `OpenAIAPI.kt`, `OpenAIAPIImpl.kt`.
 - `openrouter/` — OpenRouter platform integration:
   - `OpenRouterModel.kt` — Data structures representing OpenRouter model specifications, pricing, and context limits.
+  - `OpenRouterAdvancedOptions.kt` — Serializable DTOs for provider routing configuration (`OpenRouterProviderRouting`), reasoning configuration (`OpenRouterReasoning`), and plugins (`OpenRouterPlugin`).
 - `parser/` — Payload and token parsing:
   - `ThinkingParser.kt` — Extracts reasoning blocks (`<think>...</think>`) and separates internal thoughts from final output.
 - `repository/` — Repository implementations coordinating persistence and network:
@@ -178,7 +179,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization, Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), repositories, and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), repositories, and ViewModels.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 

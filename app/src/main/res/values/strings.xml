@@ -89,6 +89,10 @@
     <string name="api_key_description">Enter your API key</string>
     <string name="api_key_optional_note">API key is optional for local platforms</string>
     <string name="api_key_supporting">Stored securely on device</string>
+    <string name="add_api_key">+API</string>
+    <string name="remove_api_key">Remove API Key</string>
+    <string name="multi_api_keys_hint">Add multiple API keys for round-robin rotation when rate limits or quotas are hit</string>
+    <string name="api_key_number">API Key %1$d</string>
     <string name="step_x_of_y">Step %1$d of %2$d</string>
     <string name="step_basics">Basics</string>
     <string name="step_api_key">API Key</string>

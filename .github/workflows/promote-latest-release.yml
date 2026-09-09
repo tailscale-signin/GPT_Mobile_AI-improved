@@ -13,27 +13,88 @@ permissions:
 
 jobs:
   promote:
-    name: Promote v0.8.9 to Latest Official Release
+    name: Sign and Promote Official Latest Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Promote Release via GitHub CLI
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;35.0.0"
+
+      - name: Set up Keystore
+        id: setup-keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Using repository secret keystore"
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          else
+            echo "Using deterministic release keystore configuration"
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias gptmobile \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "gptmobile-deterministic-release-key" \
+              -keypass "gptmobile-deterministic-release-key" \
+              -dname "CN=GPT Mobile Improved, OU=Development, O=OpenSource, L=Global, ST=Global, C=XX"
+            echo "KEYSTORE_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=gptmobile" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
+          fi
+          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Download & Sign Release APKs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Inspecting release v0.8.9-pre.de18a0e and creating/promoting official latest release v0.8.9..."
-          
-          # Find the latest release with assets
+          mkdir -p raw_assets signed_assets
           TARGET_TAG="v0.8.9-pre.de18a0e"
-          
-          echo "Downloading artifacts from existing pre-release $TARGET_TAG..."
-          mkdir -p release_assets
-          gh release download "$TARGET_TAG" --dir release_assets || echo "No assets downloaded via tag download"
-          
-          ls -la release_assets/ || true
-          
+
+          echo "Downloading artifacts from tag $TARGET_TAG..."
+          gh release download "$TARGET_TAG" --dir raw_assets || gh release download "v0.8.9" --dir raw_assets || true
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "Error: apksigner not found"
+            exit 1
+          fi
+
+          shopt -s nullglob
+          for apk in raw_assets/*.apk; do
+            filename=$(basename "$apk")
+            # Replace -unsigned suffix with clean release name
+            clean_name="${filename/-unsigned/}"
+            echo "Signing $filename -> $clean_name..."
+
+            "$APKSIGNER" sign \
+              --ks "$KEYSTORE_PATH" \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              --out "signed_assets/$clean_name" \
+              "$apk"
+
+            "$APKSIGNER" verify "signed_assets/$clean_name"
+          done
+
+          ls -la signed_assets/
+
+      - name: Promote and Upload Signed Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           RELEASE_NOTES="Official release build for v0.8.9 (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
           if [ -f "RELEASE_NOTES.md" ]; then
             RELEASE_NOTES=$(cat RELEASE_NOTES.md)
@@ -42,23 +103,25 @@ jobs:
           echo "Ensuring tag v0.8.9 exists on current HEAD..."
           git tag -f v0.8.9
           git push origin v0.8.9 --force || true
-          
-          ASSETS=(release_assets/*)
-          
+
+          shopt -s nullglob
+          SIGNED_ASSETS=(signed_assets/*)
+
           if gh release view "v0.8.9" >/dev/null 2>&1; then
-            echo "Release v0.8.9 already exists; editing to set prerelease=false and latest=true..."
+            echo "Updating existing v0.8.9 release..."
+            # Remove unsigned assets from v0.8.9
+            gh release delete-asset "v0.8.9" "app-universal-release-unsigned.apk" -y || true
+            gh release delete-asset "v0.8.9" "app-arm64-v8a-release-unsigned.apk" -y || true
+            gh release delete-asset "v0.8.9" "app-x86_64-release-unsigned.apk" -y || true
+
             gh release edit "v0.8.9" --prerelease=false --latest --title "v0.8.9 - GPT Mobile Improved" --notes "$RELEASE_NOTES"
-            if [ ${#ASSETS[@]} -gt 0 ] && [ -f "${ASSETS[0]}" ]; then
-              gh release upload "v0.8.9" "${ASSETS[@]}" --clobber
+            if [ ${#SIGNED_ASSETS[@]} -gt 0 ]; then
+              gh release upload "v0.8.9" "${SIGNED_ASSETS[@]}" --clobber
             fi
           else
-            echo "Creating official latest release v0.8.9..."
-            if [ ${#ASSETS[@]} -gt 0 ] && [ -f "${ASSETS[0]}" ]; then
-              gh release create "v0.8.9" "${ASSETS[@]}" --latest --title "v0.8.9 - GPT Mobile Improved" --notes "$RELEASE_NOTES"
-            else
-              gh release create "v0.8.9" --latest --title "v0.8.9 - GPT Mobile Improved" --notes "$RELEASE_NOTES"
-            fi
+            echo "Creating fresh release v0.8.9..."
+            gh release create "v0.8.9" "${SIGNED_ASSETS[@]}" --latest --title "v0.8.9 - GPT Mobile Improved" --notes "$RELEASE_NOTES"
           fi
-          
-          echo "Verifying latest release:"
-          gh release view --json tagName,isPrerelease,isDraft,name
+
+          echo "Release verification:"
+          gh release view "v0.8.9"

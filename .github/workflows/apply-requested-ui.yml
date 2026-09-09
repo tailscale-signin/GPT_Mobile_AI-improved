@@ -2,8 +2,7 @@ name: Apply requested UI refinements
 
 on:
   push:
-    branches:
-      - fix/tool-trace-official-icon-summary
+    branches: [fix/tool-trace-official-icon-summary]
 
 permissions:
   contents: write
@@ -16,127 +15,96 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/tool-trace-official-icon-summary
-      - name: Apply minimal source patch
+      - name: Apply and validate source patch
         shell: python
         run: |
           from pathlib import Path
 
           tool = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt")
           text = tool.read_text()
-          old = '''        Icon(
-              painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),
-              contentDescription = null,
-              tint = Color.Unspecified,
-              modifier = Modifier.size((sizeDp * 0.7).dp),
-          )'''
-          new = '''        Icon(
-              painter = painterResource(
+          text = text.replace(
+              "painter = painterResource(id = R.drawable.ic_gpt_mobile_foreground),",
+              """painter = painterResource(
                   id = if (info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor) {
                       R.drawable.ic_github
                   } else {
                       R.drawable.ic_gpt_mobile_foreground
                   },
-              ),
-              contentDescription = null,
-              tint = Color.Unspecified,
-              modifier = Modifier.size((sizeDp * 0.7).dp),
-          )'''
-          if old not in text:
-              raise SystemExit("Tool icon target not found")
-          text = text.replace(old, new, 1)
-          old = '''    Column(
-          modifier = modifier
-              .padding(start = 16.dp)
-              .fillMaxWidth()
-              .clip(RoundedCornerShape(12.dp))
-              .background(MaterialTheme.colorScheme.surfaceVariant)
-              .semantics { contentDescription = traceBlockDescription },
-      ) {'''
-          new = '''    val background = MaterialTheme.colorScheme.background
-          val toolBubbleColor = Color(
-              red = background.red * 0.8f,
-              green = background.green * 0.8f,
-              blue = background.blue * 0.8f,
-              alpha = background.alpha,
+              ),""",
+              1,
           )
-          Column(
-              modifier = modifier
-                  // Indent only the left edge; the right edge stays aligned with ThinkingBlock.
-                  .padding(start = 16.dp)
-                  .fillMaxWidth()
-                  .clip(RoundedCornerShape(12.dp))
-                  .background(toolBubbleColor)
-                  .semantics { contentDescription = traceBlockDescription },
-          ) {'''
-          if old not in text:
-              raise SystemExit("Tool bubble target not found")
-          text = text.replace(old, new, 1)
-          old = '''                .padding(12.dp),
-              verticalAlignment = Alignment.CenterVertically,
-          ) {
-              ToolServiceCircleIcon(primaryServiceInfo)'''
-          new = '''                .padding(horizontal = 12.dp, vertical = 8.dp),
-              verticalAlignment = Alignment.CenterVertically,
-          ) {
-              ToolServiceCircleIcon(primaryServiceInfo)'''
-          if old not in text:
-              raise SystemExit("Tool height target not found")
-          text = text.replace(old, new, 1)
+          text = text.replace(
+              ".background(MaterialTheme.colorScheme.surfaceVariant)\n            .semantics { contentDescription = traceBlockDescription },",
+              ".background(MaterialTheme.colorScheme.background.copy(alpha = 0.82f))\n            .semantics { contentDescription = traceBlockDescription },",
+              1,
+          )
+          text = text.replace(
+              ".padding(12.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)",
+              ".padding(horizontal = 12.dp, vertical = 8.dp),\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            ToolServiceCircleIcon(primaryServiceInfo)",
+              1,
+          )
           tool.write_text(text)
 
           home = Path("app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt")
           text = home.read_text()
-          text = text.replace("import androidx.compose.foundation.combinedClickable\n", "import androidx.compose.foundation.background\nimport androidx.compose.foundation.combinedClickable\n", 1)
-          text = text.replace("import androidx.compose.ui.Alignment\n", "import androidx.compose.ui.Alignment\nimport androidx.compose.ui.draw.clip\nimport androidx.compose.ui.graphics.Brush\n", 1)
-          old = '''    Card(
-          modifier = Modifier
-              .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 6.dp)
-              .combinedClickable(onClick = onClick),
-          shape = RoundedCornerShape(12.dp),
-          colors = CardDefaults.cardColors(
-              containerColor = MaterialTheme.colorScheme.surfaceVariant
+          text = text.replace(
+              "import androidx.compose.foundation.ExperimentalFoundationApi\n",
+              "import androidx.compose.foundation.ExperimentalFoundationApi\nimport androidx.compose.foundation.background\n",
+              1,
           )
-      ) {
-          Column(
-              modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(16.dp)
-          ) {'''
-          new = '''    val shape = RoundedCornerShape(12.dp)
-          val baseColor = MaterialTheme.colorScheme.surfaceVariant
-          val brighterColor = Color(
-              red = (baseColor.red * 1.06f).coerceAtMost(1f),
-              green = (baseColor.green * 1.06f).coerceAtMost(1f),
-              blue = (baseColor.blue * 1.06f).coerceAtMost(1f),
-              alpha = baseColor.alpha,
+          text = text.replace(
+              "import androidx.compose.ui.Alignment\n",
+              "import androidx.compose.ui.Alignment\nimport androidx.compose.ui.draw.clip\nimport androidx.compose.ui.graphics.Brush\n",
+              1,
           )
-          Card(
-              modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(horizontal = 12.dp, vertical = 6.dp)
-                  .heightIn(min = 120.dp)
-                  .clip(shape)
-                  .background(Brush.verticalGradient(listOf(baseColor, brighterColor)))
-                  .combinedClickable(onClick = onClick),
-              shape = shape,
-              colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-          ) {
-              Column(
-                  modifier = Modifier
-                      .fillMaxWidth()
-                      .padding(horizontal = 20.dp, vertical = 18.dp)
-              ) {'''
+          old = """    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .combinedClickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {"""
+          new = """    val shape = RoundedCornerShape(12.dp)
+    val topColor = MaterialTheme.colorScheme.surfaceVariant
+    val bottomColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .heightIn(min = 120.dp)
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(topColor, bottomColor)))
+            .combinedClickable(onClick = onClick),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+        ) {"""
           if old not in text:
               raise SystemExit("Favorite card target not found")
           text = text.replace(old, new, 1)
           home.write_text(text)
 
+          if "R.drawable.ic_github" not in tool.read_text():
+              raise SystemExit("GitHub icon patch failed")
+          if "Brush.verticalGradient" not in home.read_text():
+              raise SystemExit("Favorite gradient patch failed")
           Path(".github/workflows/apply-requested-ui.yml").unlink()
-      - name: Commit source changes
+      - name: Commit source changes and workflow cleanup
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ToolTraceBlock.kt app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt .github/workflows/apply-requested-ui.yml
+          git add -A
           git commit -m "Refine tool and favorite bubbles"
           git push

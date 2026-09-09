@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.parser
 
+import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ParsedReasoningContent
+
 object ThinkingParser {
     private val THINK_REGEX = Regex("<think>([\\s\\S]*?)</think>", RegexOption.IGNORE_CASE)
 
@@ -15,4 +17,10 @@ object ThinkingParser {
         val cleanContent = content.replace(THINK_REGEX, "").trim()
         return Pair(thinking.ifEmpty { null }, cleanContent)
     }
+
+    /**
+     * Interoperability helper delegating to [dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.parse].
+     */
+    fun extractThinking(content: String): ParsedReasoningContent =
+        dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser.parse(content)
 }

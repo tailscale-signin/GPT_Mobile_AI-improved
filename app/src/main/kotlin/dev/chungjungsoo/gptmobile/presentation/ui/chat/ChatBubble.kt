@@ -24,7 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -78,6 +80,7 @@ fun OpponentChatBubble(
     onRetryClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onFavoriteClick: () -> Unit = {},
+    onFavoriteLongPress: () -> Unit = {},
     onShowPreviousRevision: () -> Unit = {},
     onShowNextRevision: () -> Unit = {}
 ) {
@@ -129,7 +132,7 @@ fun OpponentChatBubble(
                         Spacer(Modifier.width(8.dp))
                         SelectTextIcon(onSelectClick)
                         Spacer(Modifier.width(8.dp))
-                        FavoriteIcon(isFavorite, onFavoriteClick)
+                        FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
                         if (canEdit) { Spacer(Modifier.width(8.dp)); EditTextIcon(onEditClick) }
                     }
                     if (canRetry) { Spacer(Modifier.width(8.dp)); RetryIcon(onRetryClick) }
@@ -273,12 +276,34 @@ fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatfo
 @Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text))
 }
-@Composable private fun FavoriteIcon(isFavorite: Boolean, onFavoriteClick: () -> Unit) = IconButton(onClick = onFavoriteClick) {
-    Icon(
-        if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
-        stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
-        tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-    )
+@Composable
+private fun FavoriteIcon(
+    isFavorite: Boolean,
+    onFavoriteClick: () -> Unit,
+    onFavoriteLongPress: () -> Unit = {}
+) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onFavoriteClick() },
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onFavoriteLongPress()
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+            stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
+            tint = if (isFavorite) Color.Cyan else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 @Composable private fun RetryIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(Icons.Rounded.Refresh, stringResource(R.string.retry))

@@ -199,6 +199,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format; `MaxTokensDialog` displays hardware context ceiling hint (`max_tokens_hardware_cap_hint` or `max_tokens_standard_hint`) when input is valid.
 - `PlatformSettingScreen.kt` — Configures existing platforms, manages tool traces, MCP connections, and hosts `PlatformMaxToolCallsSettingHost`; shows hardware context ceiling alongside configured tokens in local model Max Tokens item description (`max_tokens_with_cap`).
+- `AddPlatformScreen.kt` — Dynamic multi-key API credentials support (`+API`, row deletion, `multi_api_keys_hint`) with `ApiCredentialRotator` serialization for new platform creation.
 - `MaxToolCallsSetting.kt` — Max tool calls UI component for platform settings.
 - `PlatformMaxToolCallsSettingHost.kt` — Host composable integrating `MaxToolCallsSetting` with `PlatformSettingViewModel`.
 - `PlatformSettingViewModelExtensions.kt` — Extension functions on `PlatformSettingViewModel` including `updateMaxToolCalls`.

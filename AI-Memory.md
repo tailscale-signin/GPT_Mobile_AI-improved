@@ -120,7 +120,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `LocalSamplingDefaults.kt` — Default temperature, top-p, and top-k hyperparameters for local models.
 - `mcp/` — Model Context Protocol search and integration:
   - `McpIntegratedSearchManager.kt` — Federated search coordination across active MCP tool providers (defaults to preinstalled `droid-mcp-web` Online Search tools: `web_search` and `fetch_webpage`).
-  - `McpPresetCatalog.kt` — Catalog definitions and presets for MCP servers including `droid-mcp-web`.
+  - `McpPresetCatalog.kt` — Catalog definitions and presets for MCP servers including `droid-mcp-web` Online Search preinstalled.
   - `McpSearchToolSet.kt` — Dynamic toolset wrappers for search operations based on `droid-mcp-web` (`web_search` and `fetch_webpage`).
 - `model/` — Domain models:
   - `ApiType.kt`, `ChatAttachment.kt`, `ChatMcpToolConfig.kt`, `ClientType.kt`, `DynamicTheme.kt`, `GeminiSafetySettings.kt`, `ThemeMode.kt`.

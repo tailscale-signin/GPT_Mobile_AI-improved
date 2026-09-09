@@ -270,6 +270,16 @@ class AgentRunCoordinator @Inject constructor(
                 onNotice = { notice, persistent ->
                     _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
                 },
+                onPhaseChanged = { phase ->
+                    _activeRuns.update { runs ->
+                        val current = runs[request.runId]
+                        if (current != null) {
+                            runs + (request.runId to current.copy(phase = phase))
+                        } else {
+                            runs
+                        }
+                    }
+                },
                 publishIntervalMillis = publishIntervalMillis
             )
             val terminal = outcome.toTerminalUpdate()

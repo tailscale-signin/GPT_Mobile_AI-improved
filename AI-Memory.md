@@ -184,7 +184,10 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `assignFavoriteMessageGroup(messageId: Int, groupName: String?)`: Accepts nullable `groupName` to properly remove associations when unassigned/cleared via "None".
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
 - `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format.
-- `PlatformSettingScreen.kt` — Configures existing platforms and passes current tokens (`platformData.token`) to `APIKeyDialog`.
+- `PlatformSettingScreen.kt` — Configures existing platforms, manages tool traces, MCP connections, and hosts `PlatformMaxToolCallsSettingHost`.
+- `MaxToolCallsSetting.kt` — Max tool calls UI component for platform settings.
+- `PlatformMaxToolCallsSettingHost.kt` — Host composable integrating `MaxToolCallsSetting` with `PlatformSettingViewModel`.
+- `PlatformSettingViewModelExtensions.kt` — Extension functions on `PlatformSettingViewModel` including `updateMaxToolCalls`.
 - `SetupPlatformWizardScreen.kt` — Step-by-step setup wizard with dynamic multi-key API credentials (`+API`, delete row), keeping keys visible and formatted via `ApiCredentialRotator`.
 - `SetupViewModelV2.kt` — Wizard ViewModel retaining and prefilling existing API keys when adding similar platform types (e.g. OpenRouter).
 - `ToolConnectionsScreen.kt` — External tool connection and MCP setup screen featuring multi-key dynamic credential input with `+API` button and per-key removal.
@@ -197,7 +200,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`), catalogs, context compaction, database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime, MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, and ViewModels.
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 

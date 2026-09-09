@@ -19,6 +19,8 @@ import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 data class ResolvedAgentTool(
     val tool: AgentTool,
@@ -266,9 +268,28 @@ private class McpAgentTool(
     private val clientManager: McpClientManager
 ) : AgentTool {
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val isFileTool = isFileReadingTool(remoteToolName)
+        val startLine = if (isFileTool) {
+            arguments["start_line"]?.jsonPrimitive?.intOrNull
+        } else {
+            null
+        }
+        val endLine = if (isFileTool) {
+            arguments["end_line"]?.jsonPrimitive?.intOrNull
+        } else {
+            null
+        }
+
+        // Clean out client-side line slicing parameters before forwarding to remote server
+        val remoteArguments = if (isFileTool && (startLine != null || endLine != null)) {
+            JsonObject(arguments.filterKeys { it != "start_line" && it != "end_line" })
+        } else {
+            arguments
+        }
+
         val initialConfig = config(false, null)
         val result = try {
-            clientManager.callTool(initialConfig, remoteToolName, arguments)
+            clientManager.callTool(initialConfig, remoteToolName, remoteArguments)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -276,10 +297,10 @@ private class McpAgentTool(
             clientManager.callTool(
                 config(true, initialConfig.authorizationHeader),
                 remoteToolName,
-                arguments
+                remoteArguments
             )
         }
-        return mapMcpToolResult(callId, result)
+        return mapMcpToolResult(callId, result, startLine, endLine)
     }
 }
 

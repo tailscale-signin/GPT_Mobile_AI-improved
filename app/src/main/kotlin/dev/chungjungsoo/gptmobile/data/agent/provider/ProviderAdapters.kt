@@ -52,6 +52,7 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import java.util.concurrent.atomic.AtomicInteger
@@ -59,6 +60,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -171,6 +173,8 @@ class OpenAICompatibleAdapter @Inject constructor(
     private val groqAPI: GroqAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
+    private val routingJson = Json { ignoreUnknownKeys = true }
+
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
@@ -197,6 +201,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                     )
                 } else {
                     emptyMap()
+                }
+
+                val parsedRouting: OpenRouterProviderRouting? = if (isOpenRouter && !platform.openRouterRouting.isNullOrBlank()) {
+                    runCatching {
+                        routingJson.decodeFromString<OpenRouterProviderRouting>(platform.openRouterRouting)
+                    }.getOrNull()
+                } else {
+                    null
                 }
 
                 for (attempt in 0 until attempts) {
@@ -278,6 +290,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         temperature = platform.temperature,
                         topP = platform.topP,
                         tools = requestTools,
+                        provider = parsedRouting,
                         reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null
                     )
                     val assembler = ChatCompletionsEventAssembler()
@@ -318,13 +331,50 @@ class OpenAICompatibleAdapter @Inject constructor(
                         return@flow
                     } else if (canRotate && attempt < attempts - 1) {
                         continue
-                    } else {
-                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
+                    } else if (roundFailed) {
+                        lastFailedMessage?.let { emit(ProviderEvent.Failed(it)) }
                         return@flow
                     }
                 }
             }
         }
+    }
+
+    private fun createGroqChatCompletionRequest(
+        messages: List<ChatMessage>,
+        platform: PlatformV2
+    ): GroqChatCompletionRequest = GroqChatCompletionRequest(
+        model = platform.model,
+        messages = messages,
+        temperature = platform.temperature,
+        topP = platform.topP,
+        stream = platform.stream,
+        reasoningFormat = if (platform.reasoning) "raw" else null
+    )
+
+    private fun AgentToolExchange.toChatMessages(): List<ChatMessage> {
+        val callMessage = ChatMessage(
+            role = OpenAIRole.ASSISTANT.value,
+            content = null,
+            toolCalls = calls.map { call ->
+                ChatToolCall(
+                    id = call.callId,
+                    type = "function",
+                    function = ChatFunction(
+                        name = call.name,
+                        arguments = call.arguments
+                    )
+                )
+            }
+        )
+        val resultMessages = results.map { result ->
+            ChatMessage(
+                role = OpenAIRole.TOOL.value,
+                content = result.modelText(),
+                toolCallId = result.callId
+            )
+        }
+        return listOf(callMessage) + resultMessages
     }
 }
 
@@ -333,8 +383,7 @@ class AnthropicMessagesAdapter @Inject constructor(
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
-        val initialMessages = attachmentEncoder.anthropicMessages(turns, platform.uid)
-        val assistantContentByRound = mutableMapOf<Int, List<MessageContent>>()
+        val initialMessages = attachmentEncoder.anthropicMessages(turns)
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
         val keyIndexCounter = AtomicInteger(0)
         return object : AgentProviderSession {
@@ -342,23 +391,16 @@ class AnthropicMessagesAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                val thinkingPolicy = anthropicThinkingPolicy(
-                    model = platform.model,
-                    reasoningEnabled = platform.reasoning,
-                    hasTools = tools.isNotEmpty()
-                )
-                val isThinkingActive = thinkingPolicy.config?.type?.let { it != "disabled" } == true
+                val messages = initialMessages + exchanges.flatMap { it.toAnthropicMessages() }
                 val request = MessageRequest(
                     model = platform.model,
-                    messages = initialMessages + exchanges.flatMapIndexed { index, exchange ->
-                        exchange.toAnthropicMessages(assistantContentByRound[index])
-                    },
-                    maxTokens = if (isThinkingActive) 16000 else 4096,
-                    stream = platform.stream,
-                    systemPrompt = platform.systemPrompt,
-                    temperature = if (isThinkingActive) null else platform.temperature,
-                    topP = if (isThinkingActive) null else platform.topP,
-                    thinking = thinkingPolicy.config,
+                    messages = messages,
+                    system = platform.systemPrompt?.takeIf { it.isNotBlank() },
+                    maxTokens = platform.maxTokens ?: 4096,
+                    temperature = if (platform.reasoning) null else platform.temperature,
+                    topP = if (platform.reasoning) null else platform.topP,
+                    stream = true,
+                    thinking = if (platform.reasoning) AnthropicThinkingConfig(budgetTokens = 2048) else null,
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         AnthropicTool(definition.name, definition.description, definition.inputSchema)
                     }
@@ -371,21 +413,14 @@ class AnthropicMessagesAdapter @Inject constructor(
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
-                    val assembler = AnthropicEventAssembler()
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val assembler = AnthropicEventsAssembler()
                     var roundFailed = false
                     var canRotate = false
 
                     try {
-                        api.streamChatMessage(
-                            request,
-                            platform.timeout,
-                            ProviderRequestConfig(
-                                apiUrl = platform.apiUrl,
-                                token = activeKey,
-                                anthropicBetaFeatures = thinkingPolicy.betaFeatures
-                            )
-                        ).collect { chunk ->
-                            assembler.accept(chunk).forEach { mapped ->
+                        api.streamMessage(request, platform.timeout, config).collect { event ->
+                            assembler.accept(event).forEach { mapped ->
                                 when (mapped) {
                                     ProviderEvent.Completed -> Unit
 
@@ -416,97 +451,39 @@ class AnthropicMessagesAdapter @Inject constructor(
                     }
 
                     if (!roundFailed) {
-                        assembler.replayContent().takeIf { it.isNotEmpty() }?.let { assistantContentByRound[exchanges.size] = it }
                         emit(ProviderEvent.Completed)
                         return@flow
                     } else if (canRotate && attempt < attempts - 1) {
                         continue
-                    } else {
-                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
+                    } else if (roundFailed) {
+                        lastFailedMessage?.let { emit(ProviderEvent.Failed(it)) }
                         return@flow
                     }
                 }
             }
         }
     }
-}
 
-internal data class AnthropicThinkingPolicy(
-    val config: AnthropicThinkingConfig?,
-    val betaFeatures: Set<String>
-)
-
-internal fun anthropicThinkingPolicy(
-    model: String,
-    reasoningEnabled: Boolean,
-    hasTools: Boolean
-): AnthropicThinkingPolicy {
-    val normalizedModel = model.lowercase()
-    if (!reasoningEnabled) {
-        val config = AnthropicThinkingConfig(type = "disabled")
-            .takeIf { DEFAULT_ON_DISABLEABLE_ANTHROPIC_MODEL_PATTERN.containsMatchIn(normalizedModel) }
-        return AnthropicThinkingPolicy(config = config, betaFeatures = emptySet())
-    }
-
-    val usesAdaptiveThinking = ADAPTIVE_ANTHROPIC_MODEL_PATTERN.containsMatchIn(normalizedModel) ||
-        normalizedModel.contains("mythos") ||
-        normalizedModel.contains("fable")
-    if (usesAdaptiveThinking) {
-        return AnthropicThinkingPolicy(
-            config = AnthropicThinkingConfig(type = "adaptive", display = "summarized"),
-            betaFeatures = emptySet()
-        )
-    }
-    if (!MANUAL_THINKING_ANTHROPIC_MODEL_PATTERN.containsMatchIn(normalizedModel)) {
-        return AnthropicThinkingPolicy(config = null, betaFeatures = emptySet())
-    }
-
-    val supportsManualInterleaving = hasTools &&
-        (normalizedModel.contains("opus") || normalizedModel.contains("sonnet")) &&
-        MANUAL_INTERLEAVED_ANTHROPIC_MODEL_PATTERN.containsMatchIn(normalizedModel)
-    return AnthropicThinkingPolicy(
-        config = AnthropicThinkingConfig(type = "enabled", budgetTokens = 10_000, display = "summarized"),
-        betaFeatures = if (supportsManualInterleaving) setOf(ANTHROPIC_INTERLEAVED_THINKING_BETA) else emptySet()
-    )
-}
-
-internal const val ANTHROPIC_INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
-private val ADAPTIVE_ANTHROPIC_MODEL_PATTERN = Regex(
-    "(?:^|-)4-(?:6|7|8)(?:-|$)|claude-(?:opus|sonnet|haiku)-5(?:-|$)|claude-5-(?:opus|sonnet|haiku)(?:-|$)"
-)
-private val DEFAULT_ON_DISABLEABLE_ANTHROPIC_MODEL_PATTERN =
-    Regex("claude-(?:opus|sonnet)-5(?:-|$)|claude-5-(?:opus|sonnet)(?:-|$)")
-private val MANUAL_THINKING_ANTHROPIC_MODEL_PATTERN = Regex("(?:^|-)3-7(?:-|$)|(?:^|-)4(?:-|$)")
-private val MANUAL_INTERLEAVED_ANTHROPIC_MODEL_PATTERN = Regex("(?:^|-)4(?:-|$)")
-
-internal fun geminiToolParameters(schema: JsonObject): JsonObject {
-    if ("additionalProperties" !in schema && schema.values.none { it is JsonObject || it is JsonArray }) {
-        return schema
-    }
-    return buildJsonObject {
-        schema.forEach { (key, value) ->
-            if (key == "additionalProperties") return@forEach
-            put(key, if (key in SCHEMA_MAP_KEYWORDS) stripAdditionalPropertiesInSchemaMap(value) else stripAdditionalProperties(value))
+    private fun AgentToolExchange.toAnthropicMessages(): List<InputMessage> {
+        val assistantContent = calls.map { call ->
+            val inputJson = runCatching {
+                NetworkClient.anthropicJson.parseToJsonElement(call.arguments)
+            }.getOrDefault(buildJsonObject {})
+            ToolUseContent(id = call.callId, name = call.name, input = inputJson)
         }
+        val assistantMessage = InputMessage(role = MessageRole.ASSISTANT.value, content = assistantContent)
+
+        val toolResultContent = results.map { result ->
+            AnthropicToolResultContent(
+                toolUseId = result.callId,
+                content = result.modelText(),
+                isError = result.isError
+            )
+        }
+        val toolMessage = InputMessage(role = MessageRole.USER.value, content = toolResultContent)
+
+        return listOf(assistantMessage, toolMessage)
     }
-}
-
-// Keys under these keywords are caller-defined names, so a property literally named
-// additionalProperties must survive while the keyword itself is stripped everywhere else.
-private val SCHEMA_MAP_KEYWORDS = setOf("properties", "patternProperties", "definitions", "\$defs")
-
-private fun stripAdditionalPropertiesInSchemaMap(value: JsonElement): JsonElement = when (value) {
-    is JsonObject -> buildJsonObject {
-        value.forEach { (name, member) -> put(name, stripAdditionalProperties(member)) }
-    }
-
-    else -> stripAdditionalProperties(value)
-}
-
-private fun stripAdditionalProperties(value: JsonElement): JsonElement = when (value) {
-    is JsonObject -> geminiToolParameters(value)
-    is JsonArray -> JsonArray(value.map(::stripAdditionalProperties))
-    else -> value
 }
 
 class GeminiAdapter @Inject constructor(
@@ -514,43 +491,53 @@ class GeminiAdapter @Inject constructor(
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
-        val initialContents = attachmentEncoder.googleContents(turns, platform.uid)
+        val initialContents = attachmentEncoder.geminiContents(turns)
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
         val keyIndexCounter = AtomicInteger(0)
-        val modelPartsByRound = mutableMapOf<Int, List<Part>>()
         return object : AgentProviderSession {
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
+                val contents = initialContents + exchanges.flatMap { it.toGeminiContents() }
+                val safetySettings = listOf(
+                    SafetySetting("HARM_CATEGORY_HARASSMENT", GeminiSafetySettings.normalizeThreshold(platform.harassmentSafetyThreshold)),
+                    SafetySetting("HARM_CATEGORY_HATE_SPEECH", GeminiSafetySettings.normalizeThreshold(platform.hateSpeechSafetyThreshold)),
+                    SafetySetting("HARM_CATEGORY_SEXUALLY_EXPLICIT", GeminiSafetySettings.normalizeThreshold(platform.sexuallyExplicitSafetyThreshold)),
+                    SafetySetting("HARM_CATEGORY_DANGEROUS_CONTENT", GeminiSafetySettings.normalizeThreshold(platform.dangerousContentSafetyThreshold))
+                )
                 val request = GenerateContentRequest(
-                    contents = initialContents + exchanges.flatMapIndexed { index, exchange ->
-                        exchange.toGeminiContents(modelPartsByRound[index])
+                    contents = contents,
+                    systemInstruction = platform.systemPrompt?.takeIf { it.isNotBlank() }?.let {
+                        Content(role = GoogleRole.USER.value, parts = listOf(Part(text = it)))
                     },
                     generationConfig = GenerationConfig(
                         temperature = platform.temperature,
                         topP = platform.topP,
-                        thinkingConfig = if (platform.reasoning) GoogleThinkingConfig(includeThoughts = true) else null
+                        topK = platform.topK,
+                        maxOutputTokens = platform.maxTokens,
+                        thinkingConfig = if (platform.reasoning) GoogleThinkingConfig(thinkingBudget = 2048) else null
                     ),
-                    systemInstruction = platform.systemPrompt?.takeIf { it.isNotBlank() }?.let { prompt ->
-                        Content(parts = listOf(Part.text(prompt)))
-                    },
-                    safetySettings = platform.googleSafetySettings(),
-                    tools = tools.takeIf { it.isNotEmpty() }?.let { definitions ->
+                    safetySettings = safetySettings,
+                    tools = tools.takeIf { it.isNotEmpty() }?.let { list ->
                         listOf(
                             GoogleTool(
-                                definitions.map { definition ->
+                                functionDeclarations = list.map { definition ->
                                     FunctionDeclaration(
-                                        definition.name,
-                                        definition.description,
-                                        geminiToolParameters(definition.inputSchema)
+                                        name = definition.name,
+                                        description = definition.description,
+                                        parameters = sanitizeGeminiParameters(definition.inputSchema)
                                     )
                                 }
                             )
                         )
                     },
                     toolConfig = tools.takeIf { it.isNotEmpty() }?.let {
-                        GoogleToolConfig(GoogleFunctionCallingConfig(mode = "AUTO"))
+                        GoogleToolConfig(
+                            functionCallingConfig = GoogleFunctionCallingConfig(
+                                mode = "AUTO"
+                            )
+                        )
                     }
                 )
 
@@ -562,31 +549,17 @@ class GeminiAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val assembler = GeminiEventsAssembler()
                     var roundFailed = false
                     var canRotate = false
 
                     try {
-                        api.streamGenerateContent(request, platform.model, platform.timeout, config).collect { response ->
-                            val parts = response.candidates.orEmpty().flatMap { it.content?.parts.orEmpty() }
-                            if (parts.isNotEmpty()) {
-                                modelPartsByRound[exchanges.size] = modelPartsByRound[exchanges.size].orEmpty() + parts
-                            }
-                            val safetyError = when {
-                                response.promptFeedback?.blockReason != null ->
-                                    "Gemini safety settings blocked the prompt: ${response.promptFeedback.blockReason}"
+                        api.streamGenerateContent(platform.model, request, platform.timeout, config).collect { response ->
+                            assembler.accept(response).forEach { mapped ->
+                                when (mapped) {
+                                    ProviderEvent.Completed -> Unit
 
-                                response.candidates.orEmpty().any { it.finishReason == "SAFETY" } ->
-                                    "Gemini safety settings blocked the response."
-
-                                else -> null
-                            }
-                            if (safetyError != null) {
-                                roundFailed = true
-                                lastFailedMessage = safetyError
-                                emit(ProviderEvent.Failed(safetyError))
-                            } else {
-                                GeminiEventMapper.accept(response).forEach { mapped ->
-                                    if (mapped is ProviderEvent.Failed) {
+                                    is ProviderEvent.Failed -> {
                                         roundFailed = true
                                         lastFailedMessage = mapped.message
                                         if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
@@ -594,9 +567,9 @@ class GeminiAdapter @Inject constructor(
                                         } else {
                                             emit(mapped)
                                         }
-                                    } else {
-                                        emit(mapped)
                                     }
+
+                                    else -> emit(mapped)
                                 }
                             }
                         }
@@ -617,143 +590,52 @@ class GeminiAdapter @Inject constructor(
                         return@flow
                     } else if (canRotate && attempt < attempts - 1) {
                         continue
-                    } else {
-                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
+                    } else if (roundFailed) {
+                        lastFailedMessage?.let { emit(ProviderEvent.Failed(it)) }
                         return@flow
                     }
                 }
             }
         }
     }
-}
 
-private fun AgentToolExchange.toChatMessages(): List<ChatMessage> = listOf(
-    ChatMessage(
-        role = OpenAIRole.ASSISTANT,
-        toolCalls = calls.map { call ->
-            ChatToolCall(call.callId, ChatFunction(call.name, call.arguments.toString()))
+    private fun AgentToolExchange.toGeminiContents(): List<Content> {
+        val modelParts = calls.map { call ->
+            val argsJson = runCatching {
+                NetworkClient.googleJson.decodeFromString<JsonObject>(call.arguments)
+            }.getOrDefault(buildJsonObject {})
+            Part(functionCall = FunctionCall(name = call.name, args = argsJson))
         }
-    )
-) + results.map { result ->
-    ChatMessage(
-        role = OpenAIRole.TOOL,
-        content = listOf(OpenAITextContent(result.modelText())),
-        toolCallId = result.callId
-    )
-}
+        val modelContent = Content(role = GoogleRole.MODEL.value, parts = modelParts)
 
-private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): ProviderEvent? = when (this) {
-    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk)
-    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Thinking -> ProviderEvent.ThinkingDelta(thinkingChunk)
-    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Notice -> null
-    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Error -> ProviderEvent.Failed(message)
-    else -> null
-}
-
-private fun AgentToolExchange.toAnthropicMessages(assistantContent: List<MessageContent>?): List<InputMessage> = listOf(
-    InputMessage(
-        MessageRole.ASSISTANT,
-        assistantContent ?: calls.map { call -> ToolUseContent(call.callId, call.name, call.arguments) }
-    ),
-    InputMessage(
-        MessageRole.USER,
-        results.map { result ->
-            AnthropicToolResultContent(result.callId, result.modelText(), result.isError)
-        }
-    )
-)
-
-private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Content> {
-    val callsById = calls.associateBy { it.callId }
-    val originalCalls = modelParts.orEmpty().mapNotNull { it.functionCall }
-    return listOf(
-        Content(
-            GoogleRole.MODEL,
-            modelParts ?: calls.map { call -> Part(functionCall = FunctionCall(call.callId, call.name, call.arguments)) }
-        ),
-        Content(
-            GoogleRole.USER,
-            results.mapNotNull { result ->
-                val call = callsById[result.callId] ?: return@mapNotNull null
-                val providerCallId = if (modelParts == null) result.callId else originalCalls.getOrNull(calls.indexOf(call))?.id
-                Part(
-                    functionResponse = FunctionResponse(
-                        id = providerCallId,
-                        name = call.name,
-                        response = result.modelJson()
+        val responseParts = results.map { result ->
+            val responseMap: Map<String, JsonElement> = when (val c = result.content) {
+                is ToolResultContent.Text -> mapOf("output" to JsonPrimitive(c.text))
+                is ToolResultContent.Json -> mapOf("output" to c.value)
+                is ToolResultContent.ResourceLinks -> mapOf(
+                    "links" to JsonArray(
+                        c.links.map { link ->
+                            buildJsonObject {
+                                put("uri", link.uri)
+                                link.name?.let { put("name", it) }
+                                link.description?.let { put("description", it) }
+                                link.mimeType?.let { put("mimeType", it) }
+                            }
+                        }
                     )
                 )
             }
-        )
-    )
-}
-
-private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): String = when (val value = content) {
-    is ToolResultContent.Text -> value.text
-    is ToolResultContent.Json -> value.value.toString()
-    is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
-}
-
-private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelJson(): JsonObject = when (val value = content) {
-    is ToolResultContent.Json -> value.value.asResponseObject()
-
-    is ToolResultContent.Text -> buildJsonObject {
-        put("result", value.text)
-        if (isError) put("isError", true)
-    }
-
-    is ToolResultContent.ResourceLinks -> buildJsonObject {
-        put("resources", JsonArray(value.links.map { link -> JsonPrimitive(link.uri) }))
-        if (isError) put("isError", true)
-    }
-}
-
-private fun JsonElement.asResponseObject(): JsonObject = this as? JsonObject ?: buildJsonObject { put("result", this@asResponseObject) }
-
-private fun PlatformV2.googleSafetySettings(): List<SafetySetting> = listOf(
-    SafetySetting(
-        GeminiSafetySettings.HARM_CATEGORY_HARASSMENT,
-        GeminiSafetySettings.normalizeThreshold(harassmentSafetyThreshold)
-    ),
-    SafetySetting(
-        GeminiSafetySettings.HARM_CATEGORY_HATE_SPEECH,
-        GeminiSafetySettings.normalizeThreshold(hateSpeechSafetyThreshold)
-    ),
-    SafetySetting(
-        GeminiSafetySettings.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        GeminiSafetySettings.normalizeThreshold(sexuallyExplicitSafetyThreshold)
-    ),
-    SafetySetting(
-        GeminiSafetySettings.HARM_CATEGORY_DANGEROUS_CONTENT,
-        GeminiSafetySettings.normalizeThreshold(dangerousContentSafetyThreshold)
-    )
-)
-
-private fun createGroqChatCompletionRequest(
-    messages: List<ChatMessage>,
-    platform: PlatformV2
-): GroqChatCompletionRequest {
-    val isGptOssModel = platform.model.contains("gpt-oss", ignoreCase = true)
-    return GroqChatCompletionRequest(
-        model = platform.model,
-        messages = messages,
-        stream = platform.stream,
-        temperature = platform.temperature,
-        topP = platform.topP,
-        maxCompletionTokens = if (platform.reasoning) 8_192 else null,
-        reasoningEffort = if (platform.reasoning && isGptOssModel) "medium" else null,
-        reasoningFormat = when {
-            platform.reasoning && !isGptOssModel -> "parsed"
-            !platform.reasoning && !isGptOssModel -> "hidden"
-            else -> null
-        },
-        includeReasoning = when {
-            platform.reasoning && isGptOssModel -> true
-            !platform.reasoning && isGptOssModel -> false
-            else -> null
+            Part(
+                functionResponse = FunctionResponse(
+                    name = result.callId.substringBeforeLast(':').ifBlank { result.callId },
+                    response = JsonObject(responseMap)
+                )
+            )
         }
-    )
+        val userContent = Content(role = GoogleRole.USER.value, parts = responseParts)
+
+        return listOf(modelContent, userContent)
+    }
 }
 
-private const val GROQ_OUTPUT_LIMIT_MESSAGE =
-    "Groq reached the model output limit before producing a final answer."
+private const val GROQ_OUTPUT_LIMIT_MESSAGE = "Groq output limit reached. Please reduce the prompt size or request a shorter response."

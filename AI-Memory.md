@@ -17,7 +17,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
 - **Dependency injection:** Hilt/Dagger with KSP.
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
-- **Persistence:** Room (`ChatDatabaseV2`, Schema version 14) with full FTS search and DataStore preferences (`SettingDataSource`).
+- **Persistence:** Room (`ChatDatabaseV2`, Schema version 15) with full FTS search and DataStore preferences (`SettingDataSource`). Migration 14->15 adds `open_router_routing` column to `platform_v2`.
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
@@ -50,15 +50,24 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt` — Home dashboard, conversation list, favorites modal dialog (`FavoriteDetailDialog`) with custom category groups ("All", user groups, "+ Add Group"), category assignments, LaTeX/Markdown/code rendering, un-favorite confirmation, and direct navigation to favorited message in chat.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt` — ViewModel driving conversation listings, favorite grouping/filtering, and asynchronous `getChatRoom(chatId, onResult)` resolution for reliable navigation.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingScreen.kt` & `SettingViewModel.kt` — Settings screen managing dynamic multi-key API credential configurations, encrypted storage, and model choices.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt`, `PlatformSettingViewModel.kt`, and `PlatformSettingDialogs.kt` — Configuration screens and dialogs for platforms, including OpenRouter Advanced Settings dialog (`OpenRouterAdvancedSettingsDialog`), model pickers, sampling parameters, safety settings, and tool bindings.
+
+### Database & Migrations
+
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2.kt` — Room database definition (version 15).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2Migrations.kt` — Incremental Room migrations, including `MIGRATION_14_15` (`open_router_routing` column added to `platform_v2`).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/PlatformV2.kt` — Room entity storing AI platform configs, tokens, endpoints, sampling parameters, and `openRouterRouting`.
 
 ### Agent & Tooling
 
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/domain/agent/tools/ReadFileSliceTool.kt` — Built-in line slicing tool for viewing bounded line ranges of local/remote files with 1-based indexing and line-number metadata.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/domain/agent/AgentRuntime.kt` — Autonomous agent orchestrator running multi-step reasoning, tool dispatching, MCP execution, and reflection loops.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt` — Provider adapters for OpenAI, Anthropic, Gemini, Groq, and OpenRouter (deserializing and passing `openRouterRouting` into `ChatCompletionRequest.provider`).
 
 ### Networking & Credentials
 
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ApiCredentialRotator.kt` — Multi-key round-robin rotation with dynamic failover on rate limits (429), payment/quota issues (402), and auth failures (401).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterAdvancedOptions.kt` — OpenRouter provider routing (`OpenRouterProviderRouting`), reasoning (`OpenRouterReasoning`), and plugin schemas.
 
 ## 3. Engineering Guidelines ("Do's")
 

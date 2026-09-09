@@ -16,6 +16,7 @@ import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.di.DeviceRamGb
 import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.HuggingFaceAuthClient
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalDownloadGuards
@@ -55,7 +56,8 @@ class SetupViewModelV2 @Inject constructor(
     huggingFaceTokenStore: HuggingFaceTokenStore,
     downloadGuards: LocalDownloadGuards,
     huggingFaceAuthClient: HuggingFaceAuthClient,
-    @param:DeviceSocModel private val deviceSocModel: String
+    @param:DeviceSocModel private val deviceSocModel: String,
+    @param:DeviceRamGb private val deviceRamGb: Long = 8L
 ) : ViewModel() {
 
     private val downloadActions = LocalModelDownloadActions(
@@ -364,7 +366,7 @@ class SetupViewModelV2 @Inject constructor(
 
     private fun catalogDefaultsFor(modelId: String) = _catalogEntries.value
         .firstOrNull { it.id == modelId }
-        ?.let { localSamplingDefaults(it, deviceSocModel) }
+        ?.let { localSamplingDefaults(it, deviceSocModel, deviceRamGb) }
 
     private fun getDefaultPlatformName(clientType: ClientType): String = ModelConstants.defaultPlatformName(clientType)
 

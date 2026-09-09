@@ -72,6 +72,7 @@ class AgentToolResolver @Inject constructor(
             CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE),
             CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION),
             ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL),
+            ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE),
             defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
         )
 
@@ -121,6 +122,12 @@ class AgentToolResolver @Inject constructor(
 
         BuiltInAgentTool.READ_URL -> if (binding.binding.connectionUid == null) {
             ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
+        } else {
+            null
+        }
+
+        BuiltInAgentTool.READ_FILE_SLICE -> if (binding.binding.connectionUid == null) {
+            ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
         } else {
             null
         }

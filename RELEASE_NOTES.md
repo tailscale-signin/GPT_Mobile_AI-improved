@@ -1,34 +1,23 @@
-# Release Notes - v0.8.9
+# Release Notes - v0.8.9.1 (Pre-release)
 
-Welcome to the official release of **GPT Mobile AI (Improved)** (v0.8.9)!
+Welcome to pre-release **v0.8.9.1** of **GPT Mobile AI (Improved)**!
 
-This release includes major upgrades to autonomous agent capabilities, favorites management and navigation, multi-key API credential rotation, local on-device inference, and database schema evolution.
+This maintenance and feature update builds upon v0.8.9, bringing OpenRouter advanced provider routing and reasoning configuration, Room database schema version 15 with migration 14->15, instant bottom-anchored chat scrolling, and collapsible details with continuous streaming pulses.
 
 ---
 
-### Key Highlights & Features
+### What's New in v0.8.9.1
 
-#### 1. Favorites Management & Deep Navigation
-- **Rich Favorite Detail View**: Redesigned Favorites tab with custom category groups ("All", user groups, "+ Add Group"), assignment dropdowns, Markdown/LaTeX/code rendering, and confirmation dialog for unfavoriting.
-- **Reliable In-Chat Navigation**: Tapping "View" in the favorite detail dialog seamlessly opens the exact chat room and scrolls directly to the favorited message.
-- **Platform Tab Auto-Switching**: When navigating to a favorited response in multi-platform chats, the corresponding provider tab automatically activates.
-- **Taller Highlight Container**: Integrated `OpponentResponseContainer` with an animated cyan highlight surrounding the entire assistant response block (avatar, loading indicators, platform tabs, and chat bubble).
-- **Haptic Feedback**: Long-pressing the favorite icon triggers a subtle haptic vibration confirming the action.
+#### 1. OpenRouter Advanced Routing & Reasoning
+- **Fine-Grained Provider Routing**: Added configuration options for OpenRouter provider order, fallback providers, sorting strategy (`price`, `throughput`, `latency`), data collection policy (`allow`, `deny`), and precision/quantizations (`fp16`, `int8`, `int4`, `bf16`).
+- **Reasoning Tokens Control**: Custom max reasoning tokens support across OpenRouter endpoints.
+- **Provider Adapters & Settings UI**: Integrated advanced routing controls into `OpenAICompatibleAdapter` and `PlatformSettingScreen` via `OpenRouterAdvancedSettingsDialog`.
+- **Database Schema 15**: Added `open_router_routing` column to `platform_v2` with `MIGRATION_14_15` and automated test verification.
 
-#### 2. Agent Tools & Line Slicing
-- **Bounded Line Slicing (`read_file_slice`)**: Added the built-in `read_file_slice` tool and automatic MCP line slicing (`start_line`, `end_line`) for remote file-reading tools (e.g. GitHub `get_file_contents`) to dramatically cut token usage and context overhead.
-- **Preinstalled Search Tooling**: Bundled `droid-mcp-web` Online Search (`web_search`, `fetch_webpage`) for out-of-the-box web search and content retrieval.
-- **Execution Traces**: Restyled `ToolTraceBlock` with dark card backgrounds, brand icons, and collapsible tool outputs.
-
-#### 3. Multi-Key API Credential Rotation
-- **High-Availability Multi-Key Support**: `ApiCredentialRotator` with round-robin failover across multiple keys per provider.
-- **Automatic Fallback on Rate Limits**: Seamless fallback on HTTP 429, 402, 401, and quota exhaustion without interrupting streaming sessions.
-- **Dynamic Key Management UI**: Easily add and manage multiple API keys with the `+API` button across Platform Settings, the Setup Wizard, and MCP Tool Connections.
-
-#### 4. Architecture & Persistence
-- **Room Database Schema v14**: Fully migrated database schema adding tool connections, timeline items, agent run persistence, agent tool bindings, and configurable platform tool-call limits (`max_tool_calls`).
-- **Android Target**: Compiled against Android 16 (API 36) with min SDK 31, Java 21 bytecode, and modern 64-bit ABIs (`arm64-v8a`, `x86_64`).
-- **Local LiteRT-LM Inference**: Dynamic hardware acceleration selection (NPU, GPU, CPU) and background model downloading via WorkManager.
+#### 2. Chat UI & Scrolling Enhancements
+- **Instant Bottom Anchoring**: Implemented `rememberChatListState` keyed on message counts to guarantee instantaneous bottom anchoring without visual layout jumps.
+- **Collapsible Details**: Introduced collapsible details button with smooth spring animations (`Motion.kt`) for cleaner inspection of tool reasoning and execution steps.
+- **Continuous Streaming Pulse**: Visual heartbeat indicator (`●`) during generation and tool runs to clearly signify background processing.
 
 ---
 

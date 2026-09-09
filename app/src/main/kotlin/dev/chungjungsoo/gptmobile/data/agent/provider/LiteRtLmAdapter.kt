@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalConversationConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalSamplerConfig
@@ -31,6 +32,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -158,6 +160,7 @@ class LiteRtLmAdapter(
                             if (hasOpenConversation()) {
                                 closeConversation()
                             }
+                            yield() // Cooperative yield before starting heavy conversation allocation
                             val seedHistory = if (visionCapable) {
                                 historyMessages(
                                     priorTurns = turns.dropLast(1),
@@ -198,9 +201,14 @@ class LiteRtLmAdapter(
                             )
                         }
                         isConversationDirty = true
+                        yield() // Cooperative yield before dispatching prompt evaluation
                         sendMessage(latestUserText, latestImages)
                     }.collect { event ->
                         when (event) {
+                            is LocalRuntimeEvent.PhaseChanged -> {
+                                // Handled cooperatively for phase scheduling; no raw event propagation required
+                            }
+
                             is LocalRuntimeEvent.TextDelta -> {
                                 assistantReply.append(event.text)
                                 send(ProviderEvent.TextDelta(event.text))

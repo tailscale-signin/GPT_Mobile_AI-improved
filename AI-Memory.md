@@ -2,26 +2,26 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: incremental and in progress on `main`. Architecture, core configuration, UI feature paths, encrypted backup/security code, selected catalog/context/parser files, agent runtime/tools/adapters, and major test roots are indexed. Expand file-level entries as additional implementations are inspected.
+> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 
 ## 1. Repository Overview
 
-GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud, self-hosted, and on-device large language models. It supports OpenAI-compatible services, Anthropic, Google, Groq, OpenRouter, Ollama, and local LiteRT models. It also includes an autonomous agent runtime, Model Context Protocol (MCP) tools and marketplace, resilient streaming, background execution, chat search/history, and encrypted credential storage.
+GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud, self-hosted, and on-device large language models. It supports OpenAI-compatible services, Anthropic, Google Gemini, Groq, OpenRouter, Ollama, and local LiteRT models. It also includes an autonomous agent runtime, Model Context Protocol (MCP) tools and marketplace, resilient streaming, background execution, chat search/history, and encrypted credential storage.
 
 ### Architecture and stack
 
-- **Architecture:** MVVM with repository and data-source layers.
-- **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection, and Compose Navigation.
+- **Architecture:** Clean MVVM with repository, domain-boundary abstractions, and data-source layers.
+- **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
 - **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
 - **Dependency injection:** Hilt/Dagger with KSP.
-- **Networking:** Ktor clients (CIO and OkHttp), SSE/streaming support.
-- **Persistence:** Room (`ChatDatabaseV2`) and DataStore preferences.
-- **Security:** Android Keystore-backed AES-GCM credential encryption; passphrase-protected exports use PBKDF2-HMAC-SHA256 and AES-256-GCM.
-- **Local inference:** LiteRT-LM; Ollama is supported for self-hosted inference.
-- **Background work:** Android foreground service, WorkManager, and partial wake locks for active agent runs.
+- **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff.
+- **Persistence:** Room (`ChatDatabaseV2`, Schema version 14) with full FTS search and DataStore preferences (`SettingDataSource`).
+- **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
+- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
+- **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export.
-- **Testing/style:** JUnit, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing, and ktlint 1.3.1 using Android Studio style.
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`).
+- **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing, and ktlint 1.3.1 using Android Studio style.
 
 ### Source layout
 
@@ -35,41 +35,40 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 ### Root
 
 - `.editorconfig` — Editor and ktlint-compatible formatting rules.
-- `.github/workflows/` — CI build, check, formatting, and release automation.
+- `.github/workflows/` — CI build, check, formatting, and release automation workflows.
 - `.gitignore` — Version-control exclusions; do not scan ignored files for secrets.
 - `AGENTS.md` — Authoritative agent-facing build, style, architecture, and test guidance.
-- `AI-Memory.md` — This persistent architecture/index file.
-- `CHANGELOG.md`, `RELEASE_NOTES.md`, `PROGRESS.md` — Historical changes, release details, and implementation progress.
-- `CLAUDE.md`, `CONTEXT.md` — Additional AI/project context.
+- `AI-Memory.md` — This persistent architecture and structural index file.
+- `CHANGELOG.md`, `RELEASE_NOTES.md`, `PROGRESS.md` — Historical changes, release details, and progress records.
+- `CLAUDE.md`, `CONTEXT.md` — Additional AI/project context files.
 - `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE` — Product and contributor documentation.
-- `build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`, `gradle/`, `gradlew*` — Gradle configuration and wrappers.
-- `model_catalog.json` — Bundled model catalog consumed by model-discovery/catalog features.
+- `build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`, `gradle/`, `gradlew*` — Gradle build orchestration and wrappers.
+- `model_catalog.json` — Bundled offline model catalog consumed by local model discovery features.
 - `docs/` — ADRs, operational guidance, release validation, and CI diagnostics.
 - `images/`, `metadata/` — Documentation/store assets and distribution metadata.
-- `scripts/` — Build, maintenance, validation, and release helpers.
+- `scripts/` — Build, maintenance, validation, and release helper scripts.
 
 ### `app/`
 
-- `app/build.gradle.kts` — Android app and dependency configuration: Compose, Hilt/KSP, Room schemas, SDK levels, ABI splits, R8, packaging, OAuth placeholders, LiteRT-LM, Ktor, WorkManager, and tests.
-- `app/proguard-rules.pro` — Application-specific R8/ProGuard rules.
-- `app/schemas/` — Exported Room schemas used to validate database evolution.
-- `app/src/main/AndroidManifest.xml` — Application, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
-- `app/src/main/res/` — Strings, themes, icons, XML configuration, and packaged Android resources.
+- `app/build.gradle.kts` — Android application configuration: Jetpack Compose, Hilt/KSP, Room schemas, SDK targets (min 31, target 36), ABI splits, R8 rules, OAuth placeholders, LiteRT-LM, Ktor, WorkManager, and test dependencies.
+- `app/proguard-rules.pro` — Application-specific R8/ProGuard obfuscation and preservation rules.
+- `app/schemas/` — Exported Room schemas (v1 through v14) used to validate database migration evolution.
+- `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
+- `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources.
 
-### Main Kotlin package
+### Main Kotlin package (`dev.chungjungsoo.gptmobile`)
 
-#### `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/`
+#### `data/` — Data & Integration Layer
 
-Data and integration layer:
-
-- `agent/` — Autonomous agent orchestration, tool-call loops, limits, background execution, provider adapters, and built-in/MCP tools.
-  - `AgentContracts.kt` — Core agent types: `ProviderEvent` (deltas, tool calls/results, failures, notices), `AgentToolDefinition`, `AgentToolResult`, `ToolResultContent` (Text, Json, ResourceLinks), `AgentTool` interface, `AgentToolExchange`, `AgentProviderSession`, `AgentRunEvent`, and `ToolDefinitionsRejectedException`.
+- `ModelConstants.kt` — Core constants for supported models, platform IDs, fallback model designations, and provider tags.
+- `agent/` — Autonomous agent orchestration, tool-call loops, limits, background execution, provider adapters, and built-in/MCP tools:
+  - `AgentContracts.kt` — Core agent interfaces and data types: `ProviderEvent` (deltas, tool calls/results, failures, notices), `AgentToolDefinition`, `AgentToolResult`, `ToolResultContent` (Text, Json, ResourceLinks), `AgentTool` interface, `AgentToolExchange`, `AgentProviderSession`, `AgentRunEvent`, and `ToolDefinitionsRejectedException`.
   - `AgentRunCoordinator.kt` — Singleton coordinator for background/foreground agent execution. Manages concurrent run jobs by `runId`, ensures per-chat serialization via `Mutex` gates, throttles database/UI updates (adaptive 33ms on >=10GB RAM devices, 250ms otherwise), starts `AgentRunForegroundService`, handles cancellation/interruption states, and writes terminal run records to `ChatRepository`.
   - `AgentRunner.kt` — Core bounded tool execution loop. Enforces `AgentRunLimits` (timeouts, max rounds, tool-call ceilings, concurrency semaphores, output byte limits). Injects final-response instructions when approaching tool limits and falls back cleanly when models reject tool definitions.
   - `PlatformAgentRunner.kt` — Factory function `agentRunnerForPlatform` providing isolated runner instances per platform and run override to prevent budget leakage.
   - `provider/` — Model provider streaming adapters:
     - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution.
-    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, and other providers to `AgentProviderSession`.
+    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession`.
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
@@ -90,7 +89,7 @@ Data and integration layer:
   - `AppBackupModels.kt` — Serializable data contracts for backup envelopes and records.
   - `SanitizedChatBackup.kt` — Full-backup integration. Creates sanitized SQLite snapshots via `VACUUM INTO`, strips sensitive tokens (`platform_v2.token`), restores via `AtomicFile`, and purges stale WAL/SHM sidecars.
   - `UserBackupManager.kt` — High-level user backup coordinator supporting selective export/import of platforms, credentials, chats, models, and tools.
-- `catalog/` — Model and MCP catalog metadata and parsing:
+- `catalog/` — Model and MCP catalog metadata:
   - `McpPresetCatalog.kt` — Defines MCP transport/category/pricing enums and preset models; exposes built-in server presets, compatibility aliases, category filtering, ID/alias lookup, and search.
   - `ModelCatalog.kt` — Serializable model-catalog schema, including capabilities, default generation configuration, and SoC-specific model variants.
   - `ModelCatalogParser.kt` — Parses lenient JSON while ignoring unknown fields, validates schema compatibility and minimum app versions, formats model download sizes, and compares dotted app versions.
@@ -98,90 +97,95 @@ Data and integration layer:
   - `ContextBuilder.kt` — Builds provider-aware history: selects provider-specific assistant responses, strips error notes, excludes failed historical turns, applies recent-turn and character budgets, and removes attachments from older turns.
   - `ConversationTurn.kt` — Models paired user/assistant messages and identifies the current turn.
   - `ProviderContextPolicy.kt` — Defines provider-specific history, attachment, and character limits.
-- `database/` — Room V2 entities, DAOs, converters, database construction, search, and migrations.
-- `datastore/` — Preference-backed settings and app state.
-- `dto/` — Serialized transport models.
-- `huggingface/` — Hugging Face authentication, catalog, and downloads.
-- `local/` — Local model metadata, lifecycle, downloading, and LiteRT runtime.
-- `mcp/` — MCP client/runtime, tools, marketplace, execution, and fallbacks.
-- `network/` — Shared clients, streaming/SSE, retries, and provider transport.
-- `openrouter/` — OpenRouter catalog/API behavior.
-- `parser/` — Provider and streaming payload parsing:
-  - `ThinkingParser.kt` — Extracts case-insensitive `<think>...</think>` blocks and returns reasoning plus cleaned response content. A second parser exists in `ui/thinking/ThinkingParser.kt`; inspect call sites and semantics before consolidating.
-- `repository/` — Repository interfaces and `*Impl` implementations coordinating data sources.
-- `security/` — Keystore-backed encryption and credential handling:
-  - `SecretVault.kt` — Defines `SecretVault`, `SecretVaultException`, and `AndroidSecretVault`. Stores bounded byte-array credentials as versioned AES-GCM records in `noBackupFilesDir`, using an Android Keystore key, randomized IVs, record-reference AAD, strict reference/record validation, `AtomicFile`, serialized access via `Mutex`, and `Dispatchers.IO`. Missing or permanently invalidated keys cause irrecoverable records to be deleted and read as absent.
-- `worker/` — WorkManager jobs.
+- `database/` — Room persistence layer (Database v14):
+  - `ChatDatabase.kt` / `ChatDatabaseV2.kt` — Primary Room database holder with schema versioning and type converter declarations.
+  - `ChatDatabaseV2Migrations.kt` — Production schema migrations covering versions 10 through 14 (adding tool connections, assistant timeline items, agent runs, agent tool bindings, and local models).
+  - DAOs: `AgentPersistenceDao.kt`, `AgentRunDao.kt`, `ChatPlatformModelV2Dao.kt`, `ChatRoomDao.kt`, `ChatRoomV2Dao.kt`, `LocalModelDao.kt`, `MessageDao.kt`, `MessageV2Dao.kt`, `PlatformV2Dao.kt`, `ToolConnectionDao.kt`.
+  - Entities & Converters: `AgentRun.kt`, `AgentToolBinding.kt`, `AssistantTimelineItem.kt`, `ChatPlatformModelV2.kt`, `ChatRoom.kt`, `ChatRoomV2.kt`, `Converters.kt`, `LocalModel.kt`, `Message.kt`, `MessageV2.kt`, `Platform.kt`, `PlatformV2.kt`, `ToolConnection.kt`, `ToolEvent.kt`, `ToolExecutionConverters.kt`.
+- `datastore/` — Preferences & key-value configuration:
+  - `SettingDataSource.kt` / `SettingDataSourceImpl.kt` — DataStore implementation persisting UI preferences, active platform selections, streaming toggles, theme configurations, and tool-call ceilings.
+- `dto/` — Serializable data transport objects:
+  - `APIModel.kt`, `ApiState.kt`, `ConfigBackupDto.kt`, `Platform.kt`, `ThemeSetting.kt`.
+  - Subpackages: `anthropic/` (messages, content blocks), `google/` (generate content requests/responses), `groq/` (chat completions), `openai/` (chat completions, function callings, tool definitions).
+- `huggingface/` — Hugging Face Hub integration:
+  - `HuggingFaceOAuthConfig.kt`, `HuggingFaceOAuthRequests.kt`, `HuggingFaceTokenStore.kt`, `HuggingFaceUrls.kt` — OAuth2 authentication flow, secure token persistence, and API endpoint routing for model downloads.
+- `localmodel/` — Metadata and models for downloaded on-device models.
+- `localruntime/` — Local inference runtime via LiteRT:
+  - `ConversationFingerprint.kt` — Generates unique state hashes to avoid unnecessary prompt re-evaluations.
+  - `LocalAccelerators.kt` — Detection and configuration of NPU, GPU, and CPU hardware accelerators.
+  - `LocalEngineHolder.kt` — Thread-safe lifecycle holder for the native LiteRT model instance.
+  - `LocalEngineMaxTokens.kt` — Max token calculations and context boundary limits.
+  - `LocalModelValidator.kt` — File integrity and schema validation for downloaded `.tflite` / `.bin` model files.
+  - `LocalRuntime.kt` / `LocalRuntimeImpl.kt` — Native on-device execution engine coordinating prompt evaluations, sampling parameters, and streaming token responses.
+  - `LocalSamplingDefaults.kt` — Default temperature, top-p, and top-k hyperparameters for local models.
+- `mcp/` — Model Context Protocol search and integration:
+  - `McpIntegratedSearchManager.kt` — Federated search coordination across active MCP tool providers.
+  - `McpPresetCatalog.kt` — Catalog definitions and presets for MCP servers.
+  - `McpSearchToolSet.kt` — Dynamic toolset wrappers for search operations.
+- `model/` — Domain models:
+  - `ApiType.kt`, `ChatAttachment.kt`, `ChatMcpToolConfig.kt`, `ClientType.kt`, `DynamicTheme.kt`, `GeminiSafetySettings.kt`, `ThemeMode.kt`.
+- `network/` — Networking layer & provider APIs:
+  - `NetworkClient.kt` — Configured Ktor client factory supporting HTTP/SSE engines and timeouts.
+  - `NetworkRetryUtils.kt` — Bounded retry loop with exponential backoff and jitter for transient network failures.
+  - `ProviderRequestConfig.kt` — Provider timeout, auth header, and proxy specifications.
+  - `SseUtils.kt` — Robust Server-Sent Events parser handling multiline chunks and field extraction.
+  - `UploadedProviderFile.kt` — Remote provider file upload metadata.
+  - Provider interfaces & implementations: `AnthropicAPI.kt`, `AnthropicAPIImpl.kt`, `GoogleAPI.kt`, `GoogleAPIImpl.kt`, `GroqAPI.kt`, `GroqAPIImpl.kt`, `OpenAIAPI.kt`, `OpenAIAPIImpl.kt`.
+- `openrouter/` — OpenRouter platform integration:
+  - `OpenRouterModel.kt` — Data structures representing OpenRouter model specifications, pricing, and context limits.
+- `parser/` — Payload and token parsing:
+  - `ThinkingParser.kt` — Extracts reasoning blocks (`<think>...</think>`) and separates internal thoughts from final output.
+- `repository/` — Repository implementations coordinating persistence and network:
+  - `AttachmentUploadCoordinator.kt` — Uploads and prepares media attachments for provider consumption.
+  - `ChatRepository.kt` / `ChatRepositoryImpl.kt` — Central repository for chat rooms, message history, streaming response aggregation, and run state management.
+  - `GroqReasoningParser.kt` — Specialized parser extracting reasoning thoughts from Groq completion payloads.
+  - `LocalModelRepository.kt` / `LocalModelRepositoryImpl.kt` — Tracks downloaded local models, validation states, and file deletions.
+  - `ModelCatalogRepository.kt` / `ModelCatalogRepositoryImpl.kt` — Fetches, caches, and parses remote/bundled model catalogs.
+  - `OpenRouterModelRepository.kt` — Retrieves dynamic model listings from the OpenRouter catalog API.
+  - `SettingRepository.kt` / `SettingRepositoryImpl.kt` — Domain facade over DataStore settings.
+  - `ToolConnectionRepository.kt` — Manages database records for active MCP tool connections.
+  - `ToolEventRecorder.kt` — Logs and persists tool execution traces and results into Room timeline entities.
+- `security/` — Security & Keystore management:
+  - `SecretVault.kt` — Keystore-backed AES-256-GCM encrypted vault storing sensitive API keys in `noBackupFilesDir`.
+- `worker/` — WorkManager background tasks:
+  - `LocalModelDownloadWorker.kt` — Resilient background worker handling large model file downloads with progress notifications, integrity hashing, and resumption.
 
-Dependencies should flow from repositories to database/DataStore/network/local/MCP sources. Presentation code consumes repositories instead of constructing transports or persistence objects.
+#### `di/` — Dependency Injection (Hilt Modules)
 
-#### `app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/`
+- `ChatRepositoryModule.kt` — Binds `ChatRepository` to `ChatRepositoryImpl`.
+- `DataStoreModule.kt` — Provides singleton `DataStore<Preferences>` instance.
+- `DatabaseModule.kt` — Provides `ChatDatabaseV2` and all Room DAOs.
+- `DeviceSocModel.kt` — Injects detected hardware SoC configuration for model matching.
+- `LocalModelModule.kt` — Binds `LocalModelRepository`.
+- `LocalRuntimeModule.kt` — Binds `LocalRuntime` to `LocalRuntimeImpl`.
+- `ModelCatalogModule.kt` — Provides `ModelCatalogRepository`.
+- `NetworkModule.kt` — Provides singleton Ktor HTTP engines, JSON serializers, and provider API clients.
+- `SettingDataSourceModule.kt` — Binds `SettingDataSource`.
+- `SettingRepositoryModule.kt` — Binds `SettingRepository`.
 
-Hilt modules providing singleton clients, databases/DAOs, repositories, settings sources, local runtimes, agent/MCP components, and workers. Centralize construction here and scope expensive dependencies appropriately.
+#### `presentation/` — Presentation Layer (Compose & ViewModels)
 
-#### `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/`
-
-Application/presentation layer, including initialization, foreground-state tracking, chat presentation, shared components/icons, service notification/wake-lock behavior, themes, feature screens, and ViewModels.
-
-Key inspected UI feature directories:
-
-- `presentation/ui/chat/` — Chat screen/ViewModel, Markdown and MathJax rendering, attachments, tool traces, thinking blocks, and dialogs.
-- `presentation/ui/home/` — Home/history UI.
-- `presentation/ui/localmodel/` — Local-model download UI.
-- `presentation/ui/main/` — Main activity/navigation/ViewModel responsibilities.
-- `presentation/ui/mcpmarketplace/` — MCP marketplace UI.
-- `presentation/ui/migrate/MigrateScreen.kt` — Migration flow UI.
-- `presentation/ui/migrate/MigrateViewModel.kt` — Migration state and actions.
-- `presentation/ui/setting/` — Settings and provider/tool administration:
-  - `SettingScreen.kt`, `SettingViewModel.kt`, `SettingViewModelV2.kt` — Main settings UI/state.
-  - `AddPlatformScreen.kt`, `AddPlatformViewModel.kt` — Add-provider flow.
-  - `PlatformSettingScreen.kt`, `PlatformSettingViewModel.kt`, `PlatformSettingViewModelExtensions.kt`, `PlatformSettingDialogs.kt` — Provider configuration and supporting dialogs/actions.
-  - `LocalModelsScreen.kt`, `LocalModelsViewModel.kt`, `LocalModelCatalogUi.kt` — Installed/local model management and catalog UI.
-  - `ToolConnectionsScreen.kt`, `ToolConnectionsViewModel.kt`, `ToolConnectionSetupFlow.kt`, `McpServerPickerDialog.kt` — MCP/tool connection setup and management.
-  - `MaxToolCallsSetting.kt`, `PlatformMaxToolCallsSettingHost.kt` — Global/platform agent tool-call limits.
-  - `OpenRouterModelPickerDialog.kt` — OpenRouter model selection.
-  - `AboutScreen.kt`, `LicenseScreen.kt` — App information and licenses.
-- `presentation/ui/setup/` — Initial setup flow:
-  - `SetupPlatformListScreen.kt`, `SetupPlatformTypeScreen.kt`, `SetupPlatformWizardScreen.kt` — Provider selection and configuration wizard.
-  - `LocalModelPicker.kt` — Setup-time local model selection.
-  - `SetupAppBar.kt`, `SetupCompleteScreen.kt` — Shared setup chrome and completion UI.
-  - `SetupViewModelV2.kt` — Setup state and orchestration.
-- `presentation/ui/startscreen/StartScreen.kt` — Start/entry screen.
-- `presentation/ui/thinking/ThinkingAccordion.kt` — Presentation-layer reasoning accordion.
-
-Presentation dependencies should point to repository abstractions and expose immutable UI state through StateFlow.
-
-#### `app/src/main/kotlin/dev/chungjungsoo/gptmobile/ui/`
-
-Additional UI package. It contains `ui/thinking/ThinkingAccordion.kt` and `ui/thinking/ThinkingParser.kt`, while another accordion exists under `presentation/ui/thinking/` and a parser exists under `data/parser/`. Inspect all implementations and call sites before changing reasoning behavior; avoid introducing another implementation and preserve package-specific semantics unless deliberately consolidating them with tests.
-
-#### `app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/`
-
-Cross-cutting helpers for API state, attachments/files, networking/platform behavior, scrolling, strings, and themes. Keep utilities narrow; do not turn this package into a service locator.
+- UI features: `chat/`, `home/`, `localmodel/`, `main/`, `mcpmarketplace/`, `migrate/`, `setting/`, `setup/`, `startscreen/`, and `thinking/`.
+- Maintains unidirectional data flow: ViewModels expose immutable `StateFlow` consumed via `collectAsStateWithLifecycle()`.
 
 ### Kotlin in `app/src/main/java/`
 
-- `app/src/main/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManager.kt` — Kotlin despite its source-root location. Defines `EncryptedBackupManager`, `UserConfigurationBackup`, and `ThemeConfiguration`. Creates/restores passphrase-encrypted configuration and SQLite backups using PBKDF2-HMAC-SHA256 plus AES-256-GCM. It validates custom backup magic and SQLite headers; database restore uses a temporary replacement and removes stale WAL/SHM sidecars. Preserve authenticated encryption, passphrase handling, format checks, and atomic restore behavior.
+- `app/src/main/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManager.kt` — Legacy encrypted backup coordinator using PBKDF2-HMAC-SHA256 and AES-256-GCM.
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/` — JVM data tests. Current groups include `agent/`, `catalog/`, `context/`, `database/`, `dto/`, `huggingface/`, `localmodel/`, `localruntime/`, `mcp/`, `model/`, `network/`, `parser/`, and `repository/`, plus `ModelConstantsTest.kt`.
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/`, `ui/`, `util/` — JVM tests for UI-independent presentation state/logic, UI helpers, and utilities.
-- `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — JVM tests for configuration and SQLite encrypted backup/restore round trips, wrong-passphrase failure, and non-SQLite rejection. Uses a reduced PBKDF2 iteration count only for test speed.
-- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/ExampleInstrumentedTest.kt` — Basic Android instrumented test.
-- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/backup/` — Device backup integration tests.
-- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/database/` — Room/database and migration integration tests.
-- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVaultInstrumentedTest.kt` — Verifies vault round-trip, overwrite/delete, `noBackupFilesDir` placement, unsafe-reference and oversized-secret rejection, malformed and reference-moved record rejection, and deletion of records whose Keystore key is missing.
-- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/` — Instrumented/Compose presentation tests.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents, catalogs, context compaction, database DAOs, DTO serialization, Hugging Face auth, local runtime, MCP search/tools, network retry/parsing, repositories, and ViewModels.
+- `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
+- `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 
 ## 3. Engineering Guidelines (Do's)
 
 ### Before changing code
 
-- Read the target, callers, interfaces, DI binding, persistence/network models, and relevant tests first.
+- Read the target, callers, interfaces, DI bindings, persistence/network models, and relevant tests first.
 - Follow package boundaries: Compose/ViewModel → repository abstraction → data sources/integrations.
 - Keep diffs minimal and atomic; preserve local naming and formatting.
-- Update this file whenever files or responsibilities change.
+- Update `AI-Memory.md` whenever files or responsibilities change.
 
 ### Kotlin and formatting
 
@@ -199,7 +203,6 @@ Cross-cutting helpers for API state, attachments/files, networking/platform beha
 - Collect in Compose with lifecycle-aware APIs such as `collectAsStateWithLifecycle()`.
 - Use `viewModelScope` and structured concurrency; preserve cancellation.
 - Emit explicit loading/error/completion states.
-- Use lifecycle-aware side effects and reuse shared Compose/Scaffold/navigation patterns.
 - Batch/throttle streaming UI updates instead of recomposing for every token.
 
 ### Validation, persistence, and security
@@ -211,7 +214,6 @@ Cross-cutting helpers for API state, attachments/files, networking/platform beha
 - Add Room migrations, exported schemas, and migration tests for schema changes.
 - Store credentials only through the established `SecretVault`/Keystore AES-GCM path.
 - Preserve vault record versioning, secret-reference AAD binding, strict size/path validation, atomic writes, no-backup storage, and zeroing of temporary sensitive arrays.
-- Treat backups, logs, notifications, and errors as possible exfiltration surfaces.
 - For encrypted exports, keep production KDF iterations strong; tests may inject a reduced count. Never reuse a salt/IV or replace authenticated encryption with unauthenticated encryption.
 
 ### Build and tests

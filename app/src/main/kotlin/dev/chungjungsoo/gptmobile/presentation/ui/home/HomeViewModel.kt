@@ -68,7 +68,7 @@ class HomeViewModel @Inject constructor(
     private val _favoriteSearchQuery = MutableStateFlow("")
     val favoriteSearchQuery = _favoriteSearchQuery.asStateFlow()
 
-    private val _rawFavoriteMessages = MutableStateFlow<List<MessageV2>>(emptyList())
+    private val rawFavoriteMessagesState = MutableStateFlow<List<MessageV2>>(emptyList())
 
     private val _favoriteGroups = MutableStateFlow<List<String>>(listOf(GROUP_ALL, "Starred", "Work", "Personal"))
     val favoriteGroups = _favoriteGroups.asStateFlow()
@@ -80,7 +80,7 @@ class HomeViewModel @Inject constructor(
     val messageGroups = _messageGroups.asStateFlow()
 
     val favoriteMessages: StateFlow<List<MessageV2>> = combine(
-        _rawFavoriteMessages,
+        rawFavoriteMessagesState,
         _selectedFavoriteGroup,
         _messageGroups
     ) { rawFavorites, selectedGroup, msgGroups ->
@@ -121,7 +121,7 @@ class HomeViewModel @Inject constructor(
                     chatRepository.searchFavoriteAssistantMessages(query)
                 }
             }
-            .onEach { favorites -> _rawFavoriteMessages.update { favorites } }
+            .onEach { favorites -> rawFavoriteMessagesState.update { favorites } }
             .launchIn(viewModelScope)
 
         agentRunCoordinator.activeRuns

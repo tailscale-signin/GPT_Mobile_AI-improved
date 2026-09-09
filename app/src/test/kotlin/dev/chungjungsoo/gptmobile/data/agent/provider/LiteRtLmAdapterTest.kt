@@ -18,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineHolder
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
@@ -1245,6 +1246,70 @@ class LiteRtLmAdapterTest {
         assertEquals("Recent step question", config.initialMessages[2].text)
         assertEquals("Recent step reply", config.initialMessages[3].text)
         assertEquals(4, config.initialMessages.size)
+    }
+
+    @Test
+    fun `generation completion emits telemetry notice with live metrics`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(
+                listOf(
+                    LocalRuntimeEvent.TextDelta("Hello world"),
+                    LocalRuntimeEvent.Metrics(
+                        LocalInferenceMetrics(
+                            timeToFirstTokenMs = 120L,
+                            totalDurationMs = 500L,
+                            totalChunks = 5,
+                            totalCharacters = 44,
+                            estimatedTokens = 11,
+                            tokensPerSecond = 22.0
+                        )
+                    ),
+                    LocalRuntimeEvent.Done
+                )
+            )
+        }
+        val adapter = adapter(runtime)
+
+        val events = adapter.openSession(turns("hi"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+
+        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull()
+        assertTrue(notice != null)
+        assertTrue(notice!!.message.contains("Local: 22.0 tok/s · TTFT 120ms · ~11 tokens"))
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `telemetry notice appends throttling badge under severe thermal pressure`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            simulatedHardwareState = DeviceHardwareState(
+                thermalState = DeviceThermalState.SEVERE,
+                batteryPct = 40,
+                isCharging = false
+            )
+            scriptedEvents = listOf(
+                listOf(
+                    LocalRuntimeEvent.TextDelta("Hello world"),
+                    LocalRuntimeEvent.Metrics(
+                        LocalInferenceMetrics(
+                            timeToFirstTokenMs = 250L,
+                            totalDurationMs = 1000L,
+                            totalChunks = 4,
+                            totalCharacters = 32,
+                            estimatedTokens = 8,
+                            tokensPerSecond = 8.0
+                        )
+                    ),
+                    LocalRuntimeEvent.Done
+                )
+            )
+        }
+        val adapter = adapter(runtime)
+
+        val events = adapter.openSession(turns("hi"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+
+        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull()
+        assertTrue(notice != null)
+        assertTrue(notice!!.message.contains("Local: 8.0 tok/s · TTFT 250ms · ~8 tokens · ⚡ Throttled"))
     }
 
     @Test

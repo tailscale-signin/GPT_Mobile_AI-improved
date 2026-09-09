@@ -60,6 +60,12 @@ data class LocalConversationConfig(
     val toolExecutor: LocalToolExecutor? = null
 )
 
+/** Execution phase of local on-device inference. */
+enum class LocalInferencePhase {
+    PREFILL,
+    GENERATING
+}
+
 /** Performance and generation telemetry emitted during local model execution. */
 data class LocalInferenceMetrics(
     val timeToFirstTokenMs: Long = 0L,
@@ -71,6 +77,7 @@ data class LocalInferenceMetrics(
 )
 
 sealed interface LocalRuntimeEvent {
+    data class PhaseChanged(val phase: LocalInferencePhase) : LocalRuntimeEvent
     data class TextDelta(val text: String) : LocalRuntimeEvent
     data class ThinkingDelta(val text: String) : LocalRuntimeEvent
     data class Metrics(val metrics: LocalInferenceMetrics) : LocalRuntimeEvent

@@ -5,7 +5,8 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException
 data class ProviderRequestConfig(
     val apiUrl: String,
     val token: String?,
-    val anthropicBetaFeatures: Set<String> = emptySet()
+    val anthropicBetaFeatures: Set<String> = emptySet(),
+    val extraHeaders: Map<String, String> = emptyMap()
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any

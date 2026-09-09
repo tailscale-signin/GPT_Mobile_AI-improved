@@ -316,6 +316,9 @@ fun ChatScreen(
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
                             onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
+                            onFavoriteLongPress = {
+                                Toast.makeText(context, R.string.favorite, Toast.LENGTH_SHORT).show()
+                            },
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
                             onShowNextRevision = chatViewModel::showNextAssistantRevision
                         )
@@ -477,6 +480,7 @@ private fun ChatMessagePair(
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onFavoriteClick: () -> Unit,
+    onFavoriteLongPress: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
     onShowNextRevision: (Int, Int) -> Unit
 ) {
@@ -596,6 +600,7 @@ private fun ChatMessagePair(
                 onRetryClick = { onRetry(messageIndex, platformIndexState) },
                 onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
                 onFavoriteClick = onFavoriteClick,
+                onFavoriteLongPress = onFavoriteLongPress,
                 onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
                 onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) }
             )

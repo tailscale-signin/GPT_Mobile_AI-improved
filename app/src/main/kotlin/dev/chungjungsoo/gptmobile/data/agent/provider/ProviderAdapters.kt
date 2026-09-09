@@ -52,6 +52,7 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -186,10 +187,24 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val startIndex = keyIndexCounter.getAndIncrement()
                 var lastFailedMessage: String? = null
 
+                val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
+                val openRouterHeaders = if (isOpenRouter) {
+                    mapOf(
+                        "HTTP-Referer" to "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
+                        "X-Title" to "GPT Mobile AI Improved"
+                    )
+                } else {
+                    emptyMap()
+                }
+
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val config = ProviderRequestConfig(
+                        apiUrl = platform.apiUrl,
+                        token = activeKey,
+                        extraHeaders = openRouterHeaders
+                    )
                     var roundFailed = false
                     var canRotate = false
 
@@ -259,7 +274,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                         stream = platform.stream,
                         temperature = platform.temperature,
                         topP = platform.topP,
-                        tools = requestTools
+                        tools = requestTools,
+                        reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null
                     )
                     val assembler = ChatCompletionsEventAssembler()
 

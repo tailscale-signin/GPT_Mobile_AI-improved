@@ -2,7 +2,12 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved.
+> Index status: comprehensive and actively maintained on `0.9.0` and `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
+
+> **CRITICAL BRANCH MERGE POLICY (`0.9.0`):**
+> Branch `0.9.0` is dedicated to high-performance hardware acceleration (NPU/GPU speculative decoding, phase-split scheduling, persistent in-memory KV-cache pooling, expanded long context, and 120Hz frame-synced streaming).
+> **DO NOT EVER MERGE `0.9.0` INTO `main` WITHOUT USER APPROVAL.**
+> Even if the user says "yes" to merging, **ALWAYS WARN THE USER FIRST** with an explicit confirmation check before executing any merge into `main`.
 
 ## 1. Repository Overview
 

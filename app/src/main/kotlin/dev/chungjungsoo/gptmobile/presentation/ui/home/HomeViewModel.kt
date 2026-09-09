@@ -14,13 +14,16 @@ import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -39,6 +42,7 @@ class HomeViewModel @Inject constructor(
 
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
+        const val GROUP_ALL = "All"
     }
 
     data class ChatListState(
@@ -64,8 +68,30 @@ class HomeViewModel @Inject constructor(
     private val _favoriteSearchQuery = MutableStateFlow("")
     val favoriteSearchQuery = _favoriteSearchQuery.asStateFlow()
 
-    private val _favoriteMessages = MutableStateFlow<List<MessageV2>>(emptyList())
-    val favoriteMessages = _favoriteMessages.asStateFlow()
+    private val _rawFavoriteMessages = MutableStateFlow<List<MessageV2>>(emptyList())
+
+    private val _favoriteGroups = MutableStateFlow<List<String>>(listOf(GROUP_ALL, "Starred", "Work", "Personal"))
+    val favoriteGroups = _favoriteGroups.asStateFlow()
+
+    private val _selectedFavoriteGroup = MutableStateFlow(GROUP_ALL)
+    val selectedFavoriteGroup = _selectedFavoriteGroup.asStateFlow()
+
+    private val _messageGroups = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val messageGroups = _messageGroups.asStateFlow()
+
+    val favoriteMessages: StateFlow<List<MessageV2>> = combine(
+        _rawFavoriteMessages,
+        _selectedFavoriteGroup,
+        _messageGroups
+    ) { rawFavorites, selectedGroup, msgGroups ->
+        if (selectedGroup == GROUP_ALL) {
+            rawFavorites
+        } else {
+            rawFavorites.filter { message ->
+                msgGroups[message.id] == selectedGroup
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _showSelectModelDialog = MutableStateFlow(false)
     val showSelectModelDialog: StateFlow<Boolean> = _showSelectModelDialog.asStateFlow()
@@ -95,7 +121,7 @@ class HomeViewModel @Inject constructor(
                     chatRepository.searchFavoriteAssistantMessages(query)
                 }
             }
-            .onEach { favorites -> _favoriteMessages.update { favorites } }
+            .onEach { favorites -> _rawFavoriteMessages.update { favorites } }
             .launchIn(viewModelScope)
 
         agentRunCoordinator.activeRuns
@@ -110,6 +136,22 @@ class HomeViewModel @Inject constructor(
 
     fun updateFavoriteSearchQuery(query: String) {
         _favoriteSearchQuery.update { query }
+    }
+
+    fun selectFavoriteGroup(group: String) {
+        _selectedFavoriteGroup.update { group }
+    }
+
+    fun addFavoriteGroup(newGroup: String) {
+        val trimmed = newGroup.trim()
+        if (trimmed.isNotEmpty() && !_favoriteGroups.value.contains(trimmed)) {
+            _favoriteGroups.update { it + trimmed }
+            _selectedFavoriteGroup.update { trimmed }
+        }
+    }
+
+    fun assignFavoriteMessageGroup(messageId: Int, groupName: String) {
+        _messageGroups.update { it + (messageId to groupName) }
     }
 
     fun toggleFavorite(messageId: Int, isFavorite: Boolean) {

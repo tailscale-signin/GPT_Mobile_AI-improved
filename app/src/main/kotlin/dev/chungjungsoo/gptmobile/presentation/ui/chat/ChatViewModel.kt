@@ -109,6 +109,7 @@ class ChatViewModel @Inject constructor(
     private val chatRoomId: Int = checkNotNull(savedStateHandle["chatRoomId"])
     private val enabledPlatformString: String = checkNotNull(savedStateHandle["enabledPlatforms"])
     val enabledPlatformsInChat = enabledPlatformString.split(',')
+    val targetMessageId: Int = savedStateHandle.get<Int>("targetMessageId") ?: -1
 
     private val currentTimeStamp: Long
         get() = System.currentTimeMillis() / 1000

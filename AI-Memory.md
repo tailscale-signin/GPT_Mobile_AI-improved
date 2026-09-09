@@ -167,9 +167,10 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `ChatRepositoryModule.kt` — Binds `ChatRepository` to `ChatRepositoryImpl`.
 - `DataStoreModule.kt` — Provides singleton `DataStore<Preferences>` instance.
 - `DatabaseModule.kt` — Provides `ChatDatabaseV2` and all Room DAOs.
+- `DeviceRamGb.kt` — Qualifier annotation for injecting device RAM capacity in GB.
 - `DeviceSocModel.kt` — Injects detected hardware SoC configuration for model matching.
 - `LocalModelModule.kt` — Binds `LocalModelRepository`.
-- `LocalRuntimeModule.kt` — Binds `LocalRuntime` to `LocalRuntimeImpl`.
+- `LocalRuntimeModule.kt` — Binds `LocalRuntime` to `LocalRuntimeImpl` and provides `@DeviceRamGb` from `LocalRuntime.deviceRamGb`.
 - `ModelCatalogModule.kt` — Provides `ModelCatalogRepository`.
 - `NetworkModule.kt` — Provides singleton Ktor HTTP engines, JSON serializers, and provider API clients.
 - `SettingDataSourceModule.kt` — Binds `SettingDataSource`.
@@ -201,8 +202,10 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `MaxToolCallsSetting.kt` — Max tool calls UI component for platform settings.
 - `PlatformMaxToolCallsSettingHost.kt` — Host composable integrating `MaxToolCallsSetting` with `PlatformSettingViewModel`.
 - `PlatformSettingViewModelExtensions.kt` — Extension functions on `PlatformSettingViewModel` including `updateMaxToolCalls`.
+- `PlatformSettingViewModel.kt` — Injects `@DeviceRamGb private val deviceRamGb: Long = 8L`, dynamically propagating device RAM to `localSamplingDefaults` and `resolvedEngineMaxTokens`.
+- `AddPlatformViewModel.kt` — Injects `@DeviceRamGb private val deviceRamGb: Long = 8L`, propagating hardware RAM tier into `localSamplingDefaults(it, deviceSocModel, deviceRamGb)`.
 - `SetupPlatformWizardScreen.kt` — Step-by-step setup wizard with dynamic multi-key API credentials (`+API`, delete row), keeping keys visible and formatted via `ApiCredentialRotator`.
-- `SetupViewModelV2.kt` — Wizard ViewModel retaining and prefilling existing API keys when adding similar platform types (e.g. OpenRouter).
+- `SetupViewModelV2.kt` — Wizard ViewModel retaining and prefilling existing API keys when adding similar platform types, injecting `@DeviceRamGb private val deviceRamGb: Long = 8L` for hardware-scaled local model defaults.
 - `ToolConnectionsScreen.kt` — External tool connection and MCP setup screen featuring multi-key dynamic credential input with `+API` button and per-key removal.
 - `McpMarketplaceDialog.kt` — MCP marketplace and integration dialog featuring brand icons (`online_search`, `github`, `brave`, `terminal`, etc.), search/pricing filters, and preinstalled status presentation.
 - Maintains unidirectional data flow: ViewModels expose immutable `StateFlow` consumed via `collectAsStateWithLifecycle()`.
@@ -213,7 +216,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### Tests
 
-- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`, `AgentRunCoordinatorTest` verifying dynamic stream interval throttling under thermal/battery pressures), tools (`ReadFileSliceToolTest`, `McpToolMapperTest`), catalogs, context compaction (`RollingContextWindowCompactorTest`), database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime (`LocalEngineMaxTokensTest`, `DeviceHardwareGovernorTest`, `LocalSamplingDefaultsTest` verifying hardware-aware default context scaling on high RAM and clamping on NPU/low-memory hardware, `LiteRtLmAdapterTest` verifying hardware memory tier scaling up to 8192 context on high-RAM hardware, adaptive thermal/battery throttling, rolling context compaction with anchor preservation under dynamic token clamps, telemetry and thermal notice propagation, and strict NPU SoC variant clamping), MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, utilities (`ApiStateFlowExtensionsTest` verifying 120Hz frame interval token dispatching), and ViewModels.
+- `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` — JVM unit test suites covering agents (`AgentRunnerTest`, `PlatformAgentRunnerTest`, `AgentRunCoordinatorTest` verifying dynamic stream interval throttling under thermal/battery pressures), tools (`ReadFileSliceToolTest`, `McpToolMapperTest`), catalogs, context compaction (`RollingContextWindowCompactorTest`), database DAOs, DTO serialization (`OpenRouterAdvancedOptionsTest`, `ProviderAttachmentSerializationTest`), Hugging Face auth, local runtime (`LocalEngineMaxTokensTest`, `DeviceHardwareGovernorTest`, `LocalSamplingDefaultsTest` verifying hardware-aware default context scaling on high RAM and clamping on NPU/low-memory hardware, `LiteRtLmAdapterTest` verifying hardware memory tier scaling up to 8192 context on high-RAM hardware, adaptive thermal/battery throttling, rolling context compaction with anchor preservation under dynamic token clamps, telemetry and thermal notice propagation, and strict NPU SoC variant clamping), MCP search/tools (`McpIntegratedSearchManagerTest`, `McpPresetCatalogTest`), network retry/parsing, `ApiCredentialRotatorTest` (multi-key parsing, serialization, and round-robin fallback), provider adapter cancellation propagation, repositories, utilities (`ApiStateFlowExtensionsTest` verifying 120Hz frame interval token dispatching), and ViewModels (`PlatformSettingViewModelTest`, `AddPlatformViewModelTest`, and `SetupViewModelV2Test` verifying high RAM hardware context scaling up to 4096 tokens).
 - `app/src/test/java/dev/chungjungsoo/gptmobile/data/backup/EncryptedBackupManagerTest.kt` — Unit tests for legacy encrypted backup/restore roundtrips.
 - `app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/` — Android instrumented integration tests covering database migrations, Room schemas, `SecretVaultInstrumentedTest`, and Compose UI interactions.
 

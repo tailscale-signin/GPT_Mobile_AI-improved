@@ -4,6 +4,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRunNoticeTest {
@@ -69,5 +72,46 @@ class ChatRunNoticeTest {
                 )
             )
         )
+    }
+
+    @Test
+    fun `isTelemetryNotice identifies local inference telemetry strings`() {
+        assertTrue(isTelemetryNotice("Local: 22.4 tok/s · TTFT 380ms · ~120 tokens"))
+        assertTrue(isTelemetryNotice("Local: 15.1 tok/s · TTFT 410ms · ~85 tokens · ⚡ Throttled"))
+        assertTrue(isTelemetryNotice("Local: 19.8 tok/s · TTFT 350ms · ~200 tokens · 🌡️ Warm"))
+        assertFalse(isTelemetryNotice("Loading local model…"))
+        assertFalse(isTelemetryNotice("GPU unavailable on this device — running on CPU"))
+        assertFalse(isTelemetryNotice("Local: prompt processed"))
+    }
+
+    @Test
+    fun `extractTelemetryNotice isolates telemetry badge notice from informational notices`() {
+        val notices = listOf(
+            "The local platform ignored attachments",
+            "Local: 18.5 tok/s · TTFT 320ms · ~150 tokens · ⚡ Throttled",
+            "GPU unavailable on this device — running on CPU"
+        )
+        val (telemetry, remaining) = extractTelemetryNotice(notices)
+
+        assertEquals("Local: 18.5 tok/s · TTFT 320ms · ~150 tokens · ⚡ Throttled", telemetry)
+        assertEquals(
+            listOf(
+                "The local platform ignored attachments",
+                "GPU unavailable on this device — running on CPU"
+            ),
+            remaining
+        )
+    }
+
+    @Test
+    fun `extractTelemetryNotice returns null when no telemetry is present`() {
+        val notices = listOf(
+            "The local platform ignored attachments",
+            "GPU unavailable on this device — running on CPU"
+        )
+        val (telemetry, remaining) = extractTelemetryNotice(notices)
+
+        assertNull(telemetry)
+        assertEquals(notices, remaining)
     }
 }

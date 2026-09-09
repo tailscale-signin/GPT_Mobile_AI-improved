@@ -92,10 +92,12 @@ fun APIUrlDialog(
 @Composable
 fun APIKeyDialog(
     dialogState: PlatformSettingViewModel.DialogState,
+    initialTokens: String? = null,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isApiTokenDialogOpen) {
         APIKeyDialog(
+            initialTokens = initialTokens,
             onDismissRequest = settingViewModel::closeApiTokenDialog
         ) { apiToken ->
             settingViewModel.updateApiToken(apiToken)
@@ -373,10 +375,19 @@ private fun APIUrlDialog(
 
 @Composable
 private fun APIKeyDialog(
+    initialTokens: String? = null,
     onDismissRequest: () -> Unit,
     onConfirmRequest: (token: String) -> Unit
 ) {
-    val tokens = remember { mutableStateListOf("") }
+    val initialList = remember(initialTokens) {
+        val parsed = ApiCredentialRotator.parseKeys(initialTokens)
+        if (parsed.isEmpty()) listOf("") else parsed
+    }
+    val tokens = remember(initialTokens) {
+        mutableStateListOf<String>().apply {
+            addAll(initialList)
+        }
+    }
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }

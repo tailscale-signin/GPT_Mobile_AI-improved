@@ -5,6 +5,7 @@ Persistent repository context for AI coding agents. Keep this file synchronized 
 > Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved.
 >
 > **Latest Official Release:** [v0.8.9](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.9) (`prerelease: false`, `draft: false`, official latest release). Build pipeline configured with automated `apksigner` code signing and stripped `-unsigned` suffixes so all released APK artifacts are cleanly named signed release packages with accompanying `.idsig` v4 signature files: universal APK (`app-universal-release.apk`), ARM64 APK (`app-arm64-v8a-release.apk`), and x86_64 APK (`app-x86_64-release.apk`).
+> **Current Version:** `0.8.9.1` (versionCode 31) — OpenRouter advanced routing settings, Room Schema 15 (`MIGRATION_14_15`), instant bottom anchoring, and collapsible details animation.
 
 ## 1. Repository Overview
 
@@ -23,7 +24,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Official Latest Release: `v0.8.9` (tag `v0.8.9`, branches `v0.8.9` and `release-v0.8.9`). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.8.9.1` (versionCode 31). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
 - **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing (`ChatDatabaseV2MigrationsTest`), and ktlint 1.3.1 using Android Studio style.
 
 ## 2. Repository Index
@@ -31,7 +32,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 ### Root
 
 - `.editorconfig` — Editor and ktlint-compatible formatting rules.
-- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations, `release-build.yml` publishing signed non-prerelease latest releases with clean names, and `promote-latest-release.yml`).
+- `.github/workflows/` — CI build, check, formatting, and release automation workflows (includes PR validation with automated failure diagnostic extraction for unit test errors and Android Lint violations, `release-build.yml` publishing signed releases with clean names, and `promote-latest-release.yml`).
 - `.gitignore` — Version-control exclusions; do not scan ignored files for secrets.
 - `AGENTS.md` — Authoritative agent-facing build, style, architecture, and test guidance.
 - `AI-Memory.md` — This persistent architecture and structural index file.

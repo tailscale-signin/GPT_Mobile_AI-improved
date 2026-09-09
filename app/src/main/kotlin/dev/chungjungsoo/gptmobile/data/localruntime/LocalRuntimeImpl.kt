@@ -69,6 +69,12 @@ class LocalRuntimeImpl(
         deviceRamGb >= 6L
     }
 
+    override fun getHardwareState(): DeviceHardwareState =
+        DeviceHardwareGovernor.inspectHardwareState(context)
+
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
+        DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), isHighRamDevice)
+
     private fun getAvailableMemoryMb(): Long {
         val memoryInfo = ActivityManager.MemoryInfo()
         activityManager?.getMemoryInfo(memoryInfo)
@@ -104,10 +110,14 @@ class LocalRuntimeImpl(
                 }
             }
 
-            // Apply memory safety guardrail: if device is under memory pressure, throttle maxNumTokens
+            // Apply memory safety guardrail: if device is under memory pressure or thermal/battery throttling, clamp maxNumTokens
+            val throttling = getAdaptiveThrottlingPolicy()
             val effectiveMaxTokens = if (isLowMemoryDevice() && spec.maxTokens > 1024) {
                 Log.w(TAG, "Device low memory detected; throttling maxTokens from ${spec.maxTokens} to 1024")
                 1024
+            } else if (throttling.maxTokensClamp != null && spec.maxTokens > throttling.maxTokensClamp) {
+                Log.w(TAG, "Device hardware thermal/battery throttle active; clamping maxTokens from ${spec.maxTokens} to ${throttling.maxTokensClamp}")
+                throttling.maxTokensClamp
             } else {
                 spec.maxTokens
             }
@@ -173,6 +183,12 @@ class LocalRuntimeImpl(
             }
             val previousConstrainedDecoding = ExperimentalFlags.enableConversationConstrainedDecoding
             ExperimentalFlags.enableConversationConstrainedDecoding = config.isConstrainedDecodingEnabled
+            val throttling = getAdaptiveThrottlingPolicy()
+            val effectiveTopK = if (throttling.topKReductionRatio < 1.0f) {
+                (config.sampler.topK * throttling.topKReductionRatio).toInt().coerceAtLeast(1)
+            } else {
+                config.sampler.topK
+            }
             try {
                 conversation = currentEngine.createConversation(
                     ConversationConfig(
@@ -186,7 +202,7 @@ class LocalRuntimeImpl(
                         tools = toolProviders,
                         samplerConfig = if (LocalAccelerators.shouldApplySampler(loadedAccelerator)) {
                             SamplerConfig(
-                                topK = config.sampler.topK,
+                                topK = effectiveTopK,
                                 topP = config.sampler.topP.toDouble(),
                                 temperature = config.sampler.temperature.toDouble()
                             )

@@ -102,8 +102,28 @@ fun NavGraphBuilder.setupNavigation(
             val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
             SetupPlatformTypeScreen(
                 setupViewModel = setupViewModel,
-                onPlatformTypeSelected = { navController.navigate(Route.SETUP_PLATFORM_WIZARD) },
+                onSelectPlatformType = { clientType ->
+                    setupViewModel.selectPlatformType(clientType)
+                    if (clientType == ClientType.LITERT) {
+                        navController.navigate(Route.SETUP_LOCAL_MODELS)
+                    } else {
+                        navController.navigate(Route.SETUP_PLATFORM_WIZARD)
+                    }
+                },
                 onBackAction = { navController.navigateUp() }
+            )
+        }
+        composable(route = Route.SETUP_LOCAL_MODELS) {
+            val parentEntry = remember(it) {
+                navController.getBackStackEntry(Route.SETUP_ROUTE)
+            }
+            val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
+            LocalModelsScreen(
+                onNavigationClick = { navController.navigateUp() },
+                onModelSelected = { modelId ->
+                    setupViewModel.selectLocalModel(modelId)
+                    navController.navigate(Route.SETUP_PLATFORM_WIZARD)
+                }
             )
         }
         composable(route = Route.SETUP_PLATFORM_WIZARD) {
@@ -114,16 +134,12 @@ fun NavGraphBuilder.setupNavigation(
             SetupPlatformWizardScreen(
                 setupViewModel = setupViewModel,
                 onComplete = {
-                    // Go back to platform list after adding a platform
-                    navController.popBackStack(Route.SETUP_PLATFORM_LIST, inclusive = false)
+                    navController.navigate(Route.SETUP_PLATFORM_LIST) {
+                        popUpTo(Route.SETUP_PLATFORM_LIST) { inclusive = false }
+                    }
                 },
                 onBackAction = { navController.navigateUp() },
                 onNavigateToLocalModels = { navController.navigate(Route.SETUP_LOCAL_MODELS) }
-            )
-        }
-        composable(route = Route.SETUP_LOCAL_MODELS) {
-            LocalModelsScreen(
-                onNavigationClick = { navController.navigateUp() }
             )
         }
         composable(route = Route.SETUP_COMPLETE) {
@@ -131,17 +147,15 @@ fun NavGraphBuilder.setupNavigation(
                 navController.getBackStackEntry(Route.SETUP_ROUTE)
             }
             val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
-            val platforms by setupViewModel.platforms.collectAsStateWithLifecycle()
+            val state by setupViewModel.uiState.collectAsStateWithLifecycle()
             SetupCompleteScreen(
-                isPendingLocalPlatform = platforms.any { platform ->
-                    !platform.enabled && platform.compatibleType == ClientType.LITERT_LM
-                },
-                onNavigate = { route ->
-                    navController.navigate(route) {
-                        popUpTo(Route.GET_STARTED) { inclusive = true }
+                hasPendingDownloads = state.hasPendingLocalDownloads,
+                onStartChat = {
+                    setupViewModel.completeSetup()
+                    navController.navigate(Route.CHAT_LIST) {
+                        popUpTo(Route.SETUP_ROUTE) { inclusive = true }
                     }
-                },
-                onBackAction = { navController.navigateUp() }
+                }
             )
         }
     }
@@ -184,142 +198,144 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
 fun NavGraphBuilder.settingNavigation(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
-    onLaunchOAuth: (String) -> Unit
+    onLaunchOAuth: (String) -> Unit = {}
 ) {
-    navigation(startDestination = Route.SETTING, route = Route.SETTING_ROUTE) {
-        composable(Route.SETTING) {
-            val settingViewModel: SettingViewModelV2 = hiltViewModel()
+    navigation(startDestination = Route.SETTINGS, route = Route.SETTING_ROUTE) {
+        composable(Route.SETTINGS) {
+            val parentEntry = remember(it) {
+                navController.getBackStackEntry(Route.SETTING_ROUTE)
+            }
+            val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
             SettingScreen(
-                viewModel = settingViewModel,
+                settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
-                onAboutClick = { navController.navigate(Route.ABOUT) },
-                onAddPlatformClick = { navController.navigate(Route.ADD_PLATFORM) },
-                onToolConnectionsClick = { navController.navigate(Route.TOOL_CONNECTIONS) },
-                onMcpMarketplaceClick = { navController.navigate(Route.MCP_MARKETPLACE) },
-                onLocalModelsClick = { navController.navigate(Route.LOCAL_MODELS) },
-                onPlatformItemClick = { platformUid ->
-                    navController.navigate("platform_setting/$platformUid")
-                }
+                onNavigateToAddPlatform = { navController.navigate(Route.ADD_PLATFORM) },
+                onNavigateToPlatformSetting = { platformUid ->
+                    navController.navigate(
+                        Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid)
+                    )
+                },
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
+                onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
             )
         }
-
-        composable(Route.ABOUT) {
-            AboutScreen(
-                onNavigationClick = { navController.navigateUp() },
-                onLicenseClick = { navController.navigate(Route.LICENSE) }
-            )
-        }
-
-        composable(Route.LICENSE) {
-            LicenseScreen(
-                onNavigationClick = { navController.navigateUp() }
-            )
-        }
-
         composable(Route.ADD_PLATFORM) {
-            val settingViewModel: SettingViewModelV2 = hiltViewModel()
+            val parentEntry = remember(it) {
+                navController.getBackStackEntry(Route.SETTING_ROUTE)
+            }
+            val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
             AddPlatformScreen(
-                viewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
-                onPlatformAdded = { platformUid ->
-                    navController.navigate("platform_setting/$platformUid") {
-                        popUpTo(Route.ADD_PLATFORM) { inclusive = true }
-                    }
+                onSave = { platform ->
+                    settingViewModel.addPlatform(platform)
+                    navController.navigateUp()
                 },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) }
             )
         }
-
-        composable(Route.TOOL_CONNECTIONS) {
-            ToolConnectionsScreen(
-                viewModel = toolConnectionsViewModel,
-                onNavigationClick = { navController.navigateUp() },
-                onAddConnection = {
-                    navController.navigate("tool_connection_editor/-1")
-                },
-                onEditConnection = { connectionId ->
-                    navController.navigate("tool_connection_editor/$connectionId")
-                },
-                onExploreMarketplace = {
-                    navController.navigate(Route.MCP_MARKETPLACE)
-                },
-                onLaunchOAuth = onLaunchOAuth
-            )
-        }
-
         composable(
-            route = "tool_connection_editor/{connectionId}",
-            arguments = listOf(
-                navArgument("connectionId") {
-                    type = NavType.IntType
-                    defaultValue = -1
-                }
-            )
+            Route.PLATFORM_SETTINGS,
+            arguments = listOf(navArgument("platformUid") { type = NavType.StringType })
         ) { backStackEntry ->
-            val connectionId = backStackEntry.arguments?.getInt("connectionId") ?: -1
-            ToolConnectionEditorScreen(
-                viewModel = toolConnectionsViewModel,
-                connectionId = connectionId,
+            val platformUid = backStackEntry.arguments?.getString("platformUid") ?: ""
+            val platformViewModel: PlatformSettingViewModel = hiltViewModel(backStackEntry)
+            PlatformSettingScreen(
+                settingViewModel = platformViewModel,
                 onNavigationClick = { navController.navigateUp() },
-                onSaved = { navController.navigateUp() },
-                onLaunchOAuth = onLaunchOAuth
-            )
-        }
-
-        composable(Route.MCP_MARKETPLACE) {
-            McpMarketplaceScreen(
-                toolConnectionsViewModel = toolConnectionsViewModel,
-                onNavigationClick = { navController.navigateUp() },
-                onInstallServer = { catalogServer ->
-                    val initialName = catalogServer.name
-                    val initialType = ToolConnectionType.MCP_STDIO.name
-                    val initialConfig = catalogServer.suggestedCommand.orEmpty()
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
+                onNavigateToMcpTools = {
                     navController.navigate(
-                        "tool_connection_editor/-1?name=$initialName&type=$initialType&config=${java.net.URLEncoder.encode(initialConfig, "UTF-8")}"
+                        Route.MCP_TOOLS_SELECTION.replace("{platformUid}", platformUid)
                     )
                 }
             )
         }
-
+        composable(
+            Route.MCP_TOOLS_SELECTION,
+            arguments = listOf(navArgument("platformUid") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val platformViewModel: PlatformSettingViewModel = hiltViewModel(
+                remember(backStackEntry) {
+                    navController.getBackStackEntry(Route.PLATFORM_SETTINGS.replace("{platformUid}", backStackEntry.arguments?.getString("platformUid") ?: ""))
+                }
+            )
+            McpToolsSelectionScreen(
+                viewModel = platformViewModel,
+                onBackAction = { navController.navigateUp() }
+            )
+        }
         composable(Route.LOCAL_MODELS) {
             LocalModelsScreen(
                 onNavigationClick = { navController.navigateUp() }
             )
         }
-
-        composable(
-            Route.PLATFORM_SETTING,
-            arguments = listOf(
-                navArgument("platformUid") { type = NavType.StringType }
-            )
-        ) {
-            val platformViewModel: PlatformSettingViewModel = hiltViewModel()
-            PlatformSettingScreen(
-                viewModel = platformViewModel,
+        composable(Route.TOOL_CONNECTIONS) {
+            ToolConnectionsScreen(
+                viewModel = toolConnectionsViewModel,
+                onLaunchOAuth = onLaunchOAuth,
                 onNavigationClick = { navController.navigateUp() },
-                onConfigureMcpToolsClick = { platformUid ->
-                    navController.navigate("mcp_tools_selection/$platformUid")
-                },
-                onConfigureConnectionsClick = {
-                    navController.navigate(Route.TOOL_CONNECTIONS)
-                },
-                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) }
+                onMarketplaceClick = { navController.navigate(Route.MCP_MARKETPLACE) },
+                onAddConnectionClick = { navController.navigate(Route.ADD_TOOL_CONNECTION) },
+                onEditConnectionClick = { connectionUid ->
+                    navController.navigate(Route.EDIT_TOOL_CONNECTION.replace("{connectionUid}", connectionUid))
+                }
             )
         }
-
+        composable(Route.MCP_MARKETPLACE) {
+            val uiState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
+            val installedAliases = remember(uiState.connections) {
+                uiState.connections.map { it.alias }.toSet()
+            }
+            val mcpProvider = remember {
+                ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP }
+            }
+            McpMarketplaceScreen(
+                installedAliases = installedAliases,
+                onNavigationClick = { navController.navigateUp() },
+                onInstallPresetWithConfig = { preset, name, alias, endpoint, authType, credential, allowCleartext ->
+                    toolConnectionsViewModel.saveConnection(
+                        existing = null,
+                        provider = mcpProvider,
+                        name = name,
+                        alias = alias,
+                        endpointUrl = endpoint,
+                        authType = authType,
+                        credential = credential,
+                        oauthClientId = "",
+                        allowCleartext = allowCleartext,
+                        clearCredential = false,
+                        onSuccess = { navController.navigateUp() }
+                    )
+                }
+            )
+        }
+        composable(Route.ADD_TOOL_CONNECTION) {
+            ToolConnectionEditorScreen(
+                viewModel = toolConnectionsViewModel,
+                onNavigationClick = { navController.navigateUp() },
+                onSaveComplete = { navController.navigateUp() }
+            )
+        }
         composable(
-            Route.MCP_TOOLS_SELECTION,
-            arguments = listOf(
-                navArgument("platformUid") { type = NavType.StringType }
+            Route.EDIT_TOOL_CONNECTION,
+            arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
+        ) {
+            ToolConnectionEditorScreen(
+                connectionUid = it.arguments?.getString("connectionUid"),
+                viewModel = toolConnectionsViewModel,
+                onNavigationClick = { navController.navigateUp() },
+                onSaveComplete = { navController.navigateUp() }
             )
-        ) { backStackEntry ->
-            val platformUid = backStackEntry.arguments?.getString("platformUid").orEmpty()
-            val platformViewModel: PlatformSettingViewModel = hiltViewModel()
-            McpToolsSelectionScreen(
-                platformUid = platformUid,
-                viewModel = platformViewModel,
-                onNavigationClick = { navController.navigateUp() }
+        }
+        composable(Route.ABOUT_PAGE) {
+            AboutScreen(
+                onNavigationClick = { navController.navigateUp() },
+                onNavigationToLicense = { navController.navigate(Route.LICENSE) }
             )
+        }
+        composable(Route.LICENSE) {
+            LicenseScreen(onNavigationClick = { navController.navigateUp() })
         }
     }
 }

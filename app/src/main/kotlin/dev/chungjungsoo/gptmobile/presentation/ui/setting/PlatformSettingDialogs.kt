@@ -24,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,11 +50,14 @@ import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
 import dev.chungjungsoo.gptmobile.util.isValidUrl
 import kotlin.math.roundToInt
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 @Composable
 fun PlatformNameDialog(
@@ -266,6 +270,220 @@ fun GeminiSafetySettingsDialog(
             onConfirmRequest = settingViewModel::updateGeminiSafetySettings
         )
     }
+}
+
+@Composable
+fun OpenRouterAdvancedSettingsDialog(
+    dialogState: PlatformSettingViewModel.DialogState,
+    routingJson: String?,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (dialogState.isOpenRouterSettingsDialogOpen) {
+        OpenRouterAdvancedSettingsDialog(
+            initialRoutingJson = routingJson,
+            onDismissRequest = settingViewModel::closeOpenRouterSettingsDialog,
+            onConfirmRequest = settingViewModel::updateOpenRouterRouting
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OpenRouterAdvancedSettingsDialog(
+    initialRoutingJson: String?,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (String?) -> Unit
+) {
+    val jsonSerializer = remember { Json { ignoreUnknownKeys = true } }
+    val initialParsed = remember(initialRoutingJson) {
+        if (!initialRoutingJson.isNullOrBlank()) {
+            runCatching { jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson) }.getOrNull()
+        } else {
+            null
+        }
+    }
+
+    var orderText by remember {
+        mutableStateOf(initialParsed?.order?.joinToString(", ") ?: "")
+    }
+    var allowFallbacks by remember {
+        mutableStateOf(initialParsed?.allowFallbacks ?: true)
+    }
+    var sortStrategy by remember {
+        mutableStateOf(initialParsed?.sort ?: "")
+    }
+    var dataCollection by remember {
+        mutableStateOf(initialParsed?.dataCollection ?: "")
+    }
+    var quantizationsText by remember {
+        mutableStateOf(initialParsed?.quantizations?.joinToString(", ") ?: "")
+    }
+
+    var sortExpanded by remember { mutableStateOf(false) }
+    var dataCollectionExpanded by remember { mutableStateOf(false) }
+
+    val sortOptions = listOf("", "price", "throughput", "latency")
+    val dataCollectionOptions = listOf("", "allow", "deny")
+
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.openrouter_advanced_settings)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.openrouter_advanced_settings_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = orderText,
+                    onValueChange = { orderText = it },
+                    label = { Text(stringResource(R.string.openrouter_provider_order)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
+                    singleLine = true
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.openrouter_allow_fallbacks),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(
+                        checked = allowFallbacks,
+                        onCheckedChange = { allowFallbacks = it }
+                    )
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = sortExpanded,
+                    onExpandedChange = { sortExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
+                            .fillMaxWidth(),
+                        value = if (sortStrategy.isBlank()) stringResource(R.string.default_label) else sortStrategy,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(stringResource(R.string.openrouter_sort_strategy)) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded) }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = sortExpanded,
+                        onDismissRequest = { sortExpanded = false }
+                    ) {
+                        sortOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
+                                onClick = {
+                                    sortStrategy = option
+                                    sortExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = dataCollectionExpanded,
+                    onExpandedChange = { dataCollectionExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
+                            .fillMaxWidth(),
+                        value = if (dataCollection.isBlank()) stringResource(R.string.default_label) else dataCollection,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(stringResource(R.string.openrouter_data_collection)) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dataCollectionExpanded) }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = dataCollectionExpanded,
+                        onDismissRequest = { dataCollectionExpanded = false }
+                    ) {
+                        dataCollectionOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
+                                onClick = {
+                                    dataCollection = option
+                                    dataCollectionExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = quantizationsText,
+                    onValueChange = { quantizationsText = it },
+                    label = { Text(stringResource(R.string.openrouter_quantizations)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_quantizations_hint)) },
+                    singleLine = true
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val orderList = orderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val quantList = quantizationsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val sortValue = sortStrategy.trim().takeIf { it.isNotEmpty() }
+                    val dataCollectionValue = dataCollection.trim().takeIf { it.isNotEmpty() }
+
+                    val routing = OpenRouterProviderRouting(
+                        order = orderList,
+                        allowFallbacks = allowFallbacks.takeIf { !it },
+                        sort = sortValue,
+                        dataCollection = dataCollectionValue,
+                        quantizations = quantList
+                    )
+
+                    val isDefault = routing.order == null &&
+                        routing.allowFallbacks == null &&
+                        routing.sort == null &&
+                        routing.dataCollection == null &&
+                        routing.quantizations == null &&
+                        routing.ignore == null &&
+                        routing.requireParameters == null
+
+                    val resultJson = if (isDefault) null else jsonSerializer.encodeToString(routing)
+                    onConfirmRequest(resultJson)
+                }
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    onConfirmRequest(null)
+                }
+            ) {
+                Text(stringResource(R.string.reset))
+            }
+        }
+    )
 }
 
 @Composable
@@ -742,7 +960,7 @@ private fun MaxTokensDialog(
                                     maxTokensCap
                                 )
                             )
-                        } else if (maxTokensCap < PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP) {
+                        } else if (maxTokensCap != PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP) {
                             Text(
                                 stringResource(
                                     R.string.max_tokens_hardware_cap_hint,

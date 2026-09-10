@@ -36,4 +36,10 @@ object ChatDatabaseV2Migrations {
             db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `open_router_routing` TEXT DEFAULT NULL")
         }
     }
+
+    val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `disable_all_tools` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }

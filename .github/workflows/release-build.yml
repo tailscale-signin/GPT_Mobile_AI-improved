@@ -215,11 +215,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.version_info.outputs.tag_name }}
+          PRE_TAG_NAME: ${{ steps.version_info.outputs.pre_tag_name }}
           VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
           SHORT_SHA: ${{ steps.version_info.outputs.short_sha }}
         run: |
-          echo "Publishing GitHub Official Latest Release for tag: $TAG_NAME"
-
           shopt -s nullglob globstar
           ASSETS_TO_UPLOAD=()
           for signed in app/build/outputs/apk/release/signed/*.apk; do
@@ -239,24 +238,49 @@ jobs:
 
           echo "Found ${#ASSETS_TO_UPLOAD[@]} asset(s) to publish: ${ASSETS_TO_UPLOAD[*]}"
 
-          RELEASE_NOTES_BODY="Official release build for v${VERSION_NAME} (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
+          RELEASE_NOTES_BODY="Release build for v${VERSION_NAME} (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
           if [ -f "RELEASE_NOTES.md" ]; then
             RELEASE_NOTES_BODY=$(cat RELEASE_NOTES.md)
           fi
 
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Release $TAG_NAME already exists, uploading/overwriting release assets and updating to latest non-prerelease..."
-            gh release edit "$TAG_NAME" --prerelease=false --latest --title "v${VERSION_NAME} - GPT Mobile Improved" --notes "$RELEASE_NOTES_BODY"
-            gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
-          else
-            echo "Creating fresh Official Latest GitHub Release $TAG_NAME..."
-            gh release create "$TAG_NAME" \
-              "${ASSETS_TO_UPLOAD[@]}" \
-              --latest \
-              --title "v${VERSION_NAME} - GPT Mobile Improved" \
-              --notes "$RELEASE_NOTES_BODY"
+          # Determine whether this is an official latest release or a pre-release
+          # Non-main branches (like release-*, feature-*) publish as pre-releases
+          IS_MAIN_BRANCH=false
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            IS_MAIN_BRANCH=true
           fi
-          echo "Official GitHub Latest Release $TAG_NAME published successfully."
+
+          if [ "$IS_MAIN_BRANCH" = "true" ]; then
+            echo "Publishing GitHub Official Latest Release for tag: $TAG_NAME"
+            if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              echo "Release $TAG_NAME already exists, uploading/overwriting release assets and updating to latest non-prerelease..."
+              gh release edit "$TAG_NAME" --prerelease=false --latest --title "v${VERSION_NAME} - GPT Mobile Improved" --notes "$RELEASE_NOTES_BODY"
+              gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
+            else
+              echo "Creating fresh Official Latest GitHub Release $TAG_NAME..."
+              gh release create "$TAG_NAME" \
+                "${ASSETS_TO_UPLOAD[@]}" \
+                --latest \
+                --title "v${VERSION_NAME} - GPT Mobile Improved" \
+                --notes "$RELEASE_NOTES_BODY"
+            fi
+            echo "Official GitHub Latest Release $TAG_NAME published successfully."
+          else
+            echo "Publishing Pre-release for tag: $PRE_TAG_NAME"
+            if gh release view "$PRE_TAG_NAME" >/dev/null 2>&1; then
+              echo "Pre-release $PRE_TAG_NAME already exists, uploading/overwriting release assets..."
+              gh release edit "$PRE_TAG_NAME" --prerelease=true --title "v${VERSION_NAME} (Build ${SHORT_SHA})" --notes "$RELEASE_NOTES_BODY"
+              gh release upload "$PRE_TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
+            else
+              echo "Creating fresh Pre-release $PRE_TAG_NAME..."
+              gh release create "$PRE_TAG_NAME" \
+                "${ASSETS_TO_UPLOAD[@]}" \
+                --prerelease \
+                --title "v${VERSION_NAME} (Build ${SHORT_SHA})" \
+                --notes "$RELEASE_NOTES_BODY"
+            fi
+            echo "GitHub Pre-release $PRE_TAG_NAME published successfully."
+          fi
 
       - name: Resolve existing build failure issues on success
         if: success()

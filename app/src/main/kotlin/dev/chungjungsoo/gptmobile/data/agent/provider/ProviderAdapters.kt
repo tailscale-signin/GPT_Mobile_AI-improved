@@ -57,6 +57,7 @@ import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonArray
@@ -282,41 +283,65 @@ class OpenAICompatibleAdapter @Inject constructor(
                     )
                     val assembler = ChatCompletionsEventAssembler()
 
-                    try {
-                        openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
-                            chunk.error?.let { error ->
-                                roundFailed = true
-                                lastFailedMessage = error.message
-                                if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
-                                    canRotate = true
-                                } else {
-                                    emit(ProviderEvent.Failed(error.message))
+                    val maxTransientRetries = if (attempts == 1) 2 else 1
+                    var retryCount = 0
+                    var streamSucceeded = false
+
+                    while (retryCount <= maxTransientRetries && !streamSucceeded) {
+                        roundFailed = false
+                        canRotate = false
+                        var chunkCount = 0
+
+                        try {
+                            openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                chunk.error?.let { error ->
+                                    roundFailed = true
+                                    lastFailedMessage = error.message
+                                    if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
+                                        canRotate = true
+                                    } else {
+                                        emit(ProviderEvent.Failed(error.message))
+                                    }
+                                } ?: chunk.choices.orEmpty().forEach { choice ->
+                                    chunkCount++
+                                    assembler.accept(
+                                        content = choice.delta.content,
+                                        reasoning = choice.delta.reasoning,
+                                        toolCalls = choice.delta.toolCalls,
+                                        finishReason = choice.finishReason
+                                    ).forEach { emit(it) }
                                 }
-                            } ?: chunk.choices.orEmpty().forEach { choice ->
-                                assembler.accept(
-                                    content = choice.delta.content,
-                                    reasoning = choice.delta.reasoning,
-                                    toolCalls = choice.delta.toolCalls,
-                                    finishReason = choice.finishReason
-                                ).forEach { emit(it) }
+                            }
+                        } catch (t: Throwable) {
+                            if (t is CancellationException) throw t
+                            roundFailed = true
+                            lastFailedMessage = t.message
+                            if (ApiCredentialRotator.isRotatableError(t)) {
+                                canRotate = true
+                            } else {
+                                emit(ProviderEvent.Failed(t.message ?: "OpenAI-compatible stream request failed"))
+                                return@flow
                             }
                         }
-                    } catch (t: Throwable) {
-                        if (t is CancellationException) throw t
-                        roundFailed = true
-                        lastFailedMessage = t.message
-                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
-                            canRotate = true
-                        } else {
-                            emit(ProviderEvent.Failed(t.message ?: "OpenAI-compatible stream request failed"))
+
+                        if (!roundFailed) {
+                            streamSucceeded = true
+                            emit(ProviderEvent.Completed)
                             return@flow
+                        }
+
+                        // If transient rate limit occurred before emitting any chunks and we can retry with backoff:
+                        val isRateLimit = canRotate || ApiCredentialRotator.containsQuotaOrRateLimitMessage(lastFailedMessage)
+                        if (isRateLimit && chunkCount == 0 && retryCount < maxTransientRetries && (attempts == 1 || attempt == attempts - 1)) {
+                            retryCount++
+                            emit(ProviderEvent.Notice("Rate limited by provider. Retrying in ${retryCount * 2}s...", persistent = false))
+                            delay(retryCount * 2000L)
+                        } else {
+                            break
                         }
                     }
 
-                    if (!roundFailed) {
-                        emit(ProviderEvent.Completed)
-                        return@flow
-                    } else if (canRotate && attempt < attempts - 1) {
+                    if (canRotate && attempt < attempts - 1) {
                         continue
                     } else {
                         if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))

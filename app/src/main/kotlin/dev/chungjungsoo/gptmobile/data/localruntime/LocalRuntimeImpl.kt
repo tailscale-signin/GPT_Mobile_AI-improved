@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -50,7 +51,7 @@ class LocalRuntimeImpl(
         context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     }
 
-    private val deviceRamGb: Long by lazy {
+    override val deviceRamGb: Long by lazy {
         val memoryInfo = ActivityManager.MemoryInfo()
         if (activityManager != null) {
             activityManager?.getMemoryInfo(memoryInfo)
@@ -67,6 +68,12 @@ class LocalRuntimeImpl(
     private val isMidRamDevice: Boolean by lazy {
         deviceRamGb >= 6L
     }
+
+    override fun getHardwareState(): DeviceHardwareState =
+        DeviceHardwareGovernor.inspectHardwareState(context)
+
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
+        DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), isHighRamDevice)
 
     private fun getAvailableMemoryMb(): Long {
         val memoryInfo = ActivityManager.MemoryInfo()
@@ -103,10 +110,14 @@ class LocalRuntimeImpl(
                 }
             }
 
-            // Apply memory safety guardrail: if device is under memory pressure, throttle maxNumTokens
+            // Apply memory safety guardrail: if device is under memory pressure or thermal/battery throttling, clamp maxNumTokens
+            val throttling = getAdaptiveThrottlingPolicy()
             val effectiveMaxTokens = if (isLowMemoryDevice() && spec.maxTokens > 1024) {
                 Log.w(TAG, "Device low memory detected; throttling maxTokens from ${spec.maxTokens} to 1024")
                 1024
+            } else if (throttling.maxTokensClamp != null && spec.maxTokens > throttling.maxTokensClamp) {
+                Log.w(TAG, "Device hardware thermal/battery throttle active; clamping maxTokens from ${spec.maxTokens} to ${throttling.maxTokensClamp}")
+                throttling.maxTokensClamp
             } else {
                 spec.maxTokens
             }
@@ -166,11 +177,18 @@ class LocalRuntimeImpl(
         withContext(Dispatchers.IO) {
             val currentEngine = engine ?: error("LiteRT-LM engine is not loaded")
             conversation?.close()
+            yield() // Cooperative yield checkpoint before creating conversation and allocating KV-cache
             val toolProviders = config.tools.map { descriptor ->
                 tool(BridgedOpenApiTool(descriptor, config.toolExecutor))
             }
             val previousConstrainedDecoding = ExperimentalFlags.enableConversationConstrainedDecoding
             ExperimentalFlags.enableConversationConstrainedDecoding = config.isConstrainedDecodingEnabled
+            val throttling = getAdaptiveThrottlingPolicy()
+            val effectiveTopK = if (throttling.topKReductionRatio < 1.0f) {
+                (config.sampler.topK * throttling.topKReductionRatio).toInt().coerceAtLeast(1)
+            } else {
+                config.sampler.topK
+            }
             try {
                 conversation = currentEngine.createConversation(
                     ConversationConfig(
@@ -184,7 +202,7 @@ class LocalRuntimeImpl(
                         tools = toolProviders,
                         samplerConfig = if (LocalAccelerators.shouldApplySampler(loadedAccelerator)) {
                             SamplerConfig(
-                                topK = config.sampler.topK,
+                                topK = effectiveTopK,
                                 topP = config.sampler.topP.toDouble(),
                                 temperature = config.sampler.temperature.toDouble()
                             )
@@ -207,6 +225,9 @@ class LocalRuntimeImpl(
             return@callbackFlow
         }
 
+        // Notify downstream consumers that prompt prefill is underway
+        trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
+
         val startTimeMs = SystemClock.elapsedRealtime()
         val firstTokenTimeMs = AtomicLong(0L)
         val chunkCount = AtomicInteger(0)
@@ -220,6 +241,7 @@ class LocalRuntimeImpl(
                     val now = SystemClock.elapsedRealtime()
                     if (firstTokenTimeMs.compareAndSet(0L, now)) {
                         hasEmittedAny.set(true)
+                        trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
                     }
 
                     message.channels[THOUGHT_CHANNEL]?.takeIf { it.isNotEmpty() }?.let { thought ->

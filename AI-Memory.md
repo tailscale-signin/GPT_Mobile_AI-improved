@@ -4,8 +4,8 @@ Persistent repository context for AI coding agents. Keep this file synchronized 
 
 > Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved.
 >
-> **Latest Official Release:** [v0.8.9](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.9) (`prerelease: false`, `draft: false`, official latest release). Build pipeline configured with automated `apksigner` code signing and stripped `-unsigned` suffixes so all released APK artifacts are cleanly named signed release packages with accompanying `.idsig` v4 signature files: universal APK (`app-universal-release.apk`), ARM64 APK (`app-arm64-v8a-release.apk`), and x86_64 APK (`app-x86_64-release.apk`).
-> **Current Version:** `0.8.9.1` (versionCode 31) — OpenRouter advanced routing settings, Room Schema 15 (`MIGRATION_14_15`), instant bottom anchoring with deep-link/favorite target message protection, collapsible details animation, and Google Gemini MCP tool schema sanitization.
+> **Latest Official Release:** [v0.9.0](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.0) (`prerelease: false`, `draft: false`, official latest release). Build pipeline configured with automated `apksigner` code signing and stripped `-unsigned` suffixes so all released APK artifacts are cleanly named signed release packages with accompanying `.idsig` v4 signature files: universal APK (`app-universal-release.apk`), ARM64 APK (`app-arm64-v8a-release.apk`), and x86_64 APK (`app-x86_64-release.apk`).
+> **Current Version:** `0.9.0` (versionCode 32) — LiteRT-LM hardware acceleration (`DeviceHardwareGovernor`, speculative decoding, phase-split scheduling `PREFILL` / `GENERATING`, rolling context window compaction, warm engine retention, high-refresh frame dispatching), OpenRouter advanced routing settings, Room Schema 15 (`MIGRATION_14_15`), instant bottom anchoring with deep-link/favorite target message protection, collapsible details animation, and Google Gemini MCP tool schema sanitization.
 
 ## 1. Repository Overview
 
@@ -24,7 +24,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.8.9.1` (versionCode 31). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.0` (versionCode 32). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
 - **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing (`ChatDatabaseV2MigrationsTest`), and ktlint 1.3.1 using Android Studio style.
 
 ## 2. Repository Index
@@ -68,6 +68,12 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/domain/agent/tools/ReadFileSliceTool.kt` — Built-in line slicing tool for viewing bounded line ranges of local/remote files with 1-based indexing and line-number metadata.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/domain/agent/AgentRuntime.kt` — Autonomous agent orchestrator running multi-step reasoning, tool dispatching, MCP execution, and reflection loops.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt` — Provider adapters for OpenAI, Anthropic, Gemini, Groq, and OpenRouter (deserializing and passing `openRouterRouting` into `ChatCompletionRequest.provider`; `geminiToolParameters` recursively sanitizing `x-mcp-header`, `x-mcp-param`, `$schema`, `propertyNames`, and `additionalProperties` for Gemini tool calls).
+
+### Local Runtime & Hardware Acceleration
+
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/LocalRuntime.kt` — Core local runtime interfaces and event definitions (`LocalInferencePhase`, `LocalRuntimeEvent.PhaseChanged`).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/LocalRuntimeImpl.kt` — Implementation supporting cooperative thread yielding, phase-split scheduling, and warm engine retention.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/DeviceHardwareGovernor.kt` — Dynamic hardware governor monitoring thermal and battery status for adaptive streaming intervals and token clamps.
 
 ### Networking & Credentials
 

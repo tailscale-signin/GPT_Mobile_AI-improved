@@ -679,7 +679,6 @@ class ProviderAdaptersTest {
         val schema = buildJsonObject {
             put("\$schema", "http://json-schema.org/draft-07/schema#")
             put("type", "object")
-            put("additionalProperties", false)
             put(
                 "properties",
                 buildJsonObject {
@@ -688,7 +687,7 @@ class ProviderAdaptersTest {
                         buildJsonObject {
                             put("type", "string")
                             put("description", "Repository owner")
-                            put("x-mcp-header", "X-Mcp-Param-Owner")
+                            put("x-mcp-header", "owner")
                         }
                     )
                     put(
@@ -696,11 +695,19 @@ class ProviderAdaptersTest {
                         buildJsonObject {
                             put("type", "string")
                             put("description", "Repository name")
-                            put("x-mcp-header", "X-Mcp-Param-Repo")
+                            put("x-mcp-header", "repo")
+                        }
+                    )
+                    put(
+                        "path",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "Path to file")
                         }
                     )
                 }
             )
+            put("additionalProperties", false)
         }
 
         val sanitized = geminiToolParameters(schema)
@@ -717,6 +724,10 @@ class ProviderAdaptersTest {
         assertEquals("string", repo.getValue("type").jsonPrimitive.content)
         assertEquals("Repository name", repo.getValue("description").jsonPrimitive.content)
         assertFalse(repo.containsKey("x-mcp-header"))
+
+        val path = properties.getValue("path").jsonObject
+        assertEquals("string", path.getValue("type").jsonPrimitive.content)
+        assertEquals("Path to file", path.getValue("description").jsonPrimitive.content)
     }
 
     @Test

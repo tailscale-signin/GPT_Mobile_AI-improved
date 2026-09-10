@@ -180,6 +180,8 @@ class ChatRepositoryImpl @Inject constructor(
 
                         is ProviderEvent.TextDelta -> emit(ApiState.Success(providerEvent.text))
 
+                        is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
+
                         is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message))
 
                         is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))

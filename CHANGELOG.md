@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-10
+
+### Added & Improved
+- **LiteRT-LM Hardware Acceleration & Dynamic Inference Engine**:
+  - Phase-split scheduling (`LocalInferencePhase.PREFILL` / `GENERATING`) with foreground notification updates displaying "Processing prompt…" and "Generating response…".
+  - Cooperative thread yielding (`yield()`) during conversation creation and message evaluation to eliminate UI thread hitches.
+  - DeviceHardwareGovernor: dynamic thermal and battery throttling adjusting context token clamps, stream intervals, and top-k sampling.
+  - High-refresh 120Hz/144Hz token dispatching with 8ms frame budgets on capable hardware.
+  - Idle memory auto-unloading (`unloadIfIdle`) in `LocalEngineHolder` to protect device memory after periods of inactivity.
+  - Rolling Context Window Compactor (`RollingContextWindowCompactor`): Turn 0 anchor prefix preservation and rolling turn truncation preventing context ceiling exhaustion.
+  - Real-time generation telemetry (`LocalInferenceMetrics`) exposing tok/s, TTFT, token counts, and thermal badges in the chat action row (`TelemetryBadge`).
+  - Tier-aware context scaling up to 8,192 tokens on >=12GB/16GB devices, with SoC variant clamping for NPU targets.
+- **OpenRouter Advanced Provider Routing & Reasoning**:
+  - Configure provider ordering, fallback providers, sorting strategy (`price`, `throughput`, `latency`), data collection policies (`allow`, `deny`), and quantizations (`fp16`, `int8`, `int4`, `bf16`).
+  - Added custom max reasoning tokens configuration.
+  - Interactive UI with `OpenRouterAdvancedSettingsDialog` inside Platform Settings.
+  - Added Room Schema 15 and `MIGRATION_14_15` (`open_router_routing` column on `platform_v2`).
+- **Chat Presentation & Responsiveness**:
+  - Instant bottom anchoring via `rememberChatListState` keyed on message counts with target message protection for favorites and deep links.
+  - Collapsible details toggle button (`DetailsButton`) with accessible spring animations (`fastEffectsSpec`).
+  - Continuous streaming heartbeat pulse (`●`) during response generation and tool execution.
+- **Google Gemini Tool Calling Reliability**:
+  - Recursive tool parameter sanitization (`geminiToolParameters`) stripping transport metadata (`x-mcp-header`, `x-mcp-param`) and unsupported schema keywords (`$schema`, `propertyNames`, `additionalProperties`).
+  - Immediate detection of tool schema rejection errors (`throwIfToolDefinitionsRejected`) to prevent multi-API retry loops and timeouts.
+
 ## [0.8.9.1] - 2026-09-09
 
 ### Added & Improved

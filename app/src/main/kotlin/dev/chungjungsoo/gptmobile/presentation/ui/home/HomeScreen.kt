@@ -116,6 +116,13 @@ import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
 
+enum class PlatformSortOrder {
+    DEFAULT,
+    NAME,
+    PROVIDER,
+    ENABLED_FIRST
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
@@ -1050,6 +1057,18 @@ fun SelectPlatformDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var sortOrder by remember { mutableStateOf(PlatformSortOrder.DEFAULT) }
+
+    // Map platform indices for stable checkbox selection even when sorted
+    val indexedPlatforms = remember(platforms, sortOrder) {
+        val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
+        when (sortOrder) {
+            PlatformSortOrder.DEFAULT -> list
+            PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
+            PlatformSortOrder.PROVIDER -> list.sortedBy { it.second.apiType.name }
+            PlatformSortOrder.ENABLED_FIRST -> list.sortedByDescending { it.second.enabled }
+        }
+    }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1066,22 +1085,52 @@ fun SelectPlatformDialog(
                 )
                 Text(
                     text = stringResource(R.string.select_platform_description),
-                    modifier = Modifier.padding(8.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodyMedium
                 )
+                // Interactive Sort Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = sortOrder == PlatformSortOrder.DEFAULT,
+                        onClick = { sortOrder = PlatformSortOrder.DEFAULT },
+                        label = { Text("Default") }
+                    )
+                    FilterChip(
+                        selected = sortOrder == PlatformSortOrder.NAME,
+                        onClick = { sortOrder = PlatformSortOrder.NAME },
+                        label = { Text("Name") }
+                    )
+                    FilterChip(
+                        selected = sortOrder == PlatformSortOrder.PROVIDER,
+                        onClick = { sortOrder = PlatformSortOrder.PROVIDER },
+                        label = { Text("Provider") }
+                    )
+                    FilterChip(
+                        selected = sortOrder == PlatformSortOrder.ENABLED_FIRST,
+                        onClick = { sortOrder = PlatformSortOrder.ENABLED_FIRST },
+                        label = { Text("Enabled") }
+                    )
+                }
             }
         },
         text = {
             HorizontalDivider()
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 if (platforms.any { it.enabled }) {
-                    platforms.forEachIndexed { i, platform ->
+                    indexedPlatforms.forEach { (originalIndex, platform) ->
                         PlatformCheckBoxItem(
                             title = platform.name,
                             enabled = platform.enabled,
-                            selected = selectedPlatforms[i],
+                            selected = selectedPlatforms.getOrElse(originalIndex) { false },
                             description = null,
-                            onClickEvent = { onPlatformSelect(i) }
+                            onClickEvent = { onPlatformSelect(originalIndex) }
                         )
                     }
                 } else {

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,9 +11,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -29,6 +33,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +52,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
@@ -67,7 +74,7 @@ fun AddPlatformScreen(
     var selectedClientType by remember { mutableStateOf<ClientType?>(null) }
     var platformName by remember { mutableStateOf("") }
     var apiUrl by remember { mutableStateOf("") }
-    var apiKey by remember { mutableStateOf("") }
+    val apiTokens = remember { mutableStateListOf("") }
     var model by remember { mutableStateOf("") }
     var isReasoningEnabled by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
@@ -116,6 +123,7 @@ fun AddPlatformScreen(
                     } else {
                         null
                     }
+                    val formattedApiKey = ApiCredentialRotator.formatKeys(apiTokens.toList())
                     val platform = PlatformV2(
                         name = platformName.trim(),
                         compatibleType = clientType,
@@ -125,7 +133,7 @@ fun AddPlatformScreen(
                             true
                         },
                         apiUrl = if (clientType == ClientType.LITERT_LM) "" else apiUrl.trim(),
-                        token = apiKey.trim().takeIf { it.isNotEmpty() && clientType != ClientType.LITERT_LM },
+                        token = formattedApiKey.takeIf { it.isNotEmpty() && clientType != ClientType.LITERT_LM },
                         model = selectedModel,
                         temperature = defaults?.temperature ?: 1.0f,
                         topP = defaults?.topP ?: 1.0f,
@@ -137,7 +145,8 @@ fun AddPlatformScreen(
                         reasoning = isReasoningEnabled && clientType != ClientType.LITERT_LM,
                         timeout = 30
                     )
-                    apiKey = ""
+                    apiTokens.clear()
+                    apiTokens.add("")
                     onSave(platform)
                 }
             )
@@ -168,7 +177,8 @@ fun AddPlatformScreen(
                             platformName = ModelConstants.defaultPlatformName(clientType)
                             apiUrl = ModelConstants.defaultApiUrl(clientType)
                             model = ModelConstants.defaultModel(clientType)
-                            apiKey = ""
+                            apiTokens.clear()
+                            apiTokens.add("")
                             isReasoningEnabled = false
                             step = AddPlatformStep.DETAILS
                         }
@@ -183,11 +193,103 @@ fun AddPlatformScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
-                OutlinedTextField(value = platformName, onValueChange = { platformName = it }, label = { Text(stringResource(R.string.platform_name)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, supportingText = { Text(stringResource(R.string.platform_name_supporting)) })
+                OutlinedTextField(
+                    value = platformName,
+                    onValueChange = { platformName = it },
+                    label = { Text(stringResource(R.string.platform_name)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    supportingText = { Text(stringResource(R.string.platform_name_supporting)) }
+                )
                 if (clientType != ClientType.LITERT_LM) {
-                    OutlinedTextField(value = apiUrl, onValueChange = { apiUrl = it }, label = { Text(stringResource(R.string.api_url)) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), singleLine = true)
-                    OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text(stringResource(R.string.api_key)) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), singleLine = true, visualTransformation = PasswordVisualTransformation(), supportingText = { Text(stringResource(R.string.api_key_supporting)) })
-                    OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text(stringResource(R.string.model)) }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), singleLine = true, supportingText = { Text(stringResource(R.string.model_supporting)) })
+                    OutlinedTextField(
+                        value = apiUrl,
+                        onValueChange = { apiUrl = it },
+                        label = { Text(stringResource(R.string.api_url)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.multi_api_keys_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+
+                    apiTokens.forEachIndexed { index, tokenValue ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                modifier = Modifier.weight(1f),
+                                value = tokenValue,
+                                onValueChange = { apiTokens[index] = it },
+                                label = {
+                                    Text(
+                                        if (apiTokens.size > 1) {
+                                            stringResource(R.string.api_key_number, index + 1)
+                                        } else {
+                                            stringResource(R.string.api_key)
+                                        }
+                                    )
+                                },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                supportingText = if (index == apiTokens.lastIndex && apiTokens.size == 1) {
+                                    { Text(stringResource(R.string.api_key_supporting)) }
+                                } else {
+                                    null
+                                }
+                            )
+                            if (apiTokens.size > 1) {
+                                IconButton(
+                                    onClick = { apiTokens.removeAt(index) },
+                                    modifier = Modifier.padding(start = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Delete,
+                                        contentDescription = stringResource(R.string.remove_api_key),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = { apiTokens.add("") }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = stringResource(R.string.add_api_key),
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            Text(stringResource(R.string.add_api_key))
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = model,
+                        onValueChange = { model = it },
+                        label = { Text(stringResource(R.string.model)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        singleLine = true,
+                        supportingText = { Text(stringResource(R.string.model_supporting)) }
+                    )
 
                     // Exclusively enable OpenRouter model picker for OpenRouter API
                     if (clientType == ClientType.OPENROUTER) {
@@ -206,7 +308,12 @@ fun AddPlatformScreen(
                         }
                     }
 
-                    Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(text = stringResource(R.string.extended_thinking), style = MaterialTheme.typography.bodyLarge)
                             Text(text = stringResource(R.string.extended_thinking_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

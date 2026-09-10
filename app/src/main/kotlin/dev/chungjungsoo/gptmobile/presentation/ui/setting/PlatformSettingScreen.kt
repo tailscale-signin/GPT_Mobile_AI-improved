@@ -262,10 +262,18 @@ fun PlatformSettingScreen(
                             )
                         }
                     )
+                    val maxTokensDescription = platformData.maxTokens?.let { tokens ->
+                        val cap = settingViewModel.maxTokensCap()
+                        if (cap < PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP) {
+                            stringResource(R.string.max_tokens_with_cap, tokens, cap)
+                        } else {
+                            tokens.toString()
+                        }
+                    } ?: notSetText
                     SettingItem(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.max_tokens),
-                        description = platformData.maxTokens?.toString() ?: notSetText,
+                        description = maxTokensDescription,
                         enabled = platformData.enabled,
                         onItemClick = settingViewModel::openMaxTokensDialog,
                         showTrailingIcon = false,

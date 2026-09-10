@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
+import android.os.SystemClock
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
@@ -9,14 +10,44 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/**
+ * Thread-safe lifecycle holder for the native LiteRT model instance.
+ *
+ * Supports warm engine retention across conversational sessions when using the same
+ * model specification, preventing reinitialization overhead (2-5s latency savings)
+ * especially beneficial for high-RAM flagship devices.
+ *
+ * Provides idle timeout auto-unload to safely release native model memory after periods
+ * of inactivity, protecting background system memory.
+ */
 class LocalEngineHolder(
-    private val delegate: LocalRuntime
+    private val delegate: LocalRuntime,
+    private val timeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) : LocalRuntime {
     private val mutex = Mutex()
     private var loadedSpec: LocalEngineSpec? = null
 
+    @Volatile
+    private var lastAccessedElapsedRealtimeMs: Long = 0L
+
+    override val deviceRamGb: Long
+        get() = delegate.deviceRamGb
+
+    override fun getHardwareState(): DeviceHardwareState = delegate.getHardwareState()
+
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy = delegate.getAdaptiveThrottlingPolicy()
+
+    /**
+     * Timestamp in elapsed realtime milliseconds when the engine was last used or loaded.
+     */
+    val lastAccessedTimestamp: Long
+        get() = lastAccessedElapsedRealtimeMs
+
     override suspend fun loadEngine(spec: LocalEngineSpec) = withGenerationLock {
-        if (loadedSpec == spec) return@withGenerationLock
+        markAccessed()
+        if (loadedSpec == spec && delegate.isEngineLoaded(spec)) {
+            return@withGenerationLock
+        }
         if (loadedSpec != null) {
             delegate.closeConversation()
             delegate.unloadEngine()
@@ -32,12 +63,17 @@ class LocalEngineHolder(
     }
 
     override suspend fun createConversation(config: LocalConversationConfig) = withGenerationLock {
+        markAccessed()
         delegate.createConversation(config)
     }
 
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> = channelFlow {
         withGenerationLock {
-            delegate.sendMessage(text, images).collect { send(it) }
+            markAccessed()
+            delegate.sendMessage(text, images).collect {
+                markAccessed()
+                send(it)
+            }
         }
     }
 
@@ -55,14 +91,33 @@ class LocalEngineHolder(
             delegate.closeConversation()
             delegate.unloadEngine()
             loadedSpec = null
+            lastAccessedElapsedRealtimeMs = 0L
         }
     }
 
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec
+    /**
+     * Unloads the engine if it has been idle for at least [idleThresholdMs].
+     *
+     * Returns true if the engine was unloaded due to inactivity, or false if it is still
+     * active, already unloaded, or has not exceeded the idle threshold.
+     */
+    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
+        if (loadedSpec == null) return false
+        val now = timeProvider()
+        val lastUsed = lastAccessedElapsedRealtimeMs
+        if (lastUsed > 0L && (now - lastUsed) >= idleThresholdMs) {
+            unloadEngine()
+            return true
+        }
+        return false
+    }
+
+    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec && delegate.isEngineLoaded(spec)
 
     override fun hasOpenConversation(): Boolean = delegate.hasOpenConversation()
 
     override suspend fun <T> runExclusive(block: suspend LocalRuntime.() -> T): T = withGenerationLock {
+        markAccessed()
         block(this)
     }
 
@@ -71,6 +126,7 @@ class LocalEngineHolder(
         block: suspend LocalRuntime.() -> Flow<T>
     ): Flow<T> = channelFlow {
         if (coroutineContext[GenerationLock] != null) {
+            markAccessed()
             block(this@LocalEngineHolder).collect { send(it) }
             return@channelFlow
         }
@@ -82,11 +138,16 @@ class LocalEngineHolder(
         }
         try {
             withContext(GenerationLock()) {
+                markAccessed()
                 block(this@LocalEngineHolder).collect { send(it) }
             }
         } finally {
             if (locked) mutex.unlock()
         }
+    }
+
+    private fun markAccessed() {
+        lastAccessedElapsedRealtimeMs = timeProvider()
     }
 
     private suspend fun <T> withGenerationLock(block: suspend () -> T): T {
@@ -96,6 +157,11 @@ class LocalEngineHolder(
         return mutex.withLock {
             withContext(GenerationLock()) { block() }
         }
+    }
+
+    companion object {
+        /** Default idle duration (10 minutes) after which an inactive engine is eligible for unloading. */
+        const val DEFAULT_IDLE_UNLOAD_TIMEOUT_MS = 10 * 60 * 1000L
     }
 }
 

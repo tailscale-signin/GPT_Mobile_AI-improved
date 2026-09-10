@@ -184,6 +184,8 @@ class ChatRepositoryImpl @Inject constructor(
 
                         is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))
 
+                        is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
+
                         is ProviderEvent.ToolCall -> {
                             val toolEvent = trace.start(providerEvent)
                             emit(ApiState.ToolCall(toolEvent.sequence))

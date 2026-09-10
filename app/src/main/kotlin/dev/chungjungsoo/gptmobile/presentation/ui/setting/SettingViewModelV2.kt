@@ -66,8 +66,9 @@ class SettingViewModelV2 @Inject constructor(
 
     fun togglePlatformEnabled(platformId: Int) {
         val platform = _platformState.value.find { it.id == platformId }
-        platform?.let {
-            updatePlatform(it.copy(enabled = !it.enabled))
+        platform?.let { target ->
+            val updated = target.copy(enabled = !target.enabled)
+            updatePlatform(updated)
         }
     }
 

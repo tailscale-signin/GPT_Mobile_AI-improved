@@ -9,10 +9,15 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
+import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome
+import dev.chungjungsoo.gptmobile.util.HIGH_REFRESH_FRAME_INTERVAL_MILLIS
+import dev.chungjungsoo.gptmobile.util.LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
+import dev.chungjungsoo.gptmobile.util.STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.assistantErrorAppendedText
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.collectApiStateUpdates
@@ -49,7 +54,8 @@ data class AgentRunRequest(
 data class ActiveAgentRun(
     val runId: String,
     val chatId: Int,
-    val profileUid: String
+    val profileUid: String,
+    val phase: LocalInferencePhase? = null
 )
 
 data class AgentRunNotice(
@@ -72,9 +78,9 @@ class AgentRunCoordinator @Inject constructor(
     private val _notices = MutableSharedFlow<AgentRunNotice>(extraBufferCapacity = 8)
 
     // On high-RAM (>= 10GB) flagship devices with 120Hz/144Hz displays, streaming database and UI
-    // dispatch can be throttled from 250ms down to 33ms (~30 FPS) for butter-smooth live token streaming
-    // without starving CPU/IO, while conserving disk IO on lower memory devices.
-    private val isHighMemoryDevice by lazy {
+    // dispatch targets an 8ms frame budget (~120 FPS) for buttery-smooth live token streaming without micro-stutter,
+    // while conserving disk IO on lower memory tiers with 250ms batching.
+    internal val isHighMemoryDevice by lazy {
         try {
             val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
             val memInfo = ActivityManager.MemoryInfo()
@@ -85,8 +91,22 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    private val publishIntervalMillis: Long
-        get() = if (isHighMemoryDevice) 33L else 250L
+    /**
+     * Resolves the optimal streaming publish interval by dynamically querying the hardware governor.
+     * When thermal pressure is severe or the device battery is critically low, it downshifts to 250ms
+     * to safeguard device stability, even on high-RAM hardware. Under moderate conditions it selects 33ms (~30 FPS),
+     * and on cool high-RAM devices it provides the full 8ms (~120 FPS) frame budget.
+     */
+    internal val publishIntervalMillis: Long
+        get() {
+            return try {
+                val hardwareState = DeviceHardwareGovernor.inspectHardwareState(context)
+                val policy = DeviceHardwareGovernor.computeThrottlingPolicy(hardwareState, isHighMemoryDevice)
+                policy.streamPublishIntervalMillis
+            } catch (_: Exception) {
+                if (isHighMemoryDevice) HIGH_REFRESH_FRAME_INTERVAL_MILLIS else LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
+            }
+        }
 
     val activeRuns = _activeRuns.asStateFlow()
     val notices = _notices.asSharedFlow()
@@ -250,6 +270,16 @@ class AgentRunCoordinator @Inject constructor(
                 onNotice = { notice, persistent ->
                     _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
                 },
+                onPhaseChanged = { phase ->
+                    _activeRuns.update { runs ->
+                        val current = runs[request.runId]
+                        if (current != null) {
+                            runs + (request.runId to current.copy(phase = phase))
+                        } else {
+                            runs
+                        }
+                    }
+                },
                 publishIntervalMillis = publishIntervalMillis
             )
             val terminal = outcome.toTerminalUpdate()
@@ -313,6 +343,17 @@ class AgentRunCoordinator @Inject constructor(
 }
 
 internal data class AgentRunTerminalUpdate(val status: String, val error: String?)
+
+/**
+ * Helper to compute effective publish interval given a hardware state and RAM profile.
+ */
+internal fun resolvePublishInterval(
+    hardwareState: dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState,
+    isHighMemoryDevice: Boolean
+): Long {
+    val policy = DeviceHardwareGovernor.computeThrottlingPolicy(hardwareState, isHighMemoryDevice)
+    return policy.streamPublishIntervalMillis
+}
 
 internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long): MessageV2 {
     if (error == null) return message.copy(createdAt = completedAt).resetActiveRevision()

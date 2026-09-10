@@ -82,6 +82,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - Preserve backward-compatibility for Room schemas; always update database version and migration definitions when modifying entities.
 - Ensure all new tools are registered in baseline tools and exposed via appropriate interfaces.
 - Keep pure presentation and domain functions testable in headless JVM environments without coupling to Compose UI classes or layout contexts.
+- Ensure exhaustive sealed interface/class branches match across model definitions across all active development and release branches.
 
 ## 4. Anti-Patterns & Traps ("Don'ts")
 

@@ -167,7 +167,7 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
             settingOnClick = { navController.navigate(Route.SETTING_ROUTE) },
             onExistingChatClick = { chatRoom, targetMessageId ->
                 val targetSuffix = if (targetMessageId != null) "&targetMessageId=$targetMessageId" else ""
-                navController.navigate("chat_room/${chatRoom.id}?enabled=${chatRoom.platforms.joinToString(",")}$targetSuffix")
+                navController.navigate("chat_room/${chatRoom.id}?enabled=${chatRoom.enabledPlatform.joinToString(",")}$targetSuffix")
             },
             navigateToNewChat = { enabledPlatforms ->
                 navController.navigate("chat_room/0?enabled=${enabledPlatforms.joinToString(",")}")

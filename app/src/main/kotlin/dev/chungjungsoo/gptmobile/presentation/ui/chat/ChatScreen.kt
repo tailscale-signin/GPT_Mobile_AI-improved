@@ -69,6 +69,8 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -133,14 +135,17 @@ fun ChatScreen(
     val systemChatMargin = 32.dp
     val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
-    val listState = rememberLazyListState()
-    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
-    var isFollowingBottom by remember { mutableStateOf(chatViewModel.targetMessageId <= 0) }
-    var hasScrolledToTarget by rememberSaveable { mutableStateOf(false) }
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
+    val hasTargetMessage = chatViewModel.targetMessageId > 0
+    val listState = rememberChatListState(
+        messageCount = groupedMessages.userMessages.size,
+        hasTargetMessage = hasTargetMessage
+    )
+    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
+    var isFollowingBottom by remember { mutableStateOf(!hasTargetMessage) }
+    var hasScrolledToTarget by rememberSaveable { mutableStateOf(false) }
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val runNoticesById by chatViewModel.runNoticesById.collectAsStateWithLifecycle()
@@ -163,6 +168,7 @@ fun ChatScreen(
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
+    var previousMessageCount by rememberSaveable { mutableIntStateOf(groupedMessages.userMessages.size) }
     var requestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterLocalNetworkPermission by rememberSaveable { mutableStateOf(false) }
@@ -231,10 +237,12 @@ fun ChatScreen(
         )
     }
 
-    LaunchedEffect(lastMessageIndex) {
-        if (chatViewModel.targetMessageId <= 0 || hasScrolledToTarget) {
+    LaunchedEffect(groupedMessages.userMessages.size) {
+        val currentCount = groupedMessages.userMessages.size
+        if (currentCount > previousMessageCount) {
             isFollowingBottom = true
         }
+        previousMessageCount = currentCount
     }
 
     ChatBottomAutoScroller(
@@ -548,7 +556,7 @@ private fun ChatMessagePair(
                         .padding(top = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GPTMobileIcon(loading = isActiveMessage && !isIdle)
+                    GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
                     if (enabledPlatformsInChat.size > 1) {
                         Row(
                             modifier = Modifier
@@ -622,6 +630,14 @@ private fun chatMessagePairKey(message: MessageV2, index: Int): String = if (mes
     "message-${message.id}"
 } else {
     "message-${message.createdAt}-$index"
+}
+
+@Composable
+internal fun rememberChatListState(
+    messageCount: Int,
+    hasTargetMessage: Boolean = false
+): LazyListState = key(if (hasTargetMessage) "target" else (messageCount > 0)) {
+    rememberLazyListState(initialFirstVisibleItemIndex = if (hasTargetMessage) 0 else messageCount)
 }
 
 internal fun nextFollowBottom(

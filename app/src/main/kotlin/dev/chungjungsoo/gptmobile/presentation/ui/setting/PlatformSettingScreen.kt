@@ -350,6 +350,27 @@ fun PlatformSettingScreen(
                         }
                     )
                 }
+                if (platformData.compatibleType == ClientType.OPENROUTER) {
+                    SettingItem(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.openrouter_advanced_settings),
+                        description = if (platformData.openRouterRouting.isNullOrBlank()) {
+                            stringResource(R.string.default_label)
+                        } else {
+                            stringResource(R.string.custom)
+                        },
+                        enabled = platformData.enabled,
+                        onItemClick = settingViewModel::openOpenRouterSettingsDialog,
+                        showTrailingIcon = true,
+                        showLeadingIcon = true,
+                        leadingIcon = {
+                            Icon(
+                                ImageVector.vectorResource(id = R.drawable.ic_instructions),
+                                contentDescription = stringResource(R.string.openrouter_advanced_settings)
+                            )
+                        }
+                    )
+                }
                 if (!isLocalPlatform) {
                     ExtendedThinkingSwitch(
                         modifier = Modifier.height(64.dp),
@@ -432,6 +453,7 @@ fun PlatformSettingScreen(
                 TopPDialog(dialogState, platformData.topP, settingViewModel)
                 SystemPromptDialog(dialogState, platformData.systemPrompt ?: "", settingViewModel)
                 GeminiSafetySettingsDialog(dialogState, platformData, settingViewModel)
+                OpenRouterAdvancedSettingsDialog(dialogState, platformData.openRouterRouting, settingViewModel)
                 DeletePlatformDialog(dialogState, settingViewModel)
                 SearchBackendDialog(toolBindingState, settingViewModel)
                 LegacyMcpToolsDialog(toolBindingState, settingViewModel)

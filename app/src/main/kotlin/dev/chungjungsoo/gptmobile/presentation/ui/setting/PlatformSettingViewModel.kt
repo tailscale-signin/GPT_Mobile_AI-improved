@@ -379,7 +379,10 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun updateOpenRouterRouting(routingJson: String?) {
-        closeOpenRouterSettingsDialog()
+        _platformState.value?.let { platform ->
+            updatePlatform(platform.copy(openRouterRouting = routingJson?.takeIf { it.isNotBlank() }))
+            closeOpenRouterSettingsDialog()
+        }
     }
 
     fun openDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = true) }

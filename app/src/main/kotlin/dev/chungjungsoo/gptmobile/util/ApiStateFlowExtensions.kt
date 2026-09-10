@@ -5,13 +5,20 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.updateAssistantSlot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-private const val STREAM_PUBLISH_INTERVAL_MILLIS = 33L
+// Target frame budgets for streaming token batching:
+// - 120Hz display refresh budget is ~8.3ms. 8ms delivers frame-synced token updates without micro-stutter.
+// - Standard displays (60Hz) or standard memory tiers target ~33ms (~30 FPS).
+// - Low-memory or background power-saving tiers target 250ms.
+const val HIGH_REFRESH_FRAME_INTERVAL_MILLIS = 8L
+const val STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS = 33L
+const val LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS = 250L
 
 sealed interface ApiStateFlowOutcome {
     data object Completed : ApiStateFlowOutcome
@@ -27,7 +34,8 @@ suspend fun Flow<ApiState>.handleStates(
     onNotice: (String) -> Unit = {},
     nanoTimeProvider: () -> Long = System::nanoTime,
     currentTimeProvider: () -> Long = { System.currentTimeMillis() / 1000 },
-    revisionToAppendOnSuccess: AssistantRevision? = null
+    revisionToAppendOnSuccess: AssistantRevision? = null,
+    publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 ): ApiStateFlowOutcome {
     try {
         val outcome = collectApiStateUpdates(
@@ -35,7 +43,8 @@ suspend fun Flow<ApiState>.handleStates(
                 messageFlow.setBufferedText(turnIndex, platformIdx, content, thoughts, timeline)
             },
             onNotice = { message, _ -> onNotice(message) },
-            nanoTimeProvider = nanoTimeProvider
+            nanoTimeProvider = nanoTimeProvider,
+            publishIntervalMillis = publishIntervalMillis
         )
         when (outcome) {
             is ApiStateFlowOutcome.Failed -> messageFlow.setErrorMessage(
@@ -64,8 +73,9 @@ suspend fun Flow<ApiState>.handleStates(
 internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onUpdate: suspend (content: String, thoughts: String, timeline: List<AssistantTimelineItem>) -> Unit,
     onNotice: (String, Boolean) -> Unit = { _, _ -> },
+    onPhaseChanged: ((LocalInferencePhase) -> Unit)? = null,
     nanoTimeProvider: () -> Long = System::nanoTime,
-    publishIntervalMillis: Long = STREAM_PUBLISH_INTERVAL_MILLIS
+    publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 ): ApiStateFlowOutcome {
     val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis)
     var isCompletedSuccessfully = false
@@ -97,6 +107,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     if (chunk.persistent) {
                         buffer.publishNow(onUpdate)
                     }
+                }
+
+                is ApiState.PhaseChanged -> {
+                    onPhaseChanged?.invoke(chunk.phase)
                 }
 
                 ApiState.Done -> {

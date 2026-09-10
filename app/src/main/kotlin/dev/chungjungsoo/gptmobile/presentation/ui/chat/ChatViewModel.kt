@@ -46,6 +46,7 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
+import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import dev.chungjungsoo.gptmobile.util.AttachmentPayloadCache
 import dev.chungjungsoo.gptmobile.util.ChatToolUtils
 import dev.chungjungsoo.gptmobile.util.FileUtils
@@ -1396,7 +1397,6 @@ internal suspend fun <T> persistBeforeProvider(
         throw error
     } catch (error: Throwable) {
         onFailure(error)
-        return
     }
     startProvider(persisted)
 }
@@ -1439,7 +1439,6 @@ internal fun formatAssistantExport(
             appendLine(it)
             appendLine()
             appendLine("</details>")
-            appendLine()
         }
         content.takeIf(String::isNotBlank)?.let {
             appendLine(it)
@@ -1573,4 +1572,29 @@ internal fun updateAssistantSlot(
     updatedAssistantMessages[turnIndex] = currentTurnMessages
 
     return groupedMessages.copy(assistantMessages = updatedAssistantMessages)
+}
+
+internal fun shouldShowReplyLoadingIndicator(
+    isActiveMessage: Boolean,
+    loadingStates: List<ChatViewModel.LoadingState>
+): Boolean = isActiveMessage && loadingStates.any { it == ChatViewModel.LoadingState.Loading }
+
+internal fun hasAssistantProcessDetails(
+    timeline: List<AssistantTimelineItem>,
+    fallbackThoughts: String,
+    hasToolEvents: Boolean
+): Boolean {
+    val hasTimelineDetails = timeline.any { item ->
+        when (item.type) {
+            AssistantTimelineItemType.THINKING -> !item.content.isNullOrBlank()
+            AssistantTimelineItemType.TOOL -> true
+            AssistantTimelineItemType.TEXT -> {
+                val parsed = ThinkingParser.extractThinking(item.content.orEmpty())
+                !parsed.thinking.isNullOrBlank()
+            }
+            AssistantTimelineItemType.NOTICE,
+            AssistantTimelineItemType.LEGACY_ORDER -> false
+        }
+    }
+    return hasTimelineDetails || fallbackThoughts.isNotBlank() || hasToolEvents
 }

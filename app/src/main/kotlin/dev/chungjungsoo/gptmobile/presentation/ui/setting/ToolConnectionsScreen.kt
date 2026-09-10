@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,8 +16,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -27,6 +30,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -36,6 +41,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -562,17 +568,84 @@ private fun ToolConnectionItem(
         connection.secretRef == null -> stringResource(R.string.credential_not_set)
         else -> stringResource(R.string.credential_set)
     }
-    ListItem(
-        modifier = Modifier.fillMaxWidth(),
-        headlineContent = { Text(connection.name, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            Text(
-                text = "${providerLabel(connection.type)} • ${connection.alias} • ${connection.endpointUrl.orEmpty()} • $credentialStatus",
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        trailingContent = {
-            Row {
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable(onClick = onEditClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = connection.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${providerLabel(connection.type)} • ${connection.alias}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = when {
+                        connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.surfaceContainerHighest
+                        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.primaryContainer
+                        connection.secretRef != null -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
+                    }
+                ) {
+                    Text(
+                        text = credentialStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
+                            connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.onPrimaryContainer
+                            connection.secretRef != null -> MaterialTheme.colorScheme.onSecondaryContainer
+                            else -> MaterialTheme.colorScheme.onErrorContainer
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            connection.endpointUrl?.let { url ->
+                if (url.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 if (connection.type == ToolConnectionType.MCP && connection.authType == ToolConnectionAuthType.OAUTH) {
                     TextButton(
                         modifier = Modifier.semantics { contentDescription = connectDescription },
@@ -580,6 +653,7 @@ private fun ToolConnectionItem(
                     ) {
                         Text(stringResource(if (connection.secretRef == null) R.string.connect else R.string.reconnect))
                     }
+                    Spacer(modifier = Modifier.width(4.dp))
                 }
                 IconButton(
                     modifier = Modifier.semantics { contentDescription = editDescription },
@@ -599,7 +673,7 @@ private fun ToolConnectionItem(
                 }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -865,7 +939,7 @@ private fun AuthenticationStep(
                 checked = clearCredential,
                 label = stringResource(R.string.clear_saved_credential),
                 contentDescription = stringResource(R.string.clear_saved_credential),
-                onCheckedChange = onClearCredentialChange
+                onClearCredentialChange = onClearCredentialChange
             )
         }
     }

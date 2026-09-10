@@ -492,33 +492,45 @@ private val DEFAULT_ON_DISABLEABLE_ANTHROPIC_MODEL_PATTERN =
 private val MANUAL_THINKING_ANTHROPIC_MODEL_PATTERN = Regex("(?:^|-)3-7(?:-|$)|(?:^|-)4(?:-|$)")
 private val MANUAL_INTERLEAVED_ANTHROPIC_MODEL_PATTERN = Regex("(?:^|-)4(?:-|$)")
 
+private val GEMINI_DISALLOWED_SCHEMA_KEYWORDS = setOf(
+    "additionalProperties",
+    "x-mcp-header",
+    "x-mcp-param",
+    "\$schema",
+    "\$id",
+    "\$ref",
+    "propertyNames",
+    "patternProperties"
+)
+
 internal fun geminiToolParameters(schema: JsonObject): JsonObject {
-    if ("additionalProperties" !in schema && schema.values.none { it is JsonObject || it is JsonArray }) {
+    val hasDisallowedKeyword = schema.keys.any { it in GEMINI_DISALLOWED_SCHEMA_KEYWORDS }
+    if (!hasDisallowedKeyword && schema.values.none { it is JsonObject || it is JsonArray }) {
         return schema
     }
     return buildJsonObject {
         schema.forEach { (key, value) ->
-            if (key == "additionalProperties") return@forEach
-            put(key, if (key in SCHEMA_MAP_KEYWORDS) stripAdditionalPropertiesInSchemaMap(value) else stripAdditionalProperties(value))
+            if (key in GEMINI_DISALLOWED_SCHEMA_KEYWORDS) return@forEach
+            put(key, if (key in SCHEMA_MAP_KEYWORDS) sanitizeGeminiSchemaMap(value) else sanitizeGeminiSchemaElement(value))
         }
     }
 }
 
 // Keys under these keywords are caller-defined names, so a property literally named
-// additionalProperties must survive while the keyword itself is stripped everywhere else.
-private val SCHEMA_MAP_KEYWORDS = setOf("properties", "patternProperties", "definitions", "\$defs")
+// after a disallowed keyword must survive while the keyword itself is stripped everywhere else.
+private val SCHEMA_MAP_KEYWORDS = setOf("properties", "definitions", "\$defs")
 
-private fun stripAdditionalPropertiesInSchemaMap(value: JsonElement): JsonElement = when (value) {
+private fun sanitizeGeminiSchemaMap(value: JsonElement): JsonElement = when (value) {
     is JsonObject -> buildJsonObject {
-        value.forEach { (name, member) -> put(name, stripAdditionalProperties(member)) }
+        value.forEach { (name, member) -> put(name, sanitizeGeminiSchemaElement(member)) }
     }
 
-    else -> stripAdditionalProperties(value)
+    else -> sanitizeGeminiSchemaElement(value)
 }
 
-private fun stripAdditionalProperties(value: JsonElement): JsonElement = when (value) {
+private fun sanitizeGeminiSchemaElement(value: JsonElement): JsonElement = when (value) {
     is JsonObject -> geminiToolParameters(value)
-    is JsonArray -> JsonArray(value.map(::stripAdditionalProperties))
+    is JsonArray -> JsonArray(value.map(::sanitizeGeminiSchemaElement))
     else -> value
 }
 

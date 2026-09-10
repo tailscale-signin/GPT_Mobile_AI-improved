@@ -675,6 +675,62 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `gemini strips x-mcp-header schema annotations from tool schemas`() {
+        val schema = buildJsonObject {
+            put("\$schema", "http://json-schema.org/draft-07/schema#")
+            put("type", "object")
+            put(
+                "properties",
+                buildJsonObject {
+                    put(
+                        "owner",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "Repository owner")
+                            put("x-mcp-header", "owner")
+                        }
+                    )
+                    put(
+                        "repo",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "Repository name")
+                            put("x-mcp-header", "repo")
+                        }
+                    )
+                    put(
+                        "path",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "Path to file")
+                        }
+                    )
+                }
+            )
+            put("additionalProperties", false)
+        }
+
+        val sanitized = geminiToolParameters(schema)
+
+        assertFalse(sanitized.containsKey("\$schema"))
+        assertFalse(sanitized.containsKey("additionalProperties"))
+        val properties = sanitized.getValue("properties").jsonObject
+        val owner = properties.getValue("owner").jsonObject
+        assertEquals("string", owner.getValue("type").jsonPrimitive.content)
+        assertEquals("Repository owner", owner.getValue("description").jsonPrimitive.content)
+        assertFalse(owner.containsKey("x-mcp-header"))
+
+        val repo = properties.getValue("repo").jsonObject
+        assertEquals("string", repo.getValue("type").jsonPrimitive.content)
+        assertEquals("Repository name", repo.getValue("description").jsonPrimitive.content)
+        assertFalse(repo.containsKey("x-mcp-header"))
+
+        val path = properties.getValue("path").jsonObject
+        assertEquals("string", path.getValue("type").jsonPrimitive.content)
+        assertEquals("Path to file", path.getValue("description").jsonPrimitive.content)
+    }
+
+    @Test
     fun `gemini keeps nested properties named additionalProperties`() {
         val schema = buildJsonObject {
             put("type", "object")

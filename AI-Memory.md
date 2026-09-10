@@ -5,7 +5,7 @@ Persistent repository context for AI coding agents. Keep this file synchronized 
 > Index status: comprehensive and actively maintained on `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues and PRs are reconciled and resolved.
 >
 > **Latest Official Release:** [v0.8.9](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.9) (`prerelease: false`, `draft: false`, official latest release). Build pipeline configured with automated `apksigner` code signing and stripped `-unsigned` suffixes so all released APK artifacts are cleanly named signed release packages with accompanying `.idsig` v4 signature files: universal APK (`app-universal-release.apk`), ARM64 APK (`app-arm64-v8a-release.apk`), and x86_64 APK (`app-x86_64-release.apk`).
-> **Current Version:** `0.8.9.1` (versionCode 31) — OpenRouter advanced routing settings, Room Schema 15 (`MIGRATION_14_15`), instant bottom anchoring, and collapsible details animation.
+> **Current Version:** `0.8.9.1` (versionCode 31) — OpenRouter advanced routing settings, Room Schema 15 (`MIGRATION_14_15`), instant bottom anchoring, collapsible details animation, and Google Gemini MCP tool schema sanitization.
 
 ## 1. Repository Overview
 
@@ -67,11 +67,12 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/domain/agent/tools/ReadFileSliceTool.kt` — Built-in line slicing tool for viewing bounded line ranges of local/remote files with 1-based indexing and line-number metadata.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/domain/agent/AgentRuntime.kt` — Autonomous agent orchestrator running multi-step reasoning, tool dispatching, MCP execution, and reflection loops.
-- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt` — Provider adapters for OpenAI, Anthropic, Gemini, Groq, and OpenRouter (deserializing and passing `openRouterRouting` into `ChatCompletionRequest.provider`).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt` — Provider adapters for OpenAI, Anthropic, Gemini, Groq, and OpenRouter (deserializing and passing `openRouterRouting` into `ChatCompletionRequest.provider`; `geminiToolParameters` recursively sanitizing `x-mcp-header`, `x-mcp-param`, `$schema`, `propertyNames`, and `additionalProperties` for Gemini tool calls).
 
 ### Networking & Credentials
 
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ApiCredentialRotator.kt` — Multi-key round-robin rotation with dynamic failover on rate limits (429), payment/quota issues (402), and auth failures (401).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRequestConfig.kt` — Provider request configuration; `throwIfToolDefinitionsRejected()` detects unsupported tool schemas (`function_declarations`, `invalid json payload received. unknown name`) to avoid multi-key retry loops.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterAdvancedOptions.kt` — OpenRouter provider routing (`OpenRouterProviderRouting`), reasoning (`OpenRouterReasoning`), and plugin schemas.
 
 ## 3. Engineering Guidelines ("Do's")

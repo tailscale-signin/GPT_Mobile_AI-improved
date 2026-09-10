@@ -939,7 +939,7 @@ private fun AuthenticationStep(
                 checked = clearCredential,
                 label = stringResource(R.string.clear_saved_credential),
                 contentDescription = stringResource(R.string.clear_saved_credential),
-                onClearCredentialChange = onClearCredentialChange
+                onCheckedChange = onClearCredentialChange
             )
         }
     }

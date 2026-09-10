@@ -1065,7 +1065,7 @@ fun SelectPlatformDialog(
         when (sortOrder) {
             PlatformSortOrder.DEFAULT -> list
             PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
-            PlatformSortOrder.PROVIDER -> list.sortedBy { it.second.apiType.name }
+            PlatformSortOrder.PROVIDER -> list.sortedBy { it.second.compatibleType.name }
             PlatformSortOrder.ENABLED_FIRST -> list.sortedByDescending { it.second.enabled }
         }
     }

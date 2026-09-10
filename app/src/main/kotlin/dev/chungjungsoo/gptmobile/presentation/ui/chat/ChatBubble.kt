@@ -7,39 +7,23 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.SelectAll
-import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardColors
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,40 +36,61 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
-import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
-import dev.chungjungsoo.gptmobile.data.database.entity.RunNotice
-import dev.chungjungsoo.gptmobile.data.database.entity.RunNoticeType
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.*
+import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
+import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
+import java.io.File
+
+@Composable
+fun UserChatBubble(modifier: Modifier = Modifier, text: String, files: List<String> = emptyList(), onLongPress: () -> Unit) {
+    val cardColor = CardColors(
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        disabledContentColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f),
+        disabledContainerColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.38f)
+    )
+    Column(horizontalAlignment = Alignment.End) {
+        Card(
+            modifier = modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
+            shape = RoundedCornerShape(32.dp), colors = cardColor
+        ) { ChatMarkdown(content = text, modifier = Modifier.padding(16.dp)) }
+        MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
+    }
+}
 
 @Composable
 fun OpponentChatBubble(
     modifier: Modifier = Modifier,
-    canEdit: Boolean = false,
-    canRetry: Boolean = false,
-    isLoading: Boolean = false,
+    canRetry: Boolean,
+    isLoading: Boolean,
     isError: Boolean = false,
-    isFavorite: Boolean = false,
-    text: String = "",
+    text: String,
     thoughts: String = "",
     timeline: List<AssistantTimelineItem> = emptyList(),
     attachments: List<String> = emptyList(),
     agentRun: AgentRun? = null,
-    runNotices: List<RunNotice> = emptyList(),
+    runNotices: List<ChatRunNotice> = emptyList(),
     toolEvents: List<ToolEvent> = emptyList(),
     contentIdentity: Any = text,
-    revisionIndexLabel: String = "",
+    canEdit: Boolean = false,
+    isFavorite: Boolean = false,
+    revisionIndexLabel: String? = null,
     canShowPreviousRevision: Boolean = false,
     canShowNextRevision: Boolean = false,
     onCopyClick: () -> Unit = {},
@@ -224,12 +229,26 @@ fun OpponentChatBubble(
                     }
                     telemetryNotice?.let { telemetry ->
                         Spacer(Modifier.width(8.dp))
-                        TelemetryNoticeIcon(telemetry)
+                        TelemetryBadge(telemetry)
                     }
                 }
+            }
 
-                if (revisionIndexLabel.isNotBlank()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!isLoading && canRetry) {
+                Text(
+                    text = stringResource(R.string.retry_tools_warning),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                )
+            }
+
+            if (!isLoading) {
+                revisionIndexLabel?.let { label ->
+                    Row(
+                        modifier = Modifier.padding(start = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
                             Icon(
                                 Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -237,7 +256,7 @@ fun OpponentChatBubble(
                             )
                         }
                         Text(
-                            text = revisionIndexLabel,
+                            label,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -299,42 +318,43 @@ internal fun DetailsButton(
             .clip(MaterialTheme.shapes.extraLarge)
             .clickable(
                 enabled = isEnabled,
+                role = Role.Button,
                 onClick = onClick
             )
+            .padding(horizontal = 8.dp, vertical = 4.dp)
             .semantics {
                 role = Role.Button
-                contentDescription = if (!isEnabled) {
+                stateDescription = if (!isEnabled) {
                     unavailableDesc
                 } else if (isVisible) {
                     expandedDesc
                 } else {
                     collapsedDesc
                 }
-            }
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = stringResource(R.string.details),
-            style = MaterialTheme.typography.labelMedium,
-            color = if (isEnabled) {
+        Icon(
+            imageVector = Icons.Rounded.KeyboardArrowDown,
+            contentDescription = null,
+            modifier = Modifier
+                .size(16.dp)
+                .rotate(rotation),
+            tint = if (isEnabled) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
             }
         )
         Spacer(modifier = Modifier.width(4.dp))
-        Icon(
-            imageVector = Icons.Rounded.KeyboardArrowDown,
-            contentDescription = null,
-            tint = if (isEnabled) {
+        Text(
+            text = stringResource(R.string.details),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isEnabled) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-            },
-            modifier = Modifier
-                .size(16.dp)
-                .rotate(rotation)
+            }
         )
     }
 }
@@ -487,207 +507,174 @@ private fun LegacyAssistantAnswerContent(
     isLoading: Boolean,
     contentIdentity: Any
 ) {
-    val cleanText = remember(text) { ThinkingParser.extractThinking(text).response }
-    val displayText = cleanText + if (isLoading) "●" else ""
-    if (displayText.isNotBlank()) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = cardColor,
-            shape = RoundedCornerShape(24.dp)
-        ) {
-            ChatMarkdown(
-                content = displayText,
-                contentIdentity = contentIdentity,
-                modifier = Modifier.padding(16.dp)
-            )
+    val parsed = remember(text) {
+        if (thoughts.isBlank() && text.contains("<think", ignoreCase = true)) {
+            ThinkingParser.extractThinking(text)
+        } else {
+            null
         }
     }
-}
-
-@Composable
-fun UserChatBubble(
-    modifier: Modifier = Modifier,
-    text: String,
-    files: List<String> = emptyList(),
-    onLongPress: () -> Unit = {}
-) {
-    Column(modifier = modifier) {
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ),
-            shape = RoundedCornerShape(24.dp),
-            modifier = Modifier
-                .clip(RoundedCornerShape(24.dp))
-                .clickable(onClick = onLongPress)
-        ) {
-            ChatMarkdown(
-                content = text,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
-        MessageFileThumbnailRow(
-            files = files,
-            usePrimaryColors = true,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
-}
-
-@Composable
-private fun FavoriteIcon(
-    isFavorite: Boolean,
-    onFavoriteClick: () -> Unit,
-    onFavoriteLongPress: () -> Unit
-) {
-    IconButton(
-        onClick = onFavoriteClick
-    ) {
-        Icon(
-            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-            contentDescription = stringResource(if (isFavorite) R.string.unfavorite_confirm_title else R.string.favorite),
-            tint = if (isFavorite) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun CopyTextIcon(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(
-            imageVector = Icons.Outlined.ContentCopy,
-            contentDescription = stringResource(R.string.copy_text),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun SelectTextIcon(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(
-            imageVector = Icons.Outlined.SelectAll,
-            contentDescription = stringResource(R.string.select_platform),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun EditTextIcon(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(
-            imageVector = Icons.Outlined.Edit,
-            contentDescription = stringResource(R.string.edit),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun RetryIcon(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
-        Icon(
-            imageVector = Icons.Outlined.Refresh,
-            contentDescription = stringResource(R.string.retry),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun TelemetryNoticeIcon(notice: RunNotice) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.padding(horizontal = 4.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(14.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = notice.message,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun RunNoticeChips(notices: List<RunNotice>, modifier: Modifier = Modifier) {
-    if (notices.isEmpty()) return
-    Column(modifier = modifier) {
-        notices.forEach { notice ->
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = when (notice.type) {
-                    RunNoticeType.ERROR -> MaterialTheme.colorScheme.errorContainer
-                    RunNoticeType.WARNING -> MaterialTheme.colorScheme.tertiaryContainer
-                    RunNoticeType.INFO -> MaterialTheme.colorScheme.surfaceVariant
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp)
-            ) {
-                Text(
-                    text = notice.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when (notice.type) {
-                        RunNoticeType.ERROR -> MaterialTheme.colorScheme.onErrorContainer
-                        RunNoticeType.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
-                        RunNoticeType.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+    val response = parsed?.response ?: text
+    val display = response + if (isLoading) "●" else ""
+    if (display.isNotBlank() || isLoading) {
+        Card(shape = RoundedCornerShape(32.dp), colors = cardColor) {
+            Column {
+                ChatMarkdown(
+                    content = display,
+                    contentIdentity = contentIdentity,
+                    modifier = Modifier.padding(16.dp)
                 )
             }
         }
     }
 }
 
-private fun visibleChatRunNotices(
-    runNotices: List<RunNotice>,
-    timelineNotices: List<RunNotice>,
-    isLoading: Boolean
-): List<RunNotice> {
-    val allNotices = (runNotices + timelineNotices).distinctBy { it.message }
-    return if (isLoading) {
-        allNotices.filter { it.type == RunNoticeType.ERROR || it.type == RunNoticeType.WARNING }
-    } else {
-        allNotices
+@Composable
+fun GPTMobileIcon(loading: Boolean) {
+    Box(
+        modifier = Modifier.padding(start = 8.dp).size(40.dp).clip(RoundedCornerShape(40.dp)).background(Color.Cyan),
+        contentAlignment = Alignment.Center
+    ) {
+        if (loading) CircularProgressIndicator(
+            modifier = Modifier.size(40.dp),
+            color = Color.White,
+            trackColor = Color.Transparent
+        )
+        Icon(
+            painter = painterResource(R.drawable.ic_gpt_mobile_no_padding),
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+            tint = Color.White
+        )
     }
 }
 
-private fun timelineNoticeMessages(timeline: List<AssistantTimelineItem>): List<RunNotice> =
-    timeline.filter { it.type == AssistantTimelineItemType.NOTICE && !it.content.isNullOrBlank() }
-        .map { RunNotice(id = "timeline-${it.content.hashCode()}", type = RunNoticeType.INFO, message = it.content!!) }
-
-private fun extractTelemetryNotice(notices: List<RunNotice>): Pair<RunNotice?, List<RunNotice>> {
-    val telemetry = notices.firstOrNull { it.message.contains("ms") || it.message.contains("tok/s") }
-    val others = notices.filter { it != telemetry }
-    return Pair(telemetry, others)
+@Composable
+fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatformClick: () -> Unit) {
+    val content: @Composable RowScope.() -> Unit = {
+        Spacer(Modifier.width(12.dp))
+        if (isLoading) { CircularProgressIndicator(Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)) }
+        Text(
+            name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary
+        )
+        Spacer(Modifier.width(12.dp)); if (isLoading) Spacer(Modifier.width(4.dp))
+    }
+    TextButton(
+        modifier = Modifier.widthIn(max = 160.dp), onClick = onPlatformClick,
+        colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.textButtonColors(),
+        content = content
+    )
 }
 
-private fun hasAssistantProcessDetails(
-    timeline: List<AssistantTimelineItem>,
-    fallbackThoughts: String,
-    hasToolEvents: Boolean
-): Boolean = timeline.any { it.type == AssistantTimelineItemType.THINKING || it.type == AssistantTimelineItemType.TOOL } ||
-    fallbackThoughts.isNotBlank() ||
-    hasToolEvents
+@Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(ImageVector.vectorResource(R.drawable.ic_copy), stringResource(R.string.copy_text))
+}
+@Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text))
+}
+@Composable
+private fun FavoriteIcon(
+    isFavorite: Boolean,
+    onFavoriteClick: () -> Unit,
+    onFavoriteLongPress: () -> Unit = {}
+) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onFavoriteClick() },
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onFavoriteLongPress()
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+            stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
+            tint = if (isFavorite) Color.Cyan else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+@Composable private fun RetryIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(Icons.Rounded.Refresh, stringResource(R.string.retry))
+}
+@Composable private fun EditTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(Icons.Outlined.Edit, stringResource(R.string.edit))
+}
 
-private fun hasUnavailableAssistantOrder(
-    timeline: List<AssistantTimelineItem>,
-    text: String,
-    thoughts: String,
-    hasToolEvents: Boolean
-): Boolean = timeline.isEmpty() && (thoughts.isNotBlank() && hasToolEvents)
+@Composable
+internal fun TelemetryBadge(notice: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.semantics { contentDescription = notice },
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Text(
+            text = notice,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+internal fun isTelemetryNotice(message: String): Boolean =
+    message.startsWith("Local: ") && message.contains("tok/s")
+
+internal fun extractTelemetryNotice(notices: List<String>): Pair<String?, List<String>> {
+    val telemetry = notices.firstOrNull(::isTelemetryNotice)
+    val remaining = notices.filterNot(::isTelemetryNotice)
+    return telemetry to remaining
+}
+
+@Preview
+@Composable
+fun UserChatBubblePreview() {
+    val sampleText = "How can I print hello world in Python?"
+    GPTMobileTheme {
+        UserChatBubble(text = sampleText, files = emptyList(), onLongPress = {})
+    }
+}
+
+@Composable
+internal fun MessageFileThumbnailRow(files: List<String>, modifier: Modifier = Modifier, usePrimaryColors: Boolean = true) {
+    val validFiles = remember(files) { files.filter(String::isNotBlank) }
+    if (validFiles.isEmpty()) return
+    Row(
+        modifier = modifier.wrapContentHeight().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) { validFiles.forEach { MessageFileThumbnail(it, usePrimaryColors) } }
+}
+
+@Composable
+private fun MessageFileThumbnail(filePath: String, usePrimaryColors: Boolean) {
+    val file = remember(filePath) { File(filePath) }
+    val isImage = remember(file.extension) { isImageFile(file.extension) }
+    val container = if (usePrimaryColors) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .7f) else MaterialTheme.colorScheme.surfaceVariant
+    val content = if (usePrimaryColors) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(modifier = Modifier.width(56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(container)) {
+            Icon(
+                ImageVector.vectorResource(if (isImage) R.drawable.ic_image else R.drawable.ic_file), file.name,
+                modifier = Modifier.fillMaxWidth().padding(8.dp), tint = content
+            )
+        }
+        Text(
+            file.name, style = MaterialTheme.typography.labelSmall, color = content, maxLines = 2,
+            overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp).width(56.dp)
+        )
+    }
+}
+
+private fun isImageFile(extension: String?): Boolean =
+    extension != null && extension.lowercase() in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")

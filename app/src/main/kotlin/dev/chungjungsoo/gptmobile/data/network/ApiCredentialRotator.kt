@@ -5,6 +5,7 @@ import io.ktor.client.plugins.ServerResponseException
 import io.ktor.http.HttpStatusCode
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.delay
 
 /**
  * Utility for parsing, serializing, classifying, and rotating through multiple API credentials.
@@ -12,10 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * Supports round-robin rotation across multiple keys/tokens separated by newlines (`\n`)
  * or comma sequences. Detects quota exhaustion, rate limits, credit limits, and authentication
  * failures to trigger seamless fallback to alternative credentials.
+ * Includes automatic 3-second round-robin retry for high-demand spikes.
  */
 object ApiCredentialRotator {
 
     private val KEY_DELIMITERS = Regex("[\\r\\n,]+")
+    private const val HIGH_DEMAND_RETRY_DELAY_MS = 3000L
+    private const val MAX_HIGH_DEMAND_RETRIES = 3
 
     /**
      * Splits a raw credential/token string into a list of distinct non-blank API keys.
@@ -46,6 +50,7 @@ object ApiCredentialRotator {
      * - HTTP 402: Payment Required / Insufficient credits
      * - HTTP 401: Unauthorized / Expired or invalid API key
      * - HTTP 403: Forbidden / Quota or permission exceeded
+     * - High demand temporary capacity spikes
      * - Error messages referencing quota, rate limit, credits, or balance exhaustion.
      */
     fun isRotatableError(throwable: Throwable): Boolean {
@@ -64,20 +69,31 @@ object ApiCredentialRotator {
                 }
                 is ServerResponseException -> {
                     val status = current.response.status
-                    // Some custom proxies or gateways return 503 or 502 with quota/rate messages
-                    if (containsQuotaOrRateLimitMessage(current.message)) {
+                    // Some custom proxies or gateways return 503 or 502 with quota/rate/high-demand messages
+                    if (containsQuotaOrRateLimitMessage(current.message) || isHighDemandError(current.message)) {
                         return true
                     }
                 }
             }
 
-            if (containsQuotaOrRateLimitMessage(current.message)) {
+            if (containsQuotaOrRateLimitMessage(current.message) || isHighDemandError(current.message)) {
                 return true
             }
 
             current = current.cause
         }
         return false
+    }
+
+    /**
+     * Checks if an error message represents a model experiencing temporary high demand spikes.
+     */
+    fun isHighDemandError(message: String?): Boolean {
+        if (message.isNullOrBlank()) return false
+        val lower = message.lowercase()
+        return lower.contains("experiencing high demand") ||
+            lower.contains("spikes in demand are usually temporary") ||
+            (lower.contains("high demand") && lower.contains("try again"))
     }
 
     /**
@@ -110,6 +126,7 @@ object ApiCredentialRotator {
 
     /**
      * Executes a suspending action with round-robin fallback across the parsed candidate keys.
+     * Automatically waits 3 seconds and retries when encountering high demand spikes.
      *
      * @param rawCredentials The raw token string containing one or multiple keys.
      * @param startIndex Optional starting offset for round-robin balancing.
@@ -123,10 +140,10 @@ object ApiCredentialRotator {
     ): T {
         val keys = parseKeys(rawCredentials)
         if (keys.isEmpty()) {
-            return action("")
+            return executeWithHighDemandRetry { action("") }
         }
         if (keys.size == 1) {
-            return action(keys.first())
+            return executeWithHighDemandRetry { action(keys.first()) }
         }
 
         var lastException: Throwable? = null
@@ -140,10 +157,12 @@ object ApiCredentialRotator {
                 return action(currentKey)
             } catch (t: Throwable) {
                 lastException = t
+                if (isHighDemandError(t.message)) {
+                    // For high demand, pause 3s before switching to next credential in round-robin
+                    delay(HIGH_DEMAND_RETRY_DELAY_MS)
+                }
                 if (!isRotatableError(t) && i < count - 1) {
-                    // Even if not strictly categorized as 429/401/402, if an IOException or network failure
-                    // occurs, check if message has rate/quota indication before giving up.
-                    if (!containsQuotaOrRateLimitMessage(t.message)) {
+                    if (!containsQuotaOrRateLimitMessage(t.message) && !isHighDemandError(t.message)) {
                         throw t
                     }
                 }
@@ -151,6 +170,22 @@ object ApiCredentialRotator {
         }
 
         throw lastException ?: IOException("Failed to execute request with rotated credentials")
+    }
+
+    private suspend fun <T> executeWithHighDemandRetry(action: suspend () -> T): T {
+        var attempts = 0
+        while (true) {
+            try {
+                return action()
+            } catch (t: Throwable) {
+                if (isHighDemandError(t.message) && attempts < MAX_HIGH_DEMAND_RETRIES) {
+                    attempts++
+                    delay(HIGH_DEMAND_RETRY_DELAY_MS)
+                } else {
+                    throw t
+                }
+            }
+        }
     }
 
     /**

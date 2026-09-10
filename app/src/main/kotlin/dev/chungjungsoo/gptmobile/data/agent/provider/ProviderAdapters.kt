@@ -51,45 +51,56 @@ import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
-import dev.chungjungsoo.gptmobile.data.network.OpenRouterReasoning
-import dev.chungjungsoo.gptmobile.data.network.ProviderAttachmentEncoder
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
-import dev.chungjungsoo.gptmobile.data.network.throwIfToolDefinitionsRejected
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
+import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
-class OpenAICompatibleAdapter @Inject constructor(
-    private val openAIAPI: OpenAIAPI,
+class OpenAIResponsesAdapter @Inject constructor(
+    private val api: OpenAIAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
-        val messages = attachmentEncoder.openAiMessages(turns, platform.uid)
-        val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER.ordinal
-        val isResponsesCompatible = platform.endpointType == 1
+        val initialInput = attachmentEncoder.responsesInput(turns, platform.uid)
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
         val keyIndexCounter = AtomicInteger(0)
+        var previousResponseId: String? = null
         return object : AgentProviderSession {
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
-                    ChatFunctionTool(
-                        function = ChatFunction(
-                            name = definition.name,
-                            description = definition.description,
-                            parameters = definition.inputSchema
-                        )
-                    )
-                }
+                val request = ResponsesRequest(
+                    model = platform.model,
+                    input = if (exchanges.isEmpty()) {
+                        initialInput
+                    } else {
+                        exchanges.last().results.map { result ->
+                            ResponseFunctionCallOutput(result.callId, result.modelText())
+                        }
+                    },
+                    stream = true,
+                    instructions = platform.systemPrompt?.takeIf { it.isNotBlank() },
+                    temperature = if (platform.reasoning) null else platform.temperature,
+                    topP = if (platform.reasoning) null else platform.topP,
+                    reasoning = if (platform.reasoning) ReasoningConfig(effort = "medium", summary = "auto") else null,
+                    previousResponseId = previousResponseId,
+                    tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
+                        ResponseFunctionTool(definition.name, definition.description, definition.inputSchema)
+                    }
+                )
 
                 val attempts = candidateKeys.size
                 val startIndex = keyIndexCounter.getAndIncrement()
@@ -99,130 +110,165 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(platform.apiUrl, activeKey)
+                    val assembler = OpenAIResponsesEventAssembler()
                     var roundFailed = false
                     var canRotate = false
 
-                    if (isResponsesCompatible) {
-                        val responseTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
-                            ResponseFunctionTool(
-                                name = definition.name,
-                                description = definition.description,
-                                parameters = definition.inputSchema
-                            )
-                        }
-                        val request = ResponsesRequest(
-                            model = platform.model,
-                            input = messages + exchanges.flatMap { it.toChatMessages() },
-                            tools = responseTools,
-                            reasoning = if (platform.reasoning) {
-                                ReasoningConfig(effort = platform.reasoningEffort ?: "medium")
-                            } else {
-                                null
+                    try {
+                        api.streamResponses(request, platform.timeout, config).collect { event ->
+                            when (event) {
+                                is ResponseCreatedEvent -> previousResponseId = event.response.id
+                                is ResponseInProgressEvent -> previousResponseId = event.response.id
+                                is ResponseCompletedEvent -> previousResponseId = event.response.id
+                                is ResponseFailedEvent -> previousResponseId = event.response.id
+                                else -> Unit
                             }
-                        )
+                            assembler.accept(event).forEach { mapped ->
+                                when (mapped) {
+                                    ProviderEvent.Completed -> Unit
 
-                        val maxTransientRetries = if (attempts == 1) 2 else 1
-                        var retryCount = 0
-                        var streamSucceeded = false
-
-                        while (retryCount <= maxTransientRetries && !streamSucceeded) {
-                            roundFailed = false
-                            canRotate = false
-                            var chunkCount = 0
-
-                            try {
-                                openAIAPI.streamResponses(request, platform.timeout, config).collect { event ->
-                                    chunkCount++
-                                    when (event) {
-                                        is OutputTextDeltaEvent -> emit(ProviderEvent.TextDelta(event.delta))
-                                        is ResponseCreatedEvent -> {
-                                            event.response?.error?.let { error ->
-                                                roundFailed = true
-                                                lastFailedMessage = error.message
-                                                if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
-                                                    canRotate = true
-                                                } else {
-                                                    emit(ProviderEvent.Failed(error.message))
-                                                }
-                                            }
-                                        }
-
-                                        is ResponseInProgressEvent -> {
-                                            event.response?.error?.let { error ->
-                                                roundFailed = true
-                                                lastFailedMessage = error.message
-                                                if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
-                                                    canRotate = true
-                                                } else {
-                                                    emit(ProviderEvent.Failed(error.message))
-                                                }
-                                            }
-                                        }
-
-                                        is ResponseCompletedEvent -> {
-                                            event.response?.error?.let { error ->
-                                                roundFailed = true
-                                                lastFailedMessage = error.message
-                                                if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
-                                                    canRotate = true
-                                                } else {
-                                                    emit(ProviderEvent.Failed(error.message))
-                                                }
-                                            } ?: run {
-                                                event.response?.let { response ->
-                                                    val calls = response.output.orEmpty()
-                                                        .filter { it.type == "function_call" }
-                                                        .mapNotNull { item ->
-                                                            val callId = item.callId ?: item.id ?: return@mapNotNull null
-                                                            val name = item.name ?: return@mapNotNull null
-                                                            AgentToolCall(
-                                                                callId = callId,
-                                                                name = name,
-                                                                arguments = parseToolArguments(item.arguments)
-                                                            )
-                                                        }
-                                                    if (calls.isNotEmpty()) {
-                                                        emit(ProviderEvent.ToolCalls(calls))
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        is ResponseFailedEvent -> {
-                                            roundFailed = true
-                                            lastFailedMessage = event.error.message
-                                            if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(event.error.message)) {
-                                                canRotate = true
-                                            } else {
-                                                emit(ProviderEvent.Failed(event.error.message))
-                                            }
+                                    is ProviderEvent.Failed -> {
+                                        roundFailed = true
+                                        lastFailedMessage = mapped.message
+                                        if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
+                                            canRotate = true
+                                        } else {
+                                            emit(mapped)
                                         }
                                     }
-                                }
-                            } catch (t: Throwable) {
-                                if (t is CancellationException) throw t
-                                roundFailed = true
-                                lastFailedMessage = t.message
-                                if (ApiCredentialRotator.isRotatableError(t)) {
-                                    canRotate = true
-                                } else {
-                                    emit(ProviderEvent.Failed(t.message ?: "OpenAI stream request failed"))
-                                    return@flow
+
+                                    else -> emit(mapped)
                                 }
                             }
+                        }
+                    } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
+                        roundFailed = true
+                        lastFailedMessage = t.message
+                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                            canRotate = true
+                        } else {
+                            emit(ProviderEvent.Failed(t.message ?: "OpenAI stream request failed"))
+                            return@flow
+                        }
+                    }
 
-                            if (!roundFailed) {
-                                streamSucceeded = true
-                            } else if (canRotate && chunkCount == 0 && retryCount < maxTransientRetries &&
-                                ApiCredentialRotator.containsQuotaOrRateLimitMessage(lastFailedMessage)
-                            ) {
-                                retryCount++
-                                val backoffMs = retryCount * 2000L
-                                emit(ProviderEvent.Notice("Rate limited by provider. Retrying in ${backoffMs / 1000}s..."))
-                                delay(backoffMs)
-                                continue
+                    if (!roundFailed) {
+                        emit(ProviderEvent.Completed)
+                        return@flow
+                    } else if (canRotate && attempt < attempts - 1) {
+                        continue
+                    } else if (roundFailed) {
+                        lastFailedMessage?.let { emit(ProviderEvent.Failed(it)) }
+                        return@flow
+                    }
+                }
+            }
+        }
+    }
+}
+
+class OpenAICompatibleAdapter @Inject constructor(
+    private val openAIAPI: OpenAIAPI,
+    private val groqAPI: GroqAPI,
+    private val attachmentEncoder: ProviderAttachmentEncoder
+) {
+    private val routingJson = Json { ignoreUnknownKeys = true }
+
+    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
+        val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
+        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val keyIndexCounter = AtomicInteger(0)
+        return object : AgentProviderSession {
+            override fun streamRound(
+                tools: List<AgentToolDefinition>,
+                exchanges: List<AgentToolExchange>
+            ): Flow<ProviderEvent> = flow {
+                val messages = initialMessages + exchanges.flatMap { it.toChatMessages() }
+                val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
+                    ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
+                }
+
+                val attempts = candidateKeys.size
+                val startIndex = keyIndexCounter.getAndIncrement()
+                var lastFailedMessage: String? = null
+
+                val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
+                val openRouterHeaders = if (isOpenRouter) {
+                    mapOf(
+                        "HTTP-Referer" to "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
+                        "X-Title" to "GPT Mobile AI Improved"
+                    )
+                } else {
+                    emptyMap()
+                }
+
+                val parsedRouting: OpenRouterProviderRouting? = if (isOpenRouter && !platform.openRouterRouting.isNullOrBlank()) {
+                    runCatching {
+                        routingJson.decodeFromString<OpenRouterProviderRouting>(platform.openRouterRouting)
+                    }.getOrNull()
+                } else {
+                    null
+                }
+
+                for (attempt in 0 until attempts) {
+                    val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    val activeKey = candidateKeys[keyIndex]
+                    val config = ProviderRequestConfig(
+                        apiUrl = platform.apiUrl,
+                        token = activeKey,
+                        extraHeaders = openRouterHeaders
+                    )
+                    var roundFailed = false
+                    var canRotate = false
+
+                    if (platform.compatibleType == ClientType.GROQ) {
+                        val request = createGroqChatCompletionRequest(messages, platform).copy(tools = requestTools)
+                        val assembler = ChatCompletionsEventAssembler()
+                        val reasoningParser = GroqReasoningParser()
+
+                        try {
+                            groqAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                chunk.error?.let { error ->
+                                    roundFailed = true
+                                    lastFailedMessage = error.message
+                                    if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
+                                        canRotate = true
+                                    } else {
+                                        emit(ProviderEvent.Failed(error.message))
+                                    }
+                                } ?: chunk.choices.orEmpty().forEach { choice ->
+                                    reasoningParser.append(
+                                        contentChunk = choice.delta?.content ?: choice.message?.content,
+                                        reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning
+                                    ).forEach { state ->
+                                        state.toProviderEvent()?.let { emit(it) }
+                                    }
+                                    if (choice.finishReason == "length") {
+                                        roundFailed = true
+                                        emit(ProviderEvent.Failed(GROQ_OUTPUT_LIMIT_MESSAGE))
+                                    } else {
+                                        assembler.accept(
+                                            content = null,
+                                            reasoning = null,
+                                            toolCalls = choice.delta?.toolCalls,
+                                            finishReason = choice.finishReason
+                                        ).forEach { emit(it) }
+                                    }
+                                }
+                            }
+                            reasoningParser.flush().forEach { state ->
+                                state.toProviderEvent()?.let { emit(it) }
+                            }
+                        } catch (t: Throwable) {
+                            if (t is CancellationException) throw t
+                            roundFailed = true
+                            lastFailedMessage = t.message
+                            if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                                canRotate = true
                             } else {
-                                break
+                                emit(ProviderEvent.Failed(t.message ?: "Groq stream request failed"))
+                                return@flow
                             }
                         }
 
@@ -244,127 +290,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                         temperature = platform.temperature,
                         topP = platform.topP,
                         tools = requestTools,
+                        provider = parsedRouting,
                         reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null
                     )
                     val assembler = ChatCompletionsEventAssembler()
 
-                    val maxTransientRetries = if (attempts == 1) 2 else 1
-                    var retryCount = 0
-                    var streamSucceeded = false
-
-                    while (retryCount <= maxTransientRetries && !streamSucceeded) {
-                        roundFailed = false
-                        canRotate = false
-                        var chunkCount = 0
-
-                        try {
-                            openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
-                                chunk.error?.let { error ->
-                                    roundFailed = true
-                                    lastFailedMessage = error.message
-                                    if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
-                                        canRotate = true
-                                    } else {
-                                        emit(ProviderEvent.Failed(error.message))
-                                    }
-                                } ?: chunk.choices.orEmpty().forEach { choice ->
-                                    chunkCount++
-                                    assembler.accept(
-                                        content = choice.delta.content,
-                                        reasoning = choice.delta.reasoning,
-                                        toolCalls = choice.delta.toolCalls,
-                                        finishReason = choice.finishReason
-                                    ).forEach { emit(it) }
-                                }
-                            }
-                        } catch (t: Throwable) {
-                            if (t is CancellationException) throw t
-                            roundFailed = true
-                            lastFailedMessage = t.message
-                            if (ApiCredentialRotator.isRotatableError(t)) {
-                                canRotate = true
-                            } else {
-                                emit(ProviderEvent.Failed(t.message ?: "OpenAI stream request failed"))
-                                return@flow
-                            }
-                        }
-
-                        if (!roundFailed) {
-                            streamSucceeded = true
-                        } else if (canRotate && chunkCount == 0 && retryCount < maxTransientRetries &&
-                            ApiCredentialRotator.containsQuotaOrRateLimitMessage(lastFailedMessage)
-                        ) {
-                            retryCount++
-                            val backoffMs = retryCount * 2000L
-                            emit(ProviderEvent.Notice("Rate limited by provider. Retrying in ${backoffMs / 1000}s..."))
-                            delay(backoffMs)
-                            continue
-                        } else {
-                            break
-                        }
-                    }
-
-                    if (!roundFailed) {
-                        emit(ProviderEvent.Completed)
-                        return@flow
-                    } else if (canRotate && attempt < attempts - 1) {
-                        continue
-                    } else {
-                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
-                        return@flow
-                    }
-                }
-            }
-        }
-    }
-}
-
-class GroqAdapter @Inject constructor(
-    private val groqAPI: GroqAPI,
-    private val attachmentEncoder: ProviderAttachmentEncoder
-) {
-    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
-        val messages = attachmentEncoder.groqMessages(turns, platform.uid)
-        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
-        val keyIndexCounter = AtomicInteger(0)
-        return object : AgentProviderSession {
-            override fun streamRound(
-                tools: List<AgentToolDefinition>,
-                exchanges: List<AgentToolExchange>
-            ): Flow<ProviderEvent> = flow {
-                val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
-                    ChatFunctionTool(
-                        function = ChatFunction(
-                            name = definition.name,
-                            description = definition.description,
-                            parameters = definition.inputSchema
-                        )
-                    )
-                }
-
-                val request = GroqChatCompletionRequest(
-                    model = platform.model,
-                    messages = messages,
-                    stream = platform.stream,
-                    temperature = platform.temperature,
-                    topP = platform.topP,
-                    tools = requestTools
-                )
-                val assembler = ChatCompletionsEventAssembler()
-
-                val attempts = candidateKeys.size
-                val startIndex = keyIndexCounter.getAndIncrement()
-                var lastFailedMessage: String? = null
-
-                for (attempt in 0 until attempts) {
-                    val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
-                    val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
-                    var roundFailed = false
-                    var canRotate = false
-
                     try {
-                        groqAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                        openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
                             chunk.error?.let { error ->
                                 roundFailed = true
                                 lastFailedMessage = error.message
@@ -389,7 +321,7 @@ class GroqAdapter @Inject constructor(
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
                             canRotate = true
                         } else {
-                            emit(ProviderEvent.Failed(t.message ?: "Groq stream request failed"))
+                            emit(ProviderEvent.Failed(t.message ?: "OpenAI-compatible stream request failed"))
                             return@flow
                         }
                     }
@@ -409,17 +341,13 @@ class GroqAdapter @Inject constructor(
     }
 }
 
-class AnthropicAdapter @Inject constructor(
-    private val anthropicAPI: AnthropicAPI,
+class AnthropicMessagesAdapter @Inject constructor(
+    private val api: AnthropicAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
-        val messages = attachmentEncoder.anthropicMessages(turns, platform.uid)
-        val thinkingPolicy = anthropicThinkingPolicy(
-            model = platform.model,
-            reasoningEnabled = platform.reasoning,
-            hasTools = false
-        )
+        val initialMessages = attachmentEncoder.anthropicMessages(turns, platform.uid)
+        val assistantContentByRound = mutableMapOf<Int, List<MessageContent>>()
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
         val keyIndexCounter = AtomicInteger(0)
         return object : AgentProviderSession {
@@ -427,35 +355,27 @@ class AnthropicAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                val roundThinkingPolicy = if (thinkingPolicy.config != null) {
-                    anthropicThinkingPolicy(
-                        model = platform.model,
-                        reasoningEnabled = platform.reasoning,
-                        hasTools = tools.isNotEmpty()
-                    )
-                } else {
-                    thinkingPolicy
-                }
-
-                val toolRequest = tools.takeIf { it.isNotEmpty() }?.map { definition ->
-                    AnthropicTool(
-                        name = definition.name,
-                        description = definition.description,
-                        inputSchema = definition.inputSchema
-                    )
-                }
-
+                val thinkingPolicy = anthropicThinkingPolicy(
+                    model = platform.model,
+                    reasoningEnabled = platform.reasoning,
+                    hasTools = tools.isNotEmpty()
+                )
+                val isThinkingActive = thinkingPolicy.config?.type?.let { it != "disabled" } == true
                 val request = MessageRequest(
                     model = platform.model,
-                    messages = messages + exchanges.flatMap { it.toAnthropicMessages() },
-                    system = platform.systemPrompt?.takeIf { it.isNotBlank() },
+                    messages = initialMessages + exchanges.flatMapIndexed { index, exchange ->
+                        exchange.toAnthropicMessages(assistantContentByRound[index])
+                    },
+                    maxTokens = if (isThinkingActive) 16000 else 4096,
                     stream = platform.stream,
-                    temperature = platform.temperature,
-                    topP = platform.topP,
-                    tools = toolRequest,
-                    thinking = roundThinkingPolicy.config
+                    systemPrompt = platform.systemPrompt,
+                    temperature = if (isThinkingActive) null else platform.temperature,
+                    topP = if (isThinkingActive) null else platform.topP,
+                    thinking = thinkingPolicy.config,
+                    tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
+                        AnthropicTool(definition.name, definition.description, definition.inputSchema)
+                    }
                 )
-                val assembler = AnthropicEventAssembler()
 
                 val attempts = candidateKeys.size
                 val startIndex = keyIndexCounter.getAndIncrement()
@@ -464,27 +384,35 @@ class AnthropicAdapter @Inject constructor(
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(
-                        apiUrl = platform.apiUrl,
-                        apiKey = activeKey,
-                        betaFeatures = roundThinkingPolicy.betaFeatures
-                    )
+                    val assembler = AnthropicEventAssembler()
                     var roundFailed = false
                     var canRotate = false
 
                     try {
-                        anthropicAPI.streamChatMessage(request, platform.timeout, config).collect { chunk ->
+                        api.streamChatMessage(
+                            request,
+                            platform.timeout,
+                            ProviderRequestConfig(
+                                apiUrl = platform.apiUrl,
+                                token = activeKey,
+                                anthropicBetaFeatures = thinkingPolicy.betaFeatures
+                            )
+                        ).collect { chunk ->
                             assembler.accept(chunk).forEach { mapped ->
-                                if (mapped is ProviderEvent.Failed) {
-                                    roundFailed = true
-                                    lastFailedMessage = mapped.message
-                                    if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
-                                        canRotate = true
-                                    } else {
-                                        emit(mapped)
+                                when (mapped) {
+                                    ProviderEvent.Completed -> Unit
+
+                                    is ProviderEvent.Failed -> {
+                                        roundFailed = true
+                                        lastFailedMessage = mapped.message
+                                        if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
+                                            canRotate = true
+                                        } else {
+                                            emit(mapped)
+                                        }
                                     }
-                                } else {
-                                    emit(mapped)
+
+                                    else -> emit(mapped)
                                 }
                             }
                         }
@@ -501,6 +429,7 @@ class AnthropicAdapter @Inject constructor(
                     }
 
                     if (!roundFailed) {
+                        assembler.replayContent().takeIf { it.isNotEmpty() }?.let { assistantContentByRound[exchanges.size] = it }
                         emit(ProviderEvent.Completed)
                         return@flow
                     } else if (canRotate && attempt < attempts - 1) {
@@ -565,27 +494,24 @@ private val MANUAL_INTERLEAVED_ANTHROPIC_MODEL_PATTERN = Regex("(?:^|-)4(?:-|$)"
 
 private val GEMINI_DISALLOWED_SCHEMA_KEYWORDS = setOf(
     "additionalProperties",
+    "x-mcp-header",
+    "x-mcp-param",
     "\$schema",
     "\$id",
     "\$ref",
-    "x-mcp-header",
-    "x-mcp-param",
     "propertyNames",
     "patternProperties"
 )
 
 internal fun geminiToolParameters(schema: JsonObject): JsonObject {
+    val hasDisallowedKeyword = schema.keys.any { it in GEMINI_DISALLOWED_SCHEMA_KEYWORDS }
+    if (!hasDisallowedKeyword && schema.values.none { it is JsonObject || it is JsonArray }) {
+        return schema
+    }
     return buildJsonObject {
         schema.forEach { (key, value) ->
             if (key in GEMINI_DISALLOWED_SCHEMA_KEYWORDS) return@forEach
-            put(
-                key,
-                if (key in SCHEMA_MAP_KEYWORDS) {
-                    stripGeminiDisallowedKeywordsInSchemaMap(value)
-                } else {
-                    stripGeminiDisallowedKeywords(value)
-                }
-            )
+            put(key, if (key in SCHEMA_MAP_KEYWORDS) sanitizeGeminiSchemaMap(value) else sanitizeGeminiSchemaElement(value))
         }
     }
 }
@@ -594,17 +520,17 @@ internal fun geminiToolParameters(schema: JsonObject): JsonObject {
 // after a disallowed keyword must survive while the keyword itself is stripped everywhere else.
 private val SCHEMA_MAP_KEYWORDS = setOf("properties", "definitions", "\$defs")
 
-private fun stripGeminiDisallowedKeywordsInSchemaMap(value: JsonElement): JsonElement = when (value) {
+private fun sanitizeGeminiSchemaMap(value: JsonElement): JsonElement = when (value) {
     is JsonObject -> buildJsonObject {
-        value.forEach { (name, member) -> put(name, stripGeminiDisallowedKeywords(member)) }
+        value.forEach { (name, member) -> put(name, sanitizeGeminiSchemaElement(member)) }
     }
 
-    else -> stripGeminiDisallowedKeywords(value)
+    else -> sanitizeGeminiSchemaElement(value)
 }
 
-private fun stripGeminiDisallowedKeywords(value: JsonElement): JsonElement = when (value) {
+private fun sanitizeGeminiSchemaElement(value: JsonElement): JsonElement = when (value) {
     is JsonObject -> geminiToolParameters(value)
-    is JsonArray -> JsonArray(value.map(::stripGeminiDisallowedKeywords))
+    is JsonArray -> JsonArray(value.map(::sanitizeGeminiSchemaElement))
     else -> value
 }
 
@@ -736,54 +662,50 @@ private fun AgentToolExchange.toChatMessages(): List<ChatMessage> = listOf(
 ) + results.map { result ->
     ChatMessage(
         role = OpenAIRole.TOOL,
-        toolCallId = result.callId,
-        content = listOf(OpenAITextContent(result.content.asText()))
+        content = listOf(OpenAITextContent(result.modelText())),
+        toolCallId = result.callId
     )
 }
 
-private fun AgentToolExchange.toAnthropicMessages(): List<InputMessage> = listOf(
+private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): ProviderEvent? = when (this) {
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk)
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Thinking -> ProviderEvent.ThinkingDelta(thinkingChunk)
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Notice -> null
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Error -> ProviderEvent.Failed(message)
+    else -> null
+}
+
+private fun AgentToolExchange.toAnthropicMessages(assistantContent: List<MessageContent>?): List<InputMessage> = listOf(
     InputMessage(
-        role = MessageRole.ASSISTANT,
-        content = calls.map { call ->
-            ToolUseContent(id = call.callId, name = call.name, input = call.arguments)
-        }
+        MessageRole.ASSISTANT,
+        assistantContent ?: calls.map { call -> ToolUseContent(call.callId, call.name, call.arguments) }
     ),
     InputMessage(
-        role = MessageRole.USER,
-        content = results.map { result ->
-            AnthropicToolResultContent(
-                toolUseId = result.callId,
-                content = result.content.asText(),
-                isError = result.isError
-            )
+        MessageRole.USER,
+        results.map { result ->
+            AnthropicToolResultContent(result.callId, result.modelText(), result.isError)
         }
     )
 )
 
-private fun AgentToolExchange.toGeminiContents(assistantModelParts: List<Part>?): List<Content> {
-    val modelParts = assistantModelParts.takeUnless { it.isNullOrEmpty() } ?: calls.map { call ->
-        Part(
-            functionCall = FunctionCall(
-                name = call.name,
-                args = call.arguments
-            )
-        )
-    }
+private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Content> {
+    val callsById = calls.associateBy { it.callId }
+    val originalCalls = modelParts.orEmpty().mapNotNull { it.functionCall }
     return listOf(
         Content(
-            role = GoogleRole.MODEL,
-            parts = modelParts
+            GoogleRole.MODEL,
+            modelParts ?: calls.map { call -> Part(functionCall = FunctionCall(call.callId, call.name, call.arguments)) }
         ),
         Content(
-            role = GoogleRole.USER,
-            parts = results.map { result ->
+            GoogleRole.USER,
+            results.mapNotNull { result ->
+                val call = callsById[result.callId] ?: return@mapNotNull null
+                val providerCallId = if (modelParts == null) result.callId else originalCalls.getOrNull(calls.indexOf(call))?.id
                 Part(
                     functionResponse = FunctionResponse(
-                        name = calls.firstOrNull { it.callId == result.callId }?.name.orEmpty(),
-                        response = buildJsonObject {
-                            put("result", result.content.asText())
-                            put("is_error", result.isError)
-                        }
+                        id = providerCallId,
+                        name = call.name,
+                        response = result.modelJson()
                     )
                 )
             }
@@ -791,5 +713,72 @@ private fun AgentToolExchange.toGeminiContents(assistantModelParts: List<Part>?)
     )
 }
 
-private fun PlatformV2.googleSafetySettings(): List<SafetySetting>? = GeminiSafetySettings.from(safetySetting)
-    ?.toApiSafetySettings()
+private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): String = when (val value = content) {
+    is ToolResultContent.Text -> value.text
+    is ToolResultContent.Json -> value.value.toString()
+    is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
+}
+
+private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelJson(): JsonObject = when (val value = content) {
+    is ToolResultContent.Json -> value.value.asResponseObject()
+
+    is ToolResultContent.Text -> buildJsonObject {
+        put("result", value.text)
+        if (isError) put("isError", true)
+    }
+
+    is ToolResultContent.ResourceLinks -> buildJsonObject {
+        put("resources", JsonArray(value.links.map { link -> JsonPrimitive(link.uri) }))
+        if (isError) put("isError", true)
+    }
+}
+
+private fun JsonElement.asResponseObject(): JsonObject = this as? JsonObject ?: buildJsonObject { put("result", this@asResponseObject) }
+
+private fun PlatformV2.googleSafetySettings(): List<SafetySetting> = listOf(
+    SafetySetting(
+        GeminiSafetySettings.HARM_CATEGORY_HARASSMENT,
+        GeminiSafetySettings.normalizeThreshold(harassmentSafetyThreshold)
+    ),
+    SafetySetting(
+        GeminiSafetySettings.HARM_CATEGORY_HATE_SPEECH,
+        GeminiSafetySettings.normalizeThreshold(hateSpeechSafetyThreshold)
+    ),
+    SafetySetting(
+        GeminiSafetySettings.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        GeminiSafetySettings.normalizeThreshold(sexuallyExplicitSafetyThreshold)
+    ),
+    SafetySetting(
+        GeminiSafetySettings.HARM_CATEGORY_DANGEROUS_CONTENT,
+        GeminiSafetySettings.normalizeThreshold(dangerousContentSafetyThreshold)
+    )
+)
+
+private fun createGroqChatCompletionRequest(
+    messages: List<ChatMessage>,
+    platform: PlatformV2
+): GroqChatCompletionRequest {
+    val isGptOssModel = platform.model.contains("gpt-oss", ignoreCase = true)
+    return GroqChatCompletionRequest(
+        model = platform.model,
+        messages = messages,
+        stream = platform.stream,
+        temperature = platform.temperature,
+        topP = platform.topP,
+        maxCompletionTokens = if (platform.reasoning) 8_192 else null,
+        reasoningEffort = if (platform.reasoning && isGptOssModel) "medium" else null,
+        reasoningFormat = when {
+            platform.reasoning && !isGptOssModel -> "parsed"
+            !platform.reasoning && !isGptOssModel -> "hidden"
+            else -> null
+        },
+        includeReasoning = when {
+            platform.reasoning && isGptOssModel -> true
+            !platform.reasoning && isGptOssModel -> false
+            else -> null
+        }
+    )
+}
+
+private const val GROQ_OUTPUT_LIMIT_MESSAGE =
+    "Groq reached the model output limit before producing a final answer."

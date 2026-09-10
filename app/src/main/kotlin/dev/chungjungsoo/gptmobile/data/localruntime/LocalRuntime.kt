@@ -60,6 +60,12 @@ data class LocalConversationConfig(
     val toolExecutor: LocalToolExecutor? = null
 )
 
+/** Execution phase of local on-device inference. */
+enum class LocalInferencePhase {
+    PREFILL,
+    GENERATING
+}
+
 /** Performance and generation telemetry emitted during local model execution. */
 data class LocalInferenceMetrics(
     val timeToFirstTokenMs: Long = 0L,
@@ -71,6 +77,7 @@ data class LocalInferenceMetrics(
 )
 
 sealed interface LocalRuntimeEvent {
+    data class PhaseChanged(val phase: LocalInferencePhase) : LocalRuntimeEvent
     data class TextDelta(val text: String) : LocalRuntimeEvent
     data class ThinkingDelta(val text: String) : LocalRuntimeEvent
     data class Metrics(val metrics: LocalInferenceMetrics) : LocalRuntimeEvent
@@ -79,12 +86,25 @@ sealed interface LocalRuntimeEvent {
 }
 
 interface LocalRuntime {
+    val deviceRamGb: Long get() = 8L
+
+    fun getHardwareState(): DeviceHardwareState = DeviceHardwareState()
+
+    fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
+        DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), deviceRamGb >= 10L)
+
     suspend fun loadEngine(spec: LocalEngineSpec)
     suspend fun createConversation(config: LocalConversationConfig)
     fun sendMessage(text: String, images: List<ByteArray> = emptyList()): Flow<LocalRuntimeEvent>
     fun cancelActive()
     suspend fun closeConversation()
     suspend fun unloadEngine()
+
+    /**
+     * Unloads the engine if it has been idle without active requests for at least [idleThresholdMs].
+     * Returns true if unloaded, false otherwise.
+     */
+    suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean = false
 
     fun isEngineLoaded(spec: LocalEngineSpec): Boolean = false
 

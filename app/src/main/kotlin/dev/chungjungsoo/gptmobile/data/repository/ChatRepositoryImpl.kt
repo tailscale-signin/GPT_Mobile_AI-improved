@@ -143,7 +143,11 @@ class ChatRepositoryImpl @Inject constructor(
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
-            val resolvedTools = agentToolResolver.resolve(platform.uid, chatToolConfig)
+            val resolvedTools = if (platform.disableAllTools) {
+                emptyList()
+            } else {
+                agentToolResolver.resolve(platform.uid, chatToolConfig)
+            }
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, platform)
 

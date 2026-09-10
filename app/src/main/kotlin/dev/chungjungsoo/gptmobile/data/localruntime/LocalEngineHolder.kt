@@ -101,7 +101,7 @@ class LocalEngineHolder(
      * Returns true if the engine was unloaded due to inactivity, or false if it is still
      * active, already unloaded, or has not exceeded the idle threshold.
      */
-    suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
+    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
         if (loadedSpec == null) return false
         val now = timeProvider()
         val lastUsed = lastAccessedElapsedRealtimeMs

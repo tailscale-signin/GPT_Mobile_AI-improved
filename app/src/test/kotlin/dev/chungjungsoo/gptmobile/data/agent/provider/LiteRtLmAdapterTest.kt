@@ -11,11 +11,14 @@ import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState
+import dev.chungjungsoo.gptmobile.data.localruntime.DeviceThermalState
 import dev.chungjungsoo.gptmobile.data.localruntime.FakeLocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineHolder
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
@@ -1144,6 +1147,204 @@ class LiteRtLmAdapterTest {
 
         assertEquals(1280, runtime.loadEngineCalls.single().maxTokens)
         assertEquals(LocalAccelerators.NPU, runtime.loadEngineCalls.single().accelerator)
+    }
+
+    @Test
+    fun `high RAM device allows expanded 8192 context on GPU`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+
+        adapter.openSession(
+            turns("hello"),
+            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192)
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(8192, runtime.loadEngineCalls.single().maxTokens)
+    }
+
+    @Test
+    fun `severe thermal status clamps engine context and throttles topK`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            simulatedHardwareState = DeviceHardwareState(
+                thermalState = DeviceThermalState.SEVERE,
+                batteryPct = 50,
+                isCharging = false
+            )
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+
+        adapter.openSession(
+            turns("hello"),
+            localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192, topK = 40)
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        // 8192 should be clamped to 1024 by adaptive throttling policy
+        assertEquals(1024, runtime.loadEngineCalls.single().maxTokens)
+        // topK of 40 should be halved to 20
+        assertEquals(20, runtime.createConversationCalls.single().sampler.topK)
+    }
+
+    @Test
+    fun `severe thermal status clamps rolling compaction context budget`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            simulatedHardwareState = DeviceHardwareState(
+                thermalState = DeviceThermalState.SEVERE,
+                batteryPct = 50,
+                isCharging = false
+            )
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+        // 8192 max tokens requested on 16GB RAM, but severe thermal forces clamp to 1024 tokens (~4096 chars)
+        val platform = localPlatform().copy(accelerator = LocalAccelerators.GPU, maxTokens = 8192)
+
+        val anchor = completedTurn("Anchor turn prompt setup", "Anchor reply")
+        // Create 20 historical turns with 300 chars each (~6000 chars total, which exceeds 1024 tokens / ~4096 chars)
+        val intermediateTurns = (1..20).map { i ->
+            completedTurn("Intermediate user question turn $i with repeating text to occupy buffer space 1234567890 1234567890 1234567890", "Intermediate answer $i with reply words filling context room 1234567890 1234567890")
+        }
+        val current = pendingTurn("Current user message")
+
+        adapter.openSession(
+            listOf(anchor) + intermediateTurns + current,
+            platform
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        val config = runtime.createConversationCalls.single()
+        // Anchor must be preserved
+        assertEquals("Anchor turn prompt setup", config.initialMessages[0].text)
+        assertEquals("Anchor reply", config.initialMessages[1].text)
+        // Middle turns should be compacted out to stay safely within the 1024 clamped tokens ceiling
+        assertTrue(config.initialMessages.size < (intermediateTurns.size * 2) + 2)
+    }
+
+    @Test
+    fun `high RAM device still respects NPU context clamp`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            deviceRamGb = 16L
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(
+            runtime,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    CatalogEntry(
+                        id = "gemma3-1b-it",
+                        supportedAccelerators = listOf("gpu", "cpu", "npu"),
+                        socToModelFiles = mapOf(
+                            "SM8750" to SocVariant(modelFile = "npu.litertlm", contextSize = 1280)
+                        )
+                    )
+                )
+            ),
+            deviceSocModel = "SM8750"
+        )
+
+        adapter.openSession(
+            turns("hello"),
+            localPlatform().copy(accelerator = LocalAccelerators.NPU, maxTokens = 8192)
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(1280, runtime.loadEngineCalls.single().maxTokens)
+    }
+
+    @Test
+    fun `excessive turns beyond context budget are compacted preserving anchor Turn 0`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(runtime)
+        val platform = localPlatform().copy(maxTokens = 60) // 240 chars budget
+
+        val anchor = completedTurn("Anchor prompt setup instructions", "Anchor reply confirmation")
+        val middle1 = completedTurn("Intermediate step 1 with lots and lots of text that overflows", "Intermediate reply 1")
+        val middle2 = completedTurn("Intermediate step 2 with lots and lots of text that overflows", "Intermediate reply 2")
+        val recent = completedTurn("Recent step question", "Recent step reply")
+        val current = pendingTurn("Current prompt")
+
+        adapter.openSession(
+            listOf(anchor, middle1, middle2, recent, current),
+            platform
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        val config = runtime.createConversationCalls.single()
+        // Anchor (first user & model message) must be preserved
+        assertEquals("Anchor prompt setup instructions", config.initialMessages[0].text)
+        assertEquals("Anchor reply confirmation", config.initialMessages[1].text)
+        // Recent step must be retained while middle turns are compacted out
+        assertEquals("Recent step question", config.initialMessages[2].text)
+        assertEquals("Recent step reply", config.initialMessages[3].text)
+        assertEquals(4, config.initialMessages.size)
+    }
+
+    @Test
+    fun `generation completion emits telemetry notice with live metrics`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(
+                listOf(
+                    LocalRuntimeEvent.TextDelta("Hello world"),
+                    LocalRuntimeEvent.Metrics(
+                        LocalInferenceMetrics(
+                            timeToFirstTokenMs = 120L,
+                            totalDurationMs = 500L,
+                            totalChunks = 5,
+                            totalCharacters = 44,
+                            estimatedTokens = 11,
+                            tokensPerSecond = 22.0
+                        )
+                    ),
+                    LocalRuntimeEvent.Done
+                )
+            )
+        }
+        val adapter = adapter(runtime)
+
+        val events = adapter.openSession(turns("hi"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+
+        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull()
+        assertTrue(notice != null)
+        assertTrue(notice!!.message.contains("Local: 22.0 tok/s · TTFT 120ms · ~11 tokens"))
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `telemetry notice appends throttling badge under severe thermal pressure`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            simulatedHardwareState = DeviceHardwareState(
+                thermalState = DeviceThermalState.SEVERE,
+                batteryPct = 40,
+                isCharging = false
+            )
+            scriptedEvents = listOf(
+                listOf(
+                    LocalRuntimeEvent.TextDelta("Hello world"),
+                    LocalRuntimeEvent.Metrics(
+                        LocalInferenceMetrics(
+                            timeToFirstTokenMs = 250L,
+                            totalDurationMs = 1000L,
+                            totalChunks = 4,
+                            totalCharacters = 32,
+                            estimatedTokens = 8,
+                            tokensPerSecond = 8.0
+                        )
+                    ),
+                    LocalRuntimeEvent.Done
+                )
+            )
+        }
+        val adapter = adapter(runtime)
+
+        val events = adapter.openSession(turns("hi"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+
+        val notice = events.filterIsInstance<ProviderEvent.Notice>().singleOrNull()
+        assertTrue(notice != null)
+        assertTrue(notice!!.message.contains("Local: 8.0 tok/s · TTFT 250ms · ~8 tokens · ⚡ Throttled"))
     }
 
     @Test

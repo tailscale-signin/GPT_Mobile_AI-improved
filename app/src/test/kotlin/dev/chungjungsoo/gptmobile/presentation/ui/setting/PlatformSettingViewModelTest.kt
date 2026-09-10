@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
+import dev.chungjungsoo.gptmobile.data.localruntime.MAX_HIGH_RAM_CONTEXT_TOKENS
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
@@ -321,6 +322,74 @@ class PlatformSettingViewModelTest {
     }
 
     @Test
+    fun `maxTokensCap returns variant context limit when local platform uses NPU`() = runTest {
+        val settings = FakeSettingRepository(
+            localPlatform(model = "cpu-npu", accelerator = LocalAccelerators.NPU)
+        )
+        val viewModel = localSettingsViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    catalogEntry(
+                        id = "cpu-npu",
+                        supportedAccelerators = listOf("cpu", "npu"),
+                        socToModelFiles = mapOf(
+                            "SM8750" to SocVariant(modelFile = "npu.litertlm", contextSize = 1280)
+                        )
+                    )
+                )
+            ),
+            deviceSocModel = "SM8750",
+            deviceRamGb = 16L
+        )
+
+        assertEquals(1280, viewModel.maxTokensCap())
+    }
+
+    @Test
+    fun `maxTokensCap returns MAX_HIGH_RAM_CONTEXT_TOKENS on high RAM device with GPU`() = runTest {
+        val settings = FakeSettingRepository(
+            localPlatform(model = "gpu-model", accelerator = LocalAccelerators.GPU)
+        )
+        val viewModel = localSettingsViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    catalogEntry(
+                        id = "gpu-model",
+                        supportedAccelerators = listOf("gpu", "cpu"),
+                        defaults = CatalogDefaultConfig(maxTokens = 2048)
+                    )
+                )
+            ),
+            deviceRamGb = 16L
+        )
+
+        assertEquals(MAX_HIGH_RAM_CONTEXT_TOKENS, viewModel.maxTokensCap())
+    }
+
+    @Test
+    fun `maxTokensCap returns DEFAULT_MAX_TOKENS_CAP for remote cloud platforms`() = runTest {
+        val settings = FakeSettingRepository(
+            PlatformV2(
+                uid = "remote-1",
+                name = "OpenAI",
+                compatibleType = ClientType.OPENAI,
+                enabled = true,
+                apiUrl = "https://example.com",
+                model = "gpt-4o"
+            )
+        )
+        val viewModel = testViewModel(
+            dao = FakeToolConnectionDao(),
+            settingRepository = settings,
+            platformUid = "remote-1"
+        )
+
+        assertEquals(PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP, viewModel.maxTokensCap())
+    }
+
+    @Test
     fun `updating accelerator ignores NPU when the device does not qualify`() = runTest {
         val settings = FakeSettingRepository(localPlatform(model = "cpu-gpu", accelerator = LocalAccelerators.GPU))
         val viewModel = localSettingsViewModel(
@@ -375,6 +444,39 @@ class PlatformSettingViewModelTest {
         assertEquals(20, updated.topK)
         assertEquals(4096, updated.maxTokens)
         assertEquals(LocalAccelerators.CPU, updated.accelerator)
+    }
+
+    @Test
+    fun `changing the local model on high RAM device scales maxTokens to 4096`() = runTest {
+        val settings = FakeSettingRepository(
+            localPlatform(
+                model = "gemma3-1b-it",
+                temperature = 0.2f,
+                topP = 0.4f,
+                topK = 8,
+                maxTokens = 256,
+                accelerator = LocalAccelerators.GPU
+            )
+        )
+        val viewModel = localSettingsViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(
+                listOf(
+                    catalogEntry(
+                        id = "qwen2.5-3b-it",
+                        supportedAccelerators = listOf("cpu", "gpu"),
+                        defaults = CatalogDefaultConfig(topK = 40, topP = 0.9f, temperature = 0.7f, maxTokens = 2048)
+                    )
+                )
+            ),
+            deviceRamGb = 16L
+        )
+
+        viewModel.updateApiModel("qwen2.5-3b-it")
+
+        val updated = settings.updatedPlatforms.single()
+        assertEquals("qwen2.5-3b-it", updated.model)
+        assertEquals(4096, updated.maxTokens)
     }
 
     @Test
@@ -457,14 +559,16 @@ class PlatformSettingViewModelTest {
             listOf(catalogEntry("gemma3-1b-it", supportedAccelerators = listOf("cpu", "gpu")))
         ),
         localModels: LocalModelRepository = FakeLocalModelRepository(),
-        deviceSocModel: String = ""
+        deviceSocModel: String = "",
+        deviceRamGb: Long = 8L
     ): PlatformSettingViewModel = testViewModel(
         dao = FakeToolConnectionDao(),
         settingRepository = settings,
         catalogRepository = catalog,
         localModelRepository = localModels,
         platformUid = "local-1",
-        deviceSocModel = deviceSocModel
+        deviceSocModel = deviceSocModel,
+        deviceRamGb = deviceRamGb
     )
 
     private fun testViewModel(
@@ -473,7 +577,8 @@ class PlatformSettingViewModelTest {
         catalogRepository: ModelCatalogRepository = FakeModelCatalogRepository(),
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
         platformUid: String = "profile-1",
-        deviceSocModel: String = ""
+        deviceSocModel: String = "",
+        deviceRamGb: Long = 8L
     ): PlatformSettingViewModel {
         val vault = FakeSecretVault()
         val repository = ToolConnectionRepository(dao, vault)
@@ -494,6 +599,7 @@ class PlatformSettingViewModelTest {
             modelCatalogRepository = catalogRepository,
             localModelRepository = localModelRepository,
             deviceSocModel = deviceSocModel,
+            deviceRamGb = deviceRamGb,
             savedStateHandle = SavedStateHandle(mapOf("platformUid" to platformUid))
         )
     }

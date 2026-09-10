@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
+import dev.chungjungsoo.gptmobile.data.context.RollingContextWindowCompactor
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.localruntime.ConversationFingerprint
@@ -17,6 +18,8 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalConversationConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalSamplerConfig
@@ -27,10 +30,12 @@ import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -108,20 +113,41 @@ class LiteRtLmAdapter(
                 } else {
                     emptyList()
                 }
+
+                val resolvedMaxTokens = resolvedEngineMaxTokens(
+                    requestedMaxTokens = platform.maxTokens ?: DEFAULT_MAX_TOKENS,
+                    accelerator = platform.accelerator.orEmpty(),
+                    entry = catalogEntry,
+                    deviceSocModel = deviceSocModel,
+                    deviceRamGb = localRuntime.deviceRamGb
+                )
+
+                val throttlingPolicy = localRuntime.getAdaptiveThrottlingPolicy()
+                val effectiveContextTokens = if (throttlingPolicy.maxTokensClamp != null) {
+                    minOf(resolvedMaxTokens, throttlingPolicy.maxTokensClamp)
+                } else {
+                    resolvedMaxTokens
+                }
+
+                // Compact prior turns with anchor prefix preservation (Turn 0 + rolling window)
+                // budgeted against effectiveContextTokens to prevent KV-cache overflows under thermal/battery throttling
+                val rawPriorTurns = turns.dropLast(1)
+                val compactedPriorTurns = RollingContextWindowCompactor.compactPriorTurns(
+                    priorTurns = rawPriorTurns,
+                    maxContextTokens = effectiveContextTokens,
+                    systemPrompt = platform.systemPrompt,
+                    currentUserPrompt = latestUserText
+                )
+
                 val history = historyMessages(
-                    priorTurns = turns.dropLast(1),
+                    priorTurns = compactedPriorTurns,
                     visionCapable = visionCapable,
                     includeImageBytes = false
                 )
                 val spec = rememberedEngineSpec(
                     modelPath = modelPath,
                     accelerator = LocalAccelerators.normalize(platform.accelerator),
-                    maxTokens = resolvedEngineMaxTokens(
-                        requestedMaxTokens = platform.maxTokens ?: DEFAULT_MAX_TOKENS,
-                        accelerator = platform.accelerator.orEmpty(),
-                        entry = catalogEntry,
-                        deviceSocModel = deviceSocModel
-                    ),
+                    maxTokens = effectiveContextTokens,
                     isVisionEnabled = visionCapable
                 )
                 val sampler = LocalSamplerConfig(
@@ -134,6 +160,7 @@ class LiteRtLmAdapter(
                 try {
                     var failed = false
                     val assistantReply = StringBuilder()
+                    var latestMetrics: LocalInferenceMetrics? = null
                     localRuntime.runExclusiveFlow(
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
@@ -157,9 +184,10 @@ class LiteRtLmAdapter(
                             if (hasOpenConversation()) {
                                 closeConversation()
                             }
+                            yield() // Cooperative yield before starting heavy conversation allocation
                             val seedHistory = if (visionCapable) {
                                 historyMessages(
-                                    priorTurns = turns.dropLast(1),
+                                    priorTurns = compactedPriorTurns,
                                     visionCapable = true,
                                     includeImageBytes = true
                                 )
@@ -197,9 +225,14 @@ class LiteRtLmAdapter(
                             )
                         }
                         isConversationDirty = true
+                        yield() // Cooperative yield before dispatching prompt evaluation
                         sendMessage(latestUserText, latestImages)
                     }.collect { event ->
                         when (event) {
+                            is LocalRuntimeEvent.PhaseChanged -> {
+                                send(ProviderEvent.PhaseChanged(event.phase))
+                            }
+
                             is LocalRuntimeEvent.TextDelta -> {
                                 assistantReply.append(event.text)
                                 send(ProviderEvent.TextDelta(event.text))
@@ -207,7 +240,9 @@ class LiteRtLmAdapter(
 
                             is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
 
-                            is LocalRuntimeEvent.Metrics -> Unit
+                            is LocalRuntimeEvent.Metrics -> {
+                                latestMetrics = event.metrics
+                            }
 
                             is LocalRuntimeEvent.Error -> {
                                 failed = true
@@ -219,6 +254,12 @@ class LiteRtLmAdapter(
                         }
                     }
                     if (!failed) {
+                        latestMetrics?.let { metrics ->
+                            val telemetryNotice = formatTelemetryNotice(metrics, localRuntime)
+                            if (telemetryNotice.isNotBlank()) {
+                                send(ProviderEvent.Notice(telemetryNotice))
+                            }
+                        }
                         send(ProviderEvent.Completed)
                         val snapshot = openConversation
                         if (snapshot != null) {
@@ -445,6 +486,23 @@ class LiteRtLmAdapter(
         is ToolResultContent.Text -> value.text
         is ToolResultContent.Json -> value.value.toString()
         is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
+    }
+
+    internal fun formatTelemetryNotice(
+        metrics: LocalInferenceMetrics,
+        runtime: LocalRuntime
+    ): String {
+        if (metrics.totalDurationMs <= 0L && metrics.totalChunks <= 0) return ""
+        val tpsFormatted = String.format(Locale.US, "%.1f", metrics.tokensPerSecond)
+        val baseNotice = "Local: ${tpsFormatted} tok/s · TTFT ${metrics.timeToFirstTokenMs}ms · ~${metrics.estimatedTokens} tokens"
+
+        val hwState = runtime.getHardwareState()
+        val throttleSuffix = when {
+            hwState.isThrottlingRequired -> " · ⚡ Throttled"
+            hwState.isModeratePressure -> " · 🌡️ Warm"
+            else -> ""
+        }
+        return baseNotice + throttleSuffix
     }
 
     companion object {

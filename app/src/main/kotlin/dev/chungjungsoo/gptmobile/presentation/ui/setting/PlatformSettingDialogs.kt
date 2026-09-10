@@ -960,6 +960,20 @@ private fun MaxTokensDialog(
                                     maxTokensCap
                                 )
                             )
+                        } else if (maxTokensCap < PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP) {
+                            Text(
+                                stringResource(
+                                    R.string.max_tokens_hardware_cap_hint,
+                                    maxTokensCap
+                                )
+                            )
+                        } else {
+                            Text(
+                                stringResource(
+                                    R.string.max_tokens_standard_hint,
+                                    maxTokensCap
+                                )
+                            )
                         }
                     }
                 )

@@ -3,6 +3,11 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState
+import dev.chungjungsoo.gptmobile.data.localruntime.DeviceThermalState
+import dev.chungjungsoo.gptmobile.util.HIGH_REFRESH_FRAME_INTERVAL_MILLIS
+import dev.chungjungsoo.gptmobile.util.LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
+import dev.chungjungsoo.gptmobile.util.STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
@@ -137,5 +142,44 @@ class AgentRunCoordinatorTest {
             listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Error: Service start failed.")),
             terminal.timeline
         )
+    }
+
+    @Test
+    fun `resolvePublishInterval adapts dynamically to thermal and battery throttling`() {
+        // Normal high-memory device gets 8ms frame budget
+        val normalHighMem = DeviceHardwareState(
+            thermalState = DeviceThermalState.NORMAL,
+            batteryPct = 80,
+            isCharging = true,
+            isPowerSaveMode = false
+        )
+        assertEquals(HIGH_REFRESH_FRAME_INTERVAL_MILLIS, resolvePublishInterval(normalHighMem, isHighMemoryDevice = true))
+
+        // Normal standard memory device gets 33ms standard interval
+        assertEquals(STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS, resolvePublishInterval(normalHighMem, isHighMemoryDevice = false))
+
+        // Moderate thermal pressure downshifts high-memory device to 33ms
+        val moderateThermal = DeviceHardwareState(
+            thermalState = DeviceThermalState.MODERATE,
+            batteryPct = 80,
+            isCharging = false
+        )
+        assertEquals(STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS, resolvePublishInterval(moderateThermal, isHighMemoryDevice = true))
+
+        // Severe thermal pressure downshifts even high-memory device to 250ms low-power mode
+        val severeThermal = DeviceHardwareState(
+            thermalState = DeviceThermalState.SEVERE,
+            batteryPct = 80,
+            isCharging = true
+        )
+        assertEquals(LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS, resolvePublishInterval(severeThermal, isHighMemoryDevice = true))
+
+        // Critically low battery (<= 15% discharging) downshifts to 250ms low-power mode
+        val lowBattery = DeviceHardwareState(
+            thermalState = DeviceThermalState.NORMAL,
+            batteryPct = 12,
+            isCharging = false
+        )
+        assertEquals(LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS, resolvePublishInterval(lowBattery, isHighMemoryDevice = true))
     }
 }

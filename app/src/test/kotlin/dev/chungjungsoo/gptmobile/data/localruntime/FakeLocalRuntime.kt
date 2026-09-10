@@ -10,6 +10,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.yield
 
 class FakeLocalRuntime : LocalRuntime {
+    override var deviceRamGb: Long = 8L
+    var simulatedHardwareState: DeviceHardwareState = DeviceHardwareState()
+
+    override fun getHardwareState(): DeviceHardwareState = simulatedHardwareState
+
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
+        DeviceHardwareGovernor.computeThrottlingPolicy(simulatedHardwareState, deviceRamGb >= 10L)
+
     val loadEngineCalls = mutableListOf<LocalEngineSpec>()
     val createConversationCalls = mutableListOf<LocalConversationConfig>()
     val sendMessageCalls = mutableListOf<String>()
@@ -36,16 +44,32 @@ class FakeLocalRuntime : LocalRuntime {
     private var generationCancelled = false
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
-        loadEngineCalls += spec
-        failLoadEngineIf(spec)?.let { throw it }
-        loadedSpec = spec
+        val policy = getAdaptiveThrottlingPolicy()
+        val clampedMaxTokens = if (policy.maxTokensClamp != null && spec.maxTokens > policy.maxTokensClamp) {
+            policy.maxTokensClamp
+        } else {
+            spec.maxTokens
+        }
+        val effectiveSpec = spec.copy(maxTokens = clampedMaxTokens)
+        loadEngineCalls += effectiveSpec
+        failLoadEngineIf(effectiveSpec)?.let { throw it }
+        loadedSpec = effectiveSpec
     }
 
     override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec
 
     override suspend fun createConversation(config: LocalConversationConfig) {
-        createConversationCalls += config
-        activeToolExecutor = config.toolExecutor
+        val policy = getAdaptiveThrottlingPolicy()
+        val effectiveTopK = if (policy.topKReductionRatio < 1.0f) {
+            (config.sampler.topK * policy.topKReductionRatio).toInt().coerceAtLeast(1)
+        } else {
+            config.sampler.topK
+        }
+        val effectiveConfig = config.copy(
+            sampler = config.sampler.copy(topK = effectiveTopK)
+        )
+        createConversationCalls += effectiveConfig
+        activeToolExecutor = effectiveConfig.toolExecutor
         conversationOpen = true
     }
 
@@ -53,6 +77,7 @@ class FakeLocalRuntime : LocalRuntime {
         generationCancelled = false
         sendMessageCalls += text
         sendMessageImages += images
+        emit(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
         if (emitDelayMillis > 0L) {
             delay(emitDelayMillis)
         }

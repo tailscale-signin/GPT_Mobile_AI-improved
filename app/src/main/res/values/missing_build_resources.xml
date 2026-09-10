@@ -61,6 +61,8 @@
     <string name="agent_run_interrupted">Agent run interrupted</string>
     <string name="agent_run_failed">Agent run failed</string>
     <string name="agent_run_error_service_stopped">The agent run was interrupted because the service stopped.</string>
+    <string name="agent_run_phase_prefill">Processing prompt…</string>
+    <string name="agent_run_phase_generating">Generating response…</string>
 
     <!-- UI preview / generic tokens -->
     <string name="sample_item_title">Sample item</string>

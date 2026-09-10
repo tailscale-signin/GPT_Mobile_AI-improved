@@ -191,4 +191,27 @@ class AddPlatformViewModelTest {
         assertEquals(20, defaults?.topK)
         assertEquals(4096, defaults?.maxTokens)
     }
+
+    @Test
+    fun `defaultsFor scales maxTokens to 4096 on high RAM device`() = runTest {
+        val viewModel = addPlatformViewModel(
+            catalog = dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository(
+                listOf(
+                    wizardCatalogEntry("pending-model").copy(
+                        defaultConfig = dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig(
+                            topK = 40,
+                            topP = 0.9f,
+                            temperature = 0.7f,
+                            maxTokens = 2048
+                        ),
+                        supportedAccelerators = listOf("gpu", "cpu")
+                    )
+                )
+            ),
+            deviceRamGb = 16L
+        )
+
+        val defaults = viewModel.defaultsFor("pending-model")
+        assertEquals(4096, defaults?.maxTokens)
+    }
 }

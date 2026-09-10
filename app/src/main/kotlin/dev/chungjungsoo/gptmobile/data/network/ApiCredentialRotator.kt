@@ -88,6 +88,7 @@ object ApiCredentialRotator {
         val lower = message.lowercase()
         return lower.contains("rate_limit") ||
             lower.contains("rate limit") ||
+            lower.contains("rate_limited") ||
             lower.contains("ratelimit") ||
             lower.contains("quota") ||
             lower.contains("insufficient_quota") ||
@@ -101,6 +102,8 @@ object ApiCredentialRotator {
             lower.contains("token limit") ||
             lower.contains("tpm") ||
             lower.contains("rpm") ||
+            lower.contains("1300") ||
+            lower.contains("too_many_requests") ||
             lower.contains("429") ||
             lower.contains("402")
     }

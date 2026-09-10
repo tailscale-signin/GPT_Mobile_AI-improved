@@ -3,9 +3,11 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
+import dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelItemStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsDialog
 import kotlinx.coroutines.Dispatchers
@@ -216,6 +218,34 @@ class SetupViewModelV2Test {
         assertEquals("ready-model", saved.model)
         assertTrue(saved.enabled)
         assertTrue(localModels.startDownloadCalls.isEmpty())
+    }
+
+    @Test
+    fun `savePlatform scales maxTokens to 4096 on high RAM device`() = runTest {
+        val settings = RecordingSettingRepository()
+        val localModels = FakeLocalModelRepository(listOf(wizardStoredModel("ready-model")))
+        val catalog = FakeModelCatalogRepository(
+            listOf(
+                wizardCatalogEntry("ready-model").copy(
+                    supportedAccelerators = listOf("gpu", "cpu"),
+                    defaultConfig = CatalogDefaultConfig(maxTokens = 2048)
+                )
+            )
+        )
+        val viewModel = setupViewModel(
+            settings = settings,
+            localModels = localModels,
+            catalog = catalog,
+            deviceRamGb = 16L
+        )
+        viewModel.selectClientType(ClientType.LITERT_LM)
+        viewModel.updatePlatformName("On-device")
+        viewModel.selectLocalModel("ready-model")
+        viewModel.savePlatform()
+
+        val saved = settings.addedPlatforms.single()
+        assertEquals("ready-model", saved.model)
+        assertEquals(4096, saved.maxTokens)
     }
 
     private fun statusOf(viewModel: SetupViewModelV2, catalogEntryId: String) = viewModel.catalogLocalModels.value

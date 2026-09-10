@@ -150,7 +150,8 @@ internal fun setupViewModel(
     tokenStore: HuggingFaceTokenStore = HuggingFaceTokenStore(MapSecretVault()),
     guards: LocalDownloadGuards = FakeLocalDownloadGuards(),
     authClient: HuggingFaceAuthClient = FakeHuggingFaceAuthClient(),
-    deviceSocModel: String = ""
+    deviceSocModel: String = "",
+    deviceRamGb: Long = 8L
 ) = SetupViewModelV2(
     settingRepository = settings,
     localModelRepository = localModels,
@@ -159,7 +160,8 @@ internal fun setupViewModel(
     huggingFaceTokenStore = tokenStore,
     downloadGuards = guards,
     huggingFaceAuthClient = authClient,
-    deviceSocModel = deviceSocModel
+    deviceSocModel = deviceSocModel,
+    deviceRamGb = deviceRamGb
 )
 
 internal fun addPlatformViewModel(
@@ -169,7 +171,8 @@ internal fun addPlatformViewModel(
     tokenStore: HuggingFaceTokenStore = HuggingFaceTokenStore(MapSecretVault()),
     guards: LocalDownloadGuards = FakeLocalDownloadGuards(),
     authClient: HuggingFaceAuthClient = FakeHuggingFaceAuthClient(),
-    deviceSocModel: String = ""
+    deviceSocModel: String = "",
+    deviceRamGb: Long = 8L
 ) = AddPlatformViewModel(
     localModelRepository = localModels,
     modelCatalogRepository = catalog,
@@ -177,7 +180,8 @@ internal fun addPlatformViewModel(
     huggingFaceTokenStore = tokenStore,
     downloadGuards = guards,
     huggingFaceAuthClient = authClient,
-    deviceSocModel = deviceSocModel
+    deviceSocModel = deviceSocModel,
+    deviceRamGb = deviceRamGb
 )
 
 internal fun localModelsViewModel(

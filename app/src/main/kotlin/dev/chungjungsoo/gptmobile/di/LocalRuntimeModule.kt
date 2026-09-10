@@ -25,4 +25,11 @@ object LocalRuntimeModule {
     @Singleton
     @DeviceSocModel
     fun provideDeviceSocModel(): String = Build.SOC_MODEL.orEmpty()
+
+    @Provides
+    @Singleton
+    @DeviceRamGb
+    fun provideDeviceRamGb(
+        localRuntime: LocalRuntime
+    ): Long = localRuntime.deviceRamGb
 }

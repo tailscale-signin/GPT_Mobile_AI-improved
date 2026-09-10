@@ -40,10 +40,12 @@ class ApiCredentialRotatorTest {
     fun isRotatableError_detectsRateLimitsAndCreditErrors() {
         val rateLimitException = Exception("Rate limit reached for requests per minute (TPM/RPM exceeded)")
         val quotaException = Exception("insufficient_quota: You exceeded your current quota, please check your plan and billing details.")
+        val mistralRateLimitException = Exception("HTTP 429: {\"object\":\"error\",\"message\":\"Rate limit exceeded\",\"type\":\"rate_limited\",\"param\":null,\"code\":\"1300\",\"raw_status_code\":429}")
         val regularException = IllegalArgumentException("Invalid argument")
 
         assertTrue(ApiCredentialRotator.isRotatableError(rateLimitException))
         assertTrue(ApiCredentialRotator.isRotatableError(quotaException))
+        assertTrue(ApiCredentialRotator.isRotatableError(mistralRateLimitException))
         assertFalse(ApiCredentialRotator.isRotatableError(regularException))
     }
 

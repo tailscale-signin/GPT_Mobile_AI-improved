@@ -101,6 +101,30 @@ class ApiStateFlowExtensionsTest {
     }
 
     @Test
+    fun `collectApiStateUpdates honors 120Hz high refresh frame interval`() = runBlocking {
+        val updates = mutableListOf<String>()
+        var currentTimeNanos = 0L
+
+        flow {
+            emit(ApiState.Success("Frame 1"))
+            // At t = 4ms, should not publish if interval is 8ms
+            currentTimeNanos = 4_000_000L
+            emit(ApiState.Success(" (still 1)"))
+            // At t = 8.5ms, threshold exceeded -> should publish
+            currentTimeNanos = 8_500_000L
+            emit(ApiState.Success(" + Frame 2"))
+            emit(ApiState.Done)
+        }.collectApiStateUpdates(
+            onUpdate = { content, _, _ -> updates += content },
+            nanoTimeProvider = { currentTimeNanos },
+            publishIntervalMillis = HIGH_REFRESH_FRAME_INTERVAL_MILLIS
+        )
+
+        assertTrue(updates.size >= 2)
+        assertEquals("Frame 1 (still 1) + Frame 2", updates.last())
+    }
+
+    @Test
     fun `collectApiStateUpdates persists informational notices on the timeline`() = runBlocking {
         data class Update(
             val content: String,

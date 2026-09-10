@@ -102,28 +102,8 @@ fun NavGraphBuilder.setupNavigation(
             val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
             SetupPlatformTypeScreen(
                 setupViewModel = setupViewModel,
-                onSelectPlatformType = { clientType ->
-                    setupViewModel.selectPlatformType(clientType)
-                    if (clientType == ClientType.LITERT) {
-                        navController.navigate(Route.SETUP_LOCAL_MODELS)
-                    } else {
-                        navController.navigate(Route.SETUP_PLATFORM_WIZARD)
-                    }
-                },
+                onPlatformTypeSelected = { navController.navigate(Route.SETUP_PLATFORM_WIZARD) },
                 onBackAction = { navController.navigateUp() }
-            )
-        }
-        composable(route = Route.SETUP_LOCAL_MODELS) {
-            val parentEntry = remember(it) {
-                navController.getBackStackEntry(Route.SETUP_ROUTE)
-            }
-            val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
-            LocalModelsScreen(
-                onNavigationClick = { navController.navigateUp() },
-                onModelSelected = { modelId ->
-                    setupViewModel.selectLocalModel(modelId)
-                    navController.navigate(Route.SETUP_PLATFORM_WIZARD)
-                }
             )
         }
         composable(route = Route.SETUP_PLATFORM_WIZARD) {
@@ -134,12 +114,16 @@ fun NavGraphBuilder.setupNavigation(
             SetupPlatformWizardScreen(
                 setupViewModel = setupViewModel,
                 onComplete = {
-                    navController.navigate(Route.SETUP_PLATFORM_LIST) {
-                        popUpTo(Route.SETUP_PLATFORM_LIST) { inclusive = false }
-                    }
+                    // Go back to platform list after adding a platform
+                    navController.popBackStack(Route.SETUP_PLATFORM_LIST, inclusive = false)
                 },
                 onBackAction = { navController.navigateUp() },
                 onNavigateToLocalModels = { navController.navigate(Route.SETUP_LOCAL_MODELS) }
+            )
+        }
+        composable(route = Route.SETUP_LOCAL_MODELS) {
+            LocalModelsScreen(
+                onNavigationClick = { navController.navigateUp() }
             )
         }
         composable(route = Route.SETUP_COMPLETE) {
@@ -147,15 +131,17 @@ fun NavGraphBuilder.setupNavigation(
                 navController.getBackStackEntry(Route.SETUP_ROUTE)
             }
             val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
-            val state by setupViewModel.uiState.collectAsStateWithLifecycle()
+            val platforms by setupViewModel.platforms.collectAsStateWithLifecycle()
             SetupCompleteScreen(
-                hasPendingDownloads = state.hasPendingLocalDownloads,
-                onStartChat = {
-                    setupViewModel.completeSetup()
-                    navController.navigate(Route.CHAT_LIST) {
-                        popUpTo(Route.SETUP_ROUTE) { inclusive = true }
+                isPendingLocalPlatform = platforms.any { platform ->
+                    !platform.enabled && platform.compatibleType == ClientType.LITERT_LM
+                },
+                onNavigate = { route ->
+                    navController.navigate(route) {
+                        popUpTo(Route.GET_STARTED) { inclusive = true }
                     }
-                }
+                },
+                onBackAction = { navController.navigateUp() }
             )
         }
     }
@@ -255,14 +241,16 @@ fun NavGraphBuilder.settingNavigation(
             Route.MCP_TOOLS_SELECTION,
             arguments = listOf(navArgument("platformUid") { type = NavType.StringType })
         ) { backStackEntry ->
+            val platformUid = backStackEntry.arguments?.getString("platformUid") ?: ""
             val platformViewModel: PlatformSettingViewModel = hiltViewModel(
                 remember(backStackEntry) {
-                    navController.getBackStackEntry(Route.PLATFORM_SETTINGS.replace("{platformUid}", backStackEntry.arguments?.getString("platformUid") ?: ""))
+                    navController.getBackStackEntry(Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid))
                 }
             )
             McpToolsSelectionScreen(
+                platformUid = platformUid,
                 viewModel = platformViewModel,
-                onBackAction = { navController.navigateUp() }
+                onNavigationClick = { navController.navigateUp() }
             )
         }
         composable(Route.LOCAL_MODELS) {

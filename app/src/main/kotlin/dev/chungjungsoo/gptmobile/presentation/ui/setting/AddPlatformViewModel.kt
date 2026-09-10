@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.localruntime.localSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import dev.chungjungsoo.gptmobile.di.DeviceRamGb
 import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.HuggingFaceAuthClient
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalDownloadGuards
@@ -32,7 +33,8 @@ class AddPlatformViewModel @Inject constructor(
     huggingFaceTokenStore: HuggingFaceTokenStore,
     downloadGuards: LocalDownloadGuards,
     huggingFaceAuthClient: HuggingFaceAuthClient,
-    @param:DeviceSocModel private val deviceSocModel: String
+    @param:DeviceSocModel private val deviceSocModel: String,
+    @param:DeviceRamGb private val deviceRamGb: Long = 8L
 ) : ViewModel() {
     private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     val catalogEntries = _catalogEntries.asStateFlow()
@@ -130,7 +132,7 @@ class AddPlatformViewModel @Inject constructor(
 
     fun defaultsFor(catalogEntryId: String): LocalSamplingDefaults? = _catalogEntries.value
         .firstOrNull { it.id == catalogEntryId }
-        ?.let { localSamplingDefaults(it, deviceSocModel) }
+        ?.let { localSamplingDefaults(it, deviceSocModel, deviceRamGb) }
 
     override fun onCleared() {
         downloadActions.release()

@@ -3,11 +3,9 @@
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
 > Index status: comprehensive and actively maintained on `0.9.0` and `main`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
-
-> **CRITICAL BRANCH MERGE POLICY (`0.9.0`):**
-> Branch `0.9.0` is dedicated to high-performance hardware acceleration (NPU/GPU speculative decoding, phase-split scheduling, cooperative yielding, persistent in-memory KV-cache pooling, anchor prefix preservation and rolling context truncation, expanded long context up to 8192 tokens for >=12GB/16GB devices, 120Hz frame-synced streaming, real-time inference telemetry, dynamic thermal/battery throttling via DeviceHardwareGovernor, dynamic hardware-aware sampling defaults, phase-split background notification progress in `AgentRunForegroundService`, idle memory auto-unload safeguards in `LocalEngineHolder`, hardware-aware context ceiling resolution & UI guidance, resilient rate-limiting backoff & credential rotation for OpenAI-compatible and Mistral endpoints, and strict Google Gemini MCP tool schema sanitization).
-> **DO NOT EVER MERGE `0.9.0` INTO `main` WITHOUT USER APPROVAL.**
-> Even if the user says "yes" to merging, **ALWAYS WARN THE USER FIRST** with an explicit confirmation check before executing any merge into `main`.
+>
+> **Latest Official Release:** [v0.8.9](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.8.9) (`prerelease: false`, `draft: false`, official latest release). Build pipeline configured with automated `apksigner` code signing and stripped `-unsigned` suffixes so all released APK artifacts are cleanly named signed release packages with accompanying `.idsig` v4 signature files: universal APK (`app-universal-release.apk`), ARM64 APK (`app-arm64-v8a-release.apk`), and x86_64 APK (`app-x86_64-release.apk`).
+> **Version:** `0.9.0` (versionCode 32) — LiteRT-LM hardware acceleration (NPU/GPU speculative decoding, phase-split scheduling, cooperative yielding, persistent in-memory KV-cache pooling, anchor prefix preservation and rolling context truncation, expanded long context up to 8192 tokens for >=12GB/16GB devices, 120Hz frame-synced streaming, real-time inference telemetry, dynamic thermal/battery throttling via DeviceHardwareGovernor), Room Schema 15 (`MIGRATION_14_15` with `open_router_routing`), OpenRouter advanced provider routing, instant bottom anchoring with deep-link/favorite target message protection, collapsible details animation (`DetailsButton`), and strict Google Gemini MCP tool schema sanitization.
 
 ## 1. Repository Overview
 
@@ -17,16 +15,17 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 - **Architecture:** Clean MVVM with repository, domain-boundary abstractions, and data-source layers.
 - **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
+- **Motion & Transitions:** Theme motion primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`) in `presentation.theme.Motion.kt` backing collapsible details animations and responsive indicator state transitions.
 - **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
 - **Dependency injection:** Hilt/Dagger with KSP.
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
-- **Persistence:** Room (`ChatDatabaseV2`, Schema version 14) with full FTS search and DataStore preferences (`SettingDataSource`).
+- **Persistence:** Room (`ChatDatabaseV2`, Schema version 15) with full FTS search and DataStore preferences (`SettingDataSource`). Migration 14->15 adds `open_router_routing` column to `platform_v2`.
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention across conversational turns, cooperative `yield()` checkpoints, phase-split scheduling `LocalInferencePhase.PREFILL` / `GENERATING`, phase-split background progress in `AgentRunForegroundService` displaying "Processing prompt…" and "Generating response…", idle memory auto-unload (`unloadIfIdle`, `DEFAULT_IDLE_UNLOAD_TIMEOUT_MS`) in `LocalEngineHolder` protecting RAM after inactive sessions, `RollingContextWindowCompactor` with anchor turn preservation dynamically budgeted against thermal/battery `maxTokensClamp`, `DeviceHardwareGovernor` with adaptive thermal/battery throttling, live `LocalInferenceMetrics` generation telemetry with user notice propagation (`formatTelemetryNotice`), tier-aware context window scaling up to 8,192 tokens on >=12GB RAM hardware via `deviceRamGb`, hardware-aware context ceiling capping via `maxTokensCap()`, and hardware-aware sampling & context default resolution via `localSamplingDefaults(entry, deviceSocModel, deviceRamGb)`); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks and phase-split notification state tracking (`resolveNotificationContentText`) for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
-- **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs. Version: 0.9.0 (versionCode 31).
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Automated release workflow (`Generate Release Version`) configured to build and sign pre-releases on branch `0.9.0`.
-- **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing, and ktlint 1.3.1 using Android Studio style.
+- **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs. Version: 0.9.0 (versionCode 32).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
+- **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing (`ChatDatabaseV2MigrationsTest`), and ktlint 1.3.1 using Android Studio style.
 
 ### Source layout
 
@@ -55,9 +54,9 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 ### `app/`
 
-- `app/build.gradle.kts` — Android application configuration: Jetpack Compose, Hilt/KSP, Room schemas, SDK targets (min 31, target 36), version 0.9.0 (versionCode 31), ABI splits, R8 rules, OAuth placeholders, LiteRT-LM, Ktor, WorkManager, and test dependencies.
+- `app/build.gradle.kts` — Android application configuration: Jetpack Compose, Hilt/KSP, Room schemas, SDK targets (min 31, target 36), version 0.9.0 (versionCode 32), ABI splits, R8 rules, OAuth placeholders, LiteRT-LM, Ktor, WorkManager, and test dependencies.
 - `app/proguard-rules.pro` — Application-specific R8/ProGuard obfuscation and preservation rules.
-- `app/schemas/` — Exported Room schemas (v1 through v14) used to validate database migration evolution.
+- `app/schemas/` — Exported Room schemas (v1 through v10) used to validate database migration evolution.
 - `app/src/main/AndroidManifest.xml` — Application declarations, activities, voice services, quick-settings tile, agent foreground service, permissions, and service types.
 - `app/src/main/res/` — Strings, themes, icons, XML configurations, and packaged Android resources. Note: String definitions are kept unique across `strings.xml` and `missing_build_resources.xml` (e.g. `unfavorite`, `agent_run_phase_prefill`, and `agent_run_phase_generating` in `missing_build_resources.xml`; `no_custom_groups` and `none_group` in `strings.xml`; `max_tokens_hardware_cap_hint`, `max_tokens_standard_hint`, and `max_tokens_with_cap` provide clear context limits).
 
@@ -73,7 +72,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `PlatformAgentRunner.kt` — Factory function `agentRunnerForPlatform` providing isolated runner instances per platform and run override to prevent budget leakage.
   - `provider/` — Model provider streaming adapters:
     - `LiteRtLmAdapter.kt` — Adapter for local on-device LiteRT-LM inference and tool-calling execution. Integrates hardware context scaling derived from `localRuntime.deviceRamGb`, SoC variant clamps, cooperative thread yield checkpoints during conversation creation/message dispatch, dynamic context compaction budgeted against `throttlingPolicy.maxTokensClamp` via `RollingContextWindowCompactor`, adaptive thermal/battery throttling, formatted generation telemetry notice emission (`formatTelemetryNotice` providing tok/s, TTFT ms, token estimates, and thermal throttling badges), and propagates `LocalRuntimeEvent.PhaseChanged` as `ProviderEvent.PhaseChanged`.
-    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, rotatable error detection, recursive Gemini tool parameter schema sanitization (`geminiToolParameters` stripping `x-mcp-header`, `x-mcp-param`, `$schema`, `propertyNames`, `additionalProperties`), and explicit rethrow of `CancellationException` in all catch blocks to maintain Kotlin coroutine cancellation and Flow exception transparency.
+    - `ProviderAdapters.kt` — Protocol-specific adapters mapping OpenAI, Anthropic, Google Gemini, Groq, and OpenRouter to `AgentProviderSession` with multi-key round-robin rotation (`ApiCredentialRotator`), attribution headers (`HTTP-Referer`, `X-Title`), reasoning configuration, rotatable error detection, recursive Gemini tool parameter schema sanitization (`geminiToolParameters` stripping `x-mcp-header`, `x-mcp-param`, `$schema`, `propertyNames`, `additionalProperties`), and explicit rethrow of `CancellationException` in all catch blocks to maintain Kotlin coroutine cancellation and Flow exception transparency. Passes `openRouterRouting` to OpenRouter requests.
     - `ProviderAttachmentEncoder.kt` — Formats and base64-encodes media and file attachments for various provider payload formats.
     - `ProviderEventAssemblers.kt` — Reconstructs and normalizes raw streaming SSE deltas into coherent `ProviderEvent` streams.
   - `tool/` — Agent tool execution and resolution:
@@ -104,9 +103,9 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `ConversationTurn.kt` — Models paired user/assistant messages and identifies the current turn.
   - `ProviderContextPolicy.kt` — Defines provider-specific history, attachment, and character limits.
   - `RollingContextWindowCompactor.kt` — Anchor prefix preservation and rolling turn window compactor for physical model context ceilings. Preserves Turn 0 (user goal + model setup) and a rolling recent window to avoid context exhaustion.
-- `database/` — Room persistence layer (Database v14):
-  - `ChatDatabase.kt` / `ChatDatabaseV2.kt` — Primary Room database holder with schema versioning and type converter declarations.
-  - `ChatDatabaseV2Migrations.kt` — Production schema migrations covering versions 10 through 14 (adding tool connections, assistant timeline items, agent runs, agent tool bindings, and local models; v14 adds `max_tool_calls` column to `platform_v2`).
+- `database/` — Room persistence layer (Database v15):
+  - `ChatDatabase.kt` / `ChatDatabaseV2.kt` — Primary Room database holder with schema versioning and type converter declarations (version 15).
+  - `ChatDatabaseV2Migrations.kt` — Production schema migrations covering versions 10 through 15 (adding tool connections, assistant timeline items, agent runs, agent tool bindings, and local models; v14 adds `max_tool_calls` column to `platform_v2`; v15 adds `open_router_routing` column to `platform_v2`).
   - DAOs: `AgentPersistenceDao.kt`, `AgentRunDao.kt`, `ChatPlatformModelV2Dao.kt`, `ChatRoomDao.kt`, `ChatRoomV2Dao.kt`, `LocalModelDao.kt`, `MessageDao.kt`, `MessageV2Dao.kt`, `PlatformV2Dao.kt`, `ToolConnectionDao.kt`.
   - Entities & Converters: `AgentRun.kt`, `AgentToolBinding.kt` (declares `BuiltInAgentTool` constants including `READ_FILE_SLICE`), `AssistantTimelineItem.kt`, `ChatPlatformModelV2.kt`, `ChatRoom.kt`, `ChatRoomV2.kt`, `Converters.kt`, `LocalModel.kt`, `Message.kt`, `MessageV2.kt`, `Platform.kt`, `PlatformV2.kt`, `ToolConnection.kt`, `ToolEvent.kt`, `ToolExecutionConverters.kt`.
 - `datastore/` — Preferences & key-value configuration:
@@ -188,12 +187,15 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `ChatScreen.kt` / `ChatViewModel.kt`:
   - Handles `targetMessageId` parameter from navigation bundle / `SavedStateHandle`.
   - Automatically scrolls to the exact turn matching `targetMessageId` upon loading, and automatically selects the matching assistant platform index tab (`chatViewModel.updateChatPlatformIndex(targetTurn, targetPlatformIndex)`).
+  - Uses `rememberChatListState(messageCount, hasTargetMessage)` for instant bottom anchoring without scroll lag while safely yielding focus to target/favorite messages when deep-linking.
+  - Orchestrates continuous loading indicator state across active assistant turns via `shouldShowReplyLoadingIndicator`.
   - Integrates `OpponentResponseContainer` around the assistant header (`GPTMobileIcon` + circular progress loading indicator + platform selection pills) and `OpponentChatBubble`, ensuring the favorite cyan highlight bubble is taller and cleanly encloses the response icon and circular loading spinner with generous padding.
   - Connected `FavoriteIcon` with long-press gesture detection, haptic feedback vibration (`HapticFeedbackType.LongPress`), and instant feedback.
 - `ChatBubble.kt`:
   - `OpponentResponseContainer`: Container composable wrapping the assistant header row and `OpponentChatBubble` with animated `bubbleColor` background (`Color.Cyan.copy(alpha = 0.2f)` when `isFavorite == true`), 32.dp rounded corners, and padded top/bottom.
   - `FavoriteIcon`: Uses `Modifier.pointerInput` with `detectTapGestures(onTap = ..., onLongPress = ...)` to trigger haptic feedback vibration (`HapticFeedbackType.LongPress`) on long press.
   - `TelemetryBadge` & `extractTelemetryNotice`: Extracts local inference telemetry notices (`isTelemetryNotice`) from general notices and renders them into a dedicated compact badge in the assistant bottom action row next to copy/edit/favorite icons.
+  - `DetailsButton`: Collapsible details toggle button with accessibility semantics and `fastEffectsSpec` motion transitions, paired with continuous streaming pulse (`●`) during generation and active tool runs.
 - `HomeScreen.kt` / `HomeViewModel.kt`:
   - `HomeTab.CHATS`: Displays chat list with search, duplicate, delete actions, and model selection dialog.
   - `HomeTab.FAVORITES`: Redesigned favorites management with search bar removed. Features custom group filter chips ("All", user-created categories, "+ Add Group"), assignment of favorites to custom groups, and a full-screen favorite detail view/dialog (`DialogProperties(usePlatformDefaultWidth = false)`). The detail view renders rich content via `ChatMarkdown` (Markdown, LaTeX math, code highlighting, typography, assistant `GPTMobileIcon`), vertical scrolling, a persistent "View" button navigating directly to the message in the chat room (`targetMessageId`), a middle Group button with dropdown assignment, and a persistent Cyan-highlighted favorite star button that confirms removal via `AlertDialog`.
@@ -201,7 +203,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
   - `ChatsTitle`: Added `@Composable` annotation to resolve Kotlin Compose compiler requirement.
   - `assignFavoriteMessageGroup(messageId: Int, groupName: String?)`: Accepts nullable `groupName` to properly remove associations when unassigned/cleared via "None".
 - `ToolTraceBlock.kt` — Displays active and completed tool execution traces with dark card backgrounds, official app foreground icons, full-width styling, clean tool names, and collapsible output payloads.
-- `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, and combination into `ApiCredentialRotator` format; `MaxTokensDialog` displays hardware context ceiling hint (`max_tokens_hardware_cap_hint` or `max_tokens_standard_hint`) when input is valid.
+- `PlatformSettingDialogs.kt` — Dynamic multi-key API dialog with `+API` button, per-key removal, preserved rows on dismissal/update, OpenRouter Advanced Settings dialog (`OpenRouterAdvancedSettingsDialog`), and combination into `ApiCredentialRotator` format; `MaxTokensDialog` displays hardware context ceiling hint (`max_tokens_hardware_cap_hint` or `max_tokens_standard_hint`) when input is valid.
 - `PlatformSettingScreen.kt` — Configures existing platforms, manages tool traces, MCP connections, and hosts `PlatformMaxToolCallsSettingHost`; shows hardware context ceiling alongside configured tokens in local model Max Tokens item description (`max_tokens_with_cap`).
 - `AddPlatformScreen.kt` — Dynamic multi-key API credentials support (`+API`, row deletion, `multi_api_keys_hint`) with `ApiCredentialRotator` serialization for new platform creation.
 - `MaxToolCallsSetting.kt` — Max tool calls UI component for platform settings.

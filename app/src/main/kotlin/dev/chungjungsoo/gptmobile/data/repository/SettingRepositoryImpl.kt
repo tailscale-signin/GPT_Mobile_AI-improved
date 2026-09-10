@@ -157,7 +157,8 @@ class SettingRepositoryImpl @Inject constructor(
                     topP = platform.topP,
                     systemPrompt = platform.systemPrompt,
                     stream = true,
-                    reasoning = false
+                    reasoning = false,
+                    disableAllTools = false
                 )
             )
         }
@@ -352,7 +353,8 @@ class SettingRepositoryImpl @Inject constructor(
                     hateSpeechSafetyThreshold = pDto.hateSpeechSafetyThreshold,
                     sexuallyExplicitSafetyThreshold = pDto.sexuallyExplicitSafetyThreshold,
                     dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold,
-                    openRouterRouting = pDto.openRouterRouting
+                    openRouterRouting = pDto.openRouterRouting,
+                    disableAllTools = false
                 )
                 addPlatformV2(newPlatform)
             }

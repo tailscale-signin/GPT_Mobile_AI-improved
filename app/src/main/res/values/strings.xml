@@ -419,4 +419,13 @@
     <string name="max_tool_calls_description">Maximum consecutive tool executions per message</string>
     <string name="about">About</string>
     <string name="about_description">Application information, licenses, and links</string>
+    <string name="disable_all_tools">Disable All Tools</string>
+    <string name="disable_all_tools_description">Completely disable both remote and local offline tools for this platform</string>
+    <string name="sort_by">Sort by</string>
+    <string name="sort_name">Name</string>
+    <string name="sort_provider">Provider</string>
+    <string name="sort_enabled">Enabled</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_not_connected">Not Connected</string>
+    <string name="status_public">Public</string>
 </resources>

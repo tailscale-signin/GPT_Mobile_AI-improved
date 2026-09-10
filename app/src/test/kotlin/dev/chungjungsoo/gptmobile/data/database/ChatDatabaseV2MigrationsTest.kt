@@ -54,6 +54,18 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
+    fun `new platform defaults disable all tools to false`() {
+        val platform = PlatformV2(
+            name = "OpenAI",
+            compatibleType = ClientType.OPENAI,
+            apiUrl = "https://api.openai.com/v1/",
+            model = "gpt-5.6"
+        )
+
+        assertFalse(platform.disableAllTools)
+    }
+
+    @Test
     fun `migration instances have correct versions`() {
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
@@ -69,6 +81,9 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(14, ChatDatabaseV2Migrations.MIGRATION_14_15.startVersion)
         assertEquals(15, ChatDatabaseV2Migrations.MIGRATION_14_15.endVersion)
+
+        assertEquals(15, ChatDatabaseV2Migrations.MIGRATION_15_16.startVersion)
+        assertEquals(16, ChatDatabaseV2Migrations.MIGRATION_15_16.endVersion)
     }
 
     @Test

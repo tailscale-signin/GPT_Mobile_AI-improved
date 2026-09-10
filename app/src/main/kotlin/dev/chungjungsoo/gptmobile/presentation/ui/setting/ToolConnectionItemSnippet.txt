@@ -1,0 +1,112 @@
+        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef == null -> stringResource(R.string.oauth_not_connected)
+        connection.authType == ToolConnectionAuthType.OAUTH -> stringResource(R.string.oauth_connected)
+        connection.secretRef == null -> stringResource(R.string.credential_not_set)
+        else -> stringResource(R.string.credential_set)
+    }
+
+    androidx.compose.material3.Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable(onClick = onEditClick),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = connection.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${providerLabel(connection.type)} • ${connection.alias}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    color = when {
+                        connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.surfaceContainerHighest
+                        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.primaryContainer
+                        connection.secretRef != null -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
+                    }
+                ) {
+                    Text(
+                        text = credentialStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
+                            connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.onPrimaryContainer
+                            connection.secretRef != null -> MaterialTheme.colorScheme.onSecondaryContainer
+                            else -> MaterialTheme.colorScheme.onErrorContainer
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            connection.endpointUrl?.let { url ->
+                if (url.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (connection.type == ToolConnectionType.MCP && connection.authType == ToolConnectionAuthType.OAUTH) {
+                    TextButton(
+                        modifier = Modifier.semantics { contentDescription = connectDescription },
+                        onClick = onOAuthClick
+                    ) {
+                        Text(stringResource(if (connection.secretRef == null) R.string.connect else R.string.reconnect))
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                IconButton(
+                    modifier = Modifier.semantics { contentDescription = editDescription },
+                    onClick = onEditClick
+                ) {
+                    Icon(imageVector = Icons.Filled.Edit, contentDescription = null)
+                }
+                IconButton(
+                    modifier = Modifier.semantics { contentDescription = deleteDescription },
+                    onClick = onDeleteClick
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+    }
+}

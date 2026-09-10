@@ -82,5 +82,8 @@ data class PlatformV2(
     val dangerousContentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
 
     @ColumnInfo(name = "open_router_routing")
-    val openRouterRouting: String? = null
+    val openRouterRouting: String? = null,
+
+    @ColumnInfo(name = "disable_all_tools", defaultValue = "0")
+    val disableAllTools: Boolean = false
 )

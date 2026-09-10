@@ -60,7 +60,7 @@ class PlatformSettingViewModel @Inject constructor(
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
 
-    private val platformUid: String = checkNotNull(savedStateHandle["platformUid"])
+    val platformUid: String = checkNotNull(savedStateHandle["platformUid"])
 
     private val _platformState = MutableStateFlow<PlatformV2?>(null)
     val platformState: StateFlow<PlatformV2?> = _platformState.asStateFlow()
@@ -165,6 +165,12 @@ class PlatformSettingViewModel @Inject constructor(
             return
         }
         updatePlatform(platform.copy(enabled = !platform.enabled))
+    }
+
+    fun toggleDisableAllTools() {
+        _platformState.value?.let { platform ->
+            updatePlatform(platform.copy(disableAllTools = !platform.disableAllTools))
+        }
     }
 
     fun consumeUserMessage() {

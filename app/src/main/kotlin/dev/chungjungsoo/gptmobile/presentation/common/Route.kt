@@ -33,6 +33,7 @@ object Route {
     const val EDIT_TOOL_CONNECTION = "tool_connections/edit/{connectionUid}"
     const val MCP_MARKETPLACE = "tool_connections/marketplace"
     const val PLATFORM_SETTINGS = "platform_settings/{platformUid}"
+    const val MCP_TOOLS_SELECTION = "platform_settings/{platformUid}/mcp_tools"
     const val OPENAI_SETTINGS = "openai_settings"
     const val ANTHROPIC_SETTINGS = "anthropic_settings"
     const val GOOGLE_SETTINGS = "google_settings"

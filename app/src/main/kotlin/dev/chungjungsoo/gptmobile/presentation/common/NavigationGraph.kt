@@ -26,7 +26,9 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.AboutScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AddPlatformScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LicenseScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpToolsSelectionScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionEditorScreen
@@ -100,8 +102,28 @@ fun NavGraphBuilder.setupNavigation(
             val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
             SetupPlatformTypeScreen(
                 setupViewModel = setupViewModel,
-                onPlatformTypeSelected = { navController.navigate(Route.SETUP_PLATFORM_WIZARD) },
+                onSelectPlatformType = { clientType ->
+                    setupViewModel.selectPlatformType(clientType)
+                    if (clientType == ClientType.LITERT) {
+                        navController.navigate(Route.SETUP_LOCAL_MODELS)
+                    } else {
+                        navController.navigate(Route.SETUP_PLATFORM_WIZARD)
+                    }
+                },
                 onBackAction = { navController.navigateUp() }
+            )
+        }
+        composable(route = Route.SETUP_LOCAL_MODELS) {
+            val parentEntry = remember(it) {
+                navController.getBackStackEntry(Route.SETUP_ROUTE)
+            }
+            val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
+            LocalModelsScreen(
+                onNavigationClick = { navController.navigateUp() },
+                onModelSelected = { modelId ->
+                    setupViewModel.selectLocalModel(modelId)
+                    navController.navigate(Route.SETUP_PLATFORM_WIZARD)
+                }
             )
         }
         composable(route = Route.SETUP_PLATFORM_WIZARD) {
@@ -112,16 +134,12 @@ fun NavGraphBuilder.setupNavigation(
             SetupPlatformWizardScreen(
                 setupViewModel = setupViewModel,
                 onComplete = {
-                    // Go back to platform list after adding a platform
-                    navController.popBackStack(Route.SETUP_PLATFORM_LIST, inclusive = false)
+                    navController.navigate(Route.SETUP_PLATFORM_LIST) {
+                        popUpTo(Route.SETUP_PLATFORM_LIST) { inclusive = false }
+                    }
                 },
                 onBackAction = { navController.navigateUp() },
                 onNavigateToLocalModels = { navController.navigate(Route.SETUP_LOCAL_MODELS) }
-            )
-        }
-        composable(route = Route.SETUP_LOCAL_MODELS) {
-            LocalModelsScreen(
-                onNavigationClick = { navController.navigateUp() }
             )
         }
         composable(route = Route.SETUP_COMPLETE) {
@@ -129,17 +147,15 @@ fun NavGraphBuilder.setupNavigation(
                 navController.getBackStackEntry(Route.SETUP_ROUTE)
             }
             val setupViewModel: SetupViewModelV2 = hiltViewModel(parentEntry)
-            val platforms by setupViewModel.platforms.collectAsStateWithLifecycle()
+            val state by setupViewModel.uiState.collectAsStateWithLifecycle()
             SetupCompleteScreen(
-                isPendingLocalPlatform = platforms.any { platform ->
-                    !platform.enabled && platform.compatibleType == ClientType.LITERT_LM
-                },
-                onNavigate = { route ->
-                    navController.navigate(route) {
-                        popUpTo(Route.GET_STARTED) { inclusive = true }
+                hasPendingDownloads = state.hasPendingLocalDownloads,
+                onStartChat = {
+                    setupViewModel.completeSetup()
+                    navController.navigate(Route.CHAT_LIST) {
+                        popUpTo(Route.SETUP_ROUTE) { inclusive = true }
                     }
-                },
-                onBackAction = { navController.navigateUp() }
+                }
             )
         }
     }
@@ -148,22 +164,13 @@ fun NavGraphBuilder.setupNavigation(
 fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
     composable(Route.CHAT_LIST) {
         HomeScreen(
-            settingOnClick = { navController.navigate(Route.SETTING_ROUTE) { launchSingleTop = true } },
+            settingOnClick = { navController.navigate(Route.SETTING_ROUTE) },
             onExistingChatClick = { chatRoom, targetMessageId ->
-                val enabledPlatformString = chatRoom.enabledPlatform.joinToString(",")
-                val route = Route.CHAT_ROOM
-                    .replace(oldValue = "{chatRoomId}", newValue = "${chatRoom.id}")
-                    .replace(oldValue = "{enabledPlatforms}", newValue = enabledPlatformString)
-                    .replace(oldValue = "{targetMessageId}", newValue = "${targetMessageId ?: -1}")
-                navController.navigate(route)
+                val targetSuffix = if (targetMessageId != null) "&targetMessageId=$targetMessageId" else ""
+                navController.navigate("chat_room/${chatRoom.id}?enabled=${chatRoom.platforms.joinToString(",")}$targetSuffix")
             },
-            navigateToNewChat = {
-                val enabledPlatformString = it.joinToString(",")
-                val route = Route.CHAT_ROOM
-                    .replace(oldValue = "{chatRoomId}", newValue = "0")
-                    .replace(oldValue = "{enabledPlatforms}", newValue = enabledPlatformString)
-                    .replace(oldValue = "{targetMessageId}", newValue = "-1")
-                navController.navigate(route)
+            navigateToNewChat = { enabledPlatforms ->
+                navController.navigate("chat_room/0?enabled=${enabledPlatforms.joinToString(",")}")
             }
         )
     }
@@ -230,10 +237,32 @@ fun NavGraphBuilder.settingNavigation(
         composable(
             Route.PLATFORM_SETTINGS,
             arguments = listOf(navArgument("platformUid") { type = NavType.StringType })
-        ) {
+        ) { backStackEntry ->
+            val platformUid = backStackEntry.arguments?.getString("platformUid") ?: ""
+            val platformViewModel: PlatformSettingViewModel = hiltViewModel(backStackEntry)
             PlatformSettingScreen(
+                settingViewModel = platformViewModel,
                 onNavigationClick = { navController.navigateUp() },
-                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) }
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
+                onNavigateToMcpTools = {
+                    navController.navigate(
+                        Route.MCP_TOOLS_SELECTION.replace("{platformUid}", platformUid)
+                    )
+                }
+            )
+        }
+        composable(
+            Route.MCP_TOOLS_SELECTION,
+            arguments = listOf(navArgument("platformUid") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val platformViewModel: PlatformSettingViewModel = hiltViewModel(
+                remember(backStackEntry) {
+                    navController.getBackStackEntry(Route.PLATFORM_SETTINGS.replace("{platformUid}", backStackEntry.arguments?.getString("platformUid") ?: ""))
+                }
+            )
+            McpToolsSelectionScreen(
+                viewModel = platformViewModel,
+                onBackAction = { navController.navigateUp() }
             )
         }
         composable(Route.LOCAL_MODELS) {

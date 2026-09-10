@@ -21,7 +21,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
 - **Persistence:** Room (`ChatDatabaseV2`, Schema version 15) with full FTS search and DataStore preferences (`SettingDataSource`). Migration 14->15 adds `open_router_routing` column to `platform_v2`.
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
-- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU); Ollama supported for self-hosted network inference.
+- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention, speculative decoding); Ollama supported for self-hosted network inference.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
 - **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.0` (versionCode 32). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
@@ -74,6 +74,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/LocalRuntime.kt` — Core local runtime interfaces and event definitions (`LocalInferencePhase`, `LocalRuntimeEvent.PhaseChanged`).
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/LocalRuntimeImpl.kt` — Implementation supporting cooperative thread yielding, phase-split scheduling, and warm engine retention.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/DeviceHardwareGovernor.kt` — Dynamic hardware governor monitoring thermal and battery status for adaptive streaming intervals and token clamps.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RollingContextWindowCompactor.kt` — Rolling context compaction preserving Turn 0 anchor prompts and system instructions while adhering to token ceilings.
 
 ### Networking & Credentials
 

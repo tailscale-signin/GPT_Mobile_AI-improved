@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-10
+
+### Added & Improved
+- **LiteRT-LM Hardware Acceleration & Dynamic Inference Engine**:
+  - Phase-split scheduling (`LocalInferencePhase.PREFILL` / `GENERATING`) with foreground notification updates displaying "Processing prompt…" and "Generating response…".
+  - Cooperative thread yielding (`yield()`) during conversation creation and message evaluation to eliminate UI thread hitches.
+  - DeviceHardwareGovernor: dynamic thermal and battery throttling adjusting context token clamps, stream intervals, and top-k sampling.
+  - High-refresh 120Hz/144Hz token dispatching with 8ms frame budgets on capable hardware.
+  - Idle memory auto-unloading (`unloadIfIdle`) in `LocalEngineHolder` to protect device memory after periods of inactivity.
+  - Rolling Context Window Compactor (`RollingContextWindowCompactor`): Turn 0 anchor prefix preservation and rolling turn truncation preventing context ceiling exhaustion.
+  - Real-time generation telemetry (`LocalInferenceMetrics`) exposing tok/s, TTFT, token counts, and thermal badges in the chat action row (`TelemetryBadge`).
+  - Tier-aware context scaling up to 8,192 tokens on >=12GB/16GB devices, with SoC variant clamping for NPU targets.
+- **OpenRouter Advanced Provider Routing & Reasoning**:
+  - Configure provider ordering, fallback providers, sorting strategy (`price`, `throughput`, `latency`), data collection policies (`allow`, `deny`), and quantizations (`fp16`, `int8`, `int4`, `bf16`).
+  - Added custom max reasoning tokens configuration.
+  - Interactive UI with `OpenRouterAdvancedSettingsDialog` inside Platform Settings.
+  - Added Room Schema 15 and `MIGRATION_14_15` (`open_router_routing` column on `platform_v2`).
+- **Chat Presentation & Responsiveness**:
+  - Instant bottom anchoring via `rememberChatListState` keyed on message counts with target message protection for favorites and deep links.
+  - Collapsible details toggle button (`DetailsButton`) with accessible spring animations (`fastEffectsSpec`).
+  - Continuous streaming heartbeat pulse (`●`) during response generation and tool execution.
+- **Google Gemini Tool Calling Reliability**:
+  - Recursive tool parameter sanitization (`geminiToolParameters`) stripping transport metadata (`x-mcp-header`, `x-mcp-param`) and unsupported schema keywords (`$schema`, `propertyNames`, `additionalProperties`).
+  - Immediate detection of tool schema rejection errors (`throwIfToolDefinitionsRejected`) to prevent multi-API retry loops and timeouts.
+
+## [0.8.9.1] - 2026-09-09
+
+### Added & Improved
+- **OpenRouter Advanced Provider Routing & Reasoning**:
+  - Configure provider ordering, fallback providers, sorting strategy (`price`, `throughput`, `latency`), data collection policies (`allow`, `deny`), and quantizations (`fp16`, `int8`, `int4`, `bf16`).
+  - Added custom max reasoning tokens configuration.
+  - Interactive UI with `OpenRouterAdvancedSettingsDialog` inside Platform Settings.
+  - Added Room Schema 15 and `MIGRATION_14_15` (`open_router_routing` column on `platform_v2`).
+- **Chat Presentation & Responsiveness**:
+  - Instant bottom anchoring via `rememberChatListState` keyed on message counts.
+  - Collapsible details toggle button with accessible spring animations (`Motion.kt`).
+  - Continuous streaming heartbeat pulse (`●`) during response generation and tool execution.
+
+## [0.8.9] - 2026-09-09
+
+### Added & Improved
+- **Favorites Management & Deep Navigation**:
+  - Rich Favorite Detail View with custom category groups ("All", user groups, "+ Add Group"), assignment dropdowns, Markdown/LaTeX/code rendering, and confirmation dialog for unfavoriting.
+  - Reliable In-Chat Navigation: Tapping "View" in the favorite detail dialog seamlessly resolves chat rooms and navigates directly to the target favorited message.
+  - Platform Tab Auto-Switching: Switching automatically to the favorited message's provider tab when navigating into multi-platform chat rooms.
+  - Taller Highlight Container: `OpponentResponseContainer` with an animated cyan highlight surrounding the entire assistant response block (avatar, loading indicators, platform selection pills, and chat bubble).
+  - Haptic feedback when favoriting messages.
+- **Autonomous Agent Tooling & Line Slicing**:
+  - Built-in `read_file_slice` tool for extracting bounded text line slices with 1-based indexing, range validation, and line count metadata.
+  - MCP line slicing (`start_line`, `end_line`) for remote file-reading tools (e.g. GitHub `get_file_contents`) to prevent context window overflow and minimize token overhead.
+  - Prebundled `droid-mcp-web` Online Search (`web_search`, `fetch_webpage`).
+  - Restyled `ToolTraceBlock` with dark card backgrounds, brand icons, and collapsible tool outputs.
+- **Multi-Key API Credential Rotation**:
+  - `ApiCredentialRotator` with high-availability round-robin failover across multiple keys per provider.
+  - Automatic fallback on HTTP 429, 402, 401, and quota exhaustion without interrupting streaming sessions.
+  - Dynamic `+API` key management UI across Platform Settings, Setup Wizard, and MCP Tool Connections.
+- **Architecture & Persistence**:
+  - Room Database Schema v14 with full migrations supporting tool connections, timeline items, agent run persistence, agent tool bindings, and configurable platform tool-call limits (`max_tool_calls`).
+  - Target Android 16 (API 36), Java 21 bytecode, and modern 64-bit ABIs (`arm64-v8a`, `x86_64`).
+  - Local LiteRT-LM runtime integration with hardware acceleration selection (NPU, GPU, CPU) and background model downloading via WorkManager.
+
 ## [0.8.2] - 2026-09-05
 
 ### Added & Improved

@@ -39,11 +39,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -67,6 +69,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,6 +79,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -254,6 +259,9 @@ fun HomeScreen(
 
             when (currentTab) {
                 HomeTab.CHATS -> {
+                    val archivedChats by homeViewModel.archivedChats.collectAsStateWithLifecycle()
+                    val isArchivedExpanded by homeViewModel.isArchivedExpanded.collectAsStateWithLifecycle()
+
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth(),
                         state = listState
@@ -282,42 +290,169 @@ fun HomeScreen(
                             contentType = { _, _ -> "chat-room-item" }
                         ) { idx, chatRoom ->
                             val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
-                            ListItem(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        onLongClick = {
-                                            if (!chatListState.isSearchMode) {
-                                                homeViewModel.enableSelectionMode()
-                                                homeViewModel.selectChat(idx)
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { value ->
+                                    when (value) {
+                                        SwipeToDismissBoxValue.StartToEnd -> {
+                                            homeViewModel.archiveChat(chatRoom.id)
+                                            true
+                                        }
+                                        SwipeToDismissBoxValue.EndToStart -> {
+                                            homeViewModel.deleteSingleChat(chatRoom)
+                                            true
+                                        }
+                                        SwipeToDismissBoxValue.Settled -> false
+                                    }
+                                }
+                            )
+
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                enableDismissFromStartToEnd = !chatListState.isSelectionMode,
+                                enableDismissFromEndToStart = !chatListState.isSelectionMode,
+                                backgroundContent = {
+                                    val direction = dismissState.dismissDirection
+                                    val color = when (direction) {
+                                        SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                                        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                                        SwipeToDismissBoxValue.Settled -> Color.Transparent
+                                    }
+                                    val icon = when (direction) {
+                                        SwipeToDismissBoxValue.StartToEnd -> Icons.Outlined.Archive
+                                        SwipeToDismissBoxValue.EndToStart -> Icons.Outlined.Delete
+                                        SwipeToDismissBoxValue.Settled -> null
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(color)
+                                            .padding(horizontal = 20.dp),
+                                        contentAlignment = if (direction == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+                                    ) {
+                                        icon?.let {
+                                            Icon(
+                                                imageVector = it,
+                                                contentDescription = null,
+                                                tint = if (direction == SwipeToDismissBoxValue.StartToEnd) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            ) {
+                                ListItem(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .combinedClickable(
+                                            onLongClick = {
+                                                if (!chatListState.isSearchMode) {
+                                                    homeViewModel.enableSelectionMode()
+                                                    homeViewModel.selectChat(idx)
+                                                }
+                                            },
+                                            onClick = {
+                                                if (chatListState.isSelectionMode) {
+                                                    homeViewModel.selectChat(idx)
+                                                } else {
+                                                    onExistingChatClick(chatRoom, null)
+                                                }
                                             }
+                                        )
+                                        .padding(start = 8.dp, end = 8.dp)
+                                        .animateItem(),
+                                    headlineContent = { Text(text = chatRoom.title) },
+                                    leadingContent = {
+                                        if (chatListState.isSelectionMode) {
+                                            Checkbox(
+                                                checked = chatListState.selectedChats[idx],
+                                                onCheckedChange = { homeViewModel.selectChat(idx) }
+                                            )
+                                        } else {
+                                            Icon(
+                                                ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
+                                                contentDescription = stringResource(R.string.chat_icon)
+                                            )
+                                        }
+                                    },
+                                    supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
+                                )
+                            }
+                        }
+
+                        // Archived Conversations Bar
+                        if (archivedChats.isNotEmpty() && !chatListState.isSearchMode) {
+                            item(key = "archived-conversations-bar", contentType = "archived-bar") {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                        .clickable { homeViewModel.toggleArchivedExpanded() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Archive,
+                                                contentDescription = "Archived",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = "Archived Conversations (${archivedChats.size})",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = if (isArchivedExpanded) Icons.Rounded.Close else Icons.Filled.Folder,
+                                            contentDescription = if (isArchivedExpanded) "Collapse" else "Expand",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (isArchivedExpanded) {
+                                items(
+                                    items = archivedChats,
+                                    key = { "archived-${it.id}" },
+                                    contentType = { "archived-chat-item" }
+                                ) { chatRoom ->
+                                    val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
+                                    ListItem(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onExistingChatClick(chatRoom, null) }
+                                            .padding(start = 16.dp, end = 8.dp),
+                                        headlineContent = { Text(text = chatRoom.title) },
+                                        leadingContent = {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Archive,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         },
-                                        onClick = {
-                                            if (chatListState.isSelectionMode) {
-                                                homeViewModel.selectChat(idx)
-                                            } else {
-                                                onExistingChatClick(chatRoom, null)
+                                        supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) },
+                                        trailingContent = {
+                                            IconButton(onClick = { homeViewModel.unarchiveChat(chatRoom.id) }) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Unarchive,
+                                                    contentDescription = "Unarchive",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
                                             }
                                         }
                                     )
-                                    .padding(start = 8.dp, end = 8.dp)
-                                    .animateItem(),
-                                headlineContent = { Text(text = chatRoom.title) },
-                                leadingContent = {
-                                    if (chatListState.isSelectionMode) {
-                                        Checkbox(
-                                            checked = chatListState.selectedChats[idx],
-                                            onCheckedChange = { homeViewModel.selectChat(idx) }
-                                        )
-                                    } else {
-                                        Icon(
-                                            ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
-                                            contentDescription = stringResource(R.string.chat_icon)
-                                        )
-                                    }
-                                },
-                                supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
-                            )
+                                }
+                            }
                         }
                     }
                 }
@@ -677,7 +812,7 @@ fun FavoriteDetailDialog(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Persistent View Button to enter the chat room
+                            // Anchored View Button to enter the chat room
                             Button(
                                 onClick = onViewInChat,
                                 shape = RoundedCornerShape(24.dp),
@@ -754,7 +889,7 @@ fun FavoriteDetailDialog(
                                                         text = { Text(group) },
                                                         leadingIcon = {
                                                             if (currentGroup == group) {
-                                                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
+                                                                 Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
                                                             }
                                                         },
                                                         onClick = {
@@ -794,7 +929,7 @@ fun FavoriteDetailDialog(
                     }
                 }
             ) { innerPadding ->
-                // Fully scrollable message content with Markdown, LaTeX math, code highlighting, and custom typography
+                // Content section with properly anchored bottomBar
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1130,6 +1265,8 @@ fun SelectPlatformDialog(
                             title = platform.name,
                             enabled = platform.enabled,
                             selected = selectedPlatforms.getOrElse(originalIndex) { false },
+                            isFavorite = platform.isFavorite,
+                            labels = platform.labels,
                             description = null,
                             onClickEvent = { onPlatformSelect(originalIndex) }
                         )

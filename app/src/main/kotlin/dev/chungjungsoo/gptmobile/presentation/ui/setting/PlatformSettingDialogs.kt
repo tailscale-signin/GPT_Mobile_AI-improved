@@ -1501,12 +1501,6 @@ private fun OpenRouterAdvancedSettingsDialog(
     var sortStrategy by remember {
         mutableStateOf(initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)
     }
-    var skipText by remember {
-        mutableStateOf(initialParsed.provider?.skip?.joinToString(", ") ?: OpenRouterOptions.DEFAULT_PROVIDER_SKIP.joinToString(", "))
-    }
-    var orderText by remember {
-        mutableStateOf(initialParsed.provider?.order?.joinToString(", ") ?: "")
-    }
 
     var sortExpanded by remember { mutableStateOf(false) }
 
@@ -1615,7 +1609,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                     value = seedText,
                     onValueChange = { seedText = it },
                     label = { Text(stringResource(R.string.openrouter_seed)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                     singleLine = true
                 )
 
@@ -1642,7 +1636,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                         value = sortStrategy,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text(stringResource(R.string.openrouter_provider_sort)) },
+                        label = { Text(stringResource(R.string.openrouter_sort_strategy)) },
                         trailingIcon = {
                             ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded)
                         }
@@ -1651,51 +1645,27 @@ private fun OpenRouterAdvancedSettingsDialog(
                         expanded = sortExpanded,
                         onDismissRequest = { sortExpanded = false }
                     ) {
-                        sortOptions.forEach { opt ->
+                        sortOptions.forEach { option ->
                             DropdownMenuItem(
-                                text = { Text(opt) },
+                                text = { Text(option) },
                                 onClick = {
-                                    sortStrategy = opt
+                                    sortStrategy = option
                                     sortExpanded = false
                                 }
                             )
                         }
                     }
                 }
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = skipText,
-                    onValueChange = { skipText = it },
-                    label = { Text(stringResource(R.string.openrouter_provider_skip)) },
-                    placeholder = { Text("Mancer") },
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = orderText,
-                    onValueChange = { orderText = it },
-                    label = { Text(stringResource(R.string.openrouter_provider_order)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
-                    singleLine = true
-                )
             }
         },
         onDismissRequest = onDismissRequest,
         confirmButton = {
             TextButton(
                 onClick = {
-                    val orderList = orderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val skipList = skipText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-
                     val routing = OpenRouterProviderRouting(
-                        sort = sortStrategy.trim().takeIf { it.isNotEmpty() } ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT,
-                        allowFallbacks = allowFallbacks,
-                        skip = skipList ?: OpenRouterOptions.DEFAULT_PROVIDER_SKIP,
-                        order = orderList
+                        sort = sortStrategy,
+                        allowFallbacks = allowFallbacks
                     )
-
                     val options = OpenRouterOptions(
                         stream = streamEnabled,
                         maxTokens = maxTokensText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_MAX_TOKENS,
@@ -1708,7 +1678,6 @@ private fun OpenRouterAdvancedSettingsDialog(
                         seed = seedText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_SEED,
                         provider = routing
                     )
-
                     val resultJson = jsonSerializer.encodeToString(options)
                     onConfirmRequest(resultJson)
                 }

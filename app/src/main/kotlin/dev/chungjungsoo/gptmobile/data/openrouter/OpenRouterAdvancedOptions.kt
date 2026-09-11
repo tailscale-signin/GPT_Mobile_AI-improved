@@ -8,10 +8,6 @@ import kotlinx.serialization.Serializable
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class OpenRouterProviderRouting(
-    @SerialName("order")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val order: List<String>? = null,
-
     @SerialName("allow_fallbacks")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val allowFallbacks: Boolean? = null,
@@ -31,10 +27,6 @@ data class OpenRouterProviderRouting(
     @SerialName("ignore")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val ignore: List<String>? = null,
-
-    @SerialName("skip")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val skip: List<String>? = null,
 
     @SerialName("quantizations")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -134,12 +126,10 @@ data class OpenRouterOptions(
         const val DEFAULT_SEED = 42
         const val DEFAULT_PROVIDER_SORT = "price-asc"
         const val DEFAULT_PROVIDER_ALLOW_FALLBACKS = true
-        val DEFAULT_PROVIDER_SKIP = listOf("Mancer")
 
         val DEFAULT_PROVIDER = OpenRouterProviderRouting(
             sort = DEFAULT_PROVIDER_SORT,
-            allowFallbacks = DEFAULT_PROVIDER_ALLOW_FALLBACKS,
-            skip = DEFAULT_PROVIDER_SKIP
+            allowFallbacks = DEFAULT_PROVIDER_ALLOW_FALLBACKS
         )
 
         fun createDefault(): OpenRouterOptions = OpenRouterOptions(

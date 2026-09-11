@@ -88,8 +88,8 @@ fun APIUrlDialog(
         APIUrlDialog(
             initialValue = initialValue,
             onDismissRequest = settingViewModel::closeApiUrlDialog,
-            onConfirmRequest = { url ->
-                settingViewModel.updateApiUrl(url)
+            onConfirmRequest = { apiUrl ->
+                settingViewModel.updateApiUrl(apiUrl)
             }
         )
     }
@@ -104,44 +104,44 @@ fun APIKeyDialog(
     if (dialogState.isApiTokenDialogOpen) {
         APIKeyDialog(
             initialTokens = initialTokens,
-            onDismissRequest = settingViewModel::closeApiTokenDialog,
-            onConfirmRequest = { token ->
-                settingViewModel.updateApiToken(token)
-            }
-        )
-    }
-}
-
-@Composable
-fun TimeoutDialog(
-    dialogState: PlatformSettingViewModel.DialogState,
-    initialValue: Int,
-    settingViewModel: PlatformSettingViewModel
-) {
-    if (dialogState.isTimeoutDialogOpen) {
-        TimeoutDialog(
-            initialValue = initialValue,
-            onDismissRequest = settingViewModel::closeTimeoutDialog,
-            onConfirmRequest = { timeoutSeconds ->
-                settingViewModel.updateTimeout(timeoutSeconds)
-            }
-        )
+            onDismissRequest = settingViewModel::closeApiTokenDialog
+        ) { apiToken ->
+            settingViewModel.updateApiToken(apiToken)
+        }
     }
 }
 
 @Composable
 fun ModelDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    initModel: String,
+    model: String,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isApiModelDialogOpen) {
         ModelDialog(
-            initModel = initModel,
+            initModel = model,
+            onDismissRequest = settingViewModel::closeApiModelDialog
+        ) { m ->
+            settingViewModel.updateApiModel(m)
+        }
+    }
+}
+
+@Composable
+fun LocalModelDialog(
+    dialogState: PlatformSettingViewModel.DialogState,
+    selectedCatalogEntryId: String,
+    models: List<DownloadedLocalModelOption>,
+    onNavigateToLocalModels: () -> Unit,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (dialogState.isApiModelDialogOpen) {
+        LocalModelDialog(
+            selectedCatalogEntryId = selectedCatalogEntryId,
+            models = models,
             onDismissRequest = settingViewModel::closeApiModelDialog,
-            onConfirmRequest = { model ->
-                settingViewModel.updateApiModel(model)
-            }
+            onModelSelected = settingViewModel::updateApiModel,
+            onNavigateToLocalModels = onNavigateToLocalModels
         )
     }
 }
@@ -155,11 +155,10 @@ fun TopKDialog(
     if (dialogState.isTopKDialogOpen) {
         TopKDialog(
             topK = topK,
-            onDismissRequest = settingViewModel::closeTopKDialog,
-            onConfirmRequest = { newTopK ->
-                settingViewModel.updateTopK(newTopK)
-            }
-        )
+            onDismissRequest = settingViewModel::closeTopKDialog
+        ) { value ->
+            settingViewModel.updateTopK(value)
+        }
     }
 }
 
@@ -173,11 +172,10 @@ fun MaxTokensDialog(
         MaxTokensDialog(
             maxTokens = maxTokens,
             maxTokensCap = settingViewModel.maxTokensCap(),
-            onDismissRequest = settingViewModel::closeMaxTokensDialog,
-            onConfirmRequest = { newMaxTokens ->
-                settingViewModel.updateMaxTokens(newMaxTokens)
-            }
-        )
+            onDismissRequest = settingViewModel::closeMaxTokensDialog
+        ) { value ->
+            settingViewModel.updateMaxTokens(value)
+        }
     }
 }
 
@@ -193,9 +191,7 @@ fun AcceleratorDialog(
             accelerator = accelerator,
             options = options,
             onDismissRequest = settingViewModel::closeAcceleratorDialog,
-            onConfirmRequest = { newAccelerator ->
-                settingViewModel.updateAccelerator(newAccelerator)
-            }
+            onConfirmRequest = settingViewModel::updateAccelerator
         )
     }
 }
@@ -209,11 +205,10 @@ fun TemperatureDialog(
     if (dialogState.isTemperatureDialogOpen) {
         TemperatureDialog(
             temperature = temperature,
-            onDismissRequest = settingViewModel::closeTemperatureDialog,
-            onConfirmRequest = { temp ->
-                settingViewModel.updateTemperature(temp)
-            }
-        )
+            onDismissRequest = settingViewModel::closeTemperatureDialog
+        ) { temp ->
+            settingViewModel.updateTemperature(temp)
+        }
     }
 }
 
@@ -226,11 +221,10 @@ fun TopPDialog(
     if (dialogState.isTopPDialogOpen) {
         TopPDialog(
             topP = topP,
-            onDismissRequest = settingViewModel::closeTopPDialog,
-            onConfirmRequest = { newTopP ->
-                settingViewModel.updateTopP(newTopP)
-            }
-        )
+            onDismissRequest = settingViewModel::closeTopPDialog
+        ) { p ->
+            settingViewModel.updateTopP(p)
+        }
     }
 }
 
@@ -243,10 +237,24 @@ fun SystemPromptDialog(
     if (dialogState.isSystemPromptDialogOpen) {
         SystemPromptDialog(
             prompt = systemPrompt,
-            onDismissRequest = settingViewModel::closeSystemPromptDialog,
-            onConfirmRequest = { prompt ->
-                settingViewModel.updateSystemPrompt(prompt)
-            }
+            onDismissRequest = settingViewModel::closeSystemPromptDialog
+        ) {
+            settingViewModel.updateSystemPrompt(it)
+        }
+    }
+}
+
+@Composable
+fun TimeoutDialog(
+    dialogState: PlatformSettingViewModel.DialogState,
+    timeoutSeconds: Int,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (dialogState.isTimeoutDialogOpen) {
+        TimeoutDialog(
+            initialValue = timeoutSeconds,
+            onDismissRequest = settingViewModel::closeTimeoutDialog,
+            onConfirmRequest = settingViewModel::updateTimeout
         )
     }
 }
@@ -261,14 +269,7 @@ fun GeminiSafetySettingsDialog(
         GeminiSafetySettingsDialog(
             platform = platform,
             onDismissRequest = settingViewModel::closeGeminiSafetyDialog,
-            onConfirmRequest = { harassment, hateSpeech, sexuallyExplicit, dangerousContent ->
-                settingViewModel.updateGeminiSafetySettings(
-                    harassment = harassment,
-                    hateSpeech = hateSpeech,
-                    sexuallyExplicit = sexuallyExplicit,
-                    dangerousContent = dangerousContent
-                )
-            }
+            onConfirmRequest = settingViewModel::updateGeminiSafetySettings
         )
     }
 }
@@ -276,12 +277,12 @@ fun GeminiSafetySettingsDialog(
 @Composable
 fun OpenRouterAdvancedSettingsDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    initialRoutingJson: String?,
+    routingJson: String?,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isOpenRouterSettingsDialogOpen) {
         OpenRouterAdvancedSettingsDialog(
-            initialRoutingJson = initialRoutingJson,
+            initialRoutingJson = routingJson,
             onDismissRequest = settingViewModel::closeOpenRouterSettingsDialog,
             onConfirmRequest = settingViewModel::updateOpenRouterRouting
         )
@@ -291,16 +292,199 @@ fun OpenRouterAdvancedSettingsDialog(
 @Composable
 fun OllamaAdvancedSettingsDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    initialOptionsJson: String?,
+    ollamaOptionsJson: String?,
     settingViewModel: PlatformSettingViewModel
 ) {
-    if (dialogState.isOllamaAdvancedDialogOpen) {
+    if (dialogState.isOllamaSettingsDialogOpen) {
         OllamaAdvancedSettingsDialog(
-            initialOptionsJson = initialOptionsJson,
-            onDismissRequest = settingViewModel::closeOllamaAdvancedDialog,
+            initialOptionsJson = ollamaOptionsJson,
+            onDismissRequest = settingViewModel::closeOllamaSettingsDialog,
             onConfirmRequest = settingViewModel::updateOllamaOptions
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OllamaAdvancedSettingsDialog(
+    initialOptionsJson: String?,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (String?) -> Unit
+) {
+    val jsonSerializer = remember {
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+        }
+    }
+    val initialParsed = remember(initialOptionsJson) {
+        if (!initialOptionsJson.isNullOrBlank()) {
+            runCatching { jsonSerializer.decodeFromString<OllamaOptions>(initialOptionsJson) }.getOrNull()
+        } else {
+            OllamaOptions.createDefault()
+        } ?: OllamaOptions.createDefault()
+    }
+
+    var numGpuText by remember { mutableStateOf((initialParsed.numGpu ?: OllamaOptions.DEFAULT_NUM_GPU).toString()) }
+    var numCtxText by remember { mutableStateOf((initialParsed.numCtx ?: OllamaOptions.DEFAULT_NUM_CTX).toString()) }
+    var numBatchText by remember { mutableStateOf((initialParsed.numBatch ?: OllamaOptions.DEFAULT_NUM_BATCH).toString()) }
+    var numThreadText by remember { mutableStateOf((initialParsed.numThread ?: OllamaOptions.DEFAULT_NUM_THREAD).toString()) }
+    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OllamaOptions.DEFAULT_TEMPERATURE).toString()) }
+    var topPText by remember { mutableStateOf((initialParsed.topP ?: OllamaOptions.DEFAULT_TOP_P).toString()) }
+    var topKText by remember { mutableStateOf((initialParsed.topK ?: OllamaOptions.DEFAULT_TOP_K).toString()) }
+    var repeatPenaltyText by remember { mutableStateOf((initialParsed.repeatPenalty ?: OllamaOptions.DEFAULT_REPEAT_PENALTY).toString()) }
+    var seedText by remember { mutableStateOf((initialParsed.seed ?: OllamaOptions.DEFAULT_SEED).toString()) }
+    var stopTokensText by remember { mutableStateOf((initialParsed.stop ?: OllamaOptions.DEFAULT_STOP).joinToString(", ")) }
+
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.ollama_advanced_settings)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.ollama_advanced_settings_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numGpuText,
+                    onValueChange = { numGpuText = it },
+                    label = { Text(stringResource(R.string.ollama_num_gpu)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numCtxText,
+                    onValueChange = { numCtxText = it },
+                    label = { Text(stringResource(R.string.ollama_num_ctx)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numBatchText,
+                    onValueChange = { numBatchText = it },
+                    label = { Text(stringResource(R.string.ollama_num_batch)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numThreadText,
+                    onValueChange = { numThreadText = it },
+                    label = { Text(stringResource(R.string.ollama_num_thread)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = temperatureText,
+                    onValueChange = { temperatureText = it },
+                    label = { Text(stringResource(R.string.temperature)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topPText,
+                    onValueChange = { topPText = it },
+                    label = { Text(stringResource(R.string.top_p)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topKText,
+                    onValueChange = { topKText = it },
+                    label = { Text(stringResource(R.string.top_k)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = repeatPenaltyText,
+                    onValueChange = { repeatPenaltyText = it },
+                    label = { Text(stringResource(R.string.ollama_repeat_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = seedText,
+                    onValueChange = { seedText = it },
+                    label = { Text(stringResource(R.string.ollama_seed)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = stopTokensText,
+                    onValueChange = { stopTokensText = it },
+                    label = { Text(stringResource(R.string.ollama_stop_tokens)) },
+                    placeholder = { Text("```end, delimiter, You") },
+                    singleLine = true
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val stopList = stopTokensText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val options = OllamaOptions(
+                        numGpu = numGpuText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_GPU,
+                        numCtx = numCtxText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_CTX,
+                        numBatch = numBatchText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_BATCH,
+                        numThread = numThreadText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_THREAD,
+                        temperature = temperatureText.toFloatOrNull() ?: OllamaOptions.DEFAULT_TEMPERATURE,
+                        topP = topPText.toFloatOrNull() ?: OllamaOptions.DEFAULT_TOP_P,
+                        topK = topKText.toIntOrNull() ?: OllamaOptions.DEFAULT_TOP_K,
+                        repeatPenalty = repeatPenaltyText.toFloatOrNull() ?: OllamaOptions.DEFAULT_REPEAT_PENALTY,
+                        seed = seedText.toIntOrNull() ?: OllamaOptions.DEFAULT_SEED,
+                        stop = stopList ?: OllamaOptions.DEFAULT_STOP
+                    )
+                    val resultJson = jsonSerializer.encodeToString(options)
+                    onConfirmRequest(resultJson)
+                }
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    onConfirmRequest(null)
+                }
+            ) {
+                Text(stringResource(R.string.reset))
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -310,50 +494,51 @@ private fun OpenRouterAdvancedSettingsDialog(
     onDismissRequest: () -> Unit,
     onConfirmRequest: (String?) -> Unit
 ) {
-    val jsonSerializer = remember { Json { ignoreUnknownKeys = true } }
-    val initialOptions = remember(initialRoutingJson) {
-        if (!initialRoutingJson.isNullOrBlank()) {
-            val asOptions = runCatching { jsonSerializer.decodeFromString<OpenRouterOptions>(initialRoutingJson) }.getOrNull()
-            if (asOptions != null && (asOptions.provider != null || asOptions.maxTokens != null || asOptions.stream != null || asOptions.repetitionPenalty != null || asOptions.seed != null)) {
-                asOptions
-            } else {
-                val legacyRouting = runCatching { jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson) }.getOrNull()
-                if (legacyRouting != null) {
-                    OpenRouterOptions.createDefault().copy(provider = legacyRouting)
-                } else {
-                    OpenRouterOptions.createDefault()
-                }
-            }
-        } else {
-            OpenRouterOptions.createDefault()
+    val jsonSerializer = remember {
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
         }
     }
-
-    var stream by remember { mutableStateOf(initialOptions.stream ?: true) }
-    var maxTokensText by remember { mutableStateOf(initialOptions.maxTokens?.toString() ?: "") }
-    var temperatureText by remember { mutableStateOf(initialOptions.temperature?.toString() ?: "") }
-    var topPText by remember { mutableStateOf(initialOptions.topP?.toString() ?: "") }
-    var topKText by remember { mutableStateOf(initialOptions.topK?.toString() ?: "") }
-    var frequencyPenaltyText by remember { mutableStateOf(initialOptions.frequencyPenalty?.toString() ?: "") }
-    var presencePenaltyText by remember { mutableStateOf(initialOptions.presencePenalty?.toString() ?: "") }
-    var repetitionPenaltyText by remember { mutableStateOf(initialOptions.repetitionPenalty?.toString() ?: "") }
-    var seedText by remember { mutableStateOf(initialOptions.seed?.toString() ?: "") }
-
-    var providerSort by remember { mutableStateOf(initialOptions.provider?.sort ?: "price-asc") }
-    var providerAllowFallbacks by remember { mutableStateOf(initialOptions.provider?.allowFallbacks ?: true) }
-    var providerSkipText by remember {
-        val skipList = initialOptions.provider?.skip ?: initialOptions.provider?.ignore ?: listOf("Mancer")
-        mutableStateOf(skipList.joinToString(", "))
+    val initialParsed = remember(initialRoutingJson) {
+        if (!initialRoutingJson.isNullOrBlank()) {
+            runCatching { jsonSerializer.decodeFromString<OpenRouterOptions>(initialRoutingJson) }.getOrNull()
+                ?: runCatching {
+                    val routing = jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson)
+                    OpenRouterOptions(provider = routing)
+                }.getOrNull()
+        } else {
+            OpenRouterOptions.createDefault()
+        } ?: OpenRouterOptions.createDefault()
     }
-    var providerOrderText by remember { mutableStateOf(initialOptions.provider?.order?.joinToString(", ") ?: "") }
-    var providerQuantizationsText by remember { mutableStateOf(initialOptions.provider?.quantizations?.joinToString(", ") ?: "") }
-    var providerDataCollection by remember { mutableStateOf(initialOptions.provider?.dataCollection ?: "") }
+
+    var streamEnabled by remember { mutableStateOf(initialParsed.stream ?: OpenRouterOptions.DEFAULT_STREAM) }
+    var maxTokensText by remember { mutableStateOf((initialParsed.maxTokens ?: OpenRouterOptions.DEFAULT_MAX_TOKENS).toString()) }
+    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OpenRouterOptions.DEFAULT_TEMPERATURE).toString()) }
+    var topPText by remember { mutableStateOf((initialParsed.topP ?: OpenRouterOptions.DEFAULT_TOP_P).toString()) }
+    var topKText by remember { mutableStateOf((initialParsed.topK ?: OpenRouterOptions.DEFAULT_TOP_K).toString()) }
+    var freqPenaltyText by remember { mutableStateOf((initialParsed.frequencyPenalty ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY).toString()) }
+    var presPenaltyText by remember { mutableStateOf((initialParsed.presencePenalty ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY).toString()) }
+    var repPenaltyText by remember { mutableStateOf((initialParsed.repetitionPenalty ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY).toString()) }
+    var seedText by remember { mutableStateOf((initialParsed.seed ?: OpenRouterOptions.DEFAULT_SEED).toString()) }
+
+    var allowFallbacks by remember {
+        mutableStateOf(initialParsed.provider?.allowFallbacks ?: OpenRouterOptions.DEFAULT_PROVIDER_ALLOW_FALLBACKS)
+    }
+    var sortStrategy by remember {
+        mutableStateOf(initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)
+    }
+    var skipText by remember {
+        mutableStateOf(initialParsed.provider?.skip?.joinToString(", ") ?: OpenRouterOptions.DEFAULT_PROVIDER_SKIP.joinToString(", "))
+    }
+    var orderText by remember {
+        mutableStateOf(initialParsed.provider?.order?.joinToString(", ") ?: "")
+    }
 
     var sortExpanded by remember { mutableStateOf(false) }
-    var dataCollectionExpanded by remember { mutableStateOf(false) }
 
     val sortOptions = listOf("price-asc", "price", "throughput", "latency")
-    val dataCollectionOptions = listOf("", "allow", "deny")
 
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -384,12 +569,12 @@ private fun OpenRouterAdvancedSettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = stringResource(R.string.openrouter_stream),
+                        text = stringResource(R.string.stream),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Switch(
-                        checked = stream,
-                        onCheckedChange = { stream = it }
+                        checked = streamEnabled,
+                        onCheckedChange = { streamEnabled = it }
                     )
                 }
 
@@ -398,7 +583,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                     value = maxTokensText,
                     onValueChange = { maxTokensText = it },
                     label = { Text(stringResource(R.string.max_tokens)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
@@ -407,7 +592,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                     value = temperatureText,
                     onValueChange = { temperatureText = it },
                     label = { Text(stringResource(R.string.temperature)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
@@ -416,7 +601,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                     value = topPText,
                     onValueChange = { topPText = it },
                     label = { Text(stringResource(R.string.top_p)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
@@ -425,37 +610,34 @@ private fun OpenRouterAdvancedSettingsDialog(
                     value = topKText,
                     onValueChange = { topKText = it },
                     label = { Text(stringResource(R.string.top_k)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = frequencyPenaltyText,
-                    onValueChange = { frequencyPenaltyText = it },
-                    label = { Text(stringResource(R.string.openrouter_frequency_penalty)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_frequency_penalty_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    value = freqPenaltyText,
+                    onValueChange = { freqPenaltyText = it },
+                    label = { Text(stringResource(R.string.frequency_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = presencePenaltyText,
-                    onValueChange = { presencePenaltyText = it },
-                    label = { Text(stringResource(R.string.openrouter_presence_penalty)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_presence_penalty_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    value = presPenaltyText,
+                    onValueChange = { presPenaltyText = it },
+                    label = { Text(stringResource(R.string.presence_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = repetitionPenaltyText,
-                    onValueChange = { repetitionPenaltyText = it },
-                    label = { Text(stringResource(R.string.openrouter_repetition_penalty)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_repetition_penalty_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    value = repPenaltyText,
+                    onValueChange = { repPenaltyText = it },
+                    label = { Text(stringResource(R.string.repetition_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
@@ -463,18 +645,9 @@ private fun OpenRouterAdvancedSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     value = seedText,
                     onValueChange = { seedText = it },
-                    label = { Text(stringResource(R.string.openrouter_seed)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_seed_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = { Text(stringResource(R.string.seed)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
-                )
-
-                // Provider Routing Settings
-                Text(
-                    text = "Provider Routing",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 8.dp)
                 )
 
                 ExposedDropdownMenuBox(
@@ -485,7 +658,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
                             .fillMaxWidth(),
-                        value = if (providerSort.isBlank()) stringResource(R.string.default_label) else providerSort,
+                        value = if (sortStrategy.isBlank()) stringResource(R.string.default_label) else sortStrategy,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(stringResource(R.string.openrouter_sort_strategy)) },
@@ -499,7 +672,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                             DropdownMenuItem(
                                 text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
                                 onClick = {
-                                    providerSort = option
+                                    sortStrategy = option
                                     sortExpanded = false
                                 }
                             )
@@ -517,65 +690,26 @@ private fun OpenRouterAdvancedSettingsDialog(
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Switch(
-                        checked = providerAllowFallbacks,
-                        onCheckedChange = { providerAllowFallbacks = it }
+                        checked = allowFallbacks,
+                        onCheckedChange = { allowFallbacks = it }
                     )
                 }
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = providerSkipText,
-                    onValueChange = { providerSkipText = it },
-                    label = { Text(stringResource(R.string.openrouter_provider_skip)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_provider_skip_hint)) },
+                    value = skipText,
+                    onValueChange = { skipText = it },
+                    label = { Text(stringResource(R.string.openrouter_skip_providers)) },
+                    placeholder = { Text("Mancer") },
                     singleLine = true
                 )
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = providerOrderText,
-                    onValueChange = { providerOrderText = it },
+                    value = orderText,
+                    onValueChange = { orderText = it },
                     label = { Text(stringResource(R.string.openrouter_provider_order)) },
                     placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
-                    singleLine = true
-                )
-
-                ExposedDropdownMenuBox(
-                    expanded = dataCollectionExpanded,
-                    onExpandedChange = { dataCollectionExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
-                            .fillMaxWidth(),
-                        value = if (providerDataCollection.isBlank()) stringResource(R.string.default_label) else providerDataCollection,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(stringResource(R.string.openrouter_data_collection)) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dataCollectionExpanded) }
-                    )
-                    ExposedDropdownMenu(
-                        expanded = dataCollectionExpanded,
-                        onDismissRequest = { dataCollectionExpanded = false }
-                    ) {
-                        dataCollectionOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
-                                onClick = {
-                                    providerDataCollection = option
-                                    dataCollectionExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = providerQuantizationsText,
-                    onValueChange = { providerQuantizationsText = it },
-                    label = { Text(stringResource(R.string.openrouter_quantizations)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_quantizations_hint)) },
                     singleLine = true
                 )
             }
@@ -584,32 +718,26 @@ private fun OpenRouterAdvancedSettingsDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val orderList = providerOrderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val skipList = providerSkipText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val quantList = providerQuantizationsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val sortValue = providerSort.trim().takeIf { it.isNotEmpty() }
-                    val dataCollectionValue = providerDataCollection.trim().takeIf { it.isNotEmpty() }
+                    val orderList = orderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val skipList = skipText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
 
                     val routing = OpenRouterProviderRouting(
-                        order = orderList,
-                        allowFallbacks = providerAllowFallbacks,
-                        sort = sortValue,
-                        dataCollection = dataCollectionValue,
-                        quantizations = quantList,
-                        skip = skipList,
-                        ignore = skipList
+                        sort = sortStrategy.trim().takeIf { it.isNotEmpty() } ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT,
+                        allowFallbacks = allowFallbacks,
+                        skip = skipList ?: OpenRouterOptions.DEFAULT_PROVIDER_SKIP,
+                        order = orderList
                     )
 
                     val options = OpenRouterOptions(
-                        stream = stream,
-                        maxTokens = maxTokensText.toIntOrNull(),
-                        temperature = temperatureText.toFloatOrNull(),
-                        topP = topPText.toFloatOrNull(),
-                        topK = topKText.toIntOrNull(),
-                        frequencyPenalty = frequencyPenaltyText.toFloatOrNull(),
-                        presencePenalty = presencePenaltyText.toFloatOrNull(),
-                        repetitionPenalty = repetitionPenaltyText.toFloatOrNull(),
-                        seed = seedText.toIntOrNull(),
+                        stream = streamEnabled,
+                        maxTokens = maxTokensText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_MAX_TOKENS,
+                        temperature = temperatureText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TEMPERATURE,
+                        topP = topPText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TOP_P,
+                        topK = topKText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_TOP_K,
+                        frequencyPenalty = freqPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY,
+                        presencePenalty = presPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY,
+                        repetitionPenalty = repPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY,
+                        seed = seedText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_SEED,
                         provider = routing
                     )
 
@@ -623,191 +751,7 @@ private fun OpenRouterAdvancedSettingsDialog(
         dismissButton = {
             TextButton(
                 onClick = {
-                    val defaultJson = jsonSerializer.encodeToString(OpenRouterOptions.createDefault())
-                    onConfirmRequest(defaultJson)
-                }
-            ) {
-                Text(stringResource(R.string.reset))
-            }
-        }
-    )
-}
-
-@Composable
-private fun OllamaAdvancedSettingsDialog(
-    initialOptionsJson: String?,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (String?) -> Unit
-) {
-    val jsonSerializer = remember { Json { ignoreUnknownKeys = true } }
-    val initialOptions = remember(initialOptionsJson) {
-        if (!initialOptionsJson.isNullOrBlank()) {
-            runCatching { jsonSerializer.decodeFromString<OllamaOptions>(initialOptionsJson) }.getOrNull()
-        } else {
-            null
-        } ?: OllamaOptions.createDefault()
-    }
-
-    var numGpuText by remember { mutableStateOf(initialOptions.numGpu?.toString() ?: "") }
-    var numCtxText by remember { mutableStateOf(initialOptions.numCtx?.toString() ?: "") }
-    var numBatchText by remember { mutableStateOf(initialOptions.numBatch?.toString() ?: "") }
-    var numThreadText by remember { mutableStateOf(initialOptions.numThread?.toString() ?: "") }
-    var temperatureText by remember { mutableStateOf(initialOptions.temperature?.toString() ?: "") }
-    var topPText by remember { mutableStateOf(initialOptions.topP?.toString() ?: "") }
-    var topKText by remember { mutableStateOf(initialOptions.topK?.toString() ?: "") }
-    var repeatPenaltyText by remember { mutableStateOf(initialOptions.repeatPenalty?.toString() ?: "") }
-    var seedText by remember { mutableStateOf(initialOptions.seed?.toString() ?: "") }
-    var stopText by remember { mutableStateOf(initialOptions.stop?.joinToString(", ") ?: "") }
-
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.ollama_advanced_options)) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.ollama_advanced_options_description),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = numGpuText,
-                    onValueChange = { numGpuText = it },
-                    label = { Text(stringResource(R.string.ollama_num_gpu)) },
-                    placeholder = { Text(stringResource(R.string.ollama_num_gpu_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = numCtxText,
-                    onValueChange = { numCtxText = it },
-                    label = { Text(stringResource(R.string.ollama_num_ctx)) },
-                    placeholder = { Text(stringResource(R.string.ollama_num_ctx_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = numBatchText,
-                    onValueChange = { numBatchText = it },
-                    label = { Text(stringResource(R.string.ollama_num_batch)) },
-                    placeholder = { Text(stringResource(R.string.ollama_num_batch_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = numThreadText,
-                    onValueChange = { numThreadText = it },
-                    label = { Text(stringResource(R.string.ollama_num_thread)) },
-                    placeholder = { Text(stringResource(R.string.ollama_num_thread_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = temperatureText,
-                    onValueChange = { temperatureText = it },
-                    label = { Text(stringResource(R.string.temperature)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = topPText,
-                    onValueChange = { topPText = it },
-                    label = { Text(stringResource(R.string.top_p)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = topKText,
-                    onValueChange = { topKText = it },
-                    label = { Text(stringResource(R.string.top_k)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = repeatPenaltyText,
-                    onValueChange = { repeatPenaltyText = it },
-                    label = { Text(stringResource(R.string.ollama_repeat_penalty)) },
-                    placeholder = { Text(stringResource(R.string.ollama_repeat_penalty_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = seedText,
-                    onValueChange = { seedText = it },
-                    label = { Text(stringResource(R.string.ollama_seed)) },
-                    placeholder = { Text(stringResource(R.string.ollama_seed_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = stopText,
-                    onValueChange = { stopText = it },
-                    label = { Text(stringResource(R.string.ollama_stop)) },
-                    placeholder = { Text(stringResource(R.string.ollama_stop_hint)) },
-                    singleLine = true
-                )
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val stopList = stopText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val options = OllamaOptions(
-                        numGpu = numGpuText.toIntOrNull(),
-                        numCtx = numCtxText.toIntOrNull(),
-                        numBatch = numBatchText.toIntOrNull(),
-                        numThread = numThreadText.toIntOrNull(),
-                        temperature = temperatureText.toFloatOrNull(),
-                        topP = topPText.toFloatOrNull(),
-                        topK = topKText.toIntOrNull(),
-                        repeatPenalty = repeatPenaltyText.toFloatOrNull(),
-                        seed = seedText.toIntOrNull(),
-                        stop = stopList
-                    )
-                    val resultJson = jsonSerializer.encodeToString(options)
-                    onConfirmRequest(resultJson)
-                }
-            ) {
-                Text(stringResource(R.string.save))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = {
-                    val defaultJson = jsonSerializer.encodeToString(OllamaOptions.createDefault())
-                    onConfirmRequest(defaultJson)
+                    onConfirmRequest(null)
                 }
             ) {
                 Text(stringResource(R.string.reset))
@@ -1527,7 +1471,6 @@ private fun TopPDialog(
                             p.toFloatOrNull()?.let {
                                 val rounded = (it.coerceIn(0.1F, 1F) * 10).roundToInt() / 10F
                                 sliderTopP = rounded
-                                textFieldTopP = "%.1f".format(rounded)
                                 isUnset = false
                             }
                         }

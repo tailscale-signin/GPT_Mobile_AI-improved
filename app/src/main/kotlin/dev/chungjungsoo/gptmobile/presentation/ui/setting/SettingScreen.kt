@@ -16,15 +16,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SmartToy
@@ -35,13 +32,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -58,10 +53,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.presentation.common.LocalDynamicTheme
@@ -76,8 +69,7 @@ import dev.chungjungsoo.gptmobile.util.getThemeModeTitle
 fun SettingScreen(
     settingViewModel: SettingViewModelV2,
     onNavigationClick: () -> Unit,
-    onNavigateToAddPlatform: () -> Unit,
-    onNavigateToPlatformSetting: (String) -> Unit,
+    onNavigateToAiPlatforms: () -> Unit,
     onNavigateToLocalModels: () -> Unit,
     onNavigateToToolConnections: () -> Unit,
     onNavigateToAboutPage: () -> Unit,
@@ -87,7 +79,6 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsState()
     val context = LocalContext.current
 
-    // SAF Activity Launchers matching exact .enc backup specification
     val exportConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
@@ -139,18 +130,6 @@ fun SettingScreen(
                     }
                 }
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNavigateToAddPlatform,
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = stringResource(R.string.add_platform)
-                )
-            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -160,64 +139,7 @@ fun SettingScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Dedicated AI Platforms Category Section
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SmartToy,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                    Text(
-                        text = "AI Platforms",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            if (platforms.isEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.no_platforms_yet),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            TextButton(onClick = onNavigateToAddPlatform) {
-                                Text(stringResource(R.string.add_your_first_platform))
-                            }
-                        }
-                    }
-                }
-            } else {
-                items(platforms, key = { it.id }) { platform ->
-                    PlatformItemCard(
-                        platform = platform,
-                        onToggleEnabled = { settingViewModel.togglePlatformEnabled(platform.id) },
-                        onEdit = { onNavigateToPlatformSetting(platform.uid) },
-                        onDelete = { settingViewModel.openDeleteDialog(platform.id) }
-                    )
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Features & Integrations",
                     style = MaterialTheme.typography.titleMedium,
@@ -226,7 +148,7 @@ fun SettingScreen(
                 )
             }
 
-            // Local Models is cleanly placed under Features, right below AI Platforms
+            // AI Platforms situated cleanly in a separate page menu entry ABOVE Local Models
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -235,6 +157,12 @@ fun SettingScreen(
                     )
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        SettingNavigationRow(
+                            icon = Icons.Default.SmartToy,
+                            title = stringResource(R.string.ai_platforms),
+                            subtitle = "${platforms.size} platform${if (platforms.size != 1) "s" else ""} (${platforms.count { it.enabled }} active)",
+                            onClick = onNavigateToAiPlatforms
+                        )
                         SettingNavigationRow(
                             icon = Icons.Default.Storage,
                             title = stringResource(R.string.local_models),
@@ -299,24 +227,6 @@ fun SettingScreen(
 
     if (dialogState.isThemeDialogOpen) {
         ThemeSettingDialog(settingViewModel)
-    }
-
-    if (dialogState.isDeleteDialogOpen) {
-        AlertDialog(
-            onDismissRequest = { settingViewModel.closeDeleteDialog() },
-            title = { Text(text = stringResource(R.string.delete_platform)) },
-            text = { Text(text = stringResource(R.string.delete_platform_confirmation)) },
-            confirmButton = {
-                TextButton(onClick = { settingViewModel.confirmDelete() }) {
-                    Text(text = stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { settingViewModel.closeDeleteDialog() }) {
-                    Text(text = stringResource(R.string.cancel))
-                }
-            }
-        )
     }
 
     if (dialogState.isBackupRestoreDialogOpen) {
@@ -507,68 +417,6 @@ fun ThemeSettingDialog(
             }
         }
     )
-}
-
-@Composable
-private fun PlatformItemCard(
-    platform: PlatformV2,
-    onToggleEnabled: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onEdit),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = platform.name.ifBlank { platform.compatibleType.name },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${platform.compatibleType.name} • ${platform.model.ifBlank { "Default model" }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Switch(
-                    checked = platform.enabled,
-                    onCheckedChange = { onToggleEnabled() }
-                )
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete platform",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable

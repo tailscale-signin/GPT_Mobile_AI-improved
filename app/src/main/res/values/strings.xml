@@ -393,6 +393,8 @@
     <string name="migrated">Migrated</string>
 
     <!-- Settings Screen -->
+    <string name="ai_platforms">AI Platforms</string>
+    <string name="ai_platforms_description">Configure and manage AI platforms and models</string>
     <string name="ai_models">AI Models</string>
     <string name="local">Local</string>
     <string name="remote">Remote</string>
@@ -421,6 +423,10 @@
     <string name="about_description">Application information, licenses, and links</string>
     <string name="disable_all_tools">Disable All Tools</string>
     <string name="disable_all_tools_description">Completely disable both remote and local offline tools for this platform</string>
+    <string name="disable_remote_tools">Disable Remote Tools</string>
+    <string name="disable_remote_tools_description">Disable online web search and remote MCP tools</string>
+    <string name="disable_local_tools">Disable Local Tools</string>
+    <string name="disable_local_tools_description">Disable offline calculators, system date, and file tools</string>
     <string name="sort_by">Sort by</string>
     <string name="sort_name">Name</string>
     <string name="sort_provider">Provider</string>

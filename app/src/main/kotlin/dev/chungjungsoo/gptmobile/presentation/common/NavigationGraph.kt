@@ -23,6 +23,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpMarketplaceScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.migrate.MigrateScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AboutScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AddPlatformScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.AiPlatformsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LicenseScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpToolsSelectionScreen
@@ -193,15 +194,26 @@ fun NavGraphBuilder.settingNavigation(
             SettingScreen(
                 settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
+                onNavigateToAiPlatforms = { navController.navigate(Route.AI_PLATFORMS) },
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
+                onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
+            )
+        }
+        composable(Route.AI_PLATFORMS) {
+            val parentEntry = remember(it) {
+                navController.getBackStackEntry(Route.SETTING_ROUTE)
+            }
+            val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
+            AiPlatformsScreen(
+                settingViewModel = settingViewModel,
+                onNavigationClick = { navController.navigateUp() },
                 onNavigateToAddPlatform = { navController.navigate(Route.ADD_PLATFORM) },
                 onNavigateToPlatformSetting = { platformUid ->
                     navController.navigate(
                         Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid)
                     )
-                },
-                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
-                onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
-                onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
+                }
             )
         }
         composable(Route.ADD_PLATFORM) {

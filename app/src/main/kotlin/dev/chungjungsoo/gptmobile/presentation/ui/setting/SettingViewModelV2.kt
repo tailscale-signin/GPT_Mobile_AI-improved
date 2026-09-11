@@ -7,6 +7,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.backup.AppBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.domain.model.SortType
+import dev.chungjungsoo.gptmobile.domain.usecase.ManagePlatformsUseCase
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -22,11 +25,19 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SettingViewModelV2 @Inject constructor(
     private val settingRepository: SettingRepository,
-    private val appBackupManager: AppBackupManager
+    private val appBackupManager: AppBackupManager,
+    private val managePlatformsUseCase: ManagePlatformsUseCase
 ) : ViewModel() {
 
-    val platformState: StateFlow<List<PlatformV2>> = settingRepository.observePlatformV2s()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val _sortType = MutableStateFlow(SortType.ENABLED)
+    val sortType: StateFlow<SortType> = _sortType.asStateFlow()
+
+    val platformState: StateFlow<List<PlatformV2>> = combine(
+        settingRepository.observePlatformV2s(),
+        _sortType
+    ) { platforms, sort ->
+        managePlatformsUseCase.sortPlatforms(platforms, sort)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
@@ -36,6 +47,10 @@ class SettingViewModelV2 @Inject constructor(
 
     init {
         fetchPlatforms()
+    }
+
+    fun setSortType(sortType: SortType) {
+        _sortType.update { sortType }
     }
 
     fun fetchPlatforms() {
@@ -67,6 +82,16 @@ class SettingViewModelV2 @Inject constructor(
         platform?.let { target ->
             val updated = target.copy(enabled = !target.enabled)
             updatePlatform(updated)
+        }
+    }
+
+    fun togglePlatformFavorite(platformId: Int) {
+        val platform = platformState.value.find { it.id == platformId }
+        platform?.let { target ->
+            viewModelScope.launch {
+                managePlatformsUseCase.toggleFavoritePlatform(target.id, !target.isFavorite)
+                fetchPlatforms()
+            }
         }
     }
 

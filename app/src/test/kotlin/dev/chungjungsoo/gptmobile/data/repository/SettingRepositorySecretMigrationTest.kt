@@ -104,32 +104,28 @@ class SettingRepositorySecretMigrationTest {
         vault: SecretVault,
         dataSource: SettingDataSource = FakeSettingDataSource(),
         chatPlatformModelDao: ChatPlatformModelV2Dao = FakeChatPlatformModelV2Dao()
-    ): SettingRepositoryImpl {
-        return SettingRepositoryImpl(
-            settingDataSource = dataSource,
-            platformV2Dao = platformDao,
-            chatPlatformModelV2Dao = chatPlatformModelDao,
-            secretVault = vault
-        )
-    }
+    ): SettingRepositoryImpl = SettingRepositoryImpl(
+        settingDataSource = dataSource,
+        platformV2Dao = platformDao,
+        chatPlatformModelV2Dao = chatPlatformModelDao,
+        secretVault = vault
+    )
 
     private fun testPlatform(
         id: Int = 1,
         uid: String = "profile-1",
         token: String? = null,
         secretRef: String? = null
-    ): PlatformV2 {
-        return PlatformV2(
-            id = id,
-            uid = uid,
-            name = "Test Platform",
-            compatibleType = ClientType.OPENAI,
-            apiUrl = "https://api.openai.com/v1/",
-            model = "gpt-4o",
-            token = token,
-            secretRef = secretRef
-        )
-    }
+    ): PlatformV2 = PlatformV2(
+        id = id,
+        uid = uid,
+        name = "Test Platform",
+        compatibleType = ClientType.OPENAI,
+        apiUrl = "https://api.openai.com/v1/",
+        model = "gpt-4o",
+        token = token,
+        secretRef = secretRef
+    )
 }
 
 private class FakeSecretVault(
@@ -140,9 +136,8 @@ private class FakeSecretVault(
         values[secretRef] = secret.copyOf()
     }
 
-    override suspend fun read(secretRef: String): ByteArray? {
-        return readOverride?.copyOf() ?: values[secretRef]?.copyOf()
-    }
+    override suspend fun read(secretRef: String): ByteArray? =
+        readOverride?.copyOf() ?: values[secretRef]?.copyOf()
 
     override suspend fun delete(secretRef: String) {
         values.remove(secretRef)?.fill(0)
@@ -193,9 +188,8 @@ private class FakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
 private class FakeSettingDataSource(
     val tokens: MutableMap<ApiType, String> = mutableMapOf()
 ) : SettingDataSource {
-    override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences {
-        return androidx.datastore.preferences.core.emptyPreferences()
-    }
+    override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
+        androidx.datastore.preferences.core.emptyPreferences()
 
     override suspend fun updateDynamicTheme(theme: DynamicTheme) = Unit
     override suspend fun updateThemeMode(themeMode: ThemeMode) = Unit

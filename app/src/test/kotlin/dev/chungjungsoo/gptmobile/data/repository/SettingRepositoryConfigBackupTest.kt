@@ -164,9 +164,8 @@ private class BackupFakeSettingDataSource(
     var dynamicTheme: DynamicTheme? = null,
     var themeMode: ThemeMode? = null
 ) : SettingDataSource {
-    override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences {
-        return androidx.datastore.preferences.core.emptyPreferences()
-    }
+    override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
+        androidx.datastore.preferences.core.emptyPreferences()
 
     override suspend fun updateDynamicTheme(theme: DynamicTheme) {
         dynamicTheme = theme

@@ -530,18 +530,15 @@ class OpenAICompatibleAdapter @Inject constructor(
         }
     }
 
-    private fun isLocalLoopbackUrl(url: String): Boolean {
-        return runCatching {
-            val uri = URI(if ("://" in url) url else "http://$url")
-            val host = uri.host?.lowercase() ?: ""
-            host == "localhost" || host == "127.0.0.1"
-        }.getOrDefault(false)
-    }
+    private fun isLocalLoopbackUrl(url: String): Boolean = runCatching {
+        val uri = URI(if ("://" in url) url else "http://$url")
+        val host = uri.host?.lowercase() ?: ""
+        host == "localhost" || host == "127.0.0.1"
+    }.getOrDefault(false)
 
-    private fun rewriteLoopbackForEmulator(url: String): String {
-        return url.replace("://localhost", "://10.0.2.2")
+    private fun rewriteLoopbackForEmulator(url: String): String =
+        url.replace("://localhost", "://10.0.2.2")
             .replace("://127.0.0.1", "://10.0.2.2")
-    }
 
     private fun isOllamaTimeoutOrNetworkGlitch(errorMsg: String?, throwable: Throwable?): Boolean {
         if (throwable != null) {

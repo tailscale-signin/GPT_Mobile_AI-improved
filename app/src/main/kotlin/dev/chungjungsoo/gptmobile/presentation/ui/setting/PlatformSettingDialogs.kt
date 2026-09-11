@@ -299,6 +299,979 @@ fun OllamaAdvancedSettingsDialog(
     }
 }
 
+@Composable
+fun DeletePlatformDialog(
+    dialogState: PlatformSettingViewModel.DialogState,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (dialogState.isDeleteDialogOpen) {
+        DeletePlatformDialog(
+            onDismissRequest = settingViewModel::closeDeleteDialog,
+            onConfirmRequest = settingViewModel::deletePlatform
+        )
+    }
+}
+
+@Composable
+private fun PlatformNameDialog(
+    initialValue: String,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (name: String) -> Unit
+) {
+    var platformName by remember { mutableStateOf(initialValue) }
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.platform_name)) },
+        text = {
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = platformName,
+                onValueChange = { platformName = it },
+                label = { Text(stringResource(R.string.platform_name)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                supportingText = {
+                    Text(stringResource(R.string.platform_name_supporting))
+                }
+            )
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                enabled = platformName.isNotBlank(),
+                onClick = { onConfirmRequest(platformName) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun APIUrlDialog(
+    initialValue: String,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (url: String) -> Unit
+) {
+    var apiUrl by remember { mutableStateOf(initialValue) }
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.api_url)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.api_url_cautions)
+                )
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    value = apiUrl,
+                    singleLine = true,
+                    isError = apiUrl.isValidUrl().not(),
+                    onValueChange = { apiUrl = it },
+                    label = {
+                        Text(stringResource(R.string.api_url))
+                    },
+                    supportingText = {
+                        if (apiUrl.isValidUrl().not()) {
+                            Text(text = stringResource(R.string.invalid_api_url))
+                        }
+                    }
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                enabled = apiUrl.isNotBlank() && apiUrl.isValidUrl() && apiUrl.endsWith("/"),
+                onClick = { onConfirmRequest(apiUrl) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun APIKeyDialog(
+    initialTokens: String? = null,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (token: String) -> Unit
+) {
+    val initialList = remember(initialTokens) {
+        val parsed = ApiCredentialRotator.parseKeys(initialTokens)
+        if (parsed.isEmpty()) listOf("") else parsed
+    }
+    val tokens = remember(initialTokens) {
+        mutableStateListOf<String>().apply {
+            addAll(initialList)
+        }
+    }
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.api_key)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.multi_api_keys_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                tokens.forEachIndexed { index, tokenValue ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            modifier = Modifier.weight(1f),
+                            value = tokenValue,
+                            onValueChange = { tokens[index] = it },
+                            label = {
+                                Text(
+                                    if (tokens.size > 1) {
+                                        stringResource(R.string.api_key_number, index + 1)
+                                    } else {
+                                        stringResource(R.string.api_key)
+                                    }
+                                )
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                        )
+                        if (tokens.size > 1) {
+                            IconButton(
+                                onClick = { tokens.removeAt(index) },
+                                modifier = Modifier.padding(start = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Delete,
+                                    contentDescription = stringResource(R.string.remove_api_key),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = { tokens.add("") }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.add_api_key),
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                        Text(stringResource(R.string.add_api_key))
+                    }
+                }
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val combined = ApiCredentialRotator.formatKeys(tokens.toList())
+                    onConfirmRequest(combined)
+                }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun TimeoutDialog(
+    initialValue: Int,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (timeoutSeconds: Int) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var timeoutSeconds by remember { mutableStateOf(initialValue.toString()) }
+    val parsedTimeout = timeoutSeconds.toIntOrNull()
+    val isValidTimeout = parsedTimeout != null && parsedTimeout >= 0
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.timeout)) },
+        text = {
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = timeoutSeconds,
+                onValueChange = { timeoutSeconds = it },
+                label = { Text(stringResource(R.string.timeout_seconds_label)) },
+                singleLine = true,
+                isError = !isValidTimeout,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                supportingText = {
+                    Text(
+                        text = if (isValidTimeout) {
+                            stringResource(R.string.timeout_setting_description)
+                        } else {
+                            stringResource(R.string.timeout_invalid)
+                        }
+                    )
+                }
+            )
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                enabled = isValidTimeout,
+                onClick = { onConfirmRequest(parsedTimeout!!) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun ModelDialog(
+    initModel: String,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (model: String) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var model by remember { mutableStateOf(initModel) }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.api_model)) },
+        text = {
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = model,
+                onValueChange = { model = it },
+                label = { Text(stringResource(R.string.model_name)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                supportingText = {
+                    Text(stringResource(R.string.model_supporting))
+                }
+            )
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                enabled = model.isNotBlank(),
+                onClick = { onConfirmRequest(model) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun LocalModelDialog(
+    selectedCatalogEntryId: String,
+    models: List<DownloadedLocalModelOption>,
+    onDismissRequest: () -> Unit,
+    onModelSelected: (String) -> Unit,
+    onNavigateToLocalModels: () -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.api_model)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                LocalModelPicker(
+                    models = models,
+                    selectedCatalogEntryId = selectedCatalogEntryId,
+                    onModelSelected = onModelSelected,
+                    onNavigateToLocalModels = onNavigateToLocalModels
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
+}
+
+@Composable
+private fun TopKDialog(
+    topK: Int?,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (topK: Int?) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var textFieldTopK by remember { mutableStateOf(topK?.toString() ?: "") }
+    val parsedTopK = textFieldTopK.toIntOrNull()
+    val isUnset = textFieldTopK.isBlank()
+    val isValid = isUnset || (parsedTopK != null && parsedTopK in PlatformSettingViewModel.MIN_TOP_K..PlatformSettingViewModel.MAX_TOP_K)
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.top_k_setting)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(stringResource(R.string.top_k_setting_description))
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    value = textFieldTopK,
+                    onValueChange = { textFieldTopK = it },
+                    label = { Text(stringResource(R.string.top_k)) },
+                    singleLine = true,
+                    isError = !isValid,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
+                    placeholder = { Text(stringResource(R.string.not_set)) },
+                    supportingText = {
+                        if (!isValid) {
+                            Text(stringResource(R.string.top_k_invalid))
+                        }
+                    }
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                enabled = isValid,
+                onClick = { onConfirmRequest(if (isUnset) null else parsedTopK) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun MaxTokensDialog(
+    maxTokens: Int?,
+    maxTokensCap: Int = PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (maxTokens: Int?) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var textFieldMaxTokens by remember { mutableStateOf(maxTokens?.toString() ?: "") }
+    val parsedMaxTokens = textFieldMaxTokens.toIntOrNull()
+    val isUnset = textFieldMaxTokens.isBlank()
+    val isValid = isUnset ||
+        (
+            parsedMaxTokens != null &&
+                parsedMaxTokens in PlatformSettingViewModel.MIN_MAX_TOKENS..maxTokensCap
+            )
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.max_tokens_setting)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(stringResource(R.string.max_tokens_setting_description))
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    value = textFieldMaxTokens,
+                    onValueChange = { textFieldMaxTokens = it },
+                    label = { Text(stringResource(R.string.max_tokens)) },
+                    singleLine = true,
+                    isError = !isValid,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
+                    placeholder = { Text(stringResource(R.string.not_set)) },
+                    supportingText = {
+                        if (!isValid) {
+                            Text(
+                                stringResource(
+                                    R.string.max_tokens_invalid,
+                                    maxTokensCap
+                                )
+                            )
+                        } else if (maxTokensCap < PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP) {
+                            Text(
+                                stringResource(
+                                    R.string.max_tokens_hardware_cap_hint,
+                                    maxTokensCap
+                                )
+                            )
+                        } else {
+                            Text(
+                                stringResource(
+                                    R.string.max_tokens_standard_hint,
+                                    maxTokensCap
+                                )
+                            )
+                        }
+                    }
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                enabled = isValid,
+                onClick = { onConfirmRequest(if (isUnset) null else parsedMaxTokens) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun AcceleratorDialog(
+    accelerator: String?,
+    options: List<AcceleratorOption>,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (String) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.accelerator_setting)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(stringResource(R.string.accelerator_setting_description))
+                options.forEach { option ->
+                    RadioItem(
+                        title = acceleratorTitle(option.accelerator),
+                        description = acceleratorUnavailableReason(option),
+                        value = option.accelerator,
+                        selected = LocalAccelerators.normalize(accelerator) == option.accelerator,
+                        enabled = option.enabled
+                    ) {
+                        if (option.enabled) {
+                            onConfirmRequest(option.accelerator)
+                        }
+                    }
+                }
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
+}
+
+@Composable
+private fun acceleratorTitle(accelerator: String): String = when (accelerator) {
+    LocalAccelerators.GPU -> stringResource(R.string.accelerator_gpu)
+    LocalAccelerators.NPU -> stringResource(R.string.accelerator_npu)
+    else -> stringResource(R.string.accelerator_cpu)
+}
+
+@Composable
+private fun acceleratorUnavailableReason(option: AcceleratorOption): String? {
+    if (option.enabled) return null
+    return when (option.unavailableReason) {
+        AcceleratorUnavailableReason.DEVICE_NOT_SUPPORTED -> stringResource(R.string.accelerator_unavailable_device_npu)
+
+        AcceleratorUnavailableReason.MODEL_HAS_NO_BUILD -> when (option.accelerator) {
+            LocalAccelerators.GPU -> stringResource(R.string.accelerator_unavailable_model_no_gpu_build)
+            LocalAccelerators.NPU -> stringResource(R.string.accelerator_unavailable_model_no_npu_build)
+            else -> stringResource(R.string.accelerator_unavailable_model_no_cpu_build)
+        }
+
+        null -> null
+    }
+}
+
+@Composable
+private fun TemperatureDialog(
+    temperature: Float?,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (temp: Float?) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var textFieldTemperature by remember { mutableStateOf(temperature?.let { "%.1f".format(it) } ?: "") }
+    var sliderTemperature by remember { mutableFloatStateOf(temperature ?: 1F) }
+    var isUnset by remember { mutableStateOf(temperature == null) }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.temperature_setting)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Text(stringResource(R.string.temperature_setting_description))
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    value = textFieldTemperature,
+                    onValueChange = { t ->
+                        textFieldTemperature = t
+                        if (t.isBlank()) {
+                            isUnset = true
+                        } else {
+                            val converted = t.toFloatOrNull()
+                            converted?.let {
+                                sliderTemperature = it.coerceIn(0F, 2F)
+                                isUnset = false
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = {
+                        Text(stringResource(R.string.temperature))
+                    },
+                    placeholder = {
+                        Text(stringResource(R.string.not_set))
+                    }
+                )
+                Slider(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    value = sliderTemperature,
+                    valueRange = 0F..2F,
+                    steps = 19,
+                    enabled = !isUnset,
+                    onValueChange = { t ->
+                        val rounded = (t * 10).roundToInt() / 10F
+                        sliderTemperature = rounded
+                        textFieldTemperature = "%.1f".format(rounded)
+                        isUnset = false
+                    }
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = {
+                            textFieldTemperature = ""
+                            isUnset = true
+                        }
+                    ) {
+                        Text(stringResource(R.string.reset))
+                    }
+                }
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirmRequest(if (isUnset) null else sliderTemperature) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun TopPDialog(
+    topP: Float?,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (topP: Float?) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var textFieldTopP by remember { mutableStateOf(topP?.let { "%.1f".format(it) } ?: "") }
+    var sliderTopP by remember { mutableFloatStateOf(topP ?: 1F) }
+    var isUnset by remember { mutableStateOf(topP == null) }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.top_p_setting)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Text(stringResource(R.string.top_p_setting_description))
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    value = textFieldTopP,
+                    onValueChange = { p ->
+                        textFieldTopP = p
+                        if (p.isBlank()) {
+                            isUnset = true
+                        } else {
+                            p.toFloatOrNull()?.let {
+                                val rounded = (it.coerceIn(0.1F, 1F) * 10).roundToInt() / 10F
+                                sliderTopP = rounded
+                                isUnset = false
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    label = {
+                        Text(stringResource(R.string.top_p))
+                    },
+                    placeholder = {
+                        Text(stringResource(R.string.not_set))
+                    }
+                )
+                Slider(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    value = sliderTopP,
+                    valueRange = 0.1F..1F,
+                    steps = 8,
+                    enabled = !isUnset,
+                    onValueChange = { t ->
+                        val rounded = (t * 10).roundToInt() / 10F
+                        sliderTopP = rounded
+                        textFieldTopP = "%.1f".format(rounded)
+                        isUnset = false
+                    }
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = {
+                            textFieldTopP = ""
+                            isUnset = true
+                        }
+                    ) {
+                        Text(stringResource(R.string.reset))
+                    }
+                }
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirmRequest(if (isUnset) null else sliderTopP) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun SystemPromptDialog(
+    prompt: String,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (text: String) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var textFieldPrompt by remember { mutableStateOf(prompt) }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.system_prompt_setting)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Text(stringResource(R.string.system_prompt_description))
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    value = textFieldPrompt,
+                    onValueChange = { textFieldPrompt = it },
+                    label = {
+                        Text(stringResource(R.string.system_prompt))
+                    }
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirmRequest(textFieldPrompt) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun GeminiSafetySettingsDialog(
+    platform: PlatformV2,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (String, String, String, String) -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+    var harassment by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.harassmentSafetyThreshold)) }
+    var hateSpeech by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.hateSpeechSafetyThreshold)) }
+    var sexuallyExplicit by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.sexuallyExplicitSafetyThreshold)) }
+    var dangerousContent by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.dangerousContentSafetyThreshold)) }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.gemini_safety_settings)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                SafetyThresholdDropdown(
+                    label = stringResource(R.string.gemini_safety_harassment),
+                    selectedThreshold = harassment,
+                    onThresholdSelected = { harassment = it }
+                )
+                SafetyThresholdDropdown(
+                    label = stringResource(R.string.gemini_safety_hate_speech),
+                    selectedThreshold = hateSpeech,
+                    onThresholdSelected = { hateSpeech = it }
+                )
+                SafetyThresholdDropdown(
+                    label = stringResource(R.string.gemini_safety_sexually_explicit),
+                    selectedThreshold = sexuallyExplicit,
+                    onThresholdSelected = { sexuallyExplicit = it }
+                )
+                SafetyThresholdDropdown(
+                    label = stringResource(R.string.gemini_safety_dangerous_content),
+                    selectedThreshold = dangerousContent,
+                    onThresholdSelected = { dangerousContent = it }
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirmRequest(harassment, hateSpeech, sexuallyExplicit, dangerousContent) }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SafetyThresholdDropdown(
+    label: String,
+    selectedThreshold: String,
+    onThresholdSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it }
+    ) {
+        OutlinedTextField(
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            value = stringResource(GeminiSafetySettings.labelResFor(selectedThreshold)),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            }
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            GeminiSafetySettings.supportedThresholds.forEach { threshold ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(GeminiSafetySettings.labelResFor(threshold))) },
+                    onClick = {
+                        onThresholdSelected(threshold)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeletePlatformDialog(
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: () -> Unit
+) {
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.delete_platform)) },
+        text = {
+            Text(stringResource(R.string.delete_platform_confirmation))
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(onClick = onConfirmRequest) {
+                Text(stringResource(R.string.delete))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OllamaAdvancedSettingsDialog(

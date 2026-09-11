@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
@@ -147,6 +148,13 @@ class SettingRepositoryImpl @Inject constructor(
         val platforms = fetchPlatforms()
 
         platforms.forEach { platform ->
+            val isOllama = platform.name == ApiType.OLLAMA
+            val defaultOllamaOptionsJson = if (isOllama) {
+                jsonSerializer.encodeToString(OllamaOptions.createDefault())
+            } else {
+                null
+            }
+
             addPlatformV2(
                 PlatformV2(
                     name = when (platform.name) {
@@ -167,12 +175,13 @@ class SettingRepositoryImpl @Inject constructor(
                     apiUrl = ModelConstants.normalizeLegacyAPIUrl(platform.apiUrl),
                     token = platform.token,
                     model = platform.model ?: "",
-                    temperature = platform.temperature,
-                    topP = platform.topP,
+                    temperature = if (isOllama) OllamaOptions.DEFAULT_TEMPERATURE else platform.temperature,
+                    topP = if (isOllama) OllamaOptions.DEFAULT_TOP_P else platform.topP,
                     systemPrompt = platform.systemPrompt,
                     stream = true,
                     reasoning = false,
-                    disableAllTools = false
+                    disableAllTools = false,
+                    ollamaOptions = defaultOllamaOptionsJson
                 )
             )
         }
@@ -299,7 +308,8 @@ class SettingRepositoryImpl @Inject constructor(
                     hateSpeechSafetyThreshold = p.hateSpeechSafetyThreshold,
                     sexuallyExplicitSafetyThreshold = p.sexuallyExplicitSafetyThreshold,
                     dangerousContentSafetyThreshold = p.dangerousContentSafetyThreshold,
-                    openRouterRouting = p.openRouterRouting
+                    openRouterRouting = p.openRouterRouting,
+                    ollamaOptions = p.ollamaOptions
                 )
             }
         )
@@ -343,7 +353,8 @@ class SettingRepositoryImpl @Inject constructor(
                     hateSpeechSafetyThreshold = pDto.hateSpeechSafetyThreshold,
                     sexuallyExplicitSafetyThreshold = pDto.sexuallyExplicitSafetyThreshold,
                     dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold,
-                    openRouterRouting = pDto.openRouterRouting
+                    openRouterRouting = pDto.openRouterRouting,
+                    ollamaOptions = pDto.ollamaOptions
                 )
                 updatePlatformV2(updated)
             } else {
@@ -368,7 +379,8 @@ class SettingRepositoryImpl @Inject constructor(
                     sexuallyExplicitSafetyThreshold = pDto.sexuallyExplicitSafetyThreshold,
                     dangerousContentSafetyThreshold = pDto.dangerousContentSafetyThreshold,
                     openRouterRouting = pDto.openRouterRouting,
-                    disableAllTools = false
+                    disableAllTools = false,
+                    ollamaOptions = pDto.ollamaOptions
                 )
                 addPlatformV2(newPlatform)
             }

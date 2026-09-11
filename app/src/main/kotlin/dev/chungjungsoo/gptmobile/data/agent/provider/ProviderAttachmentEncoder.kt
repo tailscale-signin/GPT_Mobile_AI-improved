@@ -32,10 +32,10 @@ import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-open class ProviderAttachmentEncoder @Inject constructor(
-    @param:ApplicationContext private val context: Context?
+class ProviderAttachmentEncoder @Inject constructor(
+    @param:ApplicationContext private val context: Context
 ) {
-    open suspend fun openAIChatMessages(
+    suspend fun openAIChatMessages(
         turns: List<ConversationTurn>,
         systemPrompt: String?
     ): List<ChatMessage> = buildList {
@@ -52,7 +52,7 @@ open class ProviderAttachmentEncoder @Inject constructor(
         }
     }
 
-    open suspend fun responsesInput(
+    suspend fun responsesInput(
         turns: List<ConversationTurn>,
         platformUid: String
     ): List<ResponseInputMessage> = buildList {
@@ -66,7 +66,7 @@ open class ProviderAttachmentEncoder @Inject constructor(
         }
     }
 
-    open suspend fun anthropicMessages(
+    suspend fun anthropicMessages(
         turns: List<ConversationTurn>,
         platformUid: String
     ): List<InputMessage> = buildList {
@@ -80,7 +80,7 @@ open class ProviderAttachmentEncoder @Inject constructor(
         }
     }
 
-    open suspend fun googleContents(
+    suspend fun googleContents(
         turns: List<ConversationTurn>,
         platformUid: String
     ): List<Content> = buildList {
@@ -98,14 +98,11 @@ open class ProviderAttachmentEncoder @Inject constructor(
         val content = mutableListOf<OpenAIMessageContent>()
         val text = message.modelVisibleText(isUser)
         if (text.isNotBlank()) content += OpenAITextContent(text)
-        val ctx = context
-        if (ctx != null) {
-            message.attachments.forEach { attachment ->
-                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
-                encodedAttachment(filePath, mimeType)?.let { encoded ->
-                    content += OpenAIImageContent(ImageUrl("data:${encoded.mimeType};base64,${encoded.base64Data}"))
-                }
+        message.attachments.forEach { attachment ->
+            val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+            val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(context, filePath) }
+            encodedAttachment(filePath, mimeType)?.let { encoded ->
+                content += OpenAIImageContent(ImageUrl("data:${encoded.mimeType};base64,${encoded.base64Data}"))
             }
         }
         return ChatMessage(
@@ -120,14 +117,9 @@ open class ProviderAttachmentEncoder @Inject constructor(
         platformUid: String
     ): ResponseInputMessage {
         val text = message.modelVisibleText(isUser)
-        val ctx = context
-        val images = if (ctx != null) {
-            message.attachments.filter { attachment ->
-                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                FileUtils.isImage(attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) })
-            }
-        } else {
-            emptyList()
+        val images = message.attachments.filter { attachment ->
+            val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+            FileUtils.isImage(attachment.mimeType.ifBlank { FileUtils.getMimeType(context, filePath) })
         }
         if (images.isEmpty()) {
             return ResponseInputMessage(
@@ -142,9 +134,9 @@ open class ProviderAttachmentEncoder @Inject constructor(
                 val providerRef = attachment.providerRefFor(platformUid)
                 if (providerRef?.remoteType == AttachmentRemoteType.OPENAI_FILE) {
                     add(ResponseContentPart.imageFile(providerRef.remoteId))
-                } else if (ctx != null) {
+                } else {
                     val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
+                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(context, filePath) }
                     encodedAttachment(filePath, mimeType)?.let { encoded ->
                         add(ResponseContentPart.image("data:${encoded.mimeType};base64,${encoded.base64Data}"))
                     }
@@ -166,20 +158,17 @@ open class ProviderAttachmentEncoder @Inject constructor(
         val content = mutableListOf<AnthropicMessageContent>()
         val text = message.modelVisibleText(role == MessageRole.USER)
         if (text.isNotBlank()) content += AnthropicTextContent(text)
-        val ctx = context
-        if (ctx != null) {
-            message.attachments.forEach { attachment ->
-                val providerRef = attachment.providerRefFor(platformUid)
-                if (providerRef?.remoteType == AttachmentRemoteType.ANTHROPIC_FILE) {
-                    content += AnthropicImageContent(ImageSource.file(providerRef.remoteId))
-                } else {
-                    val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
-                    encodedAttachment(filePath, mimeType)?.let { encoded ->
-                        content += AnthropicImageContent(
-                            ImageSource.base64(encoded.mimeType.toAnthropicMediaType(), encoded.base64Data)
-                        )
-                    }
+        message.attachments.forEach { attachment ->
+            val providerRef = attachment.providerRefFor(platformUid)
+            if (providerRef?.remoteType == AttachmentRemoteType.ANTHROPIC_FILE) {
+                content += AnthropicImageContent(ImageSource.file(providerRef.remoteId))
+            } else {
+                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+                val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(context, filePath) }
+                encodedAttachment(filePath, mimeType)?.let { encoded ->
+                    content += AnthropicImageContent(
+                        ImageSource.base64(encoded.mimeType.toAnthropicMediaType(), encoded.base64Data)
+                    )
                 }
             }
         }
@@ -194,18 +183,15 @@ open class ProviderAttachmentEncoder @Inject constructor(
         val parts = mutableListOf<Part>()
         val text = message.modelVisibleText(role == GoogleRole.USER)
         if (text.isNotBlank()) parts += Part.text(text)
-        val ctx = context
-        if (ctx != null) {
-            message.attachments.forEach { attachment ->
-                val providerRef = attachment.providerRefFor(platformUid)
-                if (providerRef?.remoteType == AttachmentRemoteType.GOOGLE_FILE) {
-                    parts += Part.fileData(providerRef.mimeType, providerRef.remoteId)
-                } else {
-                    val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
-                    encodedAttachment(filePath, mimeType)?.let { encoded ->
-                        parts += Part.inlineData(encoded.mimeType, encoded.base64Data)
-                    }
+        message.attachments.forEach { attachment ->
+            val providerRef = attachment.providerRefFor(platformUid)
+            if (providerRef?.remoteType == AttachmentRemoteType.GOOGLE_FILE) {
+                parts += Part.fileData(providerRef.mimeType, providerRef.remoteId)
+            } else {
+                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+                val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(context, filePath) }
+                encodedAttachment(filePath, mimeType)?.let { encoded ->
+                    parts += Part.inlineData(encoded.mimeType, encoded.base64Data)
                 }
             }
         }
@@ -213,11 +199,10 @@ open class ProviderAttachmentEncoder @Inject constructor(
     }
 
     private suspend fun encodedAttachment(filePath: String, mimeType: String): FileUtils.EncodedImage? {
-        val ctx = context ?: return null
         if (!FileUtils.isSupportedUploadMimeType(mimeType)) return null
         AttachmentPayloadCache.get(filePath)?.let { return it }
         return withContext(Dispatchers.IO) {
-            FileUtils.encodeFileForUpload(ctx, filePath, mimeType)?.also { encoded ->
+            FileUtils.encodeFileForUpload(context, filePath, mimeType)?.also { encoded ->
                 AttachmentPayloadCache.put(filePath, encoded)
             }
         }

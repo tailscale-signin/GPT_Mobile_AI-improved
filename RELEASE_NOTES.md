@@ -1,36 +1,28 @@
-# Release Notes - v0.9.1 (Pre-release)
+# Release Notes - v0.9.1.1
 
-Welcome to pre-release **v0.9.1** of **GPT Mobile AI (Improved)**!
+Welcome to **v0.9.1.1** of **GPT Mobile AI (Improved)**!
 
-This release introduces dedicated full-screen MCP tools configuration, comprehensive platform enable/disable syncing across the application, bounded reasoning and tool-calling execution blocks to prevent overlap, high-demand 3-second round-robin auto-retries, interactive home screen platform sorting, redesigned tool connection settings, and Room Database Schema 16.
+This maintenance and stabilization release resolves Kotlin compiler and resource conflicts across platform settings, provides clean dialog bindings, fixes OpenRouter dialog resolution, and ensures reproducible signed release artifacts.
 
 ---
 
-### What's New in v0.9.1
+### What's New in v0.9.1.1
 
-#### 1. Full-Screen MCP Tools Selection & Configuration
-- **Dedicated Screen Destination**: Replaced modal popup dialogs with a full-screen view (`McpToolsSelectionScreen`) accessible at `platform_setting/{platformId}/mcp_tools`.
-- **Server Grouping & Categorization**: Tools are neatly grouped by server with tool category icons, search filter bar, parameter definitions, and status badges.
-- **Master "Disable All Tools" Toggle**: Per-platform switch to completely disable tool execution (both remote MCP/search and local offline tools) for platforms where pure text/reasoning output is preferred.
+#### 1. Platform Settings Dialogs & Compiler Fixes
+- **Timeout Dialog Delegation**: Corrected parameter resolution in `TimeoutDialog` composable to prevent overload ambiguity during Kotlin compilation.
+- **De-duplicated Dialog Declarations**: Stripped redundant legacy dialog implementations from `PlatformSettingDialogs.kt`.
+- **OpenRouter Model Picker Resolution**: Fixed package import in `PlatformSettingScreen.kt` for `OpenRouterModelPickerDialog`.
 
-#### 2. Platform Sync & Settings Screen Restructuring
-- **Immediate State Synchronization**: Toggling off an AI platform immediately disables the model app-wide, persisting synchronously to the database.
-- **Dedicated "AI Platforms" Card**: Reorganized `SettingScreen` so that "AI Platforms" is clearly organized into its own top-level feature card situated cleanly above "Local Models".
+#### 2. Resource Resolution & Build Resilience
+- **AAPT2 Default Value Synchronization**: Added and reconciled missing default resource strings (`gemini_safety_*`, `sample_item_*`, `openrouter_*`, `search_backend`, `none`).
+- **Resource Integrity**: Resolved duplicate and conflicting keys across `missing_build_resources.xml` and `strings.xml`.
 
-#### 3. Chat Layout & Details Positioning
-- **Details Section Placement**: In `ChatScreen`, the Details toggle button and expandable container are positioned cleanly *above* the user question bubble for clearer visual context.
-- **Reasoning & Tool Execution Bubble Isolation**: In `ChatBubble`, isolated `ThinkingBlock` and `ToolTraceBlock` into explicit vertically bounded containers with dedicated padding, preventing visual overlaps during active reasoning or multi-turn tool calling.
-
-#### 4. High Demand 3-Second Round-Robin Auto-Retry
-- **Demand Spike Detection**: Added automatic detection for `"Error: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."` in `ApiCredentialRotator`.
-- **Graceful Failover**: Pauses for 3 seconds before rotating to the next configured API credential or candidate provider.
-
-#### 5. Interactive Home Screen Platform Sorting
-- **Sorting Filter Chips**: In `HomeScreen` (`SelectPlatformDialog`), added interactive sorting filter chips (`Default`, `Name`, `Provider`, `Enabled`) with animated transitions.
-
-#### 6. Database Migration (Schema 16)
-- **Room Migration 15 -> 16**: Added `disable_all_tools: Boolean = false` to entity `platform_v2` with automated migration testing.
-- **Settings Export/Import**: Preserved `disable_all_tools` across configuration backups and restores.
+#### 3. Core Features from v0.9.1 Series
+- **Full-Screen MCP Tools Selection**: Dedicated screen destination (`McpToolsSelectionScreen`) at `platform_setting/{platformId}/mcp_tools`.
+- **Immediate Platform State Synchronization**: Synchronous DB updates when toggling platform states.
+- **Visual Improvements**: Thinking and tool execution bubbles isolated to prevent UI overlaps; details indicator repositioned cleanly above user question bubbles.
+- **Round-Robin Auto-Retry**: Automated 3-second delay and credential failover when encountering high-demand spikes.
+- **Interactive Sorting**: Dynamic filter chips in `HomeScreen` platform selection dialog.
 
 ---
 

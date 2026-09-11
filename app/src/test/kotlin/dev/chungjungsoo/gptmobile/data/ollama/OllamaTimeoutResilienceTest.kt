@@ -8,6 +8,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChatCompletionResponse
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
@@ -135,7 +137,7 @@ class OllamaTimeoutResilienceTest {
             turns: List<ConversationTurn>,
             systemPrompt: String?
         ): List<ChatMessage> = turns.map {
-            ChatMessage(role = "user", content = it.userMessage.content)
+            ChatMessage(role = Role.USER, content = listOf(TextContent(it.userMessage.content.orEmpty())))
         }
     }
 

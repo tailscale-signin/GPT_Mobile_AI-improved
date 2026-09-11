@@ -2,7 +2,12 @@ package dev.chungjungsoo.gptmobile.data.ollama
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAICompatibleAdapter
+import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAttachmentEncoder
+import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
+import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChatCompletionResponse
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
@@ -12,13 +17,12 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
-import java.util.ArrayDeque
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -72,42 +76,29 @@ class OllamaTimeoutResilienceTest {
         override suspend fun isFileAvailable(fileId: String, config: ProviderRequestConfig) = false
     }
 
-    private class ContinuousTimeoutOpenAIAPI : OpenAIAPI {
+    private class DummyGroqAPI : GroqAPI {
         override fun streamChatCompletion(
-            request: ChatCompletionRequest,
+            request: GroqChatCompletionRequest,
             timeoutSeconds: Int,
             config: ProviderRequestConfig
-        ): Flow<ChatCompletionChunk> = flow {
-            emit(
-                ChatCompletionChunk(
-                    error = ErrorDetail(
-                        message = "Response timed out while waiting for the next chunk.",
-                        type = "network_error"
-                    )
-                )
-            )
+        ): Flow<GroqChatCompletionResponse> = flow { }
+    }
+
+    private class MockAttachmentEncoder : ProviderAttachmentEncoder(null as android.content.Context?) {
+        override suspend fun openAIChatMessages(
+            turns: List<ConversationTurn>,
+            systemPrompt: String?
+        ): List<ChatMessage> = turns.map {
+            ChatMessage(role = "user", content = it.userMessage.content)
         }
-
-        override fun streamResponses(
-            request: ResponsesRequest,
-            timeoutSeconds: Int,
-            config: ProviderRequestConfig
-        ): Flow<ResponsesStreamEvent> = flow { }
-
-        override suspend fun uploadFile(
-            filePath: String,
-            fileName: String,
-            mimeType: String,
-            config: ProviderRequestConfig
-        ) = UploadedProviderFile("file", mimeType)
-
-        override suspend fun isFileAvailable(fileId: String, config: ProviderRequestConfig) = false
     }
 
     @Test
     fun `ollama stream continues after timeout and succeeds on retry`() = runBlocking {
         val fakeApi = TimeoutOnceThenSuccessOpenAIAPI()
-        val adapter = OpenAICompatibleAdapter(fakeApi)
+        val dummyGroqApi = DummyGroqAPI()
+        val dummyEncoder = MockAttachmentEncoder()
+        val adapter = OpenAICompatibleAdapter(fakeApi, dummyGroqApi, dummyEncoder)
         val platform = PlatformV2(
             id = 1,
             uid = "ollama-local",
@@ -118,11 +109,11 @@ class OllamaTimeoutResilienceTest {
             timeout = 30
         )
 
-        val events = adapter.stream(
-            platform = platform,
-            messages = listOf(ChatMessage(role = "user", content = "Hello")),
-            tools = emptyList()
-        ).toList()
+        val turn = ConversationTurn(
+            userMessage = MessageV2(id = 1, chatId = 1, content = "Hello", createdAt = 0L)
+        )
+        val session = adapter.openSession(listOf(turn), platform)
+        val events = session.streamRound(emptyList(), emptyList()).toList()
 
         // Verify that retry notice was emitted, followed by recovered text and Completed
         assertTrue(events.any { it is ProviderEvent.Notice && it.message.contains("timed out. Retrying") })

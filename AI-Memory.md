@@ -2,7 +2,7 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Active Branch: `Ollama` — Ollama & OpenRouter platform features and timeout resilience: never fails on timeout, continuously retries for up to 5 minutes, supports Android emulator loopback alias fallback (`10.0.2.2`), handles HTTP 502/503/504 gateway & proxy loading codes, pre-populates default `ollama_options` on platform creation, and safely wraps up incomplete response if timeout persists.
+> Active Branch: `Ollama` — Ollama & OpenRouter platform features and timeout resilience: never fails on timeout, continuously retries for up to 5 minutes, supports Android emulator loopback alias fallback (`10.0.2.2`), handles HTTP 502/503/504 gateway & proxy loading codes, pre-populates default `ollama_options` on platform creation, and safely wraps up incomplete response if timeout persists. Strongly typed `ChatMessage` objects in unit tests.
 >
 > Index status: comprehensive and actively maintained on `main`, `0.9.1`, `release-0.9.1`, and `Ollama`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning/sampling, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. All open issues, PRs, and build test suites are reconciled and passing.
 >
@@ -58,6 +58,6 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/SettingRepositoryImpl.kt`:
   - Repository implementation for user preferences and settings using DataStore. Package syntax corrected and verified.
 - `app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/ollama/OllamaTimeoutResilienceTest.kt`:
-  - Unit tests verifying Ollama timeout resilience and HTTP 502 Bad Gateway recovery on retry.
+  - Unit tests verifying Ollama timeout resilience and HTTP 502 Bad Gateway recovery on retry. Uses strongly-typed `ChatMessage(role = Role.USER, content = listOf(TextContent(...)))`.
 - `app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/ollama/OllamaOptionsTest.kt` & `OpenRouterOptionsTest.kt`:
   - Unit tests verifying serialization of Ollama options and OpenRouter options with strongly typed `ChatMessage(role = Role.USER, content = listOf(TextContent("Hello")))`.

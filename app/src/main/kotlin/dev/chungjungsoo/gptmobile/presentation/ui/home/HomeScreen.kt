@@ -3,8 +3,12 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -34,18 +38,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,6 +62,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,6 +71,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -76,7 +82,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -94,6 +99,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
@@ -104,17 +110,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
+import dev.chungjungsoo.gptmobile.presentation.common.ChatMarkdown
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
-import dev.chungjungsoo.gptmobile.util.getPlatformName
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.PlatformCheckBoxItem
+import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
+
+private fun List<PlatformV2>.getPlatformName(uid: String): String = firstOrNull { it.uid == uid }?.name ?: ""
+
+enum class HomeTab {
+    CHATS,
+    FAVORITES
+}
 
 enum class PlatformSortOrder {
     DEFAULT,
@@ -123,200 +134,190 @@ enum class PlatformSortOrder {
     ENABLED_FIRST
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    modifier: Modifier = Modifier,
     homeViewModel: HomeViewModel = hiltViewModel(),
-    settingOnClick: () -> Unit,
-    onExistingChatClick: (ChatRoomV2, Int?) -> Unit,
-    navigateToNewChat: (enabledPlatforms: List<String>) -> Unit
+    settingOnClick: () -> Unit = {},
+    onExistingChatClick: (chatRoom: ChatRoomV2, targetMessageId: Int?) -> Unit = { _, _ -> },
+    navigateToNewChat: (enabledPlatforms: List<String>) -> Unit = {}
 ) {
-    val listState = rememberLazyListState()
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val currentTab by homeViewModel.currentTab.collectAsStateWithLifecycle()
+    val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior()
     val chatListState by homeViewModel.chatListState.collectAsStateWithLifecycle()
-    val showSelectModelDialog by homeViewModel.showSelectModelDialog.collectAsStateWithLifecycle()
-    val showDeleteWarningDialog by homeViewModel.showDeleteWarningDialog.collectAsStateWithLifecycle()
     val platformState by homeViewModel.platformState.collectAsStateWithLifecycle()
-    val activeChatIds by homeViewModel.activeChatIds.collectAsStateWithLifecycle()
-    val searchQuery by homeViewModel.searchQuery.collectAsStateWithLifecycle()
     val favoriteMessages by homeViewModel.favoriteMessages.collectAsStateWithLifecycle()
     val favoriteGroups by homeViewModel.favoriteGroups.collectAsStateWithLifecycle()
     val selectedFavoriteGroup by homeViewModel.selectedFavoriteGroup.collectAsStateWithLifecycle()
     val messageGroups by homeViewModel.messageGroups.collectAsStateWithLifecycle()
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val isChatListEmpty = chatListState.chatList.isEmpty()
+    val showSelectModelDialog = chatListState.isSelectPlatformDialogOpen
+    val showDeleteWarningDialog = chatListState.isDeleteWarningDialogOpen
     val selectedChatCount = chatListState.selectedChats.count { it }
-    val selectedChat = chatListState.chats.filterIndexed { index, _ -> chatListState.selectedChats.getOrElse(index) { false } }.singleOrNull()
-    val duplicatedChatMessage = stringResource(R.string.duplicated_chat)
-    val deletedChatsMessage = stringResource(R.string.deleted_chats, selectedChatCount)
+    val lazyListState = rememberLazyListState()
+    val context = LocalContext.current
+    val deletedChatsMessage = pluralStringResource(
+        R.plurals.deleted_chats,
+        selectedChatCount,
+        selectedChatCount
+    )
 
+    var currentTab by remember { mutableStateOf(HomeTab.CHATS) }
     var selectedDetailMessage by remember { mutableStateOf<MessageV2?>(null) }
     var showAddGroupDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(lifecycleState) {
-        if (lifecycleState == Lifecycle.State.RESUMED && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-            homeViewModel.fetchChats()
-            homeViewModel.fetchPlatformStatus()
-        }
-    }
-
     BackHandler(enabled = chatListState.isSelectionMode || chatListState.isSearchMode) {
-        when {
-            chatListState.isSelectionMode -> homeViewModel.disableSelectionMode()
-            chatListState.isSearchMode -> homeViewModel.disableSearchMode()
+        if (chatListState.isSearchMode) {
+            homeViewModel.disableSearchMode()
+        } else {
+            homeViewModel.disableSelectionMode()
         }
     }
 
     Scaffold(
-        modifier = Modifier
+        modifier = modifier
+            .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            HomeTopAppBar(
-                isSelectionMode = chatListState.isSelectionMode,
-                isSearchMode = chatListState.isSearchMode,
-                selectedChats = selectedChatCount,
-                duplicateEnabled = selectedChat != null && selectedChat.id !in activeChatIds,
-                scrollBehavior = scrollBehavior,
-                actionOnClick = {
-                    if (chatListState.isSelectionMode) {
-                        homeViewModel.openDeleteWarningDialog()
-                    } else {
-                        settingOnClick()
-                    }
-                },
-                duplicateOnClick = {
-                    homeViewModel.duplicateSelectedChat()
-                    Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
-                },
-                navigationOnClick = {
-                    if (chatListState.isSelectionMode) {
-                        homeViewModel.disableSelectionMode()
-                        return@HomeTopAppBar
-                    }
-
-                    if (chatListState.isSearchMode) {
-                        homeViewModel.disableSearchMode()
-                    } else {
-                        homeViewModel.enableSearchMode()
-                    }
-                },
-                onSearchQueryChanged = homeViewModel::updateSearchQuery,
-                searchQuery = searchQuery
-            )
-        },
-        floatingActionButton = {
-            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                NewChatButton(expanded = listState.isScrollingUp(), onClick = {
-                    val enabledApiTypes = platformState.filter { it.enabled }.map { it.uid }
-                    if (enabledApiTypes.size == 1) {
-                        // Navigate to new chat directly if only one platform is enabled
-                        navigateToNewChat(enabledApiTypes)
-                    } else {
-                        homeViewModel.openSelectModelDialog()
-                    }
-                })
-            }
-        }
-    ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding)) {
-            if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+            Column {
+                HomeTopAppBar(
+                    isSelectionMode = chatListState.isSelectionMode,
+                    isSearchMode = chatListState.isSearchMode,
+                    selectedChats = selectedChatCount,
+                    duplicateEnabled = selectedChatCount == 1,
+                    scrollBehavior = scrollBehavior,
+                    actionOnClick = settingOnClick,
+                    duplicateOnClick = {
+                        homeViewModel.duplicateSelectedChat()
+                        Toast.makeText(context, R.string.duplicated_chat, Toast.LENGTH_SHORT).show()
+                    },
+                    navigationOnClick = {
+                        if (chatListState.isSearchMode) {
+                            homeViewModel.disableSearchMode()
+                        } else {
+                            homeViewModel.disableSelectionMode()
+                        }
+                    },
+                    onSearchQueryChanged = homeViewModel::onSearchQueryChanged,
+                    searchQuery = chatListState.searchQuery
+                )
                 PrimaryTabRow(
                     selectedTabIndex = currentTab.ordinal,
-                    containerColor = MaterialTheme.colorScheme.background
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Tab(
                         selected = currentTab == HomeTab.CHATS,
-                        onClick = { homeViewModel.selectTab(HomeTab.CHATS) },
-                        text = { Text(stringResource(R.string.chats)) },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Outlined.ChatBubbleOutline,
-                                contentDescription = stringResource(R.string.chats)
-                            )
-                        }
+                        onClick = { currentTab = HomeTab.CHATS },
+                        text = { Text(stringResource(R.string.chats)) }
                     )
                     Tab(
                         selected = currentTab == HomeTab.FAVORITES,
-                        onClick = { homeViewModel.selectTab(HomeTab.FAVORITES) },
-                        text = { Text(stringResource(R.string.favorites)) },
-                        icon = {
-                            Icon(
-                                imageVector = if (currentTab == HomeTab.FAVORITES) Icons.Filled.Star else Icons.Outlined.Star,
-                                contentDescription = stringResource(R.string.favorites)
-                            )
+                        onClick = { currentTab = HomeTab.FAVORITES },
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(stringResource(R.string.favorites))
+                                if (favoriteMessages.isNotEmpty()) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color.Cyan.copy(alpha = 0.3f)
+                                    ) {
+                                        Text(
+                                            text = "${favoriteMessages.size}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     )
                 }
             }
-
+        },
+        floatingActionButton = {
+            if (currentTab == HomeTab.CHATS) {
+                NewChatButton(
+                    expanded = !lazyListState.isScrollInProgress,
+                    onClick = {
+                        homeViewModel.refreshPlatforms()
+                        homeViewModel.openSelectModelDialog()
+                    }
+                )
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
             when (currentTab) {
                 HomeTab.CHATS -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth(),
-                        state = listState
-                    ) {
-                        if (!chatListState.isSearchMode) {
-                            item(key = "home-chats-title", contentType = "header") {
-                                ChatsTitle(scrollBehavior)
-                            }
-                        }
-                        if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
-                            item(key = "home-chats-empty", contentType = "empty-notice") {
-                                Text(
+                    if (isChatListEmpty) {
+                        Text(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            text = if (chatListState.isSearchMode) {
+                                stringResource(R.string.no_search_results)
+                            } else {
+                                stringResource(R.string.no_chats)
+                            },
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        LazyColumn(
+                            state = lazyListState,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            itemsIndexed(
+                                items = chatListState.chatList,
+                                key = { _, it -> it.id },
+                                contentType = { _, _ -> "chat-room-item" }
+                            ) { idx, chatRoom ->
+                                val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
+                                ListItem(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(32.dp),
-                                    text = stringResource(R.string.no_search_results),
-                                    textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        .combinedClickable(
+                                            onLongClick = {
+                                                if (!chatListState.isSearchMode) {
+                                                    homeViewModel.enableSelectionMode()
+                                                    homeViewModel.selectChat(idx)
+                                                }
+                                            },
+                                            onClick = {
+                                                if (chatListState.isSelectionMode) {
+                                                    homeViewModel.selectChat(idx)
+                                                } else {
+                                                    onExistingChatClick(chatRoom, null)
+                                                }
+                                            }
+                                        )
+                                        .padding(start = 8.dp, end = 8.dp)
+                                        .animateItem(),
+                                    headlineContent = { Text(text = chatRoom.title) },
+                                    leadingContent = {
+                                        if (chatListState.isSelectionMode) {
+                                            Checkbox(
+                                                checked = chatListState.selectedChats[idx],
+                                                onCheckedChange = { homeViewModel.selectChat(idx) }
+                                            )
+                                        } else {
+                                            Icon(
+                                                ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
+                                                contentDescription = stringResource(R.string.chat_icon)
+                                            )
+                                        }
+                                    },
+                                    supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
                                 )
                             }
-                        }
-                        itemsIndexed(
-                            items = chatListState.chats,
-                            key = { _, it -> it.id },
-                            contentType = { _, _ -> "chat-room-item" }
-                        ) { idx, chatRoom ->
-                            val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
-                            ListItem(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        onLongClick = {
-                                            if (!chatListState.isSearchMode) {
-                                                homeViewModel.enableSelectionMode()
-                                                homeViewModel.selectChat(idx)
-                                            }
-                                        },
-                                        onClick = {
-                                            if (chatListState.isSelectionMode) {
-                                                homeViewModel.selectChat(idx)
-                                            } else {
-                                                onExistingChatClick(chatRoom, null)
-                                            }
-                                        }
-                                    )
-                                    .padding(start = 8.dp, end = 8.dp)
-                                    .animateItem(),
-                                headlineContent = { Text(text = chatRoom.title) },
-                                leadingContent = {
-                                    if (chatListState.isSelectionMode) {
-                                        Checkbox(
-                                            checked = chatListState.selectedChats[idx],
-                                            onCheckedChange = { homeViewModel.selectChat(idx) }
-                                        )
-                                    } else {
-                                        Icon(
-                                            ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
-                                            contentDescription = stringResource(R.string.chat_icon)
-                                        )
-                                    }
-                                },
-                                supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
-                            )
                         }
                     }
                 }
@@ -398,7 +399,6 @@ fun HomeScreen(
                 onConfirm = {
                     homeViewModel.deleteSelectedChats()
                     Toast.makeText(context, deletedChatsMessage, Toast.LENGTH_SHORT).show()
-                    homeViewModel.closeDeleteWarningDialog()
                 }
             )
         }
@@ -409,51 +409,45 @@ fun HomeScreen(
 fun FavoritesList(
     favorites: List<MessageV2>,
     favoriteGroups: List<String>,
-    selectedGroup: String,
+    selectedGroup: String?,
     messageGroups: Map<Int, String>,
     platformState: List<PlatformV2>,
-    onSelectGroup: (String) -> Unit,
+    onSelectGroup: (String?) -> Unit,
     onAddGroupClick: () -> Unit,
     onFavoriteClick: (MessageV2) -> Unit,
     onToggleFavorite: (MessageV2) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // Custom Groups horizontal filter row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+    Column(modifier = Modifier.fillMaxSize()) {
+        SecondaryScrollableTabRow(
+            selectedTabIndex = if (selectedGroup == null) 0 else favoriteGroups.indexOf(selectedGroup) + 1,
+            edgePadding = 16.dp,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            favoriteGroups.forEach { group ->
-                val isSelected = (group == selectedGroup)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { onSelectGroup(group) },
-                    label = {
-                        Text(
-                            text = if (group == HomeViewModel.GROUP_ALL) stringResource(R.string.all) else group,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color.Cyan.copy(alpha = 0.25f),
-                        selectedLabelColor = MaterialTheme.colorScheme.onSurface
-                    )
+            Tab(
+                selected = selectedGroup == null,
+                onClick = { onSelectGroup(null) },
+                text = { Text(stringResource(R.string.all)) }
+            )
+            favoriteGroups.forEach { groupName ->
+                Tab(
+                    selected = selectedGroup == groupName,
+                    onClick = { onSelectGroup(groupName) },
+                    text = { Text(groupName) }
                 )
             }
-            FilterChip(
+            Tab(
                 selected = false,
                 onClick = onAddGroupClick,
-                label = { Text(stringResource(R.string.add_group)) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = stringResource(R.string.add_group),
-                        modifier = Modifier.size(16.dp)
-                    )
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.add_group),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(stringResource(R.string.add_group))
+                    }
                 }
             )
         }
@@ -558,12 +552,13 @@ fun FavoriteMessageItem(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message.content,
                 style = MaterialTheme.typography.bodyMedium,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -577,9 +572,7 @@ fun AddFavoriteGroupDialog(
     var groupName by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismissRequest,
-        title = {
-            Text(text = stringResource(R.string.add_group))
-        },
+        title = { Text(stringResource(R.string.add_group)) },
         text = {
             OutlinedTextField(
                 value = groupName,
@@ -590,9 +583,13 @@ fun AddFavoriteGroupDialog(
             )
         },
         confirmButton = {
-            TextButton(
-                enabled = groupName.isNotBlank(),
-                onClick = { onAddGroup(groupName) }
+            Button(
+                onClick = {
+                    if (groupName.isNotBlank()) {
+                        onAddGroup(groupName.trim())
+                    }
+                },
+                enabled = groupName.isNotBlank()
             ) {
                 Text(stringResource(R.string.confirm))
             }
@@ -676,7 +673,6 @@ fun FavoriteDetailDialog(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Persistent View Button to enter the chat room
                             Button(
                                 onClick = onViewInChat,
                                 shape = RoundedCornerShape(24.dp),
@@ -696,7 +692,6 @@ fun FavoriteDetailDialog(
                                 )
                             }
 
-                            // Middle Group Button & Cyan Favorite Star Button
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -728,50 +723,40 @@ fun FavoriteDetailDialog(
                                             expanded = showGroupDropdown,
                                             onDismissRequest = { showGroupDropdown = false }
                                         ) {
-                                            val validGroups = favoriteGroups.filter { it != HomeViewModel.GROUP_ALL }
-                                            if (validGroups.isEmpty()) {
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.none_group)) },
+                                                onClick = {
+                                                    onAssignGroup(null)
+                                                    showGroupDropdown = false
+                                                },
+                                                leadingIcon = {
+                                                    if (currentGroup == null) {
+                                                        Icon(Icons.Filled.Check, null)
+                                                    }
+                                                }
+                                            )
+                                            favoriteGroups.forEach { group ->
                                                 DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.no_custom_groups)) },
-                                                    onClick = { showGroupDropdown = false },
-                                                    enabled = false
-                                                )
-                                            } else {
-                                                DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.none_group)) },
-                                                    leadingIcon = {
-                                                        if (currentGroup == null) {
-                                                            Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
-                                                        }
-                                                    },
+                                                    text = { Text(group) },
                                                     onClick = {
-                                                        onAssignGroup(null)
+                                                        onAssignGroup(group)
                                                         showGroupDropdown = false
+                                                    },
+                                                    leadingIcon = {
+                                                        if (currentGroup == group) {
+                                                            Icon(Icons.Filled.Check, null)
+                                                        }
                                                     }
                                                 )
-                                                validGroups.forEach { group ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(group) },
-                                                        leadingIcon = {
-                                                            if (currentGroup == group) {
-                                                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
-                                                            }
-                                                        },
-                                                        onClick = {
-                                                            onAssignGroup(group)
-                                                            showGroupDropdown = false
-                                                        }
-                                                    )
-                                                }
                                             }
                                         }
                                     }
                                 }
 
-                                // Persistent Cyan Favorite Star Button
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color.Cyan.copy(alpha = 0.2f),
-                                    border = BorderStroke(1.5.dp, Color.Cyan),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.5f)),
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clickable { showUnfavoriteConfirmDialog = true }
@@ -793,7 +778,6 @@ fun FavoriteDetailDialog(
                     }
                 }
             ) { innerPadding ->
-                // Fully scrollable message content with Markdown, LaTeX math, code highlighting, and custom typography
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -880,112 +864,59 @@ fun HomeTopAppBar(
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = { onSearchQueryChanged("") }) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = stringResource(R.string.clear)
-                                    )
+                                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.clear))
                                 }
                             }
                         }
                     )
                 }
-
                 isSelectionMode -> {
                     Text(
-                        modifier = Modifier.padding(4.dp),
-                        text = stringResource(R.string.chats_selected, selectedChats),
-                        maxLines = 1,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        overflow = TextOverflow.Ellipsis
+                        stringResource(R.string.chats_selected, selectedChats),
+                        style = MaterialTheme.typography.titleLarge
                     )
                 }
-
                 else -> {
                     Text(
-                        modifier = Modifier.padding(4.dp),
-                        text = stringResource(R.string.chats),
-                        maxLines = 1,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = scrollBehavior.state.overlappedFraction),
-                        overflow = TextOverflow.Ellipsis
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.titleLarge
                     )
                 }
             }
         },
         navigationIcon = {
-            when {
-                isSelectionMode -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = navigationOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            contentDescription = stringResource(R.string.close)
-                        )
-                    }
-                }
-
-                isSearchMode -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = navigationOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.close)
-                        )
-                    }
-                }
-
-                else -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = navigationOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Search,
-                            contentDescription = stringResource(R.string.search_chats)
-                        )
-                    }
+            if (isSelectionMode || isSearchMode) {
+                IconButton(onClick = navigationOnClick) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.arrow_icon)
+                    )
                 }
             }
         },
         actions = {
-            when {
-                isSelectionMode -> {
-                    if (selectedChats == 1) {
-                        IconButton(
-                            modifier = Modifier.padding(4.dp),
-                            enabled = duplicateEnabled,
-                            onClick = duplicateOnClick
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ContentCopy,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                contentDescription = stringResource(R.string.duplicate)
-                            )
-                        }
-                    }
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = actionOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Delete,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            contentDescription = stringResource(R.string.delete)
-                        )
-                    }
+            if (isSelectionMode) {
+                IconButton(
+                    onClick = duplicateOnClick,
+                    enabled = duplicateEnabled
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = stringResource(R.string.duplicate)
+                    )
                 }
-
-                !isSearchMode -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = actionOnClick
-                    ) {
-                        Icon(imageVector = Icons.Outlined.Settings, contentDescription = stringResource(R.string.settings))
-                    }
+            } else if (!isSearchMode) {
+                IconButton(onClick = { onSearchQueryChanged("") }) {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = stringResource(R.string.search)
+                    )
+                }
+                IconButton(onClick = actionOnClick) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = stringResource(R.string.settings)
+                    )
                 }
             }
         },
@@ -995,7 +926,9 @@ fun HomeTopAppBar(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ChatsTitle(scrollBehavior: TopAppBarScrollBehavior) {
+fun HomeExpandedTopBar(
+    scrollBehavior: TopAppBarScrollBehavior
+) {
     Text(
         modifier = Modifier
             .padding(top = 32.dp)
@@ -1046,6 +979,7 @@ fun NewChatButton(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SelectPlatformDialog(
     platforms: List<PlatformV2>,
@@ -1059,7 +993,6 @@ fun SelectPlatformDialog(
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
     var sortOrder by remember { mutableStateOf(PlatformSortOrder.DEFAULT) }
 
-    // Map platform indices for stable checkbox selection even when sorted
     val indexedPlatforms = remember(platforms, sortOrder) {
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
         when (sortOrder) {
@@ -1073,55 +1006,73 @@ fun SelectPlatformDialog(
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
+            .widthIn(max = screenWidth - 32.dp)
+            .heightIn(max = screenHeight - 64.dp),
         onDismissRequest = onDismissRequest,
+        shape = RoundedCornerShape(28.dp),
         title = {
-            Column {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = stringResource(R.string.select_platform),
-                    modifier = Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.headlineSmall
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
                 )
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = stringResource(R.string.select_platform_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                // Interactive Sort Chips
+                Spacer(modifier = Modifier.height(12.dp))
+                // Fancy Modern Interactive Sort Filter Chips
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FilterChip(
                         selected = sortOrder == PlatformSortOrder.DEFAULT,
                         onClick = { sortOrder = PlatformSortOrder.DEFAULT },
-                        label = { Text("Default") }
+                        label = { Text(stringResource(R.string.default_label)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     )
                     FilterChip(
                         selected = sortOrder == PlatformSortOrder.NAME,
                         onClick = { sortOrder = PlatformSortOrder.NAME },
-                        label = { Text("Name") }
+                        label = { Text(stringResource(R.string.sort_name)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     )
                     FilterChip(
                         selected = sortOrder == PlatformSortOrder.PROVIDER,
                         onClick = { sortOrder = PlatformSortOrder.PROVIDER },
-                        label = { Text("Provider") }
+                        label = { Text(stringResource(R.string.sort_provider)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     )
                     FilterChip(
                         selected = sortOrder == PlatformSortOrder.ENABLED_FIRST,
                         onClick = { sortOrder = PlatformSortOrder.ENABLED_FIRST },
-                        label = { Text("Enabled") }
+                        label = { Text(stringResource(R.string.sort_enabled)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     )
                 }
             }
         },
         text = {
-            HorizontalDivider()
+            HorizontalDivider(modifier = Modifier.padding(bottom = 8.dp))
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 if (platforms.any { it.enabled }) {
                     indexedPlatforms.forEach { (originalIndex, platform) ->
@@ -1129,7 +1080,7 @@ fun SelectPlatformDialog(
                             title = platform.name,
                             enabled = platform.enabled,
                             selected = selectedPlatforms.getOrElse(originalIndex) { false },
-                            description = null,
+                            description = "${platform.compatibleType.name} • ${platform.model.ifBlank { "Default model" }}",
                             onClickEvent = { onPlatformSelect(originalIndex) }
                         )
                     }
@@ -1140,7 +1091,7 @@ fun SelectPlatformDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 enabled = selectedPlatforms.any { it },
                 onClick = { onConfirmation(platforms.filterIndexed { i, _ -> selectedPlatforms[i] }.map { it.uid }) }
             ) {

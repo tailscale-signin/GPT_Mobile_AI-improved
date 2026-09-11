@@ -24,16 +24,8 @@
     <string name="hide_thinking">Hide thinking</string>
     <string name="view_thinking">View thinking</string>
     <string name="thinking_in_progress">Thinking in progress</string>
-    <string name="collapse">Collapse</string>
-    <string name="expand">Expand</string>
     <string name="tool_event_error_interrupted_app_stopped">Interrupted because the app stopped</string>
     <string name="retry_tools_warning">Retrying may run tools again and repeat their side effects.</string>
-
-    <!-- Gemini safety options -->
-    <string name="gemini_safety_block_only_high">Block high-risk content</string>
-    <string name="gemini_safety_block_medium_and_above">Block medium- and high-risk content</string>
-    <string name="gemini_safety_block_low_and_above">Block low-, medium-, and high-risk content</string>
-    <string name="gemini_safety_block_none">Do not block</string>
 
     <!-- Local inference status and failure messages -->
     <string name="local_platform_ignored_attachments">Attachments are not supported by this local model and were ignored.</string>
@@ -65,8 +57,6 @@
     <string name="agent_run_phase_generating">Generating response…</string>
 
     <!-- UI preview / generic tokens -->
-    <string name="sample_item_title">Sample item</string>
-    <string name="sample_item_description">Sample item description</string>
     <string name="clear_token">Clear token</string>
 
     <string name="local_model_ram_warning_title">Memory warning</string>

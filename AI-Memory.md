@@ -48,3 +48,8 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 ### Core Application & UI Architecture
 
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt` — Core Compose navigation destination graph (`SetupNavGraph`, `homeScreenNavigation`, `chatScreenNavigation`, `settingNavigation`, `setupNavigation`). Correctly aligned composable arguments for `SetupPlatformTypeScreen`, `SetupCompleteScreen`, `PlatformSettingScreen`, `ToolConnectionsScreen`, `ToolConnectionEditorScreen`, `McpToolsSelectionScreen`, `AiPlatformsScreen`, and `McpMarketplaceScreen`.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt` — Screen rendering platform details, switches, and setting items. Connects `PlatformSettingViewModel` and `PlatformSettingDialogs`.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt` — Modal configuration dialogs for platform settings (Ollama advanced options, OpenRouter routing, API tokens, temperature, topP, topK, accelerator, maxTokens, system prompt, Gemini safety).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingViewModel.kt` — ViewModel managing platform settings, tool binding state, catalog models, and dialog states.
+- `app/src/main/res/drawable/ic_extended_thinking.xml` — Vector drawable for the extended thinking toggle.
+- `app/src/main/res/values/strings.xml` — Canonical localization and string resources.

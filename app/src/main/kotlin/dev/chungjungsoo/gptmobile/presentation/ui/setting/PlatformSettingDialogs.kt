@@ -50,6 +50,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
@@ -287,6 +288,21 @@ fun OpenRouterAdvancedSettingsDialog(
     }
 }
 
+@Composable
+fun OllamaAdvancedSettingsDialog(
+    dialogState: PlatformSettingViewModel.DialogState,
+    ollamaOptionsJson: String?,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (dialogState.isOllamaAdvancedDialogOpen) {
+        OllamaAdvancedSettingsDialog(
+            initialOptionsJson = ollamaOptionsJson,
+            onDismissRequest = settingViewModel::closeOllamaAdvancedDialog,
+            onConfirmRequest = settingViewModel::updateOllamaOptions
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OpenRouterAdvancedSettingsDialog(
@@ -478,6 +494,189 @@ private fun OpenRouterAdvancedSettingsDialog(
             TextButton(
                 onClick = {
                     onConfirmRequest(null)
+                }
+            ) {
+                Text(stringResource(R.string.reset))
+            }
+        }
+    )
+}
+
+@Composable
+private fun OllamaAdvancedSettingsDialog(
+    initialOptionsJson: String?,
+    onDismissRequest: () -> Unit,
+    onConfirmRequest: (String?) -> Unit
+) {
+    val jsonSerializer = remember { Json { ignoreUnknownKeys = true } }
+    val initialOptions = remember(initialOptionsJson) {
+        if (!initialOptionsJson.isNullOrBlank()) {
+            runCatching { jsonSerializer.decodeFromString<OllamaOptions>(initialOptionsJson) }.getOrNull()
+        } else {
+            null
+        } ?: OllamaOptions.createDefault()
+    }
+
+    var numGpuText by remember { mutableStateOf(initialOptions.numGpu?.toString() ?: "") }
+    var numCtxText by remember { mutableStateOf(initialOptions.numCtx?.toString() ?: "") }
+    var numBatchText by remember { mutableStateOf(initialOptions.numBatch?.toString() ?: "") }
+    var numThreadText by remember { mutableStateOf(initialOptions.numThread?.toString() ?: "") }
+    var temperatureText by remember { mutableStateOf(initialOptions.temperature?.toString() ?: "") }
+    var topPText by remember { mutableStateOf(initialOptions.topP?.toString() ?: "") }
+    var topKText by remember { mutableStateOf(initialOptions.topK?.toString() ?: "") }
+    var repeatPenaltyText by remember { mutableStateOf(initialOptions.repeatPenalty?.toString() ?: "") }
+    var seedText by remember { mutableStateOf(initialOptions.seed?.toString() ?: "") }
+    var stopText by remember { mutableStateOf(initialOptions.stop?.joinToString(", ") ?: "") }
+
+    val configuration = LocalWindowInfo.current
+    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
+    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
+
+    AlertDialog(
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .widthIn(max = screenWidth - 40.dp)
+            .heightIn(max = screenHeight - 80.dp),
+        title = { Text(text = stringResource(R.string.ollama_advanced_options)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.ollama_advanced_options_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numGpuText,
+                    onValueChange = { numGpuText = it },
+                    label = { Text(stringResource(R.string.ollama_num_gpu)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_gpu_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numCtxText,
+                    onValueChange = { numCtxText = it },
+                    label = { Text(stringResource(R.string.ollama_num_ctx)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_ctx_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numBatchText,
+                    onValueChange = { numBatchText = it },
+                    label = { Text(stringResource(R.string.ollama_num_batch)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_batch_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numThreadText,
+                    onValueChange = { numThreadText = it },
+                    label = { Text(stringResource(R.string.ollama_num_thread)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_thread_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = temperatureText,
+                    onValueChange = { temperatureText = it },
+                    label = { Text(stringResource(R.string.temperature)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topPText,
+                    onValueChange = { topPText = it },
+                    label = { Text(stringResource(R.string.top_p)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topKText,
+                    onValueChange = { topKText = it },
+                    label = { Text(stringResource(R.string.top_k)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = repeatPenaltyText,
+                    onValueChange = { repeatPenaltyText = it },
+                    label = { Text(stringResource(R.string.ollama_repeat_penalty)) },
+                    placeholder = { Text(stringResource(R.string.ollama_repeat_penalty_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = seedText,
+                    onValueChange = { seedText = it },
+                    label = { Text(stringResource(R.string.ollama_seed)) },
+                    placeholder = { Text(stringResource(R.string.ollama_seed_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = stopText,
+                    onValueChange = { stopText = it },
+                    label = { Text(stringResource(R.string.ollama_stop)) },
+                    placeholder = { Text(stringResource(R.string.ollama_stop_hint)) },
+                    singleLine = true
+                )
+            }
+        },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val stopList = stopText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val options = OllamaOptions(
+                        numGpu = numGpuText.toIntOrNull(),
+                        numCtx = numCtxText.toIntOrNull(),
+                        numBatch = numBatchText.toIntOrNull(),
+                        numThread = numThreadText.toIntOrNull(),
+                        temperature = temperatureText.toFloatOrNull(),
+                        topP = topPText.toFloatOrNull(),
+                        topK = topKText.toIntOrNull(),
+                        repeatPenalty = repeatPenaltyText.toFloatOrNull(),
+                        seed = seedText.toIntOrNull(),
+                        stop = stopList
+                    )
+                    val resultJson = jsonSerializer.encodeToString(options)
+                    onConfirmRequest(resultJson)
+                }
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    val defaultJson = jsonSerializer.encodeToString(OllamaOptions.createDefault())
+                    onConfirmRequest(defaultJson)
                 }
             ) {
                 Text(stringResource(R.string.reset))
@@ -1197,6 +1396,7 @@ private fun TopPDialog(
                             p.toFloatOrNull()?.let {
                                 val rounded = (it.coerceIn(0.1F, 1F) * 10).roundToInt() / 10F
                                 sliderTopP = rounded
+                                textFieldTopP = "%.1f".format(rounded)
                                 isUnset = false
                             }
                         }

@@ -247,7 +247,7 @@ fun TimeoutDialog(
 ) {
     if (dialogState.isTimeoutDialogOpen) {
         TimeoutDialog(
-            timeout = timeout,
+            initialValue = timeout,
             onDismissRequest = settingViewModel::closeTimeoutDialog,
             onConfirmRequest = settingViewModel::updateTimeout
         )

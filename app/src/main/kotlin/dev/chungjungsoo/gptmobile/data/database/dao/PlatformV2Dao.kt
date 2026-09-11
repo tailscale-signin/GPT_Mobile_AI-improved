@@ -33,6 +33,12 @@ interface PlatformV2Dao {
     @Update
     suspend fun editPlatform(platform: PlatformV2)
 
+    @Query("UPDATE platform_v2 SET is_favorite = :isFavorite WHERE platform_id = :platformId")
+    suspend fun updateFavorite(platformId: Int, isFavorite: Boolean)
+
+    @Query("UPDATE platform_v2 SET labels = :labels WHERE platform_id = :platformId")
+    suspend fun updateLabels(platformId: Int, labels: String?)
+
     @Transaction
     suspend fun deletePlatform(platform: PlatformV2) {
         deleteBindingsByProfileUid(platform.uid)

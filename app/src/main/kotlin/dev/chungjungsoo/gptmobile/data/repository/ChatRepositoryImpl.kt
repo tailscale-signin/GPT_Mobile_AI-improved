@@ -1,32 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
-import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
-import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
-import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
-import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
-import dev.chungjungsoo.gptmobile.data.agent.agentRunnerForPlatform
-import dev.chungjungsoo.gptmobile.data.agent.provider.AnthropicMessagesAdapter
-import dev.chungjungsoo.gptmobile.data.agent.provider.GeminiAdapter
-import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
-import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAICompatibleAdapter
-import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter
-import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAttachmentEncoder
-import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
-import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
-import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
-import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
-import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
-import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
@@ -36,28 +19,39 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
+import dev.chungjungsoo.gptmobile.data.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
+import dev.chungjungsoo.gptmobile.data.network.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
-import dev.chungjungsoo.gptmobile.di.DeviceSocModel
-import dev.chungjungsoo.gptmobile.util.FileUtils
-import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
-import javax.inject.Inject
+import dev.chungjungsoo.gptmobile.data.network.agent.AgentToolResolver
+import dev.chungjungsoo.gptmobile.data.network.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.network.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.network.agent.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.network.agent.ToolEventRecorder
+import dev.chungjungsoo.gptmobile.data.network.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.network.anthropic.AnthropicMessagesAdapter
+import dev.chungjungsoo.gptmobile.data.network.gemini.GeminiAdapter
+import dev.chungjungsoo.gptmobile.data.network.litert.LiteRtLmAdapter
+import dev.chungjungsoo.gptmobile.data.network.litert.LocalRuntime
+import dev.chungjungsoo.gptmobile.data.network.openai.OpenAICompatibleAdapter
+import dev.chungjungsoo.gptmobile.data.network.openai.OpenAIResponsesAdapter
+import dev.chungjungsoo.gptmobile.data.network.util.ContextBuilder
+import dev.chungjungsoo.gptmobile.data.network.util.ProviderAttachmentEncoder
+import dev.chungjungsoo.gptmobile.data.network.util.stripAssistantErrorNote
+import dev.chungjungsoo.gptmobile.domain.repository.LocalModelRepository
+import dev.chungjungsoo.gptmobile.domain.repository.ModelCatalogRepository
+import dev.chungjungsoo.gptmobile.domain.repository.SettingRepository
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import javax.inject.Inject
 
 class ChatRepositoryImpl @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -119,15 +113,8 @@ class ChatRepositoryImpl @Inject constructor(
         engineLoadFailedError = contextString(
             R.string.local_platform_engine_load_failed,
             LiteRtLmAdapter.DEFAULT_ENGINE_LOAD_FAILED
-        ),
-        modelCatalogRepository = modelCatalogRepository,
-        deviceSocModel = deviceSocModel,
-        loadImageBytes = { attachment ->
-            val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-            FileUtils.readImageBytesForLocalInference(context, filePath)
-        }
+        )
     )
-    private val defaultAgentRunner = AgentRunner()
 
     override suspend fun completeChat(
         userMessages: List<MessageV2>,
@@ -136,225 +123,89 @@ class ChatRepositoryImpl @Inject constructor(
         runId: String,
         chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = flow {
-        emit(ApiState.Loading)
-        try {
-            val contextTurns = withContext(Dispatchers.Default) {
-                buildContextTurns(userMessages, assistantMessages, platform).also { turns ->
-                    validateInlineBudgetIfNeeded(turns, platform)
-                }
-            }
-            val resolvedTools = if (platform.disableAllTools) {
-                emptyList()
-            } else {
-                agentToolResolver.resolve(platform.uid, chatToolConfig)
-            }
-            val session = when (platform.compatibleType) {
-                ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, platform)
+        val resolvedTools = agentToolResolver.resolveTools(platform, chatToolConfig)
+        val toolTraceSession = ToolTraceSession(
+            runId = runId,
+            tools = resolvedTools,
+            recorder = toolEventRecorder
+        )
 
-                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM ->
-                    openAICompatibleAdapter.openSession(contextTurns, platform)
-
-                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextTurns, platform)
-
-                ClientType.GOOGLE -> geminiAdapter.openSession(contextTurns, platform)
-
-                ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                    contextTurns,
-                    platform,
-                    resolvedTools.map { it.tool }
-                )
-            }
-            val runnerTools = if (session.handlesToolsInternally) {
-                emptyList()
-            } else {
-                resolvedTools.map { it.tool }
-            }
-            val trace = ToolTraceSession(runId, resolvedTools, toolEventRecorder)
-
-            val customRunner = if (chatToolConfig?.maxToolCalls != null || platform.maxToolCalls != Int.MAX_VALUE) {
-                agentRunnerForPlatform(platform, chatToolConfig?.maxToolCalls)
-            } else {
-                defaultAgentRunner
-            }
-
-            customRunner.run(session, runnerTools).collect { runEvent ->
-                when (runEvent) {
-                    is AgentRunEvent.Provider -> when (val providerEvent = runEvent.event) {
-                        is ProviderEvent.ThinkingDelta -> emit(ApiState.Thinking(providerEvent.text))
-
-                        is ProviderEvent.TextDelta -> emit(ApiState.Success(providerEvent.text))
-
-                        is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message))
-
-                        is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))
-
-                        is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
-
-                        is ProviderEvent.ToolCall -> {
-                            val toolEvent = trace.start(providerEvent)
-                            emit(ApiState.ToolCall(toolEvent.sequence))
-                        }
-
-                        is ProviderEvent.ToolResult -> Unit
-
-                        ProviderEvent.Completed -> Unit
-                    }
-
-                    is AgentRunEvent.ToolStarted -> Unit
-
-                    is AgentRunEvent.ToolFinished -> trace.finish(runEvent.call, runEvent.result)
-
-                    is AgentRunEvent.Notice -> emit(ApiState.Notice(runEvent.message, runEvent.persistent))
-                }
-            }
-        } finally {
-            withContext(NonCancellable) {
-                toolEventRecorder.cancelRun(runId, currentEpochSeconds())
-            }
+        when (platform.compatibleType) {
+            ClientType.OPENAI -> openAIResponsesAdapter.sendStreamChat(
+                userMessages = userMessages,
+                assistantMessages = assistantMessages,
+                platform = platform,
+                tools = resolvedTools,
+                onToolCallStarted = toolTraceSession::start,
+                onToolCallFinished = toolTraceSession::finish
+            )
+            ClientType.OPENROUTER,
+            ClientType.OPENAI_COMPATIBLE,
+            ClientType.GROQ,
+            ClientType.OLLAMA -> openAICompatibleAdapter.sendStreamChat(
+                userMessages = userMessages,
+                assistantMessages = assistantMessages,
+                platform = platform,
+                tools = resolvedTools,
+                onToolCallStarted = toolTraceSession::start,
+                onToolCallFinished = toolTraceSession::finish
+            )
+            ClientType.ANTHROPIC -> anthropicMessagesAdapter.sendStreamChat(
+                userMessages = userMessages,
+                assistantMessages = assistantMessages,
+                platform = platform,
+                tools = resolvedTools,
+                onToolCallStarted = toolTraceSession::start,
+                onToolCallFinished = toolTraceSession::finish
+            )
+            ClientType.GOOGLE -> geminiAdapter.sendStreamChat(
+                userMessages = userMessages,
+                assistantMessages = assistantMessages,
+                platform = platform,
+                tools = resolvedTools,
+                onToolCallStarted = toolTraceSession::start,
+                onToolCallFinished = toolTraceSession::finish
+            )
+            ClientType.LITERT_LM -> liteRtLmAdapter.sendStreamChat(
+                userMessages = userMessages,
+                assistantMessages = assistantMessages,
+                platform = platform
+            )
+        }.collect { state ->
+            emit(state)
         }
-    }.catch { error ->
-        emit(ApiState.Error(error.message ?: "Failed to complete chat"))
-    }.onCompletion {
-        emit(ApiState.Done)
-    }
+    }.flowOn(Dispatchers.IO)
 
-    private suspend fun buildContextTurns(
-        userMessages: List<MessageV2>,
-        assistantMessages: List<List<MessageV2>>,
-        platform: PlatformV2
-    ): List<ConversationTurn> {
-        val policy = ProviderContextPolicy.forClientType(platform.compatibleType)
-        val contextTurns = contextBuilder.build(userMessages, assistantMessages, platform, policy)
-        if (!policy.preferProviderFileRefs || contextTurns.isEmpty()) {
-            return contextTurns
-        }
+    override fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>> = messageV2Dao.getMessagesV2Flow(chatId)
 
-        return ensureProviderReferencesForTurns(contextTurns, platform)
-    }
+    override fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>> = messageV2Dao.getFavoriteAssistantMessagesFlow()
 
-    private suspend fun ensureProviderReferencesForTurns(
-        turns: List<ConversationTurn>,
-        platform: PlatformV2
-    ): List<ConversationTurn> {
-        val preparedUserMessages = prepareMessagesForPlatform(turns.map { it.userMessage }, platform)
-        return turns.mapIndexed { index, turn ->
-            turn.copy(userMessage = preparedUserMessages[index])
-        }
-    }
-
-    private suspend fun validateInlineBudgetIfNeeded(
-        contextTurns: List<ConversationTurn>,
-        platform: PlatformV2
-    ) {
-        val maxInlineBytes = ProviderContextPolicy.forClientType(platform.compatibleType).maxInlineAttachmentBytes ?: return
-        attachmentUploadCoordinator.validateInlineAttachmentBudget(contextTurns, maxInlineBytes)
-    }
-
-    private suspend fun prepareMessagesForPlatform(
-        messages: List<MessageV2>,
-        platform: PlatformV2
-    ): List<MessageV2> {
-        if (messages.none { it.attachments.isNotEmpty() }) {
-            return messages
-        }
-
-        val updatedMessages = coroutineScope {
-            messages.map { message ->
-                async { attachmentUploadCoordinator.ensureMessageAttachmentsForPlatform(message, platform) }
-            }.awaitAll()
-        }
-
-        val changedMessages = updatedMessages
-            .zip(messages)
-            .mapNotNull { (updated, original) -> updated.takeIf { it != original } }
-
-        if (changedMessages.isNotEmpty()) {
-            messageV2Dao.editMessages(*changedMessages.toTypedArray())
-        }
-
-        return updatedMessages
-    }
-
-    override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
-
-    override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
-        if (query.isBlank()) {
-            return chatRoomV2Dao.getChatRooms()
-        }
-
-        // Search by title and message content concurrently on I/O dispatcher
-        val (titleMatches, messageMatchChatIds) = withContext(Dispatchers.IO) {
-            coroutineScope {
-                val titleJob = async { chatRoomV2Dao.searchChatRoomsByTitle(query) }
-                val contentJob = async { messageV2Dao.searchMessagesByContent(query) }
-                Pair(titleJob.await(), contentJob.await())
-            }
-        }
-
-        // Query only the matched chat rooms directly from DB by ID instead of fetching all chat rooms into memory
-        val messageMatches = if (messageMatchChatIds.isEmpty()) {
-            emptyList()
-        } else {
-            withContext(Dispatchers.IO) {
-                chatRoomV2Dao.getChatRoomsByIds(messageMatchChatIds)
-            }
-        }
-
-        // Combine results and remove duplicates, maintaining order by updatedAt
-        val titleMatchIds = HashSet<Int>(titleMatches.size)
-        val combined = ArrayList<ChatRoomV2>(titleMatches.size + messageMatches.size)
-        for (room in titleMatches) {
-            titleMatchIds.add(room.id)
-            combined.add(room)
-        }
-        for (room in messageMatches) {
-            if (titleMatchIds.add(room.id)) {
-                combined.add(room)
-            }
-        }
-        combined.sortByDescending { it.updatedAt }
-        return combined
-    }
-
-    override suspend fun fetchMessagesV2(chatId: Int): List<MessageV2> = messageV2Dao.loadMessages(chatId)
-
-    override fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>> = messageV2Dao.observeMessages(chatId)
-
-    override fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>> = messageV2Dao.observeFavoriteAssistantMessages()
-
-    override fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>> =
-        if (query.isBlank()) {
-            messageV2Dao.observeFavoriteAssistantMessages()
-        } else {
-            messageV2Dao.searchFavoriteAssistantMessages(query)
-        }
+    override fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>> = messageV2Dao.searchFavoriteAssistantMessagesFlow(query)
 
     override suspend fun setMessageFavorite(messageId: Int, isFavorite: Boolean) {
         messageV2Dao.updateFavorite(messageId, isFavorite)
     }
 
-    override fun observeAgentRuns(chatId: Int) = agentRunDao.observeByChatId(chatId)
+    override fun observeAgentRuns(chatId: Int): Flow<List<AgentRun>> = agentRunDao.observeRunsForChat(chatId)
 
-    override fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>> = toolEventRecorder.observeChat(chatId)
+    override fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>> = toolEventRecorder.observeEventsForChat(chatId)
 
-    override suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String> = chatPlatformModelV2Dao.getByChatId(chatId).associate {
-        it.platformUid to it.model
+    override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
+
+    override suspend fun fetchArchivedChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getArchivedChatRooms()
+
+    override suspend fun setChatArchived(chatId: Int, isArchived: Boolean) {
+        chatRoomV2Dao.updateArchived(chatId, isArchived)
     }
 
-    override suspend fun saveChatPlatformModels(chatId: Int, models: Map<String, String>) {
-        val rows = models
-            .filterKeys { it.isNotBlank() }
-            .map { (platformUid, model) ->
-                ChatPlatformModelV2(
-                    chatId = chatId,
-                    platformUid = platformUid,
-                    model = model.trim()
-                )
-            }
+    override suspend fun searchChatsV2(query: String): List<ChatRoomV2> = chatRoomV2Dao.searchChatRoomsByTitle(query)
 
-        if (rows.isNotEmpty()) {
-            chatPlatformModelV2Dao.upsertAll(*rows.toTypedArray())
-        }
+    override suspend fun fetchMessagesV2(chatId: Int): List<MessageV2> = messageV2Dao.getMessagesV2(chatId)
+
+    override suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String> = chatPlatformModelV2Dao.getChatPlatformModels(chatId).associate { it.platformUid to it.model }
+
+    override suspend fun saveChatPlatformModels(chatId: Int, models: Map<String, String>) {
+        chatPlatformModelV2Dao.saveChatPlatformModels(chatId, models)
     }
 
     override suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult = agentPersistenceDao.persistAgentTurn(request)
@@ -368,7 +219,7 @@ class ChatRepositoryImpl @Inject constructor(
         status: String,
         completedAt: Long,
         terminalError: String?
-    ): Boolean = agentRunDao.finishRunning(runId, status, completedAt, terminalError) == 1
+    ): Boolean = agentRunDao.finish(runId, status, completedAt, terminalError) == 1
 
     override suspend fun finishQueuedAgentRun(
         runId: String,

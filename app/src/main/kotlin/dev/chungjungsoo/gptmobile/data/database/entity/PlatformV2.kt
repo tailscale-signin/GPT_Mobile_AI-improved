@@ -94,5 +94,11 @@ data class PlatformV2(
     val disableLocalTools: Boolean = false,
 
     @ColumnInfo(name = "ollama_options")
-    val ollamaOptions: String? = null
+    val ollamaOptions: String? = null,
+
+    @ColumnInfo(name = "labels")
+    val labels: String? = null,
+
+    @ColumnInfo(name = "is_favorite", defaultValue = "0")
+    val isFavorite: Boolean = false
 )

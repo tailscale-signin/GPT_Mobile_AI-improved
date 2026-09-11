@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevisionListConverter
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
@@ -80,6 +81,19 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
+    fun `new platform defaults is_favorite to false and labels to null`() {
+        val platform = PlatformV2(
+            name = "OpenAI",
+            compatibleType = ClientType.OPENAI,
+            apiUrl = "https://api.openai.com/v1/",
+            model = "gpt-5.6"
+        )
+
+        assertFalse(platform.isFavorite)
+        assertNull(platform.labels)
+    }
+
+    @Test
     fun `migration instances have correct versions`() {
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
@@ -104,6 +118,9 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(17, ChatDatabaseV2Migrations.MIGRATION_17_18.startVersion)
         assertEquals(18, ChatDatabaseV2Migrations.MIGRATION_17_18.endVersion)
+
+        assertEquals(18, ChatDatabaseV2Migrations.MIGRATION_18_19.startVersion)
+        assertEquals(19, ChatDatabaseV2Migrations.MIGRATION_18_19.endVersion)
     }
 
     @Test
@@ -167,8 +184,15 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
-    fun `default favorite state is false`() {
+    fun `default favorite and archive state is false`() {
         val chatRoom = ChatRoomV2(title = "Test Room")
         assertFalse(chatRoom.isFavorite)
+        assertFalse(chatRoom.isArchived)
+    }
+
+    @Test
+    fun `default message timestamp is zero`() {
+        val message = MessageV2(content = "Test Message", platformType = null)
+        assertEquals(0L, message.timestamp)
     }
 }

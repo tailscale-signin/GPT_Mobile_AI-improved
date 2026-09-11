@@ -64,7 +64,10 @@ data class MessageV2(
     val timeline: List<AssistantTimelineItem> = emptyList(),
 
     @ColumnInfo(name = "is_favorite", defaultValue = "0")
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+
+    @ColumnInfo(name = "timestamp", defaultValue = "0")
+    val timestamp: Long = 0
 )
 
 @Serializable

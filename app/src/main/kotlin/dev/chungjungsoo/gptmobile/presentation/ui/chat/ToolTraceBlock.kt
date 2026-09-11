@@ -260,6 +260,44 @@ internal fun ToolStatusIndicator(state: ToolCallState, modifier: Modifier = Modi
     }
 }
 
+internal sealed class ToolTraceDisplayItem {
+    data class Single(val event: ToolEvent) : ToolTraceDisplayItem()
+    data class RepeatedGroup(val toolName: String, val events: List<ToolEvent>) : ToolTraceDisplayItem()
+}
+
+internal fun groupConsecutiveToolEvents(events: List<ToolEvent>): List<ToolTraceDisplayItem> {
+    if (events.isEmpty()) return emptyList()
+    val result = mutableListOf<ToolTraceDisplayItem>()
+    var currentGroup = mutableListOf<ToolEvent>()
+    for (event in events) {
+        val name = event.toolName.ifBlank { event.modelToolName }
+        if (currentGroup.isEmpty()) {
+            currentGroup.add(event)
+        } else {
+            val prevName = currentGroup.first().toolName.ifBlank { currentGroup.first().modelToolName }
+            if (name == prevName) {
+                currentGroup.add(event)
+            } else {
+                if (currentGroup.size > 3) {
+                    result.add(ToolTraceDisplayItem.RepeatedGroup(prevName, currentGroup.toList()))
+                } else {
+                    currentGroup.forEach { result.add(ToolTraceDisplayItem.Single(it)) }
+                }
+                currentGroup = mutableListOf(event)
+            }
+        }
+    }
+    if (currentGroup.isNotEmpty()) {
+        val prevName = currentGroup.first().toolName.ifBlank { currentGroup.first().modelToolName }
+        if (currentGroup.size > 3) {
+            result.add(ToolTraceDisplayItem.RepeatedGroup(prevName, currentGroup.toList()))
+        } else {
+            currentGroup.forEach { result.add(ToolTraceDisplayItem.Single(it)) }
+        }
+    }
+    return result
+}
+
 @Composable
 fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, contentIdentity: Any = events) {
     if (events.isEmpty()) return
@@ -292,7 +330,7 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.18f))
+            .background(Color.Black.copy(alpha = 0.85f))
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -311,7 +349,7 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
             Text(
                 text = summary,
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White.copy(alpha = 0.9f),
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
@@ -320,7 +358,7 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = if (isExpanded) labels.collapse else labels.expand,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = Color.White.copy(alpha = 0.7f),
                 modifier = Modifier.rotate(rotationAngle),
             )
         }
@@ -339,9 +377,66 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
                     }
                     val filteredEvents = filterToolEvents(events, query)
                     if (filteredEvents.isEmpty()) {
-                        Text(noMatchingToolCalls, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(noMatchingToolCalls, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
                     } else {
-                        filteredEvents.forEach { ToolTraceEventCard(it, labels) }
+                        val displayItems = groupConsecutiveToolEvents(filteredEvents)
+                        displayItems.forEach { item ->
+                            when (item) {
+                                is ToolTraceDisplayItem.Single -> ToolTraceEventCard(item.event, labels)
+                                is ToolTraceDisplayItem.RepeatedGroup -> ToolTraceRepeatedGroupCard(item, labels)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolTraceRepeatedGroupCard(group: ToolTraceDisplayItem.RepeatedGroup, labels: ToolTraceLabels) {
+    var isGroupExpanded by remember { mutableStateOf(false) }
+    val rotationAngle by animateFloatAsState(if (isGroupExpanded) 180f else 0f, label = "group rotation")
+    val groupStatus = remember(group.events) {
+        when {
+            group.events.any { it.toToolCallState() is ToolCallState.Running } -> ToolCallState.Running
+            group.events.any { it.toToolCallState() is ToolCallState.Failed } -> ToolCallState.Failed(true)
+            group.events.any { it.toToolCallState() is ToolCallState.Canceled } -> ToolCallState.Canceled
+            else -> ToolCallState.Completed
+        }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.9f)),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isGroupExpanded = !isGroupExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "🔧 ${group.events.size}x ${group.toolName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                ToolStatusIndicator(groupStatus)
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = if (isGroupExpanded) labels.collapse else labels.expand,
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.rotate(rotationAngle),
+                )
+            }
+            AnimatedVisibility(isGroupExpanded, enter = expandVertically(), exit = shrinkVertically()) {
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    group.events.forEach { event ->
+                        ToolTraceEventCard(event, labels)
                     }
                 }
             }
@@ -380,7 +475,7 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
     val callDescription = stringResource(R.string.tool_trace_call_content_description, event.callId, event.status.lowercase(Locale.ROOT))
     val serviceInfo = resolveToolServiceInfo(event.toolName, event.modelToolName, event.connectionNameSnapshot, event.connectionUidSnapshot)
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.85f)),
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentDescription = callDescription },
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -390,7 +485,7 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
                 Text(
                     "${event.sequence + 1}. ${serviceInfo.serviceName} — ${serviceInfo.toolDisplayName}",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = Color.White,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(6.dp))
@@ -411,13 +506,13 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
 
 @Composable
 private fun ToolTraceLine(label: String, value: String) {
-    Text("$label: $value", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    Text("$label: $value", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
 private fun ToolTraceBlockText(label: String, value: String) {
-    Text("$label:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
-    Text(boundedText(value), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 6, overflow = TextOverflow.Ellipsis)
+    Text("$label:", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 8.dp))
+    Text(boundedText(value), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = Color.White.copy(alpha = 0.9f), maxLines = 6, overflow = TextOverflow.Ellipsis)
 }
 
 internal fun filterToolEvents(events: List<ToolEvent>, query: String): List<ToolEvent> {

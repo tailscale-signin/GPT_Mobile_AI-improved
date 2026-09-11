@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
@@ -32,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
@@ -56,11 +58,22 @@ import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+internal fun formatMessageTimestamp(timestamp: Long?): String? {
+    if (timestamp == null || timestamp <= 0) return null
+    val date = if (timestamp < 100_000_000_000L) Date(timestamp * 1000) else Date(timestamp)
+    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+    return formatter.format(date)
+}
 
 @Composable
 fun UserChatBubble(
     modifier: Modifier = Modifier,
     text: String,
+    timestamp: Long? = null,
     files: List<String> = emptyList(),
     hasDetails: Boolean = false,
     areDetailsVisible: Boolean = false,
@@ -73,6 +86,8 @@ fun UserChatBubble(
         disabledContentColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f),
         disabledContainerColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.38f)
     )
+    val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
+
     Column(horizontalAlignment = Alignment.End) {
         if (hasDetails) {
             Row(
@@ -94,6 +109,16 @@ fun UserChatBubble(
             shape = RoundedCornerShape(32.dp), colors = cardColor
         ) { ChatMarkdown(content = text, modifier = Modifier.padding(16.dp)) }
         MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
+        if (formattedTime != null) {
+            Text(
+                text = formattedTime,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .alpha(0.5f)
+                    .padding(top = 2.dp, end = 8.dp)
+            )
+        }
     }
 }
 
@@ -104,6 +129,7 @@ fun OpponentChatBubble(
     isLoading: Boolean,
     isError: Boolean = false,
     text: String,
+    timestamp: Long? = null,
     thoughts: String = "",
     timeline: List<AssistantTimelineItem> = emptyList(),
     attachments: List<String> = emptyList(),
@@ -123,7 +149,8 @@ fun OpponentChatBubble(
     onFavoriteClick: () -> Unit = {},
     onFavoriteLongPress: () -> Unit = {},
     onShowPreviousRevision: () -> Unit = {},
-    onShowNextRevision: () -> Unit = {}
+    onShowNextRevision: () -> Unit = {},
+    onContinueClick: (() -> Unit)? = null
 ) {
     val normalColor = MaterialTheme.colorScheme.background
     val bubbleColor = animateColorAsState(
@@ -159,6 +186,21 @@ fun OpponentChatBubble(
 
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
+    val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
+
+    val needsContinuation = remember(text, isLoading) {
+        if (isLoading || text.isBlank()) false
+        else {
+            val trimmed = text.trimEnd()
+            trimmed.endsWith("...") ||
+                trimmed.endsWith("…") ||
+                trimmed.endsWith("continue?") ||
+                trimmed.endsWith("Would you like me to continue?") ||
+                trimmed.endsWith("Shall I continue?") ||
+                trimmed.endsWith("Would you like to continue?") ||
+                (trimmed.count { it == '`' } % 2 != 0)
+        }
+    }
 
     Column(modifier = modifier) {
         RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
@@ -263,6 +305,32 @@ fun OpponentChatBubble(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                )
+            }
+
+            if (needsContinuation && onContinueClick != null) {
+                SuggestionChip(
+                    onClick = onContinueClick,
+                    label = { Text("Continue") },
+                    icon = {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)
+                )
+            }
+
+            if (formattedTime != null) {
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .alpha(0.5f)
+                        .padding(start = 16.dp, top = 2.dp, bottom = 4.dp)
                 )
             }
 

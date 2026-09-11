@@ -54,6 +54,18 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
+    fun `new platform defaults ollama options to null`() {
+        val platform = PlatformV2(
+            name = "Ollama",
+            compatibleType = ClientType.OLLAMA,
+            apiUrl = "http://localhost:11434/v1/",
+            model = "gpt-oss"
+        )
+
+        assertNull(platform.ollamaOptions)
+    }
+
+    @Test
     fun `new platform defaults disable all tools to false`() {
         val platform = PlatformV2(
             name = "OpenAI",
@@ -89,6 +101,9 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(16, ChatDatabaseV2Migrations.MIGRATION_16_17.startVersion)
         assertEquals(17, ChatDatabaseV2Migrations.MIGRATION_16_17.endVersion)
+
+        assertEquals(17, ChatDatabaseV2Migrations.MIGRATION_17_18.startVersion)
+        assertEquals(18, ChatDatabaseV2Migrations.MIGRATION_17_18.endVersion)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.dto.openai.request
 
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPlugin
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
@@ -29,6 +30,10 @@ data class ChatCompletionRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val topP: Float? = null,
 
+    @SerialName("top_k")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val topK: Int? = null,
+
     @SerialName("max_tokens")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val maxTokens: Int? = null,
@@ -48,6 +53,14 @@ data class ChatCompletionRequest(
     @SerialName("frequency_penalty")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val frequencyPenalty: Float? = null,
+
+    @SerialName("repetition_penalty")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val repetitionPenalty: Float? = null,
+
+    @SerialName("seed")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val seed: Int? = null,
 
     @SerialName("stop")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -75,7 +88,11 @@ data class ChatCompletionRequest(
 
     @SerialName("plugins")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val plugins: List<OpenRouterPlugin>? = null
+    val plugins: List<OpenRouterPlugin>? = null,
+
+    @SerialName("options")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val options: OllamaOptions? = null
 )
 
 @Serializable

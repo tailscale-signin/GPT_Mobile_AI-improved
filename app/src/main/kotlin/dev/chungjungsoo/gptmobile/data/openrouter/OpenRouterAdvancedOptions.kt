@@ -5,10 +5,6 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/**
- * OpenRouter provider routing configuration.
- * See https://openrouter.ai/docs/provider-routing
- */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class OpenRouterProviderRouting(
@@ -28,23 +24,27 @@ data class OpenRouterProviderRouting(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val dataCollection: String? = null,
 
+    @SerialName("sort")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val sort: String? = null,
+
     @SerialName("ignore")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val ignore: List<String>? = null,
+
+    @SerialName("skip")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val skip: List<String>? = null,
 
     @SerialName("quantizations")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val quantizations: List<String>? = null,
 
-    @SerialName("sort")
+    @SerialName("z_weight")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val sort: String? = null
+    val zWeight: Float? = null
 )
 
-/**
- * OpenRouter reasoning configuration.
- * Controls reasoning tokens and effort for models supporting reasoning/thinking.
- */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class OpenRouterReasoning(
@@ -61,9 +61,6 @@ data class OpenRouterReasoning(
     val exclude: Boolean? = null
 )
 
-/**
- * OpenRouter plugin configuration, e.g. web search plugin.
- */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class OpenRouterPlugin(
@@ -78,3 +75,84 @@ data class OpenRouterPlugin(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val searchPrompt: String? = null
 )
+
+/**
+ * OpenRouter advanced platform configuration options and defaults.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class OpenRouterOptions(
+    @SerialName("stream")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val stream: Boolean? = DEFAULT_STREAM,
+
+    @SerialName("max_tokens")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val maxTokens: Int? = DEFAULT_MAX_TOKENS,
+
+    @SerialName("temperature")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val temperature: Float? = DEFAULT_TEMPERATURE,
+
+    @SerialName("top_p")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val topP: Float? = DEFAULT_TOP_P,
+
+    @SerialName("top_k")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val topK: Int? = DEFAULT_TOP_K,
+
+    @SerialName("frequency_penalty")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val frequencyPenalty: Float? = DEFAULT_FREQUENCY_PENALTY,
+
+    @SerialName("presence_penalty")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val presencePenalty: Float? = DEFAULT_PRESENCE_PENALTY,
+
+    @SerialName("repetition_penalty")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val repetitionPenalty: Float? = DEFAULT_REPETITION_PENALTY,
+
+    @SerialName("seed")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val seed: Int? = DEFAULT_SEED,
+
+    @SerialName("provider")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val provider: OpenRouterProviderRouting? = DEFAULT_PROVIDER
+) {
+    companion object {
+        const val DEFAULT_STREAM = true
+        const val DEFAULT_MAX_TOKENS = 4096
+        const val DEFAULT_TEMPERATURE = 0.2f
+        const val DEFAULT_TOP_P = 0.15f
+        const val DEFAULT_TOP_K = 30
+        const val DEFAULT_FREQUENCY_PENALTY = 0.0f
+        const val DEFAULT_PRESENCE_PENALTY = 0.0f
+        const val DEFAULT_REPETITION_PENALTY = 1.03f
+        const val DEFAULT_SEED = 42
+        const val DEFAULT_PROVIDER_SORT = "price-asc"
+        const val DEFAULT_PROVIDER_ALLOW_FALLBACKS = true
+        val DEFAULT_PROVIDER_SKIP = listOf("Mancer")
+
+        val DEFAULT_PROVIDER = OpenRouterProviderRouting(
+            sort = DEFAULT_PROVIDER_SORT,
+            allowFallbacks = DEFAULT_PROVIDER_ALLOW_FALLBACKS,
+            skip = DEFAULT_PROVIDER_SKIP
+        )
+
+        fun createDefault(): OpenRouterOptions = OpenRouterOptions(
+            stream = DEFAULT_STREAM,
+            maxTokens = DEFAULT_MAX_TOKENS,
+            temperature = DEFAULT_TEMPERATURE,
+            topP = DEFAULT_TOP_P,
+            topK = DEFAULT_TOP_K,
+            frequencyPenalty = DEFAULT_FREQUENCY_PENALTY,
+            presencePenalty = DEFAULT_PRESENCE_PENALTY,
+            repetitionPenalty = DEFAULT_REPETITION_PENALTY,
+            seed = DEFAULT_SEED,
+            provider = DEFAULT_PROVIDER
+        )
+    }
+}

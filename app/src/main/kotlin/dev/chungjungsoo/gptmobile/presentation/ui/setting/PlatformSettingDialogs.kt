@@ -50,6 +50,8 @@ import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
@@ -153,10 +155,9 @@ fun TopKDialog(
     if (dialogState.isTopKDialogOpen) {
         TopKDialog(
             topK = topK,
-            onDismissRequest = settingViewModel::closeTopKDialog
-        ) { value ->
-            settingViewModel.updateTopK(value)
-        }
+            onDismissRequest = settingViewModel::closeTopKDialog,
+            onConfirmRequest = settingViewModel::updateTopK
+        )
     }
 }
 
@@ -170,10 +171,9 @@ fun MaxTokensDialog(
         MaxTokensDialog(
             maxTokens = maxTokens,
             maxTokensCap = settingViewModel.maxTokensCap(),
-            onDismissRequest = settingViewModel::closeMaxTokensDialog
-        ) { value ->
-            settingViewModel.updateMaxTokens(value)
-        }
+            onDismissRequest = settingViewModel::closeMaxTokensDialog,
+            onConfirmRequest = settingViewModel::updateMaxTokens
+        )
     }
 }
 
@@ -203,10 +203,9 @@ fun TemperatureDialog(
     if (dialogState.isTemperatureDialogOpen) {
         TemperatureDialog(
             temperature = temperature,
-            onDismissRequest = settingViewModel::closeTemperatureDialog
-        ) { temp ->
-            settingViewModel.updateTemperature(temp)
-        }
+            onDismissRequest = settingViewModel::closeTemperatureDialog,
+            onConfirmRequest = settingViewModel::updateTemperature
+        )
     }
 }
 
@@ -219,38 +218,36 @@ fun TopPDialog(
     if (dialogState.isTopPDialogOpen) {
         TopPDialog(
             topP = topP,
-            onDismissRequest = settingViewModel::closeTopPDialog
-        ) { p ->
-            settingViewModel.updateTopP(p)
-        }
+            onDismissRequest = settingViewModel::closeTopPDialog,
+            onConfirmRequest = settingViewModel::updateTopP
+        )
     }
 }
 
 @Composable
 fun SystemPromptDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    systemPrompt: String,
+    prompt: String,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isSystemPromptDialogOpen) {
         SystemPromptDialog(
-            prompt = systemPrompt,
-            onDismissRequest = settingViewModel::closeSystemPromptDialog
-        ) {
-            settingViewModel.updateSystemPrompt(it)
-        }
+            prompt = prompt,
+            onDismissRequest = settingViewModel::closeSystemPromptDialog,
+            onConfirmRequest = settingViewModel::updateSystemPrompt
+        )
     }
 }
 
 @Composable
 fun TimeoutDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    timeoutSeconds: Int,
+    timeout: Int,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isTimeoutDialogOpen) {
         TimeoutDialog(
-            initialValue = timeoutSeconds,
+            timeout = timeout,
             onDismissRequest = settingViewModel::closeTimeoutDialog,
             onConfirmRequest = settingViewModel::updateTimeout
         )
@@ -287,43 +284,53 @@ fun OpenRouterAdvancedSettingsDialog(
     }
 }
 
+@Composable
+fun OllamaAdvancedSettingsDialog(
+    dialogState: PlatformSettingViewModel.DialogState,
+    ollamaOptionsJson: String?,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (dialogState.isOllamaAdvancedDialogOpen) {
+        OllamaAdvancedSettingsDialog(
+            initialOptionsJson = ollamaOptionsJson,
+            onDismissRequest = settingViewModel::closeOllamaAdvancedDialog,
+            onConfirmRequest = settingViewModel::updateOllamaOptions
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OpenRouterAdvancedSettingsDialog(
-    initialRoutingJson: String?,
+private fun OllamaAdvancedSettingsDialog(
+    initialOptionsJson: String?,
     onDismissRequest: () -> Unit,
     onConfirmRequest: (String?) -> Unit
 ) {
-    val jsonSerializer = remember { Json { ignoreUnknownKeys = true } }
-    val initialParsed = remember(initialRoutingJson) {
-        if (!initialRoutingJson.isNullOrBlank()) {
-            runCatching { jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson) }.getOrNull()
-        } else {
-            null
+    val jsonSerializer = remember {
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
         }
     }
-
-    var orderText by remember {
-        mutableStateOf(initialParsed?.order?.joinToString(", ") ?: "")
-    }
-    var allowFallbacks by remember {
-        mutableStateOf(initialParsed?.allowFallbacks ?: true)
-    }
-    var sortStrategy by remember {
-        mutableStateOf(initialParsed?.sort ?: "")
-    }
-    var dataCollection by remember {
-        mutableStateOf(initialParsed?.dataCollection ?: "")
-    }
-    var quantizationsText by remember {
-        mutableStateOf(initialParsed?.quantizations?.joinToString(", ") ?: "")
+    val initialParsed = remember(initialOptionsJson) {
+        if (!initialOptionsJson.isNullOrBlank()) {
+            runCatching { jsonSerializer.decodeFromString<OllamaOptions>(initialOptionsJson) }.getOrNull()
+        } else {
+            OllamaOptions.createDefault()
+        } ?: OllamaOptions.createDefault()
     }
 
-    var sortExpanded by remember { mutableStateOf(false) }
-    var dataCollectionExpanded by remember { mutableStateOf(false) }
-
-    val sortOptions = listOf("", "price", "throughput", "latency")
-    val dataCollectionOptions = listOf("", "allow", "deny")
+    var numGpuText by remember { mutableStateOf((initialParsed.numGpu ?: OllamaOptions.DEFAULT_NUM_GPU).toString()) }
+    var numCtxText by remember { mutableStateOf((initialParsed.numCtx ?: OllamaOptions.DEFAULT_NUM_CTX).toString()) }
+    var numBatchText by remember { mutableStateOf((initialParsed.numBatch ?: OllamaOptions.DEFAULT_NUM_BATCH).toString()) }
+    var numThreadText by remember { mutableStateOf((initialParsed.numThread ?: OllamaOptions.DEFAULT_NUM_THREAD).toString()) }
+    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OllamaOptions.DEFAULT_TEMPERATURE).toString()) }
+    var topPText by remember { mutableStateOf((initialParsed.topP ?: OllamaOptions.DEFAULT_TOP_P).toString()) }
+    var topKText by remember { mutableStateOf((initialParsed.topK ?: OllamaOptions.DEFAULT_TOP_K).toString()) }
+    var repeatPenaltyText by remember { mutableStateOf((initialParsed.repeatPenalty ?: OllamaOptions.DEFAULT_REPEAT_PENALTY).toString()) }
+    var seedText by remember { mutableStateOf((initialParsed.seed ?: OllamaOptions.DEFAULT_SEED).toString()) }
+    var stopTokensText by remember { mutableStateOf((initialParsed.stop ?: OllamaOptions.DEFAULT_STOP).joinToString(", ")) }
 
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -334,110 +341,111 @@ private fun OpenRouterAdvancedSettingsDialog(
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
             .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.openrouter_advanced_settings)) },
+        title = { Text(text = stringResource(R.string.ollama_advanced_options)) },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.openrouter_advanced_settings_description),
+                    text = stringResource(R.string.ollama_advanced_options_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = orderText,
-                    onValueChange = { orderText = it },
-                    label = { Text(stringResource(R.string.openrouter_provider_order)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
+                    value = numGpuText,
+                    onValueChange = { numGpuText = it },
+                    label = { Text(stringResource(R.string.ollama_num_gpu)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_gpu_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
-                Row(
+                OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = stringResource(R.string.openrouter_allow_fallbacks),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Switch(
-                        checked = allowFallbacks,
-                        onCheckedChange = { allowFallbacks = it }
-                    )
-                }
-
-                ExposedDropdownMenuBox(
-                    expanded = sortExpanded,
-                    onExpandedChange = { sortExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
-                            .fillMaxWidth(),
-                        value = if (sortStrategy.isBlank()) stringResource(R.string.default_label) else sortStrategy,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(stringResource(R.string.openrouter_sort_strategy)) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded) }
-                    )
-                    ExposedDropdownMenu(
-                        expanded = sortExpanded,
-                        onDismissRequest = { sortExpanded = false }
-                    ) {
-                        sortOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
-                                onClick = {
-                                    sortStrategy = option
-                                    sortExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                ExposedDropdownMenuBox(
-                    expanded = dataCollectionExpanded,
-                    onExpandedChange = { dataCollectionExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
-                            .fillMaxWidth(),
-                        value = if (dataCollection.isBlank()) stringResource(R.string.default_label) else dataCollection,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(stringResource(R.string.openrouter_data_collection)) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dataCollectionExpanded) }
-                    )
-                    ExposedDropdownMenu(
-                        expanded = dataCollectionExpanded,
-                        onDismissRequest = { dataCollectionExpanded = false }
-                    ) {
-                        dataCollectionOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
-                                onClick = {
-                                    dataCollection = option
-                                    dataCollectionExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
+                    value = numCtxText,
+                    onValueChange = { numCtxText = it },
+                    label = { Text(stringResource(R.string.ollama_num_ctx)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_ctx_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = quantizationsText,
-                    onValueChange = { quantizationsText = it },
-                    label = { Text(stringResource(R.string.openrouter_quantizations)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_quantizations_hint)) },
+                    value = numBatchText,
+                    onValueChange = { numBatchText = it },
+                    label = { Text(stringResource(R.string.ollama_num_batch)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_batch_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numThreadText,
+                    onValueChange = { numThreadText = it },
+                    label = { Text(stringResource(R.string.ollama_num_thread)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_thread_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = temperatureText,
+                    onValueChange = { temperatureText = it },
+                    label = { Text(stringResource(R.string.temperature)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topPText,
+                    onValueChange = { topPText = it },
+                    label = { Text(stringResource(R.string.top_p)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topKText,
+                    onValueChange = { topKText = it },
+                    label = { Text(stringResource(R.string.top_k)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = repeatPenaltyText,
+                    onValueChange = { repeatPenaltyText = it },
+                    label = { Text(stringResource(R.string.ollama_repeat_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = seedText,
+                    onValueChange = { seedText = it },
+                    label = { Text(stringResource(R.string.ollama_seed)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = stopTokensText,
+                    onValueChange = { stopTokensText = it },
+                    label = { Text(stringResource(R.string.ollama_stop)) },
+                    placeholder = { Text("```end, delimiter, You") },
                     singleLine = true
                 )
             }
@@ -446,28 +454,20 @@ private fun OpenRouterAdvancedSettingsDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val orderList = orderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val quantList = quantizationsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val sortValue = sortStrategy.trim().takeIf { it.isNotEmpty() }
-                    val dataCollectionValue = dataCollection.trim().takeIf { it.isNotEmpty() }
-
-                    val routing = OpenRouterProviderRouting(
-                        order = orderList,
-                        allowFallbacks = allowFallbacks.takeIf { !it },
-                        sort = sortValue,
-                        dataCollection = dataCollectionValue,
-                        quantizations = quantList
+                    val stopList = stopTokensText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val options = OllamaOptions(
+                        numGpu = numGpuText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_GPU,
+                        numCtx = numCtxText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_CTX,
+                        numBatch = numBatchText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_BATCH,
+                        numThread = numThreadText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_THREAD,
+                        temperature = temperatureText.toFloatOrNull() ?: OllamaOptions.DEFAULT_TEMPERATURE,
+                        topP = topPText.toFloatOrNull() ?: OllamaOptions.DEFAULT_TOP_P,
+                        topK = topKText.toIntOrNull() ?: OllamaOptions.DEFAULT_TOP_K,
+                        repeatPenalty = repeatPenaltyText.toFloatOrNull() ?: OllamaOptions.DEFAULT_REPEAT_PENALTY,
+                        seed = seedText.toIntOrNull() ?: OllamaOptions.DEFAULT_SEED,
+                        stop = stopList ?: OllamaOptions.DEFAULT_STOP
                     )
-
-                    val isDefault = routing.order == null &&
-                        routing.allowFallbacks == null &&
-                        routing.sort == null &&
-                        routing.dataCollection == null &&
-                        routing.quantizations == null &&
-                        routing.ignore == null &&
-                        routing.requireParameters == null
-
-                    val resultJson = if (isDefault) null else jsonSerializer.encodeToString(routing)
+                    val resultJson = jsonSerializer.encodeToString(options)
                     onConfirmRequest(resultJson)
                 }
             ) {
@@ -486,126 +486,59 @@ private fun OpenRouterAdvancedSettingsDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlatformNameDialog(
-    initialValue: String,
+private fun OpenRouterAdvancedSettingsDialog(
+    initialRoutingJson: String?,
     onDismissRequest: () -> Unit,
-    onConfirmRequest: (name: String) -> Unit
+    onConfirmRequest: (String?) -> Unit
 ) {
-    var platformName by remember { mutableStateOf(initialValue) }
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.platform_name)) },
-        text = {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = platformName,
-                onValueChange = { platformName = it },
-                label = { Text(stringResource(R.string.platform_name)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                supportingText = {
-                    Text(stringResource(R.string.platform_name_supporting))
-                }
-            )
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                enabled = platformName.isNotBlank(),
-                onClick = { onConfirmRequest(platformName) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun APIUrlDialog(
-    initialValue: String,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (url: String) -> Unit
-) {
-    var apiUrl by remember { mutableStateOf(initialValue) }
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.api_url)) },
-        text = {
-            Column {
-                Text(
-                    text = stringResource(R.string.api_url_cautions)
-                )
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    value = apiUrl,
-                    singleLine = true,
-                    isError = apiUrl.isValidUrl().not(),
-                    onValueChange = { apiUrl = it },
-                    label = {
-                        Text(stringResource(R.string.api_url))
-                    },
-                    supportingText = {
-                        if (apiUrl.isValidUrl().not()) {
-                            Text(text = stringResource(R.string.invalid_api_url))
-                        }
-                    }
-                )
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                enabled = apiUrl.isNotBlank() && apiUrl.isValidUrl() && apiUrl.endsWith("/"),
-                onClick = { onConfirmRequest(apiUrl) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun APIKeyDialog(
-    initialTokens: String? = null,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (token: String) -> Unit
-) {
-    val initialList = remember(initialTokens) {
-        val parsed = ApiCredentialRotator.parseKeys(initialTokens)
-        if (parsed.isEmpty()) listOf("") else parsed
-    }
-    val tokens = remember(initialTokens) {
-        mutableStateListOf<String>().apply {
-            addAll(initialList)
+    val jsonSerializer = remember {
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
         }
     }
+    val initialParsed = remember(initialRoutingJson) {
+        if (!initialRoutingJson.isNullOrBlank()) {
+            runCatching { jsonSerializer.decodeFromString<OpenRouterOptions>(initialRoutingJson) }.getOrNull()
+                ?: runCatching {
+                    val routing = jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson)
+                    OpenRouterOptions(provider = routing)
+                }.getOrNull()
+        } else {
+            OpenRouterOptions.createDefault()
+        } ?: OpenRouterOptions.createDefault()
+    }
+
+    var streamEnabled by remember { mutableStateOf(initialParsed.stream ?: OpenRouterOptions.DEFAULT_STREAM) }
+    var maxTokensText by remember { mutableStateOf((initialParsed.maxTokens ?: OpenRouterOptions.DEFAULT_MAX_TOKENS).toString()) }
+    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OpenRouterOptions.DEFAULT_TEMPERATURE).toString()) }
+    var topPText by remember { mutableStateOf((initialParsed.topP ?: OpenRouterOptions.DEFAULT_TOP_P).toString()) }
+    var topKText by remember { mutableStateOf((initialParsed.topK ?: OpenRouterOptions.DEFAULT_TOP_K).toString()) }
+    var freqPenaltyText by remember { mutableStateOf((initialParsed.frequencyPenalty ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY).toString()) }
+    var presPenaltyText by remember { mutableStateOf((initialParsed.presencePenalty ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY).toString()) }
+    var repPenaltyText by remember { mutableStateOf((initialParsed.repetitionPenalty ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY).toString()) }
+    var seedText by remember { mutableStateOf((initialParsed.seed ?: OpenRouterOptions.DEFAULT_SEED).toString()) }
+
+    var allowFallbacks by remember {
+        mutableStateOf(initialParsed.provider?.allowFallbacks ?: OpenRouterOptions.DEFAULT_PROVIDER_ALLOW_FALLBACKS)
+    }
+    var sortStrategy by remember {
+        mutableStateOf(initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)
+    }
+    var skipText by remember {
+        mutableStateOf(initialParsed.provider?.skip?.joinToString(", ") ?: OpenRouterOptions.DEFAULT_PROVIDER_SKIP.joinToString(", "))
+    }
+    var orderText by remember {
+        mutableStateOf(initialParsed.provider?.order?.joinToString(", ") ?: "")
+    }
+
+    var sortExpanded by remember { mutableStateOf(false) }
+
+    val sortOptions = listOf("price-asc", "price", "throughput", "latency")
+
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
@@ -615,845 +548,208 @@ private fun APIKeyDialog(
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
             .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.api_key)) },
+        title = { Text(text = stringResource(R.string.openrouter_advanced_settings)) },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = stringResource(R.string.multi_api_keys_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    text = stringResource(R.string.openrouter_advanced_settings_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                tokens.forEachIndexed { index, tokenValue ->
-                    Row(
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = stringResource(R.string.openrouter_stream))
+                    Switch(
+                        checked = streamEnabled,
+                        onCheckedChange = { streamEnabled = it }
+                    )
+                }
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = maxTokensText,
+                    onValueChange = { maxTokensText = it },
+                    label = { Text(stringResource(R.string.max_tokens)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = temperatureText,
+                    onValueChange = { temperatureText = it },
+                    label = { Text(stringResource(R.string.temperature)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topPText,
+                    onValueChange = { topPText = it },
+                    label = { Text(stringResource(R.string.top_p)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topKText,
+                    onValueChange = { topKText = it },
+                    label = { Text(stringResource(R.string.top_k)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = freqPenaltyText,
+                    onValueChange = { freqPenaltyText = it },
+                    label = { Text(stringResource(R.string.openrouter_frequency_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = presPenaltyText,
+                    onValueChange = { presPenaltyText = it },
+                    label = { Text(stringResource(R.string.openrouter_presence_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = repPenaltyText,
+                    onValueChange = { repPenaltyText = it },
+                    label = { Text(stringResource(R.string.openrouter_repetition_penalty)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = seedText,
+                    onValueChange = { seedText = it },
+                    label = { Text(stringResource(R.string.openrouter_seed)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = stringResource(R.string.openrouter_allow_fallbacks))
+                    Switch(
+                        checked = allowFallbacks,
+                        onCheckedChange = { allowFallbacks = it }
+                    )
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = sortExpanded,
+                    onExpandedChange = { sortExpanded = it }
+                ) {
+                    OutlinedTextField(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
+                            .fillMaxWidth(),
+                        value = sortStrategy,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(stringResource(R.string.openrouter_provider_sort)) },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded)
+                        }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = sortExpanded,
+                        onDismissRequest = { sortExpanded = false }
                     ) {
-                        OutlinedTextField(
-                            modifier = Modifier.weight(1f),
-                            value = tokenValue,
-                            onValueChange = { tokens[index] = it },
-                            label = {
-                                Text(
-                                    if (tokens.size > 1) {
-                                        stringResource(R.string.api_key_number, index + 1)
-                                    } else {
-                                        stringResource(R.string.api_key)
-                                    }
-                                )
-                            },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-                        )
-                        if (tokens.size > 1) {
-                            IconButton(
-                                onClick = { tokens.removeAt(index) },
-                                modifier = Modifier.padding(start = 4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Delete,
-                                    contentDescription = stringResource(R.string.remove_api_key),
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
+                        sortOptions.forEach { opt ->
+                            DropdownMenuItem(
+                                text = { Text(opt) },
+                                onClick = {
+                                    sortStrategy = opt
+                                    sortExpanded = false
+                                }
+                            )
                         }
                     }
                 }
-                Row(
+
+                OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(
-                        onClick = { tokens.add("") }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = stringResource(R.string.add_api_key),
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                        Text(stringResource(R.string.add_api_key))
-                    }
-                }
+                    value = skipText,
+                    onValueChange = { skipText = it },
+                    label = { Text(stringResource(R.string.openrouter_provider_skip)) },
+                    placeholder = { Text("Mancer") },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = orderText,
+                    onValueChange = { orderText = it },
+                    label = { Text(stringResource(R.string.openrouter_provider_order)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
+                    singleLine = true
+                )
             }
         },
         onDismissRequest = onDismissRequest,
         confirmButton = {
             TextButton(
                 onClick = {
-                    val combined = ApiCredentialRotator.formatKeys(tokens.toList())
-                    onConfirmRequest(combined)
-                }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismissRequest
-            ) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
+                    val orderList = orderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val skipList = skipText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
 
-@Composable
-private fun TimeoutDialog(
-    initialValue: Int,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (timeoutSeconds: Int) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var timeoutSeconds by remember { mutableStateOf(initialValue.toString()) }
-    val parsedTimeout = timeoutSeconds.toIntOrNull()
-    val isValidTimeout = parsedTimeout != null && parsedTimeout >= 0
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.timeout)) },
-        text = {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = timeoutSeconds,
-                onValueChange = { timeoutSeconds = it },
-                label = { Text(stringResource(R.string.timeout_seconds_label)) },
-                singleLine = true,
-                isError = !isValidTimeout,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Done
-                ),
-                supportingText = {
-                    Text(
-                        text = if (isValidTimeout) {
-                            stringResource(R.string.timeout_setting_description)
-                        } else {
-                            stringResource(R.string.timeout_invalid)
-                        }
+                    val routing = OpenRouterProviderRouting(
+                        sort = sortStrategy.trim().takeIf { it.isNotEmpty() } ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT,
+                        allowFallbacks = allowFallbacks,
+                        skip = skipList ?: OpenRouterOptions.DEFAULT_PROVIDER_SKIP,
+                        order = orderList
                     )
+
+                    val options = OpenRouterOptions(
+                        stream = streamEnabled,
+                        maxTokens = maxTokensText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_MAX_TOKENS,
+                        temperature = temperatureText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TEMPERATURE,
+                        topP = topPText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TOP_P,
+                        topK = topKText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_TOP_K,
+                        frequencyPenalty = freqPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY,
+                        presencePenalty = presPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY,
+                        repetitionPenalty = repPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY,
+                        seed = seedText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_SEED,
+                        provider = routing
+                    )
+
+                    val resultJson = jsonSerializer.encodeToString(options)
+                    onConfirmRequest(resultJson)
                 }
-            )
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                enabled = isValidTimeout,
-                onClick = { onConfirmRequest(parsedTimeout!!) }
             ) {
-                Text(stringResource(R.string.confirm))
+                Text(stringResource(R.string.save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun ModelDialog(
-    initModel: String,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (model: String) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var model by remember { mutableStateOf(initModel) }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.api_model)) },
-        text = {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = model,
-                onValueChange = { model = it },
-                label = { Text(stringResource(R.string.model_name)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                supportingText = {
-                    Text(stringResource(R.string.model_supporting))
+            TextButton(
+                onClick = {
+                    onConfirmRequest(null)
                 }
-            )
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                enabled = model.isNotBlank(),
-                onClick = { onConfirmRequest(model) }
             ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismissRequest
-            ) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun LocalModelDialog(
-    selectedCatalogEntryId: String,
-    models: List<DownloadedLocalModelOption>,
-    onDismissRequest: () -> Unit,
-    onModelSelected: (String) -> Unit,
-    onNavigateToLocalModels: () -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.api_model)) },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                LocalModelPicker(
-                    models = models,
-                    selectedCatalogEntryId = selectedCatalogEntryId,
-                    onModelSelected = onModelSelected,
-                    onNavigateToLocalModels = onNavigateToLocalModels
-                )
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.close))
-            }
-        }
-    )
-}
-
-@Composable
-private fun TopKDialog(
-    topK: Int?,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (topK: Int?) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldTopK by remember { mutableStateOf(topK?.toString() ?: "") }
-    val parsedTopK = textFieldTopK.toIntOrNull()
-    val isUnset = textFieldTopK.isBlank()
-    val isValid = isUnset || (parsedTopK != null && parsedTopK in PlatformSettingViewModel.MIN_TOP_K..PlatformSettingViewModel.MAX_TOP_K)
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.top_k_setting)) },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(stringResource(R.string.top_k_setting_description))
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    value = textFieldTopK,
-                    onValueChange = { textFieldTopK = it },
-                    label = { Text(stringResource(R.string.top_k)) },
-                    singleLine = true,
-                    isError = !isValid,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Done
-                    ),
-                    placeholder = { Text(stringResource(R.string.not_set)) },
-                    supportingText = {
-                        if (!isValid) {
-                            Text(stringResource(R.string.top_k_invalid))
-                        }
-                    }
-                )
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                enabled = isValid,
-                onClick = { onConfirmRequest(if (isUnset) null else parsedTopK) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun MaxTokensDialog(
-    maxTokens: Int?,
-    maxTokensCap: Int = PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (maxTokens: Int?) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldMaxTokens by remember { mutableStateOf(maxTokens?.toString() ?: "") }
-    val parsedMaxTokens = textFieldMaxTokens.toIntOrNull()
-    val isUnset = textFieldMaxTokens.isBlank()
-    val isValid = isUnset ||
-        (
-            parsedMaxTokens != null &&
-                parsedMaxTokens in PlatformSettingViewModel.MIN_MAX_TOKENS..maxTokensCap
-            )
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.max_tokens_setting)) },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(stringResource(R.string.max_tokens_setting_description))
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    value = textFieldMaxTokens,
-                    onValueChange = { textFieldMaxTokens = it },
-                    label = { Text(stringResource(R.string.max_tokens)) },
-                    singleLine = true,
-                    isError = !isValid,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Done
-                    ),
-                    placeholder = { Text(stringResource(R.string.not_set)) },
-                    supportingText = {
-                        if (!isValid) {
-                            Text(
-                                stringResource(
-                                    R.string.max_tokens_invalid,
-                                    maxTokensCap
-                                )
-                            )
-                        } else if (maxTokensCap < PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP) {
-                            Text(
-                                stringResource(
-                                    R.string.max_tokens_hardware_cap_hint,
-                                    maxTokensCap
-                                )
-                            )
-                        } else {
-                            Text(
-                                stringResource(
-                                    R.string.max_tokens_standard_hint,
-                                    maxTokensCap
-                                )
-                            )
-                        }
-                    }
-                )
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                enabled = isValid,
-                onClick = { onConfirmRequest(if (isUnset) null else parsedMaxTokens) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun AcceleratorDialog(
-    accelerator: String?,
-    options: List<AcceleratorOption>,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (String) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.accelerator_setting)) },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(stringResource(R.string.accelerator_setting_description))
-                options.forEach { option ->
-                    RadioItem(
-                        title = acceleratorTitle(option.accelerator),
-                        description = acceleratorUnavailableReason(option),
-                        value = option.accelerator,
-                        selected = LocalAccelerators.normalize(accelerator) == option.accelerator,
-                        enabled = option.enabled
-                    ) {
-                        if (option.enabled) {
-                            onConfirmRequest(option.accelerator)
-                        }
-                    }
-                }
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.close))
-            }
-        }
-    )
-}
-
-@Composable
-private fun acceleratorTitle(accelerator: String): String = when (accelerator) {
-    LocalAccelerators.GPU -> stringResource(R.string.accelerator_gpu)
-    LocalAccelerators.NPU -> stringResource(R.string.accelerator_npu)
-    else -> stringResource(R.string.accelerator_cpu)
-}
-
-@Composable
-private fun acceleratorUnavailableReason(option: AcceleratorOption): String? {
-    if (option.enabled) return null
-    return when (option.unavailableReason) {
-        AcceleratorUnavailableReason.DEVICE_NOT_SUPPORTED -> stringResource(R.string.accelerator_unavailable_device_npu)
-
-        AcceleratorUnavailableReason.MODEL_HAS_NO_BUILD -> when (option.accelerator) {
-            LocalAccelerators.GPU -> stringResource(R.string.accelerator_unavailable_model_no_gpu_build)
-            LocalAccelerators.NPU -> stringResource(R.string.accelerator_unavailable_model_no_npu_build)
-            else -> stringResource(R.string.accelerator_unavailable_model_no_cpu_build)
-        }
-
-        null -> null
-    }
-}
-
-@Composable
-private fun TemperatureDialog(
-    temperature: Float?,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (temp: Float?) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldTemperature by remember { mutableStateOf(temperature?.let { "%.1f".format(it) } ?: "") }
-    var sliderTemperature by remember { mutableFloatStateOf(temperature ?: 1F) }
-    var isUnset by remember { mutableStateOf(temperature == null) }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.temperature_setting)) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState())
-            ) {
-                Text(stringResource(R.string.temperature_setting_description))
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    value = textFieldTemperature,
-                    onValueChange = { t ->
-                        textFieldTemperature = t
-                        if (t.isBlank()) {
-                            isUnset = true
-                        } else {
-                            val converted = t.toFloatOrNull()
-                            converted?.let {
-                                sliderTemperature = it.coerceIn(0F, 2F)
-                                isUnset = false
-                            }
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    label = {
-                        Text(stringResource(R.string.temperature))
-                    },
-                    placeholder = {
-                        Text(stringResource(R.string.not_set))
-                    }
-                )
-                Slider(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    value = sliderTemperature,
-                    valueRange = 0F..2F,
-                    steps = 19,
-                    enabled = !isUnset,
-                    onValueChange = { t ->
-                        val rounded = (t * 10).roundToInt() / 10F
-                        sliderTemperature = rounded
-                        textFieldTemperature = "%.1f".format(rounded)
-                        isUnset = false
-                    }
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(
-                        onClick = {
-                            textFieldTemperature = ""
-                            isUnset = true
-                        }
-                    ) {
-                        Text(stringResource(R.string.reset))
-                    }
-                }
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirmRequest(if (isUnset) null else sliderTemperature) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismissRequest
-            ) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun TopPDialog(
-    topP: Float?,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (topP: Float?) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldTopP by remember { mutableStateOf(topP?.let { "%.1f".format(it) } ?: "") }
-    var sliderTopP by remember { mutableFloatStateOf(topP ?: 1F) }
-    var isUnset by remember { mutableStateOf(topP == null) }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.top_p_setting)) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState())
-            ) {
-                Text(stringResource(R.string.top_p_setting_description))
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    value = textFieldTopP,
-                    onValueChange = { p ->
-                        textFieldTopP = p
-                        if (p.isBlank()) {
-                            isUnset = true
-                        } else {
-                            p.toFloatOrNull()?.let {
-                                val rounded = (it.coerceIn(0.1F, 1F) * 10).roundToInt() / 10F
-                                sliderTopP = rounded
-                                isUnset = false
-                            }
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    label = {
-                        Text(stringResource(R.string.top_p))
-                    },
-                    placeholder = {
-                        Text(stringResource(R.string.not_set))
-                    }
-                )
-                Slider(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    value = sliderTopP,
-                    valueRange = 0.1F..1F,
-                    steps = 8,
-                    enabled = !isUnset,
-                    onValueChange = { t ->
-                        val rounded = (t * 10).roundToInt() / 10F
-                        sliderTopP = rounded
-                        textFieldTopP = "%.1f".format(rounded)
-                        isUnset = false
-                    }
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(
-                        onClick = {
-                            textFieldTopP = ""
-                            isUnset = true
-                        }
-                    ) {
-                        Text(stringResource(R.string.reset))
-                    }
-                }
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirmRequest(if (isUnset) null else sliderTopP) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismissRequest
-            ) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun SystemPromptDialog(
-    prompt: String,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (text: String) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var textFieldPrompt by remember { mutableStateOf(prompt) }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.system_prompt_setting)) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState())
-            ) {
-                Text(stringResource(R.string.system_prompt_description))
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    value = textFieldPrompt,
-                    onValueChange = { textFieldPrompt = it },
-                    label = {
-                        Text(stringResource(R.string.system_prompt))
-                    }
-                )
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirmRequest(textFieldPrompt) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismissRequest
-            ) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun GeminiSafetySettingsDialog(
-    platform: PlatformV2,
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: (String, String, String, String) -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var harassment by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.harassmentSafetyThreshold)) }
-    var hateSpeech by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.hateSpeechSafetyThreshold)) }
-    var sexuallyExplicit by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.sexuallyExplicitSafetyThreshold)) }
-    var dangerousContent by remember { mutableStateOf(GeminiSafetySettings.normalizeThreshold(platform.dangerousContentSafetyThreshold)) }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.gemini_safety_settings)) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState())
-            ) {
-                SafetyThresholdDropdown(
-                    label = stringResource(R.string.gemini_safety_harassment),
-                    selectedThreshold = harassment,
-                    onThresholdSelected = { harassment = it }
-                )
-                SafetyThresholdDropdown(
-                    label = stringResource(R.string.gemini_safety_hate_speech),
-                    selectedThreshold = hateSpeech,
-                    onThresholdSelected = { hateSpeech = it }
-                )
-                SafetyThresholdDropdown(
-                    label = stringResource(R.string.gemini_safety_sexually_explicit),
-                    selectedThreshold = sexuallyExplicit,
-                    onThresholdSelected = { sexuallyExplicit = it }
-                )
-                SafetyThresholdDropdown(
-                    label = stringResource(R.string.gemini_safety_dangerous_content),
-                    selectedThreshold = dangerousContent,
-                    onThresholdSelected = { dangerousContent = it }
-                )
-            }
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirmRequest(harassment, hateSpeech, sexuallyExplicit, dangerousContent) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SafetyThresholdDropdown(
-    label: String,
-    selectedThreshold: String,
-    onThresholdSelected: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it }
-    ) {
-        OutlinedTextField(
-            modifier = Modifier
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            value = stringResource(GeminiSafetySettings.labelResFor(selectedThreshold)),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            trailingIcon = {
-                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-            }
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            GeminiSafetySettings.supportedThresholds.forEach { threshold ->
-                DropdownMenuItem(
-                    text = { Text(stringResource(GeminiSafetySettings.labelResFor(threshold))) },
-                    onClick = {
-                        onThresholdSelected(threshold)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun DeletePlatformDialog(
-    dialogState: PlatformSettingViewModel.DialogState,
-    settingViewModel: PlatformSettingViewModel
-) {
-    if (dialogState.isDeleteDialogOpen) {
-        DeletePlatformDialog(
-            onDismissRequest = settingViewModel::closeDeleteDialog,
-            onConfirmRequest = settingViewModel::deletePlatform
-        )
-    }
-}
-
-@Composable
-private fun DeletePlatformDialog(
-    onDismissRequest: () -> Unit,
-    onConfirmRequest: () -> Unit
-) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-
-    AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.delete_platform)) },
-        text = {
-            Text(stringResource(R.string.delete_platform_confirmation))
-        },
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(onClick = onConfirmRequest) {
-                Text(stringResource(R.string.delete))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
+                Text(stringResource(R.string.reset))
             }
         }
     )

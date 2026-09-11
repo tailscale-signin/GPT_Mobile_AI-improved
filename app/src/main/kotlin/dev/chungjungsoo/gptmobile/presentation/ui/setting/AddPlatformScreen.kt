@@ -53,11 +53,14 @@ import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelCatalogPicker
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private enum class AddPlatformStep { API_TYPE, DETAILS }
 
@@ -124,6 +127,11 @@ fun AddPlatformScreen(
                         null
                     }
                     val formattedApiKey = ApiCredentialRotator.formatKeys(apiTokens.toList())
+                    val defaultOllamaOptions = if (clientType == ClientType.OLLAMA) {
+                        Json.encodeToString(OllamaOptions.createDefault())
+                    } else {
+                        null
+                    }
                     val platform = PlatformV2(
                         name = platformName.trim(),
                         compatibleType = clientType,
@@ -143,7 +151,8 @@ fun AddPlatformScreen(
                         systemPrompt = ModelConstants.DEFAULT_PROMPT,
                         stream = true,
                         reasoning = isReasoningEnabled && clientType != ClientType.LITERT_LM,
-                        timeout = 30
+                        timeout = 30,
+                        ollamaOptions = defaultOllamaOptions
                     )
                     apiTokens.clear()
                     apiTokens.add("")

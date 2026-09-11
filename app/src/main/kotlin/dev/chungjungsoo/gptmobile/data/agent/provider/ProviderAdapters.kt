@@ -191,6 +191,80 @@ class OpenAICompatibleAdapter @Inject constructor(
             )
             val assembler = ChatCompletionsEventAssembler()
 
+            if (isOllama) {
+                // Ollama platform timeout resilience:
+                // Never fail because of timeout. Continue retrying over and over for up to 5 minutes.
+                // If still nothing after 5 minutes, wrap up and emit an incomplete AI response.
+                val maxRetryDurationMs = 5 * 60 * 1000L
+                val startTime = System.currentTimeMillis()
+                var hasReceivedTokens = false
+                var ollamaSucceeded = false
+                var retryCount = 0
+
+                while (System.currentTimeMillis() - startTime < maxRetryDurationMs) {
+                    var chunkError: String? = null
+                    var caughtThrowable: Throwable? = null
+
+                    try {
+                        openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                            chunk.error?.let { err ->
+                                chunkError = err.message
+                            } ?: chunk.choices.orEmpty().forEach { choice ->
+                                hasReceivedTokens = true
+                                assembler.accept(
+                                    content = choice.delta.content,
+                                    reasoning = choice.delta.reasoning,
+                                    toolCalls = choice.delta.toolCalls,
+                                    finishReason = choice.finishReason
+                                ).forEach { emit(it) }
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
+                        caughtThrowable = t
+                    }
+
+                    val rawError = chunkError ?: caughtThrowable?.message
+                    val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
+
+                    if (chunkError == null && caughtThrowable == null) {
+                        ollamaSucceeded = true
+                        break
+                    } else if (isTimeoutOrConnection) {
+                        retryCount++
+                        val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
+                        val remainingMs = maxRetryDurationMs - (System.currentTimeMillis() - startTime)
+                        if (remainingMs > 0) {
+                            emit(ProviderEvent.Notice("Ollama response timed out. Retrying (elapsed: ${elapsedSeconds}s)..."))
+                            delay(minOf(2000L, remainingMs))
+                            continue
+                        } else {
+                            break
+                        }
+                    } else {
+                        // Non-timeout error (e.g. invalid model, bad JSON, unauthorized)
+                        emit(ProviderEvent.Failed(rawError ?: "Ollama request failed"))
+                        return@flow
+                    }
+                }
+
+                if (ollamaSucceeded) {
+                    emit(ProviderEvent.Completed)
+                    return@flow
+                } else {
+                    // 5 minutes elapsed with timeouts / network glitches:
+                    // Cleanly wrap up with incomplete response notice and completed event
+                    val wrapUpNotice = if (hasReceivedTokens) {
+                        "\n\n[Response incomplete: Ollama server timed out after 5 minutes]"
+                    } else {
+                        "[Response incomplete: Ollama server timed out after 5 minutes with no response]"
+                    }
+                    emit(ProviderEvent.TextDelta(wrapUpNotice))
+                    emit(ProviderEvent.Completed)
+                    return@flow
+                }
+            }
+
             try {
                 openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
                     chunk.error?.let { error ->
@@ -239,5 +313,33 @@ class OpenAICompatibleAdapter @Inject constructor(
                 return@flow
             }
         }
+    }
+
+    private fun isOllamaTimeoutOrNetworkGlitch(errorMsg: String?, throwable: Throwable?): Boolean {
+        if (throwable != null) {
+            when (throwable) {
+                is io.ktor.client.plugins.HttpRequestTimeoutException,
+                is java.net.SocketTimeoutException,
+                is java.net.ConnectException,
+                is java.net.SocketException,
+                is java.io.InterruptedIOException -> return true
+            }
+        }
+        if (errorMsg != null) {
+            val lower = errorMsg.lowercase()
+            if (lower.contains("timed out") ||
+                lower.contains("timeout") ||
+                lower.contains("connection refused") ||
+                lower.contains("failed to connect") ||
+                lower.contains("network error") ||
+                lower.contains("reset by peer") ||
+                lower.contains("socket closed") ||
+                lower.contains("broken pipe") ||
+                lower.contains("unable to resolve host")
+            ) {
+                return true
+            }
+        }
+        return false
     }
 }

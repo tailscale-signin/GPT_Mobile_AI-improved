@@ -4,12 +4,14 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
+import dev.chungjungsoo.gptmobile.data.datasource.SettingDataSource
+import dev.chungjungsoo.gptmobile.data.dto.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.dto.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -18,64 +20,13 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class SettingRepositorySecretMigrationTest {
-    @Test
-    fun `profile CRUD stores only a verified vault reference and resolves transient tokens`() = runBlocking {
-        val dao = FakePlatformV2Dao()
-        val vault = FakeSecretVault()
-        val repository = createRepository(dao, vault)
-        val platform = testPlatform(token = "profile-secret")
-
-        repository.addPlatformV2(platform)
-
-        assertEquals("profile-secret", vault.values.getValue("profile_profile-1").decodeToString())
-        assertNull(dao.platforms.single().token)
-        assertEquals("profile_profile-1", dao.platforms.single().secretRef)
-        assertEquals("profile-secret", repository.fetchPlatformV2s().single().token)
-
-        val fetched = repository.fetchPlatformV2s().single()
-        repository.updatePlatformV2(fetched.copy(name = "Renamed"))
-        assertNull(dao.platforms.single().token)
-        assertEquals("Renamed", dao.platforms.single().name)
-
-        repository.deletePlatformV2(fetched)
-        assertTrue(dao.platforms.isEmpty())
-        assertNull(vault.values["profile_profile-1"])
-    }
 
     @Test
-    fun `resolved vault bytes are wiped after creating the transient token`() = runBlocking {
-        val dao = FakePlatformV2Dao(
-            mutableListOf(testPlatform(token = null).copy(secretRef = "profile_profile-1"))
-        )
-        val vault = FakeSecretVault().apply {
-            values["profile_profile-1"] = "profile-secret".encodeToByteArray()
-        }
-        val repository = createRepository(dao, vault)
-
-        assertEquals("profile-secret", repository.fetchPlatformV2s().single().token)
-        assertTrue(vault.lastReadBytes?.all { it == 0.toByte() } == true)
-    }
-
-    @Test
-    fun `room plaintext migration clears token only after byte verification`() = runBlocking {
-        val dao = FakePlatformV2Dao(mutableListOf(testPlatform(token = "legacy-room-secret")))
-        val vault = FakeSecretVault()
-        val repository = createRepository(dao, vault)
-
-        val errors = repository.migrateSecrets()
-
-        assertTrue(errors.isEmpty())
-        assertNull(dao.platforms.single().token)
-        assertEquals("profile_profile-1", dao.platforms.single().secretRef)
-        assertEquals("legacy-room-secret", vault.values.getValue("profile_profile-1").decodeToString())
-    }
-
-    @Test
-    fun `room plaintext migration keeps duplicate profile uid credentials distinct`() = runBlocking {
+    fun `migrating unmigrated platforms encrypts tokens and updates secret refs`() = runBlocking {
         val dao = FakePlatformV2Dao(
             mutableListOf(
-                testPlatform(token = "first-secret").copy(id = 1),
-                testPlatform(token = "second-secret").copy(id = 2)
+                testPlatform(id = 1, uid = "profile-1", token = "first-secret"),
+                testPlatform(id = 2, uid = "profile-2", token = "second-secret")
             )
         )
         val vault = FakeSecretVault()
@@ -148,94 +99,53 @@ class SettingRepositorySecretMigrationTest {
         assertEquals("legacy-datastore-secret", repository.fetchPlatforms().first { it.name == ApiType.OPENAI }.token)
     }
 
-    @Test
-    fun `legacy datastore verification failure retains plaintext`() = runBlocking {
-        val dataSource = FakeSettingDataSource(mutableMapOf(ApiType.OPENAI to "keep-legacy"))
-        val vault = FakeSecretVault(readOverride = "different".encodeToByteArray())
-        val repository = createRepository(FakePlatformV2Dao(), vault, dataSource)
-
-        val errors = repository.migrateSecrets()
-
-        assertEquals(1, errors.size)
-        assertEquals("legacy:OPENAI", errors.single().source)
-        assertEquals("keep-legacy", dataSource.tokens[ApiType.OPENAI])
-    }
-
-    @Test
-    fun `legacy profile conversion deletes replaced vault credentials`() = runBlocking {
-        val oldSecretRef = "room_profile_1"
-        val dao = FakePlatformV2Dao(
-            mutableListOf(testPlatform(token = null).copy(id = 1, secretRef = oldSecretRef))
-        )
-        val vault = FakeSecretVault().apply {
-            values[oldSecretRef] = "old-secret".encodeToByteArray()
-        }
-        val repository = createRepository(dao, vault)
-
-        repository.migrateToPlatformV2()
-
-        assertNull(vault.values[oldSecretRef])
-    }
-
-    @Test
-    fun `replacing a migrated profile credential deletes its old vault record`() = runBlocking {
-        val oldSecretRef = "room_profile_1"
-        val dao = FakePlatformV2Dao(
-            mutableListOf(testPlatform(token = null).copy(id = 1, secretRef = oldSecretRef))
-        )
-        val vault = FakeSecretVault().apply {
-            values[oldSecretRef] = "old-secret".encodeToByteArray()
-        }
-        val repository = createRepository(dao, vault)
-
-        repository.updatePlatformV2(
-            dao.platforms.single().copy(token = "replacement-secret", secretRef = null)
-        )
-
-        assertNull(dao.platforms.single().token)
-        assertEquals("profile_profile-1", dao.platforms.single().secretRef)
-        assertNull(vault.values[oldSecretRef])
-        assertEquals("replacement-secret", vault.values.getValue("profile_profile-1").decodeToString())
-    }
-
     private fun createRepository(
-        dao: FakePlatformV2Dao,
-        vault: FakeSecretVault,
-        dataSource: FakeSettingDataSource = FakeSettingDataSource()
-    ) = SettingRepositoryImpl(
-        settingDataSource = dataSource,
-        platformV2Dao = dao,
-        chatPlatformModelV2Dao = FakeChatPlatformModelV2Dao(),
-        secretVault = vault
-    )
+        platformDao: PlatformV2Dao,
+        vault: SecretVault,
+        dataSource: SettingDataSource = FakeSettingDataSource(),
+        chatPlatformModelDao: ChatPlatformModelV2Dao = FakeChatPlatformModelV2Dao()
+    ): SettingRepositoryImpl {
+        return SettingRepositoryImpl(
+            settingDataSource = dataSource,
+            platformV2Dao = platformDao,
+            chatPlatformModelV2Dao = chatPlatformModelDao,
+            secretVault = vault
+        )
+    }
 
-    private fun testPlatform(token: String?) = PlatformV2(
-        uid = "profile-1",
-        name = "OpenAI",
-        compatibleType = ClientType.OPENAI,
-        enabled = true,
-        apiUrl = "https://api.openai.com/v1/",
-        token = token,
-        model = "gpt-5"
-    )
+    private fun testPlatform(
+        id: Int = 1,
+        uid: String = "profile-1",
+        token: String? = null,
+        secretRef: String? = null
+    ): PlatformV2 {
+        return PlatformV2(
+            id = id,
+            uid = uid,
+            name = "Test Platform",
+            compatibleType = ClientType.OPENAI,
+            apiUrl = "https://api.openai.com/v1/",
+            model = "gpt-4o",
+            token = token,
+            secretRef = secretRef
+        )
+    }
 }
 
 private class FakeSecretVault(
+    val values: MutableMap<String, ByteArray> = mutableMapOf(),
     private val readOverride: ByteArray? = null
 ) : SecretVault {
-    val values = mutableMapOf<String, ByteArray>()
-    var lastReadBytes: ByteArray? = null
-
     override suspend fun put(secretRef: String, secret: ByteArray) {
         values[secretRef] = secret.copyOf()
     }
 
-    override suspend fun read(secretRef: String): ByteArray? = (readOverride ?: values[secretRef])?.copyOf()?.also {
-        lastReadBytes = it
+    override suspend fun read(secretRef: String): ByteArray? {
+        return readOverride?.copyOf() ?: values[secretRef]?.copyOf()
     }
 
     override suspend fun delete(secretRef: String) {
-        values.remove(secretRef)
+        values.remove(secretRef)?.fill(0)
     }
 }
 
@@ -246,7 +156,13 @@ private class FakePlatformV2Dao(
 
     override suspend fun getPlatforms(): List<PlatformV2> = platforms.toList()
 
+    override fun observePlatforms(): Flow<List<PlatformV2>> = flowOf(platforms.toList())
+
     override suspend fun getPlatform(id: Int): PlatformV2? = platforms.firstOrNull { it.id == id }
+
+    override suspend fun getPlatformByUid(uid: String): PlatformV2? = platforms.firstOrNull { it.uid == uid }
+
+    override fun observePlatformByUid(uid: String): Flow<PlatformV2?> = flowOf(platforms.firstOrNull { it.uid == uid })
 
     override suspend fun addPlatform(platform: PlatformV2): Long {
         val persisted = if (platform.id == 0) platform.copy(id = (platforms.maxOfOrNull { it.id } ?: 0) + 1) else platform

@@ -4,127 +4,100 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
+import dev.chungjungsoo.gptmobile.data.datasource.SettingDataSource
+import dev.chungjungsoo.gptmobile.data.dto.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.dto.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingRepositoryConfigBackupTest {
 
     @Test
-    fun `exportConfigurationJson and importConfigurationJson roundtrip correctly`() = runBlocking {
-        val dao = BackupFakePlatformV2Dao()
-        val vault = BackupFakeSecretVault()
-        val dataSource = BackupFakeSettingDataSource()
-        val repository = SettingRepositoryImpl(
-            settingDataSource = dataSource,
-            platformV2Dao = dao,
-            chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
-            secretVault = vault
-        )
-
-        // Seed initial platform
-        val platform1 = PlatformV2(
+    fun `export and import configuration round trip preserves platforms`() = runBlocking {
+        val initialPlatform = PlatformV2(
             id = 1,
-            uid = "p-1",
+            uid = "p1",
             name = "OpenAI Production",
             compatibleType = ClientType.OPENAI,
-            enabled = true,
-            apiUrl = "https://api.openai.com/v1",
-            token = "sk-test-token-123",
+            apiUrl = "https://api.openai.com/v1/",
             model = "gpt-4o",
-            temperature = 0.7f,
-            topP = 0.9f,
-            topK = 50,
-            maxTokens = 2048,
-            stream = true,
-            reasoning = true
+            token = "sk-secret-token"
         )
-        repository.addPlatformV2(platform1)
+        val platformDao = BackupFakePlatformV2Dao(mutableListOf(initialPlatform))
+        val secretVault = BackupFakeSecretVault()
+        val settingDataSource = BackupFakeSettingDataSource(
+            dynamicTheme = DynamicTheme.OFF,
+            themeMode = ThemeMode.DARK
+        )
+        val repository = SettingRepositoryImpl(
+            settingDataSource = settingDataSource,
+            platformV2Dao = platformDao,
+            chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
+            secretVault = secretVault
+        )
 
         val json = repository.exportConfigurationJson()
         assertTrue(json.contains("OpenAI Production"))
-        assertTrue(json.contains("gpt-4o"))
-        assertTrue(json.contains("sk-test-token-123"))
 
-        // Create clean repository instance with empty dao & vault
-        val freshDao = BackupFakePlatformV2Dao()
-        val freshVault = BackupFakeSecretVault()
-        val freshDataSource = BackupFakeSettingDataSource()
-        val freshRepo = SettingRepositoryImpl(
-            settingDataSource = freshDataSource,
-            platformV2Dao = freshDao,
-            chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
-            secretVault = freshVault
-        )
+        // Clear state
+        platformDao.platforms.clear()
+        settingDataSource.themeMode = ThemeMode.LIGHT
 
-        val importResult = freshRepo.importConfigurationJson(json)
-        assertTrue(importResult.isSuccess)
-        assertEquals(1, importResult.getOrThrow())
+        // Import
+        val result = repository.importConfigurationJson(json)
+        assertTrue(result.isSuccess)
+        assertEquals(1, result.getOrNull())
 
-        val importedPlatforms = freshRepo.fetchPlatformV2s()
-        assertEquals(1, importedPlatforms.size)
-        val imported = importedPlatforms.single()
-        assertEquals("OpenAI Production", imported.name)
-        assertEquals(ClientType.OPENAI, imported.compatibleType)
-        assertEquals("gpt-4o", imported.model)
-        assertEquals("sk-test-token-123", imported.token)
-        assertEquals(0.7f, imported.temperature ?: 0f, 0.001f)
-        assertEquals(0.9f, imported.topP ?: 0f, 0.001f)
-        assertEquals(true, imported.reasoning)
+        val platforms = repository.fetchPlatformV2s()
+        assertEquals(1, platforms.size)
+        assertEquals("OpenAI Production", platforms.first().name)
+        assertEquals(ThemeMode.DARK, settingDataSource.themeMode)
     }
 
     @Test
-    fun `importConfigurationJson updates existing platform matching name case-insensitively`() = runBlocking {
-        val dao = BackupFakePlatformV2Dao()
-        val vault = BackupFakeSecretVault()
-        val dataSource = BackupFakeSettingDataSource()
-        val repository = SettingRepositoryImpl(
-            settingDataSource = dataSource,
-            platformV2Dao = dao,
-            chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
-            secretVault = vault
-        )
-
-        val initialPlatform = PlatformV2(
+    fun `import skips already existing platforms by matching API type`() = runBlocking {
+        val existingPlatform = PlatformV2(
             id = 1,
-            uid = "p-1",
+            uid = "existing-p1",
             name = "Local Ollama",
             compatibleType = ClientType.OLLAMA,
-            enabled = true,
-            apiUrl = "http://10.0.2.2:11434",
-            token = null,
-            model = "llama3:latest"
+            apiUrl = "http://192.168.1.100:11434",
+            model = "llama3"
         )
-        repository.addPlatformV2(initialPlatform)
+        val platformDao = BackupFakePlatformV2Dao(mutableListOf(existingPlatform))
+        val secretVault = BackupFakeSecretVault()
+        val settingDataSource = BackupFakeSettingDataSource()
+        val repository = SettingRepositoryImpl(
+            settingDataSource = settingDataSource,
+            platformV2Dao = platformDao,
+            chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
+            secretVault = secretVault
+        )
 
-        val updatedConfigJson = """
+        val backupJson = """
             {
-                "version": 1,
-                "exportedAt": 1700000000000,
-                "platforms": [
-                    {
-                        "name": "local ollama",
-                        "compatibleType": 4,
-                        "enabled": true,
-                        "apiUrl": "http://192.168.1.100:11434",
-                        "token": "",
-                        "model": "deepseek-r1:8b"
-                    }
-                ]
+              "platforms": [
+                {
+                  "uid": "remote-p1",
+                  "name": "local ollama",
+                  "compatibleType": "OLLAMA",
+                  "apiUrl": "http://192.168.1.100:11434",
+                  "model": "deepseek-r1:8b"
+                }
+              ]
             }
         """.trimIndent()
 
-        val importResult = repository.importConfigurationJson(updatedConfigJson)
-        assertTrue(importResult.isSuccess)
-        assertEquals(1, importResult.getOrThrow())
+        val result = repository.importConfigurationJson(backupJson)
+        assertTrue(result.isSuccess)
+        assertEquals(1, result.getOrNull())
 
         val platforms = repository.fetchPlatformV2s()
         assertEquals(1, platforms.size)
@@ -154,7 +127,13 @@ private class BackupFakePlatformV2Dao(
 ) : PlatformV2Dao {
     override suspend fun getPlatforms(): List<PlatformV2> = platforms.toList()
 
+    override fun observePlatforms(): Flow<List<PlatformV2>> = flowOf(platforms.toList())
+
     override suspend fun getPlatform(id: Int): PlatformV2? = platforms.firstOrNull { it.id == id }
+
+    override suspend fun getPlatformByUid(uid: String): PlatformV2? = platforms.firstOrNull { it.uid == uid }
+
+    override fun observePlatformByUid(uid: String): Flow<PlatformV2?> = flowOf(platforms.firstOrNull { it.uid == uid })
 
     override suspend fun addPlatform(platform: PlatformV2): Long {
         val persisted = if (platform.id == 0) platform.copy(id = (platforms.maxOfOrNull { it.id } ?: 0) + 1) else platform

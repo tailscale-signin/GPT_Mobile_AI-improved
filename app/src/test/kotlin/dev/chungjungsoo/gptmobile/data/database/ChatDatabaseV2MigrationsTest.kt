@@ -63,6 +63,8 @@ class ChatDatabaseV2MigrationsTest {
         )
 
         assertFalse(platform.disableAllTools)
+        assertFalse(platform.disableRemoteTools)
+        assertFalse(platform.disableLocalTools)
     }
 
     @Test
@@ -84,6 +86,9 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(15, ChatDatabaseV2Migrations.MIGRATION_15_16.startVersion)
         assertEquals(16, ChatDatabaseV2Migrations.MIGRATION_15_16.endVersion)
+
+        assertEquals(16, ChatDatabaseV2Migrations.MIGRATION_16_17.startVersion)
+        assertEquals(17, ChatDatabaseV2Migrations.MIGRATION_16_17.endVersion)
     }
 
     @Test

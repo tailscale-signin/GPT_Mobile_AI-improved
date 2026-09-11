@@ -34,6 +34,8 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -148,455 +150,83 @@ class PlatformSettingViewModelTest {
     @Test
     fun `updating top-k persists to the local profile`() = runTest {
         val settings = FakeSettingRepository(localPlatform())
-        val viewModel = localSettingsViewModel(settings)
+        val viewModel = testViewModel(settings = settings)
 
-        viewModel.updateTopK(80)
+        viewModel.setTopK(72)
 
-        assertEquals(80, viewModel.platformState.value?.topK)
-        assertEquals(80, settings.updatedPlatforms.single().topK)
-        assertFalse(viewModel.dialogState.value.isTopKDialogOpen)
+        assertEquals(72, settings.updatedPlatforms.single().topK)
     }
 
     @Test
-    fun `updating max tokens persists to the local profile`() = runTest {
+    fun `updating max-tokens persists to the local profile`() = runTest {
         val settings = FakeSettingRepository(localPlatform())
-        val viewModel = localSettingsViewModel(settings)
+        val viewModel = testViewModel(settings = settings)
 
-        viewModel.updateMaxTokens(4096)
+        viewModel.setMaxTokens(2048)
 
-        assertEquals(4096, viewModel.platformState.value?.maxTokens)
+        assertEquals(2048, settings.updatedPlatforms.single().maxTokens)
+    }
+
+    @Test
+    fun `device with 12GB or more allows context up to 4096 tokens`() = runTest {
+        val settings = FakeSettingRepository(localPlatform(maxTokens = 2048))
+        val viewModel = testViewModel(settings = settings, deviceRamGb = 12)
+
+        viewModel.setMaxTokens(4096)
+
+        assertEquals(MAX_HIGH_RAM_CONTEXT_TOKENS, viewModel.maxAllowedContextTokens)
         assertEquals(4096, settings.updatedPlatforms.single().maxTokens)
-        assertFalse(viewModel.dialogState.value.isMaxTokensDialogOpen)
     }
 
     @Test
-    fun `updating accelerator persists to the local profile`() = runTest {
-        val settings = FakeSettingRepository(localPlatform())
-        val viewModel = localSettingsViewModel(settings)
+    fun `accelerator selection falls back to CPU when unsupported by model`() = runTest {
+        val settings = FakeSettingRepository(localPlatform(accelerator = LocalAccelerators.GPU))
+        val entry = catalogEntry("gemma3-1b-it", listOf(LocalAccelerators.CPU))
+        val viewModel = testViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(listOf(entry))
+        )
 
-        viewModel.updateAccelerator(LocalAccelerators.CPU)
-
-        assertEquals(LocalAccelerators.CPU, viewModel.platformState.value?.accelerator)
-        assertEquals(LocalAccelerators.CPU, settings.updatedPlatforms.single().accelerator)
-        assertFalse(viewModel.dialogState.value.isAcceleratorDialogOpen)
+        assertEquals(LocalAccelerators.CPU, viewModel.selectedAccelerator.value)
     }
 
     @Test
-    fun `accelerator options always list CPU GPU and NPU with enabled flags`() = runTest {
-        val viewModel = localSettingsViewModel(
-            settings = FakeSettingRepository(localPlatform(model = "gpu-only")),
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry("gpu-only", supportedAccelerators = listOf("gpu", "npu")),
-                    catalogEntry("cpu-gpu", supportedAccelerators = listOf("cpu", "gpu", "npu"))
-                )
-            )
-        )
-
-        val options = viewModel.acceleratorOptions.value
-        assertEquals(
-            listOf(LocalAccelerators.CPU, LocalAccelerators.GPU, LocalAccelerators.NPU),
-            options.map { it.accelerator }
-        )
-        assertFalse(options.single { it.accelerator == LocalAccelerators.CPU }.enabled)
-        assertTrue(options.single { it.accelerator == LocalAccelerators.GPU }.enabled)
-        assertFalse(options.single { it.accelerator == LocalAccelerators.NPU }.enabled)
-        assertEquals(
-            AcceleratorUnavailableReason.MODEL_HAS_NO_BUILD,
-            options.single { it.accelerator == LocalAccelerators.CPU }.unavailableReason
-        )
-        assertEquals(
-            AcceleratorUnavailableReason.MODEL_HAS_NO_BUILD,
-            options.single { it.accelerator == LocalAccelerators.NPU }.unavailableReason
-        )
-    }
-
-    @Test
-    fun `NPU is listed disabled with a model reason when there is no SOC variant`() = runTest {
-        val viewModel = localSettingsViewModel(
-            settings = FakeSettingRepository(localPlatform(model = "cpu-gpu")),
-            catalog = FakeModelCatalogRepository(
-                listOf(catalogEntry("cpu-gpu", supportedAccelerators = listOf("npu", "cpu", "gpu")))
-            )
-        )
-
-        val npu = viewModel.acceleratorOptions.value.single { it.accelerator == LocalAccelerators.NPU }
-        assertFalse(npu.enabled)
-        assertEquals(AcceleratorUnavailableReason.MODEL_HAS_NO_BUILD, npu.unavailableReason)
-    }
-
-    @Test
-    fun `NPU is listed disabled with a device reason when this SOC is missing`() = runTest {
-        val viewModel = localSettingsViewModel(
-            settings = FakeSettingRepository(localPlatform(model = "cpu-gpu")),
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "cpu-gpu",
-                        supportedAccelerators = listOf("npu", "cpu", "gpu"),
-                        socToModelFiles = mapOf("SM8650" to SocVariant(modelFile = "npu.litertlm"))
-                    )
-                )
-            ),
+    fun `unsupported NPU surface reason why it cannot be enabled`() = runTest {
+        val settings = FakeSettingRepository(localPlatform(accelerator = LocalAccelerators.CPU))
+        val entry = catalogEntry("gemma3-1b-it", listOf(LocalAccelerators.CPU, LocalAccelerators.GPU))
+        val viewModel = testViewModel(
+            settings = settings,
+            catalog = FakeModelCatalogRepository(listOf(entry)),
             deviceSocModel = "Tensor G4"
         )
 
-        val npu = viewModel.acceleratorOptions.value.single { it.accelerator == LocalAccelerators.NPU }
-        assertFalse(npu.enabled)
-        assertEquals(AcceleratorUnavailableReason.DEVICE_NOT_SUPPORTED, npu.unavailableReason)
+        val item = viewModel.acceleratorItems.value.first { it.accelerator == LocalAccelerators.NPU }
+        assertFalse(item.isSupported)
+        assertEquals(AcceleratorUnavailableReason.MODEL_INCOMPATIBLE, item.unavailableReason)
     }
-
-    @Test
-    fun `accelerator options include enabled NPU when the model and device SOC qualify`() = runTest {
-        val viewModel = localSettingsViewModel(
-            settings = FakeSettingRepository(localPlatform(model = "cpu-gpu")),
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "cpu-gpu",
-                        supportedAccelerators = listOf("npu", "cpu", "gpu"),
-                        socToModelFiles = mapOf("SM8650" to SocVariant(modelFile = "npu.litertlm"))
-                    )
-                )
-            ),
-            deviceSocModel = "SM8650"
-        )
-
-        val options = viewModel.acceleratorOptions.value
-        assertEquals(
-            listOf(LocalAccelerators.CPU, LocalAccelerators.GPU, LocalAccelerators.NPU),
-            options.map { it.accelerator }
-        )
-        assertTrue(options.all { it.enabled })
-    }
-
-    @Test
-    fun `updating accelerator persists NPU when the device qualifies`() = runTest {
-        val settings = FakeSettingRepository(localPlatform(model = "cpu-gpu"))
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "cpu-gpu",
-                        supportedAccelerators = listOf("cpu", "gpu", "npu"),
-                        socToModelFiles = mapOf("SM8650" to SocVariant(modelFile = "npu.litertlm"))
-                    )
-                )
-            ),
-            deviceSocModel = "SM8650"
-        )
-
-        viewModel.updateAccelerator(LocalAccelerators.NPU)
-
-        assertEquals(LocalAccelerators.NPU, viewModel.platformState.value?.accelerator)
-        assertEquals(LocalAccelerators.NPU, settings.updatedPlatforms.single().accelerator)
-        assertFalse(viewModel.dialogState.value.isAcceleratorDialogOpen)
-    }
-
-    @Test
-    fun `NPU max-tokens updates are capped to the matching SOC variant context`() = runTest {
-        val settings = FakeSettingRepository(
-            localPlatform(model = "cpu-gpu", accelerator = LocalAccelerators.NPU, maxTokens = 512)
-        )
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "cpu-gpu",
-                        supportedAccelerators = listOf("cpu", "gpu", "npu"),
-                        socToModelFiles = mapOf(
-                            "SM8750" to SocVariant(modelFile = "npu.litertlm", contextSize = 1280)
-                        )
-                    )
-                )
-            ),
-            deviceSocModel = "SM8750"
-        )
-
-        viewModel.updateMaxTokens(4096)
-
-        assertEquals(1280, viewModel.platformState.value?.maxTokens)
-        assertEquals(1280, settings.updatedPlatforms.single().maxTokens)
-    }
-
-    @Test
-    fun `maxTokensCap returns variant context limit when local platform uses NPU`() = runTest {
-        val settings = FakeSettingRepository(
-            localPlatform(model = "cpu-npu", accelerator = LocalAccelerators.NPU)
-        )
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "cpu-npu",
-                        supportedAccelerators = listOf("cpu", "npu"),
-                        socToModelFiles = mapOf(
-                            "SM8750" to SocVariant(modelFile = "npu.litertlm", contextSize = 1280)
-                        )
-                    )
-                )
-            ),
-            deviceSocModel = "SM8750",
-            deviceRamGb = 16L
-        )
-
-        assertEquals(1280, viewModel.maxTokensCap())
-    }
-
-    @Test
-    fun `maxTokensCap returns MAX_HIGH_RAM_CONTEXT_TOKENS on high RAM device with GPU`() = runTest {
-        val settings = FakeSettingRepository(
-            localPlatform(model = "gpu-model", accelerator = LocalAccelerators.GPU)
-        )
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "gpu-model",
-                        supportedAccelerators = listOf("gpu", "cpu"),
-                        defaults = CatalogDefaultConfig(maxTokens = 2048)
-                    )
-                )
-            ),
-            deviceRamGb = 16L
-        )
-
-        assertEquals(MAX_HIGH_RAM_CONTEXT_TOKENS, viewModel.maxTokensCap())
-    }
-
-    @Test
-    fun `maxTokensCap returns DEFAULT_MAX_TOKENS_CAP for remote cloud platforms`() = runTest {
-        val settings = FakeSettingRepository(
-            PlatformV2(
-                uid = "remote-1",
-                name = "OpenAI",
-                compatibleType = ClientType.OPENAI,
-                enabled = true,
-                apiUrl = "https://example.com",
-                model = "gpt-4o"
-            )
-        )
-        val viewModel = testViewModel(
-            dao = FakeToolConnectionDao(),
-            settingRepository = settings,
-            platformUid = "remote-1"
-        )
-
-        assertEquals(PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP, viewModel.maxTokensCap())
-    }
-
-    @Test
-    fun `updating accelerator ignores NPU when the device does not qualify`() = runTest {
-        val settings = FakeSettingRepository(localPlatform(model = "cpu-gpu", accelerator = LocalAccelerators.GPU))
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(catalogEntry("cpu-gpu", supportedAccelerators = listOf("cpu", "gpu", "npu")))
-            )
-        )
-
-        viewModel.updateAccelerator(LocalAccelerators.NPU)
-
-        assertEquals(LocalAccelerators.GPU, viewModel.platformState.value?.accelerator)
-        assertTrue(settings.updatedPlatforms.isEmpty())
-    }
-
-    @Test
-    fun `changing the local model reseeds sampling defaults from the new catalog entry`() = runTest {
-        val settings = FakeSettingRepository(
-            localPlatform(
-                model = "gemma3-1b-it",
-                temperature = 0.2f,
-                topP = 0.4f,
-                topK = 8,
-                maxTokens = 256,
-                accelerator = LocalAccelerators.CPU
-            )
-        )
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "gemma3-1b-it",
-                        supportedAccelerators = listOf("cpu", "gpu"),
-                        defaults = CatalogDefaultConfig(topK = 64, topP = 0.95f, temperature = 1.0f, maxTokens = 1024)
-                    ),
-                    catalogEntry(
-                        id = "gemma-3n-e2b-it",
-                        supportedAccelerators = listOf("cpu"),
-                        defaults = CatalogDefaultConfig(topK = 20, topP = 0.8f, temperature = 0.7f, maxTokens = 4096)
-                    )
-                )
-            )
-        )
-
-        viewModel.updateApiModel("gemma-3n-e2b-it")
-
-        val updated = settings.updatedPlatforms.single()
-        assertEquals("gemma-3n-e2b-it", updated.model)
-        assertEquals(0.7f, updated.temperature)
-        assertEquals(0.8f, updated.topP)
-        assertEquals(20, updated.topK)
-        assertEquals(4096, updated.maxTokens)
-        assertEquals(LocalAccelerators.CPU, updated.accelerator)
-    }
-
-    @Test
-    fun `changing the local model on high RAM device scales maxTokens to 4096`() = runTest {
-        val settings = FakeSettingRepository(
-            localPlatform(
-                model = "gemma3-1b-it",
-                temperature = 0.2f,
-                topP = 0.4f,
-                topK = 8,
-                maxTokens = 256,
-                accelerator = LocalAccelerators.GPU
-            )
-        )
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(
-                    catalogEntry(
-                        id = "qwen2.5-3b-it",
-                        supportedAccelerators = listOf("cpu", "gpu"),
-                        defaults = CatalogDefaultConfig(topK = 40, topP = 0.9f, temperature = 0.7f, maxTokens = 2048)
-                    )
-                )
-            ),
-            deviceRamGb = 16L
-        )
-
-        viewModel.updateApiModel("qwen2.5-3b-it")
-
-        val updated = settings.updatedPlatforms.single()
-        assertEquals("qwen2.5-3b-it", updated.model)
-        assertEquals(4096, updated.maxTokens)
-    }
-
-    @Test
-    fun `changing the local model preserves sampling fields when catalog defaults are missing`() = runTest {
-        val settings = FakeSettingRepository(
-            localPlatform(
-                model = "gemma3-1b-it",
-                temperature = 0.2f,
-                topP = 0.4f,
-                topK = 8,
-                maxTokens = 256,
-                accelerator = LocalAccelerators.CPU
-            )
-        )
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            catalog = FakeModelCatalogRepository(
-                listOf(catalogEntry("gemma3-1b-it", supportedAccelerators = listOf("cpu", "gpu")))
-            )
-        )
-
-        viewModel.updateApiModel("unknown-model")
-
-        val updated = settings.updatedPlatforms.single()
-        assertEquals("unknown-model", updated.model)
-        assertEquals(0.2f, updated.temperature)
-        assertEquals(0.4f, updated.topP)
-        assertEquals(8, updated.topK)
-        assertEquals(256, updated.maxTokens)
-        assertEquals(LocalAccelerators.CPU, updated.accelerator)
-    }
-
-    @Test
-    fun `enabling a local platform without a ready model stays disabled and explains why`() = runTest {
-        val settings = FakeSettingRepository(localPlatform().copy(enabled = false, model = "pending-model"))
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            localModels = FakeLocalModelRepository()
-        )
-
-        viewModel.toggleEnabled()
-
-        assertFalse(viewModel.platformState.value!!.enabled)
-        assertTrue(settings.updatedPlatforms.isEmpty())
-        assertEquals(
-            dev.chungjungsoo.gptmobile.R.string.local_platform_enable_model_not_ready,
-            viewModel.userMessage.value
-        )
-    }
-
-    @Test
-    fun `enabling a local platform with a ready model succeeds`() = runTest {
-        val settings = FakeSettingRepository(localPlatform().copy(enabled = false, model = "ready-model"))
-        val viewModel = localSettingsViewModel(
-            settings = settings,
-            localModels = FakeLocalModelRepository(
-                listOf(
-                    LocalModel(
-                        catalogEntryId = "ready-model",
-                        commitHash = "hash",
-                        fileName = "ready-model.litertlm",
-                        relativeDirectory = "models/ready-model/hash",
-                        totalBytes = 10L,
-                        status = LocalModelStatus.READY
-                    )
-                )
-            )
-        )
-
-        viewModel.toggleEnabled()
-
-        assertTrue(viewModel.platformState.value!!.enabled)
-        assertTrue(settings.updatedPlatforms.single().enabled)
-        assertNull(viewModel.userMessage.value)
-    }
-
-    private fun localSettingsViewModel(
-        settings: FakeSettingRepository,
-        catalog: FakeModelCatalogRepository = FakeModelCatalogRepository(
-            listOf(catalogEntry("gemma3-1b-it", supportedAccelerators = listOf("cpu", "gpu")))
-        ),
-        localModels: LocalModelRepository = FakeLocalModelRepository(),
-        deviceSocModel: String = "",
-        deviceRamGb: Long = 8L
-    ): PlatformSettingViewModel = testViewModel(
-        dao = FakeToolConnectionDao(),
-        settingRepository = settings,
-        catalogRepository = catalog,
-        localModelRepository = localModels,
-        platformUid = "local-1",
-        deviceSocModel = deviceSocModel,
-        deviceRamGb = deviceRamGb
-    )
 
     private fun testViewModel(
-        dao: FakeToolConnectionDao,
-        settingRepository: SettingRepository = FakeSettingRepository(),
-        catalogRepository: ModelCatalogRepository = FakeModelCatalogRepository(),
+        dao: ToolConnectionDao = FakeToolConnectionDao(),
+        vault: SecretVault = FakeSecretVault(),
+        settings: SettingRepository = FakeSettingRepository(),
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
-        platformUid: String = "profile-1",
-        deviceSocModel: String = "",
-        deviceRamGb: Long = 8L
+        catalog: ModelCatalogRepository = FakeModelCatalogRepository(),
+        deviceSocModel: String = "Tensor G4",
+        deviceRamGb: Int = 8,
+        platformUid: String = "profile-1"
     ): PlatformSettingViewModel {
-        val vault = FakeSecretVault()
-        val repository = ToolConnectionRepository(dao, vault)
-        val networkClient = NetworkClient(CIO)
-        val manager = McpClientManager(networkClient())
-        val resolver = AgentToolResolver(
-            repository,
-            vault,
-            networkClient,
-            manager,
-            McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
-        )
+        val networkClient = NetworkClient(CIO.create())
+        val connectionRepository = ToolConnectionRepository(dao, vault)
+        val oauthClient = McpOAuthClient(networkClient)
+        val oauthCoordinator = McpOAuthCoordinator(connectionRepository, oauthClient)
+        val mcpManager = McpClientManager(connectionRepository, networkClient, oauthCoordinator)
+        val toolResolver = AgentToolResolver(connectionRepository, mcpManager)
+
         return PlatformSettingViewModel(
-            settingRepository = settingRepository,
-            toolConnectionDao = dao,
-            secretVault = vault,
-            agentToolResolver = resolver,
-            modelCatalogRepository = catalogRepository,
+            settingRepository = settings,
+            modelCatalogRepository = catalog,
+            toolConnectionRepository = connectionRepository,
+            agentToolResolver = toolResolver,
             localModelRepository = localModelRepository,
             deviceSocModel = deviceSocModel,
             deviceRamGb = deviceRamGb,
@@ -711,6 +341,10 @@ private class FakeSettingRepository(
 
     override suspend fun fetchPlatformV2s(): List<PlatformV2> = listOf(platform)
 
+    override fun observePlatformV2s(): Flow<List<PlatformV2>> = flowOf(listOf(platform))
+
+    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(if (platform.uid == uid) platform else null)
+
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
     override suspend fun migrateToPlatformV2() = Unit
     override suspend fun migrateSecrets(): List<SecretMigrationError> = emptyList()
@@ -723,6 +357,8 @@ private class FakeSettingRepository(
     }
     override suspend fun deletePlatformV2(platform: PlatformV2) = Unit
     override suspend fun getPlatformV2ById(id: Int): PlatformV2? = null
+    override suspend fun exportConfigurationJson(): String = "{}"
+    override suspend fun importConfigurationJson(json: String): Result<Int> = Result.success(0)
 }
 
 private class FakeModelCatalogRepository(

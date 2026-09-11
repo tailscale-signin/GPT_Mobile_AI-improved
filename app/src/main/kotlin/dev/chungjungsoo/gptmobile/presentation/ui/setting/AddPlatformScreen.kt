@@ -367,8 +367,12 @@ fun AddPlatformScreen(
         onConfirmRamWarning = viewModel::confirmRamWarning,
         onConfirmMeteredDownload = viewModel::confirmMeteredDownload,
         onDismissDialog = viewModel::dismissDownloadDialog,
-        onConfirmHighSpeedDownload = viewModel::confirmHighSpeedDownload,
-        onConfirmCellularMeteredDownload = viewModel::confirmCellularMeteredDownload
+        onStartSignIn = viewModel::startHuggingFaceSignIn,
+        onAuthActivityResult = viewModel::onAuthActivityResult,
+        onLicenseTabClosed = viewModel::onLicenseTabClosed,
+        onRetryAfterLicense = viewModel::retryAfterLicense,
+        onEnterAccessToken = viewModel::openAccessTokenDialog,
+        onSaveAccessToken = viewModel::saveHuggingFaceAccessToken
     )
 }
 
@@ -383,64 +387,36 @@ private fun AddPlatformTopBar(
     onActionClick: () -> Unit
 ) {
     LargeTopAppBar(
-        title = {
-            Text(
-                text = title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, titleContentColor = MaterialTheme.colorScheme.onBackground),
+        title = { Text(modifier = Modifier.padding(4.dp), text = title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
-            IconButton(
-                onClick = onNavigationClick,
-                modifier = Modifier.semantics {
-                    contentDescription = "Navigate back"
-                }
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null
-                )
+            IconButton(modifier = Modifier.padding(4.dp), onClick = onNavigationClick) {
+                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
             }
         },
         actions = {
-            if (actionLabel != null) {
-                TextButton(
-                    onClick = onActionClick,
-                    enabled = isActionEnabled
-                ) {
-                    Text(text = actionLabel)
-                }
+            actionLabel?.let { label ->
+                TextButton(modifier = Modifier.semantics { contentDescription = label }, enabled = isActionEnabled, onClick = onActionClick) { Text(label) }
             }
         },
-        scrollBehavior = scrollBehavior,
-        colors = TopAppBarDefaults.largeTopAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
+        scrollBehavior = scrollBehavior
     )
 }
 
 @Composable
 private fun getClientTypeName(clientType: ClientType): String = when (clientType) {
-    ClientType.OPENAI -> stringResource(R.string.openai)
-    ClientType.ANTHROPIC -> stringResource(R.string.anthropic)
-    ClientType.GOOGLE -> stringResource(R.string.google)
-    ClientType.GROQ -> stringResource(R.string.groq)
-    ClientType.OLLAMA -> stringResource(R.string.ollama)
-    ClientType.OPENROUTER -> stringResource(R.string.openrouter)
     ClientType.CUSTOM -> stringResource(R.string.custom)
-    ClientType.LITERT_LM -> stringResource(R.string.local_model)
+    else -> ModelConstants.defaultPlatformName(clientType)
 }
 
 @Composable
 private fun getClientTypeDescription(clientType: ClientType): String = when (clientType) {
-    ClientType.OPENAI -> stringResource(R.string.openai_description)
-    ClientType.ANTHROPIC -> stringResource(R.string.anthropic_description)
-    ClientType.GOOGLE -> stringResource(R.string.google_description)
-    ClientType.GROQ -> stringResource(R.string.groq_description)
-    ClientType.OLLAMA -> stringResource(R.string.ollama_description)
-    ClientType.OPENROUTER -> stringResource(R.string.openrouter_description)
-    ClientType.CUSTOM -> stringResource(R.string.custom_description)
-    ClientType.LITERT_LM -> stringResource(R.string.local_model_description)
+    ClientType.OPENAI -> stringResource(R.string.client_type_openai_desc)
+    ClientType.ANTHROPIC -> stringResource(R.string.client_type_anthropic_desc)
+    ClientType.GOOGLE -> stringResource(R.string.client_type_google_desc)
+    ClientType.GROQ -> stringResource(R.string.client_type_groq_desc)
+    ClientType.OLLAMA -> stringResource(R.string.client_type_ollama_desc)
+    ClientType.OPENROUTER -> stringResource(R.string.client_type_openrouter_desc)
+    ClientType.CUSTOM -> stringResource(R.string.client_type_custom_desc)
+    ClientType.LITERT_LM -> stringResource(R.string.client_type_litert_lm_desc)
 }

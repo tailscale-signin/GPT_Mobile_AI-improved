@@ -49,18 +49,55 @@ class SettingRepositoryImpl @Inject constructor(
         val dsImpl = settingDataSource as? SettingDataSourceImpl
 
         return ApiType.entries.map { apiType ->
-            val status = pref[settingDataSource.statusKey(apiType.name)]
-            val apiUrl = pref[settingDataSource.apiUrlKey(apiType.name)] ?: ModelConstants.getDefaultAPIUrl(apiType)
-            val model = pref[settingDataSource.modelKey(apiType.name)]
-            val temperature = pref[settingDataSource.temperatureKey(apiType.name)]
-            val topP = pref[settingDataSource.topPKey(apiType.name)]
-            val systemPrompt = pref[settingDataSource.systemPromptKey(apiType.name)]
-
-            // Prefer resolved token from SecretVault, fallback to cleartext
-            val token = if (dsImpl != null) {
-                resolveLegacyToken(apiType)
+            val status = if (dsImpl != null) {
+                pref[dsImpl.apiStatusMap[apiType]!!]
             } else {
-                settingDataSource.getToken(apiType)
+                settingDataSource.getStatus(apiType)
+            }
+
+            val rawUrl = if (dsImpl != null) {
+                pref[dsImpl.apiUrlMap[apiType]!!]
+            } else {
+                settingDataSource.getAPIUrl(apiType)
+            }
+
+            val apiUrl = when (apiType) {
+                ApiType.OPENAI -> rawUrl ?: ModelConstants.OPENAI_API_URL
+                ApiType.ANTHROPIC -> rawUrl ?: ModelConstants.ANTHROPIC_API_URL
+                ApiType.GOOGLE -> rawUrl ?: ModelConstants.GOOGLE_API_URL
+                ApiType.GROQ -> rawUrl ?: ModelConstants.GROQ_API_URL
+                ApiType.OLLAMA -> rawUrl ?: ""
+            }
+
+            val token = resolveLegacyToken(apiType)
+
+            val model = if (dsImpl != null) {
+                pref[dsImpl.apiModelMap[apiType]!!]
+            } else {
+                settingDataSource.getModel(apiType)
+            }
+
+            val temperature = if (dsImpl != null) {
+                pref[dsImpl.apiTemperatureMap[apiType]!!]
+            } else {
+                settingDataSource.getTemperature(apiType)
+            }
+
+            val topP = if (dsImpl != null) {
+                pref[dsImpl.apiTopPMap[apiType]!!]
+            } else {
+                settingDataSource.getTopP(apiType)
+            }
+
+            val rawPrompt = if (dsImpl != null) {
+                pref[dsImpl.apiSystemPromptMap[apiType]!!]
+            } else {
+                settingDataSource.getSystemPrompt(apiType)
+            }
+
+            val systemPrompt = when (apiType) {
+                ApiType.OPENAI -> rawPrompt ?: ModelConstants.OPENAI_PROMPT
+                else -> rawPrompt ?: ModelConstants.DEFAULT_PROMPT
             }
 
             Platform(
@@ -231,62 +268,65 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun getPlatformV2ById(id: Int): PlatformV2? {
         val cached = platformV2Cache.get()
         if (cached != null) {
-            return cached.firstOrNull { it.id == id }
+            val hit = cached.firstOrNull { it.id == id }
+            if (hit != null) return hit
         }
-        val platform = platformV2Dao.getPlatform(id) ?: return null
-        return resolvePlatformToken(platform)
+        return platformV2Dao.getPlatform(id)?.let { platform ->
+            resolvePlatformToken(platform)
+        }
     }
 
     override suspend fun exportConfigurationJson(): String {
-        val platforms = fetchPlatformV2s().map { p ->
-            PlatformBackupDto(
-                name = p.name,
-                compatibleType = p.compatibleType.ordinal,
-                enabled = p.enabled,
-                apiUrl = p.apiUrl,
-                token = p.token.orEmpty(),
-                model = p.model,
-                temperature = p.temperature,
-                topP = p.topP,
-                topK = p.topK,
-                maxTokens = p.maxTokens,
-                accelerator = p.accelerator,
-                systemPrompt = p.systemPrompt,
-                stream = p.stream,
-                reasoning = p.reasoning,
-                timeout = p.timeout,
-                harassmentSafetyThreshold = p.harassmentSafetyThreshold,
-                hateSpeechSafetyThreshold = p.hateSpeechSafetyThreshold,
-                sexuallyExplicitSafetyThreshold = p.sexuallyExplicitSafetyThreshold,
-                dangerousContentSafetyThreshold = p.dangerousContentSafetyThreshold,
-                openRouterRouting = p.openRouterRouting,
-                ollamaOptions = p.ollamaOptions
-            )
-        }
-        val theme = fetchThemes()
+        val currentPlatforms = fetchPlatformV2s()
+        val currentThemes = fetchThemes()
+
         val backup = ConfigBackupDto(
+            version = 1,
+            exportedAt = System.currentTimeMillis(),
             theme = ThemeBackupDto(
-                dynamicTheme = theme.dynamicTheme == DynamicTheme.ON,
-                themeMode = theme.themeMode.ordinal
+                dynamicTheme = currentThemes.dynamicTheme == DynamicTheme.ON,
+                themeMode = currentThemes.themeMode.ordinal
             ),
-            platforms = platforms
+            platforms = currentPlatforms.map { p ->
+                PlatformBackupDto(
+                    name = p.name,
+                    compatibleType = p.compatibleType.ordinal,
+                    enabled = p.enabled,
+                    apiUrl = p.apiUrl,
+                    token = p.token ?: "",
+                    model = p.model,
+                    temperature = p.temperature,
+                    topP = p.topP,
+                    topK = p.topK,
+                    maxTokens = p.maxTokens,
+                    accelerator = p.accelerator,
+                    systemPrompt = p.systemPrompt,
+                    stream = p.stream,
+                    reasoning = p.reasoning,
+                    timeout = p.timeout,
+                    harassmentSafetyThreshold = p.harassmentSafetyThreshold,
+                    hateSpeechSafetyThreshold = p.hateSpeechSafetyThreshold,
+                    sexuallyExplicitSafetyThreshold = p.sexuallyExplicitSafetyThreshold,
+                    dangerousContentSafetyThreshold = p.dangerousContentSafetyThreshold,
+                    openRouterRouting = p.openRouterRouting,
+                    ollamaOptions = p.ollamaOptions
+                )
+            }
         )
+
         return jsonSerializer.encodeToString(backup)
     }
 
     override suspend fun importConfigurationJson(json: String): Result<Int> = runCatching {
         val backup = jsonSerializer.decodeFromString<ConfigBackupDto>(json)
-        var importedCount = 0
 
         backup.theme?.let { themeDto ->
-            updateThemes(
-                ThemeSetting(
-                    dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF,
-                    themeMode = ThemeMode.entries.getOrNull(themeDto.themeMode) ?: ThemeMode.SYSTEM
-                )
-            )
+            val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
+            val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
+            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
         }
 
+        var importedCount = 0
         val existingPlatforms = platformV2Dao.getPlatforms()
 
         backup.platforms.forEach { pDto ->

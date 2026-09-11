@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.domain.usecase.ArchiveConversationUseCase
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -37,7 +38,8 @@ enum class HomeTab {
 class HomeViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val settingRepository: SettingRepository,
-    private val agentRunCoordinator: AgentRunCoordinator
+    private val agentRunCoordinator: AgentRunCoordinator,
+    private val archiveConversationUseCase: ArchiveConversationUseCase
 ) : ViewModel() {
 
     companion object {
@@ -58,6 +60,12 @@ class HomeViewModel @Inject constructor(
 
     private val _chatListState = MutableStateFlow(ChatListState())
     val chatListState: StateFlow<ChatListState> = _chatListState.asStateFlow()
+
+    private val _archivedChats = MutableStateFlow<List<ChatRoomV2>>(emptyList())
+    val archivedChats: StateFlow<List<ChatRoomV2>> = _archivedChats.asStateFlow()
+
+    private val _isArchivedExpanded = MutableStateFlow(false)
+    val isArchivedExpanded: StateFlow<Boolean> = _isArchivedExpanded.asStateFlow()
 
     private val _platformState = MutableStateFlow(listOf<PlatformV2>())
     val platformState = _platformState.asStateFlow()
@@ -285,12 +293,49 @@ class HomeViewModel @Inject constructor(
                 )
             }
 
+            fetchArchivedChats()
             Log.d("chats", "${_chatListState.value.chats}")
+        }
+    }
+
+    fun fetchArchivedChats() {
+        viewModelScope.launch {
+            val archived = archiveConversationUseCase.getArchivedChats()
+            _archivedChats.update { archived }
+        }
+    }
+
+    fun toggleArchivedExpanded() {
+        _isArchivedExpanded.update { !it }
+    }
+
+    fun archiveChat(chatId: Int) {
+        viewModelScope.launch {
+            archiveConversationUseCase.archiveChat(chatId)
+            fetchChats()
+        }
+    }
+
+    fun unarchiveChat(chatId: Int) {
+        viewModelScope.launch {
+            archiveConversationUseCase.unarchiveChat(chatId)
+            fetchChats()
+        }
+    }
+
+    fun deleteSingleChat(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            agentRunCoordinator.withChatGate(chatRoom.id) {
+                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
+                chatRepository.deleteChatsV2(listOf(chatRoom))
+                fetchChats()
+            }
         }
     }
 
     fun getChatRoom(chatId: Int, onResult: (ChatRoomV2?) -> Unit) {
         val inMemory = _chatListState.value.chats.find { it.id == chatId }
+            ?: _archivedChats.value.find { it.id == chatId }
         if (inMemory != null) {
             onResult(inMemory)
             return

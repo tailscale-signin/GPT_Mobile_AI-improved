@@ -1,0 +1,14 @@
+    <!-- OpenRouter Advanced Settings -->
+    <string name="openrouter_advanced_settings">Advanced</string>
+    <string name="openrouter_advanced_settings_description">Configure streaming, tokens, sampling, penalties, deterministic seed, and provider routing</string>
+    <string name="openrouter_stream">Stream Responses</string>
+    <string name="openrouter_repetition_penalty">repetition_penalty</string>
+    <string name="openrouter_repetition_penalty_hint">Penalty for repetition (e.g. 1.03)</string>
+    <string name="openrouter_frequency_penalty">frequency_penalty</string>
+    <string name="openrouter_frequency_penalty_hint">Frequency penalty (e.g. 0.0)</string>
+    <string name="openrouter_presence_penalty">presence_penalty</string>
+    <string name="openrouter_presence_penalty_hint">Presence penalty (e.g. 0.0)</string>
+    <string name="openrouter_seed">seed</string>
+    <string name="openrouter_seed_hint">Seed for deterministic generations (e.g. 42)</string>
+    <string name="openrouter_provider_skip">Provider Skip (Comma-separated)</string>
+    <string name="openrouter_provider_skip_hint">e.g. Mancer</string>

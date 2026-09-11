@@ -30,6 +30,10 @@ data class ChatCompletionRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val topP: Float? = null,
 
+    @SerialName("top_k")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val topK: Int? = null,
+
     @SerialName("max_tokens")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val maxTokens: Int? = null,
@@ -49,6 +53,14 @@ data class ChatCompletionRequest(
     @SerialName("frequency_penalty")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val frequencyPenalty: Float? = null,
+
+    @SerialName("repetition_penalty")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val repetitionPenalty: Float? = null,
+
+    @SerialName("seed")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val seed: Int? = null,
 
     @SerialName("stop")
     @EncodeDefault(EncodeDefault.Mode.NEVER)

@@ -1,33 +1,43 @@
 A modern Material 3 chat application that supports answers from multiple LLMs simultaneously, autonomous agent workflows, tool execution via Model Context Protocol (MCP), and secure local storage.
 
-✨ Key Features
+✨ Key Features in v0.9.1
 
-Multi-LLM Conversations
-- Chat simultaneously with multiple AI providers side-by-side.
-- Compare responses in real-time.
+Multi-LLM Conversations & AI Platforms Hub
+- Dedicated AI Platforms management screen (`AiPlatformsScreen`) to easily configure, toggle, and edit platforms.
+- Interactive model sorting chips (`DEFAULT`, `NAME`, `PROVIDER`, `ENABLED_FIRST`) for instant platform selection.
+- Chat simultaneously with multiple AI providers side-by-side and compare responses in real-time.
 
-Autonomous AI Agents & MCP Extensibility
+Autonomous AI Agents, Full-Screen MCP Management & Extensibility
 - Autonomous multi-step problem solving with tool-calling capabilities.
+- Full-screen MCP Tools Selection Screen (`McpToolsSelectionScreen`) with server categorization, parameter inspector, and granular local/remote tool toggles.
 - Model Context Protocol (MCP) support: connect to MCP servers for extensible tooling (web search, custom APIs, external knowledge).
-- Built-in tools including DuckDuckGo web search, calculator, and device utilities.
+- Built-in tools including zero-config web search (`droid-mcp-web` with DuckDuckGo fallback), calculator, and device utilities.
+- Granular per-platform tool controls backed by Room Schema 17 (`disable_remote_tools`, `disable_local_tools`).
+
+High-Resilience Multi-Key Failover
+- Dynamic multi-key round-robin rotation (`ApiCredentialRotator`) with automatic failover on rate limits (429) or quota errors.
+- Automatic 3-second auto-retry on provider-side high-demand spikes.
 
 Supported AI Platforms
-- OpenAI (GPT-4o, GPT-4o-mini, o1, turbo, and custom models)
-- Anthropic Claude (Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku)
-- Google Gemini (Gemini 1.5 Pro, Flash, Gemini 2.0)
+- OpenAI (GPT-4o, GPT-4o-mini, o1, o3-mini, and custom OpenAI-compatible models)
+- Anthropic Claude (Claude 3.7 Sonnet Thinking, Claude 3.5 Sonnet, Claude 3.5 Haiku)
+- Google Gemini (Gemini 2.0 Flash, Flash Thinking, Gemini 1.5 Pro with automatic MCP schema sanitization)
 - DeepSeek (DeepSeek-V3, DeepSeek-R1 reasoning models)
-- Groq (Ultra-fast inference for Llama, Mistral, and more)
+- Groq (Ultra-fast LPU inference for Llama, Mistral, Qwen, with reasoning extraction)
+- OpenRouter (Full model catalog, provider routing controls, fallback orders, and custom reasoning tokens)
+- Local On-Device AI (LiteRT-LM with dynamic NPU/GPU/CPU hardware acceleration and thermal governor)
 - Ollama (Run local models on your own self-hosted server)
 
 Privacy & Security First
-- Hardware-backed Android Keystore credential vault for secure API key storage.
-- 100% local chat history stored using Room SQLite on your device.
+- Hardware-backed Android Keystore credential vault (`SecretVault`) for AES-256-GCM encrypted API key storage.
+- Passphrase-protected encrypted database backups with PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
+- 100% local chat history stored using Room SQLite (`ChatDatabaseV2`, Schema 17) on your device.
 - Zero tracking or intermediary data collection: requests are sent directly to official provider APIs.
 
 Customization & Control
 - Custom API endpoints and model identifiers.
 - Fine-tune system prompts, temperature, top-p, and max tokens.
-- Bookmark and favorite important messages for quick reference.
-- Export and import chat sessions.
+- Bookmark and favorite important messages with custom group chips and full-screen reader dialogs.
+- Export and import encrypted chat sessions and database vaults.
 
 Note: Service availability depends on regional access to respective provider APIs.

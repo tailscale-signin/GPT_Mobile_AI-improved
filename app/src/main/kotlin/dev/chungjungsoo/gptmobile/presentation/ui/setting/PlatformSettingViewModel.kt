@@ -164,6 +164,18 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
+    fun toggleDisableRemoteTools() {
+        platformState.value?.let { platform ->
+            updatePlatform(platform.copy(disableRemoteTools = !platform.disableRemoteTools))
+        }
+    }
+
+    fun toggleDisableLocalTools() {
+        platformState.value?.let { platform ->
+            updatePlatform(platform.copy(disableLocalTools = !platform.disableLocalTools))
+        }
+    }
+
     fun consumeUserMessage() {
         _userMessage.value = null
     }

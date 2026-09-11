@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Numbers
@@ -215,7 +217,6 @@ fun PlatformSettingScreen(
                         )
                     }
                 )
-                // Disable temperature and top_p when reasoning is enabled for OpenAI
                 val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
                 val notSetText = stringResource(R.string.not_set)
                 SettingItem(
@@ -382,7 +383,7 @@ fun PlatformSettingScreen(
                     )
                 }
 
-                // Global Tool Disablement for this platform
+                // Global Master Tool Disablement
                 PreferenceListSwitch(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.disable_all_tools),
@@ -393,13 +394,34 @@ fun PlatformSettingScreen(
                     onCheckedChange = { settingViewModel.toggleDisableAllTools() }
                 )
 
+                // Granular Remote vs Local Tool Disablement
+                PreferenceListSwitch(
+                    modifier = Modifier.height(64.dp),
+                    title = stringResource(R.string.disable_remote_tools),
+                    description = stringResource(R.string.disable_remote_tools_description),
+                    icon = Icons.Default.Language,
+                    enabled = platformData.enabled && !platformData.disableAllTools,
+                    isChecked = platformData.disableRemoteTools,
+                    onCheckedChange = { settingViewModel.toggleDisableRemoteTools() }
+                )
+
+                PreferenceListSwitch(
+                    modifier = Modifier.height(64.dp),
+                    title = stringResource(R.string.disable_local_tools),
+                    description = stringResource(R.string.disable_local_tools_description),
+                    icon = Icons.Default.Calculate,
+                    enabled = platformData.enabled && !platformData.disableAllTools,
+                    isChecked = platformData.disableLocalTools,
+                    onCheckedChange = { settingViewModel.toggleDisableLocalTools() }
+                )
+
                 SettingItem(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.web_search),
                     description = toolBindingState.searchConnections.firstOrNull {
                         it.connectionUid == toolBindingState.selectedSearchConnectionUid
                     }?.name ?: stringResource(R.string.not_set),
-                    enabled = platformData.enabled && !platformData.disableAllTools,
+                    enabled = platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
                     onItemClick = settingViewModel::openSearchBackendDialog,
                     showTrailingIcon = true,
                     showLeadingIcon = false
@@ -408,7 +430,7 @@ fun PlatformSettingScreen(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.tool_trace_tool),
                     icon = ImageVector.vectorResource(id = R.drawable.ic_link),
-                    enabled = !platformData.disableAllTools,
+                    enabled = !platformData.disableAllTools && !platformData.disableRemoteTools,
                     isChecked = toolBindingState.readUrlEnabled,
                     onCheckedChange = settingViewModel::toggleReadUrl
                 )
@@ -416,7 +438,7 @@ fun PlatformSettingScreen(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.mcp_server),
                     description = "${toolBindingState.selectedMcpTools.size} assigned",
-                    enabled = platformData.enabled && !platformData.disableAllTools,
+                    enabled = platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
                     onItemClick = {
                         val needsPermission = toolBindingState.mcpConnections.any { connection ->
                             connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true

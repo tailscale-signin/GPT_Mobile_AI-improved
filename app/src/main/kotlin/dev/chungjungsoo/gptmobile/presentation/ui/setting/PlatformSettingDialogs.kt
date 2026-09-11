@@ -51,6 +51,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
@@ -87,8 +88,8 @@ fun APIUrlDialog(
         APIUrlDialog(
             initialValue = initialValue,
             onDismissRequest = settingViewModel::closeApiUrlDialog,
-            onConfirmRequest = { apiUrl ->
-                settingViewModel.updateApiUrl(apiUrl)
+            onConfirmRequest = { url ->
+                settingViewModel.updateApiUrl(url)
             }
         )
     }
@@ -103,44 +104,44 @@ fun APIKeyDialog(
     if (dialogState.isApiTokenDialogOpen) {
         APIKeyDialog(
             initialTokens = initialTokens,
-            onDismissRequest = settingViewModel::closeApiTokenDialog
-        ) { apiToken ->
-            settingViewModel.updateApiToken(apiToken)
-        }
+            onDismissRequest = settingViewModel::closeApiTokenDialog,
+            onConfirmRequest = { token ->
+                settingViewModel.updateApiToken(token)
+            }
+        )
+    }
+}
+
+@Composable
+fun TimeoutDialog(
+    dialogState: PlatformSettingViewModel.DialogState,
+    initialValue: Int,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (dialogState.isTimeoutDialogOpen) {
+        TimeoutDialog(
+            initialValue = initialValue,
+            onDismissRequest = settingViewModel::closeTimeoutDialog,
+            onConfirmRequest = { timeoutSeconds ->
+                settingViewModel.updateTimeout(timeoutSeconds)
+            }
+        )
     }
 }
 
 @Composable
 fun ModelDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    model: String,
+    initModel: String,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isApiModelDialogOpen) {
         ModelDialog(
-            initModel = model,
-            onDismissRequest = settingViewModel::closeApiModelDialog
-        ) { m ->
-            settingViewModel.updateApiModel(m)
-        }
-    }
-}
-
-@Composable
-fun LocalModelDialog(
-    dialogState: PlatformSettingViewModel.DialogState,
-    selectedCatalogEntryId: String,
-    models: List<DownloadedLocalModelOption>,
-    onNavigateToLocalModels: () -> Unit,
-    settingViewModel: PlatformSettingViewModel
-) {
-    if (dialogState.isApiModelDialogOpen) {
-        LocalModelDialog(
-            selectedCatalogEntryId = selectedCatalogEntryId,
-            models = models,
+            initModel = initModel,
             onDismissRequest = settingViewModel::closeApiModelDialog,
-            onModelSelected = settingViewModel::updateApiModel,
-            onNavigateToLocalModels = onNavigateToLocalModels
+            onConfirmRequest = { model ->
+                settingViewModel.updateApiModel(model)
+            }
         )
     }
 }
@@ -154,10 +155,11 @@ fun TopKDialog(
     if (dialogState.isTopKDialogOpen) {
         TopKDialog(
             topK = topK,
-            onDismissRequest = settingViewModel::closeTopKDialog
-        ) { value ->
-            settingViewModel.updateTopK(value)
-        }
+            onDismissRequest = settingViewModel::closeTopKDialog,
+            onConfirmRequest = { newTopK ->
+                settingViewModel.updateTopK(newTopK)
+            }
+        )
     }
 }
 
@@ -171,10 +173,11 @@ fun MaxTokensDialog(
         MaxTokensDialog(
             maxTokens = maxTokens,
             maxTokensCap = settingViewModel.maxTokensCap(),
-            onDismissRequest = settingViewModel::closeMaxTokensDialog
-        ) { value ->
-            settingViewModel.updateMaxTokens(value)
-        }
+            onDismissRequest = settingViewModel::closeMaxTokensDialog,
+            onConfirmRequest = { newMaxTokens ->
+                settingViewModel.updateMaxTokens(newMaxTokens)
+            }
+        )
     }
 }
 
@@ -190,7 +193,9 @@ fun AcceleratorDialog(
             accelerator = accelerator,
             options = options,
             onDismissRequest = settingViewModel::closeAcceleratorDialog,
-            onConfirmRequest = settingViewModel::updateAccelerator
+            onConfirmRequest = { newAccelerator ->
+                settingViewModel.updateAccelerator(newAccelerator)
+            }
         )
     }
 }
@@ -204,10 +209,11 @@ fun TemperatureDialog(
     if (dialogState.isTemperatureDialogOpen) {
         TemperatureDialog(
             temperature = temperature,
-            onDismissRequest = settingViewModel::closeTemperatureDialog
-        ) { temp ->
-            settingViewModel.updateTemperature(temp)
-        }
+            onDismissRequest = settingViewModel::closeTemperatureDialog,
+            onConfirmRequest = { temp ->
+                settingViewModel.updateTemperature(temp)
+            }
+        )
     }
 }
 
@@ -220,10 +226,11 @@ fun TopPDialog(
     if (dialogState.isTopPDialogOpen) {
         TopPDialog(
             topP = topP,
-            onDismissRequest = settingViewModel::closeTopPDialog
-        ) { p ->
-            settingViewModel.updateTopP(p)
-        }
+            onDismissRequest = settingViewModel::closeTopPDialog,
+            onConfirmRequest = { newTopP ->
+                settingViewModel.updateTopP(newTopP)
+            }
+        )
     }
 }
 
@@ -236,24 +243,10 @@ fun SystemPromptDialog(
     if (dialogState.isSystemPromptDialogOpen) {
         SystemPromptDialog(
             prompt = systemPrompt,
-            onDismissRequest = settingViewModel::closeSystemPromptDialog
-        ) {
-            settingViewModel.updateSystemPrompt(it)
-        }
-    }
-}
-
-@Composable
-fun TimeoutDialog(
-    dialogState: PlatformSettingViewModel.DialogState,
-    timeoutSeconds: Int,
-    settingViewModel: PlatformSettingViewModel
-) {
-    if (dialogState.isTimeoutDialogOpen) {
-        TimeoutDialog(
-            initialValue = timeoutSeconds,
-            onDismissRequest = settingViewModel::closeTimeoutDialog,
-            onConfirmRequest = settingViewModel::updateTimeout
+            onDismissRequest = settingViewModel::closeSystemPromptDialog,
+            onConfirmRequest = { prompt ->
+                settingViewModel.updateSystemPrompt(prompt)
+            }
         )
     }
 }
@@ -268,7 +261,14 @@ fun GeminiSafetySettingsDialog(
         GeminiSafetySettingsDialog(
             platform = platform,
             onDismissRequest = settingViewModel::closeGeminiSafetyDialog,
-            onConfirmRequest = settingViewModel::updateGeminiSafetySettings
+            onConfirmRequest = { harassment, hateSpeech, sexuallyExplicit, dangerousContent ->
+                settingViewModel.updateGeminiSafetySettings(
+                    harassment = harassment,
+                    hateSpeech = hateSpeech,
+                    sexuallyExplicit = sexuallyExplicit,
+                    dangerousContent = dangerousContent
+                )
+            }
         )
     }
 }
@@ -276,12 +276,12 @@ fun GeminiSafetySettingsDialog(
 @Composable
 fun OpenRouterAdvancedSettingsDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    routingJson: String?,
+    initialRoutingJson: String?,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isOpenRouterSettingsDialogOpen) {
         OpenRouterAdvancedSettingsDialog(
-            initialRoutingJson = routingJson,
+            initialRoutingJson = initialRoutingJson,
             onDismissRequest = settingViewModel::closeOpenRouterSettingsDialog,
             onConfirmRequest = settingViewModel::updateOpenRouterRouting
         )
@@ -291,12 +291,12 @@ fun OpenRouterAdvancedSettingsDialog(
 @Composable
 fun OllamaAdvancedSettingsDialog(
     dialogState: PlatformSettingViewModel.DialogState,
-    ollamaOptionsJson: String?,
+    initialOptionsJson: String?,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isOllamaAdvancedDialogOpen) {
         OllamaAdvancedSettingsDialog(
-            initialOptionsJson = ollamaOptionsJson,
+            initialOptionsJson = initialOptionsJson,
             onDismissRequest = settingViewModel::closeOllamaAdvancedDialog,
             onConfirmRequest = settingViewModel::updateOllamaOptions
         )
@@ -311,34 +311,48 @@ private fun OpenRouterAdvancedSettingsDialog(
     onConfirmRequest: (String?) -> Unit
 ) {
     val jsonSerializer = remember { Json { ignoreUnknownKeys = true } }
-    val initialParsed = remember(initialRoutingJson) {
+    val initialOptions = remember(initialRoutingJson) {
         if (!initialRoutingJson.isNullOrBlank()) {
-            runCatching { jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson) }.getOrNull()
+            val asOptions = runCatching { jsonSerializer.decodeFromString<OpenRouterOptions>(initialRoutingJson) }.getOrNull()
+            if (asOptions != null && (asOptions.provider != null || asOptions.maxTokens != null || asOptions.stream != null || asOptions.repetitionPenalty != null || asOptions.seed != null)) {
+                asOptions
+            } else {
+                val legacyRouting = runCatching { jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson) }.getOrNull()
+                if (legacyRouting != null) {
+                    OpenRouterOptions.createDefault().copy(provider = legacyRouting)
+                } else {
+                    OpenRouterOptions.createDefault()
+                }
+            }
         } else {
-            null
+            OpenRouterOptions.createDefault()
         }
     }
 
-    var orderText by remember {
-        mutableStateOf(initialParsed?.order?.joinToString(", ") ?: "")
+    var stream by remember { mutableStateOf(initialOptions.stream ?: true) }
+    var maxTokensText by remember { mutableStateOf(initialOptions.maxTokens?.toString() ?: "") }
+    var temperatureText by remember { mutableStateOf(initialOptions.temperature?.toString() ?: "") }
+    var topPText by remember { mutableStateOf(initialOptions.topP?.toString() ?: "") }
+    var topKText by remember { mutableStateOf(initialOptions.topK?.toString() ?: "") }
+    var frequencyPenaltyText by remember { mutableStateOf(initialOptions.frequencyPenalty?.toString() ?: "") }
+    var presencePenaltyText by remember { mutableStateOf(initialOptions.presencePenalty?.toString() ?: "") }
+    var repetitionPenaltyText by remember { mutableStateOf(initialOptions.repetitionPenalty?.toString() ?: "") }
+    var seedText by remember { mutableStateOf(initialOptions.seed?.toString() ?: "") }
+
+    var providerSort by remember { mutableStateOf(initialOptions.provider?.sort ?: "price-asc") }
+    var providerAllowFallbacks by remember { mutableStateOf(initialOptions.provider?.allowFallbacks ?: true) }
+    var providerSkipText by remember {
+        val skipList = initialOptions.provider?.skip ?: initialOptions.provider?.ignore ?: listOf("Mancer")
+        mutableStateOf(skipList.joinToString(", "))
     }
-    var allowFallbacks by remember {
-        mutableStateOf(initialParsed?.allowFallbacks ?: true)
-    }
-    var sortStrategy by remember {
-        mutableStateOf(initialParsed?.sort ?: "")
-    }
-    var dataCollection by remember {
-        mutableStateOf(initialParsed?.dataCollection ?: "")
-    }
-    var quantizationsText by remember {
-        mutableStateOf(initialParsed?.quantizations?.joinToString(", ") ?: "")
-    }
+    var providerOrderText by remember { mutableStateOf(initialOptions.provider?.order?.joinToString(", ") ?: "") }
+    var providerQuantizationsText by remember { mutableStateOf(initialOptions.provider?.quantizations?.joinToString(", ") ?: "") }
+    var providerDataCollection by remember { mutableStateOf(initialOptions.provider?.dataCollection ?: "") }
 
     var sortExpanded by remember { mutableStateOf(false) }
     var dataCollectionExpanded by remember { mutableStateOf(false) }
 
-    val sortOptions = listOf("", "price", "throughput", "latency")
+    val sortOptions = listOf("price-asc", "price", "throughput", "latency")
     val dataCollectionOptions = listOf("", "allow", "deny")
 
     val configuration = LocalWindowInfo.current
@@ -364,29 +378,104 @@ private fun OpenRouterAdvancedSettingsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = orderText,
-                    onValueChange = { orderText = it },
-                    label = { Text(stringResource(R.string.openrouter_provider_order)) },
-                    placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
-                    singleLine = true
-                )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = stringResource(R.string.openrouter_allow_fallbacks),
+                        text = stringResource(R.string.openrouter_stream),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Switch(
-                        checked = allowFallbacks,
-                        onCheckedChange = { allowFallbacks = it }
+                        checked = stream,
+                        onCheckedChange = { stream = it }
                     )
                 }
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = maxTokensText,
+                    onValueChange = { maxTokensText = it },
+                    label = { Text(stringResource(R.string.max_tokens)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = temperatureText,
+                    onValueChange = { temperatureText = it },
+                    label = { Text(stringResource(R.string.temperature)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topPText,
+                    onValueChange = { topPText = it },
+                    label = { Text(stringResource(R.string.top_p)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = topKText,
+                    onValueChange = { topKText = it },
+                    label = { Text(stringResource(R.string.top_k)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = frequencyPenaltyText,
+                    onValueChange = { frequencyPenaltyText = it },
+                    label = { Text(stringResource(R.string.openrouter_frequency_penalty)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_frequency_penalty_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = presencePenaltyText,
+                    onValueChange = { presencePenaltyText = it },
+                    label = { Text(stringResource(R.string.openrouter_presence_penalty)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_presence_penalty_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = repetitionPenaltyText,
+                    onValueChange = { repetitionPenaltyText = it },
+                    label = { Text(stringResource(R.string.openrouter_repetition_penalty)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_repetition_penalty_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = seedText,
+                    onValueChange = { seedText = it },
+                    label = { Text(stringResource(R.string.openrouter_seed)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_seed_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+
+                // Provider Routing Settings
+                Text(
+                    text = "Provider Routing",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
 
                 ExposedDropdownMenuBox(
                     expanded = sortExpanded,
@@ -396,7 +485,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
                             .fillMaxWidth(),
-                        value = if (sortStrategy.isBlank()) stringResource(R.string.default_label) else sortStrategy,
+                        value = if (providerSort.isBlank()) stringResource(R.string.default_label) else providerSort,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(stringResource(R.string.openrouter_sort_strategy)) },
@@ -410,13 +499,46 @@ private fun OpenRouterAdvancedSettingsDialog(
                             DropdownMenuItem(
                                 text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
                                 onClick = {
-                                    sortStrategy = option
+                                    providerSort = option
                                     sortExpanded = false
                                 }
                             )
                         }
                     }
                 }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.openrouter_allow_fallbacks),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Switch(
+                        checked = providerAllowFallbacks,
+                        onCheckedChange = { providerAllowFallbacks = it }
+                    )
+                }
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = providerSkipText,
+                    onValueChange = { providerSkipText = it },
+                    label = { Text(stringResource(R.string.openrouter_provider_skip)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_provider_skip_hint)) },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = providerOrderText,
+                    onValueChange = { providerOrderText = it },
+                    label = { Text(stringResource(R.string.openrouter_provider_order)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
+                    singleLine = true
+                )
 
                 ExposedDropdownMenuBox(
                     expanded = dataCollectionExpanded,
@@ -426,7 +548,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                         modifier = Modifier
                             .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
                             .fillMaxWidth(),
-                        value = if (dataCollection.isBlank()) stringResource(R.string.default_label) else dataCollection,
+                        value = if (providerDataCollection.isBlank()) stringResource(R.string.default_label) else providerDataCollection,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(stringResource(R.string.openrouter_data_collection)) },
@@ -440,7 +562,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                             DropdownMenuItem(
                                 text = { Text(if (option.isBlank()) stringResource(R.string.default_label) else option) },
                                 onClick = {
-                                    dataCollection = option
+                                    providerDataCollection = option
                                     dataCollectionExpanded = false
                                 }
                             )
@@ -450,8 +572,8 @@ private fun OpenRouterAdvancedSettingsDialog(
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = quantizationsText,
-                    onValueChange = { quantizationsText = it },
+                    value = providerQuantizationsText,
+                    onValueChange = { providerQuantizationsText = it },
                     label = { Text(stringResource(R.string.openrouter_quantizations)) },
                     placeholder = { Text(stringResource(R.string.openrouter_quantizations_hint)) },
                     singleLine = true
@@ -462,28 +584,36 @@ private fun OpenRouterAdvancedSettingsDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val orderList = orderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val quantList = quantizationsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
-                    val sortValue = sortStrategy.trim().takeIf { it.isNotEmpty() }
-                    val dataCollectionValue = dataCollection.trim().takeIf { it.isNotEmpty() }
+                    val orderList = providerOrderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val skipList = providerSkipText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val quantList = providerQuantizationsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    val sortValue = providerSort.trim().takeIf { it.isNotEmpty() }
+                    val dataCollectionValue = providerDataCollection.trim().takeIf { it.isNotEmpty() }
 
                     val routing = OpenRouterProviderRouting(
                         order = orderList,
-                        allowFallbacks = allowFallbacks.takeIf { !it },
+                        allowFallbacks = providerAllowFallbacks,
                         sort = sortValue,
                         dataCollection = dataCollectionValue,
-                        quantizations = quantList
+                        quantizations = quantList,
+                        skip = skipList,
+                        ignore = skipList
                     )
 
-                    val isDefault = routing.order == null &&
-                        routing.allowFallbacks == null &&
-                        routing.sort == null &&
-                        routing.dataCollection == null &&
-                        routing.quantizations == null &&
-                        routing.ignore == null &&
-                        routing.requireParameters == null
+                    val options = OpenRouterOptions(
+                        stream = stream,
+                        maxTokens = maxTokensText.toIntOrNull(),
+                        temperature = temperatureText.toFloatOrNull(),
+                        topP = topPText.toFloatOrNull(),
+                        topK = topKText.toIntOrNull(),
+                        frequencyPenalty = frequencyPenaltyText.toFloatOrNull(),
+                        presencePenalty = presencePenaltyText.toFloatOrNull(),
+                        repetitionPenalty = repetitionPenaltyText.toFloatOrNull(),
+                        seed = seedText.toIntOrNull(),
+                        provider = routing
+                    )
 
-                    val resultJson = if (isDefault) null else jsonSerializer.encodeToString(routing)
+                    val resultJson = jsonSerializer.encodeToString(options)
                     onConfirmRequest(resultJson)
                 }
             ) {
@@ -493,7 +623,8 @@ private fun OpenRouterAdvancedSettingsDialog(
         dismissButton = {
             TextButton(
                 onClick = {
-                    onConfirmRequest(null)
+                    val defaultJson = jsonSerializer.encodeToString(OpenRouterOptions.createDefault())
+                    onConfirmRequest(defaultJson)
                 }
             ) {
                 Text(stringResource(R.string.reset))

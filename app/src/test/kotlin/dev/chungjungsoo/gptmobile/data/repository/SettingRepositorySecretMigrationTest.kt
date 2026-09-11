@@ -4,11 +4,11 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.datasource.SettingDataSource
-import dev.chungjungsoo.gptmobile.data.dto.DynamicTheme
-import dev.chungjungsoo.gptmobile.data.dto.ThemeMode
+import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -193,6 +193,10 @@ private class FakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
 private class FakeSettingDataSource(
     val tokens: MutableMap<ApiType, String> = mutableMapOf()
 ) : SettingDataSource {
+    override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences {
+        return androidx.datastore.preferences.core.emptyPreferences()
+    }
+
     override suspend fun updateDynamicTheme(theme: DynamicTheme) = Unit
     override suspend fun updateThemeMode(themeMode: ThemeMode) = Unit
     override suspend fun updateStatus(apiType: ApiType, status: Boolean) = Unit

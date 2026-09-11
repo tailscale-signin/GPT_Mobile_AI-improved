@@ -56,6 +56,7 @@ import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
+import dev.chungjungsoo.gptmobile.util.isValidUrl
 import kotlin.math.roundToInt
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -169,7 +170,7 @@ fun MaxTokensDialog(
     if (dialogState.isMaxTokensDialogOpen) {
         MaxTokensDialog(
             maxTokens = maxTokens,
-            maxTokensCap = PlatformSettingViewModel.DEFAULT_MAX_TOKENS_CAP,
+            maxTokensCap = settingViewModel.maxTokensCap(),
             onDismissRequest = settingViewModel::closeMaxTokensDialog,
             onConfirmRequest = settingViewModel::updateMaxTokens
         )
@@ -259,10 +260,10 @@ fun GeminiSafetySettingsDialog(
     platform: PlatformV2,
     settingViewModel: PlatformSettingViewModel
 ) {
-    if (dialogState.isGeminiSafetySettingsDialogOpen) {
+    if (dialogState.isGeminiSafetyDialogOpen) {
         GeminiSafetySettingsDialog(
             platform = platform,
-            onDismissRequest = settingViewModel::closeGeminiSafetySettingsDialog,
+            onDismissRequest = settingViewModel::closeGeminiSafetyDialog,
             onConfirmRequest = settingViewModel::updateGeminiSafetySettings
         )
     }
@@ -848,7 +849,7 @@ private fun APIUrlDialog(
             TextButton(
                 enabled = textFieldApiUrl.isNotBlank(),
                 onClick = {
-                    if (isValidUrl(textFieldApiUrl)) {
+                    if (textFieldApiUrl.isValidUrl()) {
                         onConfirmRequest(textFieldApiUrl)
                     } else {
                         isError = true
@@ -877,10 +878,14 @@ private fun APIKeyDialog(
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
 
     val initialList = remember(initialTokens) {
-        val unpacked = ApiCredentialRotator.unpackKeys(initialTokens)
-        if (unpacked.isEmpty()) listOf("") else unpacked
+        val parsed = ApiCredentialRotator.parseKeys(initialTokens)
+        if (parsed.isEmpty()) listOf("") else parsed
     }
-    val keyList = remember { mutableStateListOf<String>().apply { addAll(initialList) } }
+    val tokens = remember(initialTokens) {
+        mutableStateListOf<String>().apply {
+            addAll(initialList)
+        }
+    }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -889,24 +894,32 @@ private fun APIKeyDialog(
             .heightIn(max = screenHeight - 80.dp),
         title = { Text(text = stringResource(R.string.api_key)) },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(stringResource(R.string.api_key_description))
-
-                keyList.forEachIndexed { index, token ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.multi_api_keys_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                tokens.forEachIndexed { index, tokenValue ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
+                            .padding(bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedTextField(
                             modifier = Modifier.weight(1f),
-                            value = token,
-                            onValueChange = { keyList[index] = it },
+                            value = tokenValue,
+                            onValueChange = { tokens[index] = it },
                             label = {
                                 Text(
-                                    if (keyList.size > 1) {
-                                        stringResource(R.string.api_key) + " #${index + 1}"
+                                    if (tokens.size > 1) {
+                                        stringResource(R.string.api_key_number, index + 1)
                                     } else {
                                         stringResource(R.string.api_key)
                                     }
@@ -915,23 +928,34 @@ private fun APIKeyDialog(
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                         )
-                        if (keyList.size > 1) {
-                            IconButton(onClick = { keyList.removeAt(index) }) {
+                        if (tokens.size > 1) {
+                            IconButton(
+                                onClick = { tokens.removeAt(index) },
+                                modifier = Modifier.padding(start = 4.dp)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = stringResource(R.string.delete)
+                                    imageVector = Icons.Filled.Delete,
+                                    contentDescription = stringResource(R.string.remove_api_key),
+                                    tint = MaterialTheme.colorScheme.error
                                 )
                             }
                         }
                     }
                 }
-
-                TextButton(
-                    onClick = { keyList.add("") },
-                    modifier = Modifier.padding(top = 4.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = null)
-                    Text(text = "Add Key")
+                    TextButton(
+                        onClick = { tokens.add("") }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.add_api_key),
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                        Text(stringResource(R.string.add_api_key))
+                    }
                 }
             }
         },
@@ -939,9 +963,8 @@ private fun APIKeyDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val validKeys = keyList.map { it.trim() }.filter { it.isNotEmpty() }
-                    val packed = ApiCredentialRotator.packKeys(validKeys)
-                    onConfirmRequest(packed)
+                    val combined = ApiCredentialRotator.formatKeys(tokens.toList())
+                    onConfirmRequest(combined)
                 }
             ) {
                 Text(stringResource(R.string.confirm))

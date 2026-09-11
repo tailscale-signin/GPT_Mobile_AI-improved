@@ -1,4 +1,4 @@
-package dev.chungjungsoo/gptmobile.data.repository
+package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao

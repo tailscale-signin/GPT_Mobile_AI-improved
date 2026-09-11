@@ -231,6 +231,9 @@ class PlatformSettingViewModel @Inject constructor(
     fun openOpenRouterSettingsDialog() = _dialogState.update { it.copy(isOpenRouterSettingsDialogOpen = true) }
     fun closeOpenRouterSettingsDialog() = _dialogState.update { it.copy(isOpenRouterSettingsDialogOpen = false) }
 
+    fun openOllamaAdvancedDialog() = _dialogState.update { it.copy(isOllamaAdvancedDialogOpen = true) }
+    fun closeOllamaAdvancedDialog() = _dialogState.update { it.copy(isOllamaAdvancedDialogOpen = false) }
+
     fun updatePlatformName(name: String) {
         platformState.value?.let { platform ->
             updatePlatform(platform.copy(name = name.trim()))
@@ -393,6 +396,13 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
+    fun updateOllamaOptions(ollamaOptionsJson: String?) {
+        platformState.value?.let { platform ->
+            updatePlatform(platform.copy(ollamaOptions = ollamaOptionsJson?.takeIf { it.isNotBlank() }))
+            closeOllamaAdvancedDialog()
+        }
+    }
+
     fun openDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = true) }
     fun closeDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = false) }
 
@@ -544,6 +554,7 @@ class PlatformSettingViewModel @Inject constructor(
         val isTimeoutDialogOpen: Boolean = false,
         val isGeminiSafetyDialogOpen: Boolean = false,
         val isOpenRouterSettingsDialogOpen: Boolean = false,
+        val isOllamaAdvancedDialogOpen: Boolean = false,
         val isDeleteDialogOpen: Boolean = false
     )
 

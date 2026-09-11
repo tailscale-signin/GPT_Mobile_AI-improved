@@ -48,75 +48,64 @@ import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import dev.chungjungsoo.gptmobile.util.AttachmentPayloadCache
-import dev.chungjungsoo.gptmobile.util.ExportHelper
-import java.io.File
+import dev.chungjungsoo.gptmobile.util.ChatToolUtils
+import dev.chungjungsoo.gptmobile.util.FileUtils
+import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
+import dev.chungjungsoo.gptmobile.util.determineLocalNetworkAccessRequirement
+import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-data class GroupedMessages(
-    val userMessages: List<MessageV2> = emptyList(),
-    val assistantMessages: List<List<MessageV2>> = emptyList()
-)
-
-data class MessageEditSession(
-    val message: MessageV2,
-    val isAssistant: Boolean = false,
-    val turnIndex: Int = -1,
-    val platformIndex: Int = -1,
-    val attachments: List<ChatAttachmentDraft> = emptyList()
-)
-
-data class ChatAttachmentDraft(
-    val sourceFilePath: String,
-    val preparedFilePath: String? = null,
-    val status: Status = Status.Preparing,
-    val attachment: dev.chungjungsoo.gptmobile.data.database.entity.Attachment? = null,
-    val errorMessage: String? = null,
-    val notice: String? = null
-) {
-    enum class Status {
-        Preparing,
-        Ready,
-        Failed
-    }
-}
-
-data class ChatRunNotice(
-    val id: String = UUID.randomUUID().toString(),
-    val runId: String,
-    val message: String
-)
-
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
     savedStateHandle: SavedStateHandle,
+    @param:ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
     private val settingRepository: SettingRepository,
-    private val localModelRepository: LocalModelRepository,
-    private val modelCatalogRepository: ModelCatalogRepository,
-    private val toolConnectionRepository: ToolConnectionRepository,
-    private val agentRunCoordinator: AgentRunCoordinator,
     private val attachmentUploadCoordinator: AttachmentUploadCoordinator,
-    private val startupRecoveryGate: StartupRecoveryGate
+    private val agentRunCoordinator: AgentRunCoordinator,
+    private val toolConnectionRepository: ToolConnectionRepository,
+    private val localModelRepository: LocalModelRepository,
+    private val modelCatalogRepository: ModelCatalogRepository
 ) : ViewModel() {
-
-    enum class LoadingState {
-        Idle,
-        Loading,
-        Cancelling
+    sealed class LoadingState {
+        data object Idle : LoadingState()
+        data object Loading : LoadingState()
     }
+
+    data class GroupedMessages(
+        val userMessages: List<MessageV2> = listOf(),
+        val assistantMessages: List<List<MessageV2>> = listOf()
+    )
+
+    enum class MessageEditRole {
+        USER,
+        ASSISTANT
+    }
+
+    data class MessageEditSession(
+        val message: MessageV2,
+        val role: MessageEditRole,
+        val turnIndex: Int? = null,
+        val platformIndex: Int? = null,
+        val attachments: List<ChatAttachmentDraft> = emptyList()
+    )
 
     private val chatRoomId: Int = checkNotNull(savedStateHandle["chatRoomId"])
     private val enabledPlatformString: String = checkNotNull(savedStateHandle["enabledPlatforms"])
@@ -132,6 +121,12 @@ class ChatViewModel @Inject constructor(
     // Session-disabled platforms within this chat session
     private val _sessionDisabledPlatformUids = MutableStateFlow<Set<String>>(emptySet())
     val sessionDisabledPlatformUids = _sessionDisabledPlatformUids.asStateFlow()
+
+    fun toggleSessionPlatformDisabled(uid: String) {
+        _sessionDisabledPlatformUids.update { current ->
+            if (uid in current) current - uid else current + uid
+        }
+    }
 
     private val _isChatTitleDialogOpen = MutableStateFlow(false)
     val isChatTitleDialogOpen = _isChatTitleDialogOpen.asStateFlow()
@@ -183,52 +178,59 @@ class ChatViewModel @Inject constructor(
     // User input used for the chat composer
     val question = TextFieldState()
 
-    private val _selectedAttachments = MutableStateFlow<List<ChatAttachmentDraft>>(emptyList())
+    // Selected attachment drafts for current message
+    private val _selectedAttachments = MutableStateFlow(listOf<ChatAttachmentDraft>())
     val selectedAttachments = _selectedAttachments.asStateFlow()
 
     private val _attachmentNotice = MutableStateFlow<String?>(null)
     val attachmentNotice = _attachmentNotice.asStateFlow()
 
-    private val _groupedMessages = MutableStateFlow(GroupedMessages())
-    val groupedMessages = _groupedMessages.asStateFlow()
-
-    private val _agentRunsById = MutableStateFlow<Map<String, AgentRun>>(emptyMap())
-    val agentRunsById = _agentRunsById.asStateFlow()
-
     private val _runNoticesById = MutableStateFlow<Map<String, List<ChatRunNotice>>>(emptyMap())
     val runNoticesById = _runNoticesById.asStateFlow()
+
+    private val _needsLocalNetworkAccess = MutableStateFlow(false)
+    val needsLocalNetworkAccess = _needsLocalNetworkAccess.asStateFlow()
+
+    // Chat messages currently in the chat room
+    private val _groupedMessages = MutableStateFlow(GroupedMessages())
+    val groupedMessages = _groupedMessages.asStateFlow()
 
     private val _toolEventsByRun = MutableStateFlow<Map<String, List<ToolEvent>>>(emptyMap())
     val toolEventsByRun = _toolEventsByRun.asStateFlow()
 
-    private val _loadingStates = MutableStateFlow<List<LoadingState>>(
-        List(enabledPlatformsInChat.size) { LoadingState.Idle }
-    )
-    val loadingStates = _loadingStates.asStateFlow()
+    private val _agentRunsById = MutableStateFlow<Map<String, AgentRun>>(emptyMap())
+    val agentRunsById = _agentRunsById.asStateFlow()
 
-    private val _indexStates = MutableStateFlow<List<Int>>(emptyList())
+    // Each chat states for assistant chat messages
+    // Index of the currently shown message's platform - default is 0 (first platform)
+    private val _indexStates = MutableStateFlow(listOf<Int>())
     val indexStates = _indexStates.asStateFlow()
 
+    // Loading states for each platform
+    private val _loadingStates = MutableStateFlow(List<LoadingState>(enabledPlatformsInChat.size) { LoadingState.Idle })
+    val loadingStates = _loadingStates.asStateFlow()
+
+    // Used for text data to show in SelectText Bottom Sheet
     private val _selectedText = MutableStateFlow("")
     val selectedText = _selectedText.asStateFlow()
 
+    // State for the message loading state (From the database)
+    private val _isLoaded = MutableStateFlow(false)
+    val isLoaded = _isLoaded.asStateFlow()
+
     private var pendingQuestionText: String? = null
-    private var pendingQuestionJob: Job? = null
 
     init {
-        loadChatRoom()
-        loadPlatforms()
+        fetchChatRoom()
+        viewModelScope.launch { fetchMessages() }
+        fetchEnabledPlatformsInApp()
+        observePersistedMessages()
         observeAgentRuns()
+        observeToolEvents()
         observeAgentNotices()
         loadAvailableChatTools()
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getCachedVisibleEntries()
-        }
-    }
-
-    fun toggleSessionPlatformDisabled(uid: String) {
-        _sessionDisabledPlatformUids.update { current ->
-            if (uid in current) current - uid else current + uid
         }
     }
 
@@ -266,9 +268,181 @@ class ChatViewModel @Inject constructor(
     }
 
     fun cancelActiveRuns() {
+        _chatRoom.value.id.takeIf { it > 0 }?.let(agentRunCoordinator::cancelChat)
+    }
+
+    fun refreshLocalNetworkRequirement() {
+        fetchEnabledPlatformsInApp()
+    }
+
+    override fun onCleared() {
+        AttachmentPayloadCache.clear()
+        super.onCleared()
+    }
+
+    fun closeChatTitleDialog() = _isChatTitleDialogOpen.update { false }
+
+    fun discardMessageEditDialog() {
+        _messageEditSession.value?.attachments?.forEach { attachment ->
+            if (attachment.cleanupOnDiscard) {
+                attachment.preparedFilePath?.let { AttachmentPayloadCache.remove(it) }
+                deleteDraftFiles(attachment)
+            }
+        }
+        _messageEditSession.update { null }
+    }
+
+    fun finishMessageEditDialog() {
+        _messageEditSession.update { null }
+    }
+
+    fun closeSelectTextSheet() {
+        _isSelectTextSheetOpen.update { false }
+        _selectedText.update { "" }
+    }
+
+    fun closeChatModelDialog() = _isChatModelDialogOpen.update { false }
+
+    fun openChatTitleDialog() = _isChatTitleDialogOpen.update { true }
+    fun openChatModelDialog() = _isChatModelDialogOpen.update { true }
+
+    fun openChatToolSheet() = _isChatToolSheetOpen.update { true }
+    fun closeChatToolSheet() = _isChatToolSheetOpen.update { false }
+
+    fun toggleChatTool(toolId: String) {
+        _chatToolConfig.update { config ->
+            val isEnabled = config.isToolEnabled(toolId)
+            if (isEnabled) config.withToolDisabled(toolId) else config.withToolEnabled(toolId)
+        }
+    }
+
+    fun enableAllChatTools() {
+        _chatToolConfig.update { config ->
+            config.copy(
+                disabledToolIds = emptySet(),
+                enabledToolIds = _availableChatTools.value.map { it.id }.toSet(),
+                allToolsDisabled = false
+            )
+        }
+    }
+
+    fun disableAllChatTools() {
+        _chatToolConfig.update { config ->
+            config.copy(
+                disabledToolIds = _availableChatTools.value.map { it.id }.toSet(),
+                enabledToolIds = emptySet(),
+                allToolsDisabled = true
+            )
+        }
+    }
+
+    private fun loadAvailableChatTools() {
         viewModelScope.launch {
-            agentRunCoordinator.cancelActiveRuns()
-            _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
+            val connections = toolConnectionRepository.getAllConnections()
+            _availableChatTools.update { ChatToolUtils.buildAvailableChatTools(connections) }
+        }
+    }
+
+    fun openUserMessageEditDialog(question: MessageV2) {
+        _messageEditSession.update {
+            MessageEditSession(
+                message = question,
+                role = MessageEditRole.USER,
+                attachments = question.attachments.map(ChatAttachmentDraft::fromAttachment)
+            )
+        }
+    }
+
+    fun openAssistantMessageEditDialog(turnIndex: Int, platformIndex: Int) {
+        val assistantMessage = _groupedMessages.value.assistantMessages
+            .getOrNull(turnIndex)
+            ?.getOrNull(platformIndex)
+            ?: return
+        _messageEditSession.update {
+            MessageEditSession(
+                message = assistantMessage,
+                role = MessageEditRole.ASSISTANT,
+                turnIndex = turnIndex,
+                platformIndex = platformIndex,
+                attachments = assistantMessage.attachments.map(ChatAttachmentDraft::fromAttachment)
+            )
+        }
+    }
+
+    fun openSelectTextSheet(content: String) {
+        _selectedText.update { content }
+        _isSelectTextSheetOpen.update { true }
+    }
+
+    fun generateDefaultChatTitle(): String? = chatRepository.generateDefaultChatTitle(_groupedMessages.value.userMessages)
+
+    fun updateChatPlatformModels(models: Map<String, String>) {
+        val sanitizedModels = models
+            .filterKeys { it in enabledPlatformsInChat }
+            .mapValues { (_, model) -> model.trim() }
+
+        _chatPlatformModels.update { it + sanitizedModels }
+
+        if (_chatRoom.value.id > 0) {
+            viewModelScope.launch {
+                chatRepository.saveChatPlatformModels(_chatRoom.value.id, _chatPlatformModels.value)
+            }
+        }
+    }
+
+    fun retryChat(turnIndex: Int, platformIndex: Int) {
+        if (turnIndex !in _groupedMessages.value.assistantMessages.indices) return
+        if (platformIndex >= enabledPlatformsInChat.size || platformIndex < 0) return
+        val platform = _platformsInApp.value.firstOrNull { it.uid == enabledPlatformsInChat[platformIndex] } ?: return
+        val platformWithChatModel = resolvePlatformModel(platform)
+        val currentAssistantMessage = _groupedMessages.value.assistantMessages
+            .getOrNull(turnIndex)
+            ?.getOrNull(platformIndex)
+            ?: return
+        val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
+        val runId = UUID.randomUUID().toString()
+        _loadingStates.update { it.toMutableList().apply { this[platformIndex] = LoadingState.Loading } }
+
+        viewModelScope.launch {
+            persistBeforeProvider(
+                persist = {
+                    chatRepository.persistAgentRetry(
+                        PersistAgentRetryRequest(
+                            userMessage = userMessage,
+                            assistantMessage = currentAssistantMessage,
+                            run = AgentRunDraft(
+                                runId = runId,
+                                profileUid = platformWithChatModel.uid,
+                                providerSnapshot = platformWithChatModel.compatibleType.name,
+                                modelSnapshot = platformWithChatModel.model,
+                                createdAt = currentTimeStamp
+                            )
+                        )
+                    )
+                },
+                startProvider = { persisted ->
+                    _groupedMessages.update { groupedMessages ->
+                        updateAssistantSlot(groupedMessages, turnIndex, platformIndex) { persisted.assistantMessage }
+                    }
+                    val contextMessages = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
+                    agentRunCoordinator.start(
+                        listOf(
+                            AgentRunRequest(
+                                runId = runId,
+                                chatId = persisted.assistantMessage.chatId,
+                                assistantMessage = persisted.assistantMessage,
+                                platform = platformWithChatModel,
+                                userMessages = contextMessages.userMessages,
+                                assistantMessages = contextMessages.assistantMessages,
+                                chatToolConfig = _chatToolConfig.value
+                            )
+                        )
+                    )
+                },
+                onFailure = { error ->
+                    showPersistenceFailure(turnIndex, listOf(platformIndex), error)
+                }
+            )
         }
     }
 
@@ -357,168 +531,11 @@ class ChatViewModel @Inject constructor(
         _attachmentNotice.update { null }
     }
 
-    fun notifyAttachmentCopyFailed() {
-        _attachmentNotice.update { "Failed to copy attachment." }
-    }
-
-    fun saveUserMessageEdit(
-        editedMessage: MessageV2,
-        attachments: List<ChatAttachmentDraft>
-    ): Boolean {
-        if (attachments.any { it.status != ChatAttachmentDraft.Status.Ready }) {
-            _attachmentNotice.update { "Wait for attachments to finish processing before saving." }
-            return false
-        }
-
-        val userMessages = _groupedMessages.value.userMessages
-        val assistantMessages = _groupedMessages.value.assistantMessages
-
-        val messageIndex = userMessages.indexOfFirst { it.id == editedMessage.id }
-        if (messageIndex == -1) return false
-
-        val updatedUserMessages = userMessages.toMutableList()
-        updatedUserMessages[messageIndex] = editedMessage.copy(
-            attachments = attachments.mapNotNull { it.attachment },
-            createdAt = currentTimeStamp
-        )
-
-        val remainingUserMessages = updatedUserMessages.take(messageIndex + 1)
-        val remainingAssistantMessages = assistantMessages.take(messageIndex)
-
-        _groupedMessages.update {
-            GroupedMessages(
-                userMessages = remainingUserMessages,
-                assistantMessages = remainingAssistantMessages
-            )
-        }
-
-        closeUserMessageEditDialog()
-        resendFromTurn(messageIndex, editedMessage.content, attachments)
-        return true
-    }
-
-    fun saveAssistantMessageEdit(
-        editedContent: String,
-        attachments: List<ChatAttachmentDraft>
-    ): Boolean {
-        val session = _messageEditSession.value ?: return false
-        if (!session.isAssistant || session.turnIndex < 0 || session.platformIndex < 0) return false
-
-        val turnIndex = session.turnIndex
-        val platformIndex = session.platformIndex
-        val targetMessage = _groupedMessages.value.assistantMessages.getOrNull(turnIndex)?.getOrNull(platformIndex) ?: return false
-
-        val updatedTimeline = rebuildAssistantTimelineForEdit(
-            timeline = targetMessage.effectiveTimeline(),
-            newContent = editedContent
-        )
-
-        val updatedMessage = targetMessage.copy(
-            content = editedContent,
-            timeline = updatedTimeline,
-            attachments = attachments.mapNotNull { it.attachment }
-        )
-
-        _groupedMessages.update {
-            updateAssistantSlot(it, turnIndex, platformIndex) { updatedMessage }
-        }
-
-        if (updatedMessage.id > 0) {
-            viewModelScope.launch {
-                chatRepository.updateMessage(updatedMessage)
-            }
-        }
-
-        closeAssistantMessageEditDialog()
-        return true
-    }
-
-    fun openUserMessageEditDialog(message: MessageV2) {
-        val drafts = message.attachments.map { attachment ->
-            ChatAttachmentDraft(
-                sourceFilePath = attachment.filePathForDisplay,
-                preparedFilePath = attachment.filePathForDisplay,
-                status = ChatAttachmentDraft.Status.Ready,
-                attachment = attachment
-            )
-        }
-        _messageEditSession.value = MessageEditSession(
-            message = message,
-            isAssistant = false,
-            attachments = drafts
-        )
-    }
-
-    fun openAssistantMessageEditDialog(turnIndex: Int, platformIndex: Int) {
-        val message = _groupedMessages.value.assistantMessages.getOrNull(turnIndex)?.getOrNull(platformIndex) ?: return
-        val drafts = message.attachments.map { attachment ->
-            ChatAttachmentDraft(
-                sourceFilePath = attachment.filePathForDisplay,
-                preparedFilePath = attachment.filePathForDisplay,
-                status = ChatAttachmentDraft.Status.Ready,
-                attachment = attachment
-            )
-        }
-        _messageEditSession.value = MessageEditSession(
-            message = message,
-            isAssistant = true,
-            turnIndex = turnIndex,
-            platformIndex = platformIndex,
-            attachments = drafts
-        )
-    }
-
-    fun closeUserMessageEditDialog() {
-        if (_messageEditSession.value?.isAssistant == false) {
-            _messageEditSession.value = null
-        }
-    }
-
-    fun closeAssistantMessageEditDialog() {
-        if (_messageEditSession.value?.isAssistant == true) {
-            _messageEditSession.value = null
-        }
-    }
-
-    fun openChatTitleDialog() {
-        _isChatTitleDialogOpen.value = true
-    }
-
-    fun closeChatTitleDialog() {
-        _isChatTitleDialogOpen.value = false
-    }
-
-    fun openChatModelDialog() {
-        _isChatModelDialogOpen.value = true
-    }
-
-    fun closeChatModelDialog() {
-        _isChatModelDialogOpen.value = false
-    }
-
-    fun updateChatPlatformModels(models: Map<String, String>) {
-        _chatPlatformModels.value = models
-        if (_chatRoom.value.id > 0) {
-            viewModelScope.launch {
-                chatRepository.updateChatPlatformModels(_chatRoom.value.id, models)
-            }
-        }
-    }
-
-    fun openSelectTextSheet(text: String) {
-        _selectedText.value = text
-        _isSelectTextSheetOpen.value = true
-    }
-
-    fun closeSelectTextSheet() {
-        _isSelectTextSheetOpen.value = false
-        _selectedText.value = ""
-    }
-
     fun showPreviousAssistantRevision(turnIndex: Int, platformIndex: Int) {
         _groupedMessages.update {
             updateAssistantSlot(it, turnIndex, platformIndex) { msg ->
-                msg.copy(activeRevisionIndex = (msg.activeRevisionIndex + 1).coerceAtMost(msg.revisions.lastIndex))
+                val next = (msg.activeRevisionIndex + 1).coerceAtMost(msg.revisions.lastIndex)
+                msg.copy(activeRevisionIndex = next)
             }
         }
     }
@@ -532,70 +549,44 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun retryChat(turnIndex: Int, platformIndex: Int) {
-        val userMessages = _groupedMessages.value.userMessages
-        val assistantMessages = _groupedMessages.value.assistantMessages
-        val userMessage = userMessages.getOrNull(turnIndex) ?: return
-        val currentAssistantMessage = assistantMessages.getOrNull(turnIndex)?.getOrNull(platformIndex) ?: return
-        val platformUid = enabledPlatformsInChat.getOrNull(platformIndex) ?: return
-        val platform = _platformsInApp.value.find { it.uid == platformUid } ?: return
-
-        val platformWithChatModel = platform.copy(
-            model = _chatPlatformModels.value[platformUid] ?: platform.model
+    private fun addDraftFile(
+        currentAttachments: () -> List<ChatAttachmentDraft>,
+        updateAttachments: (List<ChatAttachmentDraft>) -> Unit,
+        filePath: String,
+        onNotice: (String) -> Unit
+    ) {
+        val drafts = currentAttachments().toMutableList()
+        val newDraft = ChatAttachmentDraft(
+            sourceFilePath = filePath,
+            status = ChatAttachmentDraft.Status.Ready,
+            attachment = dev.chungjungsoo.gptmobile.data.database.entity.Attachment(filePathForDisplay = filePath)
         )
+        drafts.add(newDraft)
+        updateAttachments(drafts)
+    }
 
-        val runId = UUID.randomUUID().toString()
-        _loadingStates.update { current ->
-            current.mapIndexed { idx, state -> if (idx == platformIndex) LoadingState.Loading else state }
-        }
+    private fun removeDraftFile(
+        currentAttachments: () -> List<ChatAttachmentDraft>,
+        updateAttachments: (List<ChatAttachmentDraft>) -> Unit,
+        filePath: String
+    ) {
+        val drafts = currentAttachments().filterNot { it.sourceFilePath == filePath }
+        updateAttachments(drafts)
+    }
 
-        viewModelScope.launch {
-            safePersistTurn(
-                persist = {
-                    chatRepository.persistAgentRetry(
-                        PersistAgentRetryRequest(
-                            userMessage = userMessage,
-                            assistantMessage = currentAssistantMessage,
-                            run = AgentRunDraft(
-                                runId = runId,
-                                profileUid = platformWithChatModel.uid,
-                                providerSnapshot = platformWithChatModel.compatibleType.name,
-                                modelSnapshot = platformWithChatModel.model,
-                                createdAt = currentTimeStamp
-                            )
-                        )
-                    )
-                },
-                startProvider = { persisted ->
-                    _groupedMessages.update { groupedMessages ->
-                        updateAssistantSlot(groupedMessages, turnIndex, platformIndex) { persisted.assistantMessage }
-                    }
-                    val contextMessages = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
-                    agentRunCoordinator.start(
-                        listOf(
-                            AgentRunRequest(
-                                runId = runId,
-                                chatId = persisted.assistantMessage.chatId,
-                                assistantMessage = persisted.assistantMessage,
-                                platform = platformWithChatModel,
-                                userMessages = contextMessages.userMessages,
-                                assistantMessages = contextMessages.assistantMessages,
-                                chatToolConfig = _chatToolConfig.value
-                            )
-                        )
-                    )
-                },
-                onFailure = { error ->
-                    showPersistenceFailure(turnIndex, listOf(platformIndex), error)
-                }
-            )
+    private fun updateMessageEditAttachments(drafts: List<ChatAttachmentDraft>) {
+        _messageEditSession.update { current ->
+            current?.copy(attachments = drafts)
         }
     }
 
-    fun generateDefaultChatTitle(currentTitle: String) {
-        val firstMessage = _groupedMessages.value.userMessages.firstOrNull()?.content?.take(30)
-        val defaultTitle = if (!firstMessage.isNullOrBlank()) firstMessage else "Chat"
-        updateChatTitle(defaultTitle)
+    private fun trySendPendingQuestionIfReady() {
+        val pendingText = pendingQuestionText ?: return
+        val currentDrafts = _selectedAttachments.value
+        if (currentDrafts.all { it.status == ChatAttachmentDraft.Status.Ready }) {
+            pendingQuestionText = null
+            sendQuestion(pendingText, currentDrafts)
+        }
     }
 
     private fun sendQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
@@ -654,9 +645,7 @@ class ChatViewModel @Inject constructor(
                 val platformUid = enabledPlatformsInChat[index]
                 val platform = _platformsInApp.value.find { it.uid == platformUid }
                     ?: PlatformV2(name = platformUid, uid = platformUid, compatibleType = dev.chungjungsoo.gptmobile.data.database.entity.PlatformTypeV2.OPENAI)
-                val platformWithChatModel = platform.copy(
-                    model = _chatPlatformModels.value[platformUid] ?: platform.model
-                )
+                val platformWithChatModel = resolvePlatformModel(platform)
                 val runId = UUID.randomUUID().toString()
                 AgentRunRequest(
                     runId = runId,
@@ -675,83 +664,38 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun resendFromTurn(turnIndex: Int, questionText: String, attachments: List<ChatAttachmentDraft>) {
-        val userMessage = _groupedMessages.value.userMessages[turnIndex]
-        val activePlatforms = enabledPlatformsInChat.filter { it !in _sessionDisabledPlatformUids.value }
-        val assistantDrafts = enabledPlatformsInChat.map { uid ->
-            MessageV2(
-                chatId = _chatRoom.value.id,
-                content = if (uid in _sessionDisabledPlatformUids.value) "[Platform disabled for session]" else "",
-                platformType = uid,
-                createdAt = currentTimeStamp
-            )
-        }
-
-        _groupedMessages.update {
-            it.copy(
-                assistantMessages = it.assistantMessages + listOf(assistantDrafts)
-            )
-        }
-
-        val activeIndices = enabledPlatformsInChat.mapIndexedNotNull { index, uid ->
-            if (uid !in _sessionDisabledPlatformUids.value) index else null
-        }
-
-        _loadingStates.update {
-            List(enabledPlatformsInChat.size) { idx ->
-                if (idx in activeIndices) LoadingState.Loading else LoadingState.Idle
-            }
-        }
-
-        viewModelScope.launch {
-            val runs = activeIndices.map { index ->
-                val platformUid = enabledPlatformsInChat[index]
-                val platform = _platformsInApp.value.find { it.uid == platformUid }
-                    ?: PlatformV2(name = platformUid, uid = platformUid, compatibleType = dev.chungjungsoo.gptmobile.data.database.entity.PlatformTypeV2.OPENAI)
-                val platformWithChatModel = platform.copy(
-                    model = _chatPlatformModels.value[platformUid] ?: platform.model
-                )
-                val runId = UUID.randomUUID().toString()
-                AgentRunRequest(
-                    runId = runId,
-                    chatId = _chatRoom.value.id,
-                    assistantMessage = assistantDrafts[index].copy(chatId = _chatRoom.value.id),
-                    platform = platformWithChatModel,
-                    userMessages = _groupedMessages.value.userMessages,
-                    assistantMessages = _groupedMessages.value.assistantMessages.map { it.getOrElse(index) { assistantDrafts[index] } },
-                    chatToolConfig = _chatToolConfig.value
-                )
-            }
-
-            runs.forEach { req ->
-                agentRunCoordinator.start(listOf(req))
-            }
+    private fun resolvePlatformModel(platform: PlatformV2): PlatformV2 {
+        val configuredModel = _chatPlatformModels.value[platform.uid]
+        return if (!configuredModel.isNullOrBlank()) {
+            platform.copy(model = configuredModel)
+        } else {
+            platform
         }
     }
 
-    private fun loadChatRoom() {
+    private fun fetchChatRoom() {
         if (chatRoomId > 0) {
             viewModelScope.launch {
                 val room = chatRepository.getChatRoom(chatRoomId)
                 if (room != null) {
                     _chatRoom.value = room
-                    loadChatMessages(chatRoomId)
+                    _chatPlatformModels.value = chatRepository.getChatPlatformModels(chatRoomId)
                 }
             }
         }
     }
 
-    private fun loadChatMessages(roomId: Int) {
-        viewModelScope.launch {
-            val messages = chatRepository.getMessagesForChat(roomId)
+    private suspend fun fetchMessages() {
+        if (chatRoomId > 0) {
+            val messages = chatRepository.getMessagesForChat(chatRoomId)
             val users = messages.filter { it.platformType == null }
             val assistants = messages.filter { it.platformType != null }
 
             val groupedAssistants = mutableListOf<List<MessageV2>>()
             for (i in users.indices) {
                 val turnAssistants = enabledPlatformsInChat.map { uid ->
-                    assistants.find { it.chatId == roomId && it.platformType == uid }
-                        ?: MessageV2(chatId = roomId, content = "", platformType = uid)
+                    assistants.find { it.chatId == chatRoomId && it.platformType == uid }
+                        ?: MessageV2(chatId = chatRoomId, content = "", platformType = uid)
                 }
                 groupedAssistants.add(turnAssistants)
             }
@@ -761,14 +705,44 @@ class ChatViewModel @Inject constructor(
                 assistantMessages = groupedAssistants
             )
             _indexStates.value = List(users.size) { 0 }
+            _isLoaded.value = true
+        } else {
+            _isLoaded.value = true
         }
     }
 
-    private fun loadPlatforms() {
+    private fun fetchEnabledPlatformsInApp() {
         viewModelScope.launch {
             settingRepository.observePlatforms().collect { list ->
                 _platformsInApp.value = list
-                _enabledPlatformsInApp.value = list.filter { it.enabled }
+                val enabled = list.filter { it.enabled }
+                _enabledPlatformsInApp.value = enabled
+                _needsLocalNetworkAccess.value = enabled.any { it.requiresLocalNetworkAccess() }
+            }
+        }
+    }
+
+    private fun observePersistedMessages() {
+        if (chatRoomId > 0) {
+            viewModelScope.launch {
+                chatRepository.observeMessagesForChat(chatRoomId).collect { messages ->
+                    if (messages.isNotEmpty()) {
+                        val users = messages.filter { it.platformType == null }
+                        val assistants = messages.filter { it.platformType != null }
+                        val groupedAssistants = mutableListOf<List<MessageV2>>()
+                        for (i in users.indices) {
+                            val turnAssistants = enabledPlatformsInChat.map { uid ->
+                                assistants.find { it.chatId == chatRoomId && it.platformType == uid }
+                                    ?: MessageV2(chatId = chatRoomId, content = "", platformType = uid)
+                            }
+                            groupedAssistants.add(turnAssistants)
+                        }
+                        _groupedMessages.value = GroupedMessages(
+                            userMessages = users,
+                            assistantMessages = groupedAssistants
+                        )
+                    }
+                }
             }
         }
     }
@@ -788,6 +762,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private fun observeToolEvents() {
+        viewModelScope.launch {
+            agentRunCoordinator.observeToolEvents().collect { events ->
+                _toolEventsByRun.value = events.groupBy { it.runId }
+            }
+        }
+    }
+
     private fun observeAgentNotices() {
         viewModelScope.launch {
             agentRunCoordinator.observeNotices().collect { notices ->
@@ -798,67 +780,8 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun loadAvailableChatTools() {
-        viewModelScope.launch {
-            toolConnectionRepository.observeAllTools().collect { tools ->
-                _availableChatTools.value = tools
-            }
-        }
-    }
-
-    private fun addDraftFile(
-        currentAttachments: () -> List<ChatAttachmentDraft>,
-        updateAttachments: (List<ChatAttachmentDraft>) -> Unit,
-        filePath: String,
-        onNotice: (String) -> Unit
-    ) {
-        val drafts = currentAttachments().toMutableList()
-        val newDraft = ChatAttachmentDraft(
-            sourceFilePath = filePath,
-            status = ChatAttachmentDraft.Status.Ready,
-            attachment = dev.chungjungsoo.gptmobile.data.database.entity.Attachment(filePathForDisplay = filePath)
-        )
-        drafts.add(newDraft)
-        updateAttachments(drafts)
-    }
-
-    private fun removeDraftFile(
-        currentAttachments: () -> List<ChatAttachmentDraft>,
-        updateAttachments: (List<ChatAttachmentDraft>) -> Unit,
-        filePath: String
-    ) {
-        val drafts = currentAttachments().filterNot { it.sourceFilePath == filePath }
-        updateAttachments(drafts)
-    }
-
-    private fun updateMessageEditAttachments(drafts: List<ChatAttachmentDraft>) {
-        _messageEditSession.update { current ->
-            current?.copy(attachments = drafts)
-        }
-    }
-
-    private fun trySendPendingQuestionIfReady() {
-        val pendingText = pendingQuestionText ?: return
-        val currentDrafts = _selectedAttachments.value
-        if (currentDrafts.all { it.status == ChatAttachmentDraft.Status.Ready }) {
-            pendingQuestionText = null
-            sendQuestion(pendingText, currentDrafts)
-        }
-    }
-
-    private fun updateAssistantSlot(
-        grouped: GroupedMessages,
-        turnIndex: Int,
-        platformIndex: Int,
-        transform: (MessageV2) -> MessageV2
-    ): GroupedMessages {
-        val updatedTurns = grouped.assistantMessages.toMutableList()
-        val turnList = updatedTurns.getOrNull(turnIndex)?.toMutableList() ?: return grouped
-        if (platformIndex < turnList.size) {
-            turnList[platformIndex] = transform(turnList[platformIndex])
-            updatedTurns[turnIndex] = turnList
-        }
-        return grouped.copy(assistantMessages = updatedTurns)
+    private fun deleteDraftFiles(attachment: ChatAttachmentDraft) {
+        attachment.preparedFilePath?.let { File(it).delete() }
     }
 
     private fun groupedMessagesThroughTurn(grouped: GroupedMessages, turnIndex: Int): GroupedMessages {
@@ -868,7 +791,7 @@ class ChatViewModel @Inject constructor(
         )
     }
 
-    private suspend fun safePersistTurn(
+    private suspend fun persistBeforeProvider(
         persist: suspend () -> dev.chungjungsoo.gptmobile.data.database.entity.PersistedAgentRetry,
         startProvider: suspend (dev.chungjungsoo.gptmobile.data.database.entity.PersistedAgentRetry) -> Unit,
         onFailure: (Throwable) -> Unit
@@ -884,5 +807,20 @@ class ChatViewModel @Inject constructor(
     private fun showPersistenceFailure(turnIndex: Int, platformIndices: List<Int>, error: Throwable) {
         _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
         _attachmentNotice.update { "Failed to save message turn: ${error.localizedMessage}" }
+    }
+
+    private fun updateAssistantSlot(
+        grouped: GroupedMessages,
+        turnIndex: Int,
+        platformIndex: Int,
+        transform: (MessageV2) -> MessageV2
+    ): GroupedMessages {
+        val updatedTurns = grouped.assistantMessages.toMutableList()
+        val turnList = updatedTurns.getOrNull(turnIndex)?.toMutableList() ?: return grouped
+        if (platformIndex < turnList.size) {
+            turnList[platformIndex] = transform(turnList[platformIndex])
+            updatedTurns[turnIndex] = turnList
+        }
+        return grouped.copy(assistantMessages = updatedTurns)
     }
 }

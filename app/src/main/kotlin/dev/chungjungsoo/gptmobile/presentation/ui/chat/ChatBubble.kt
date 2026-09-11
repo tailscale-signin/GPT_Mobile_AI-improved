@@ -58,7 +58,15 @@ import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import java.io.File
 
 @Composable
-fun UserChatBubble(modifier: Modifier = Modifier, text: String, files: List<String> = emptyList(), onLongPress: () -> Unit) {
+fun UserChatBubble(
+    modifier: Modifier = Modifier,
+    text: String,
+    files: List<String> = emptyList(),
+    hasDetails: Boolean = false,
+    areDetailsVisible: Boolean = false,
+    onToggleDetails: () -> Unit = {},
+    onLongPress: () -> Unit
+) {
     val cardColor = CardColors(
         containerColor = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -66,6 +74,21 @@ fun UserChatBubble(modifier: Modifier = Modifier, text: String, files: List<Stri
         disabledContainerColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.38f)
     )
     Column(horizontalAlignment = Alignment.End) {
+        if (hasDetails) {
+            Row(
+                modifier = Modifier
+                    .wrapContentWidth()
+                    .padding(bottom = 4.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DetailsButton(
+                    isVisible = areDetailsVisible,
+                    isEnabled = true,
+                    onClick = onToggleDetails
+                )
+            }
+        }
         Card(
             modifier = modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
             shape = RoundedCornerShape(32.dp), colors = cardColor

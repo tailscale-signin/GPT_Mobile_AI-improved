@@ -6,6 +6,8 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -27,6 +30,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -42,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -56,12 +62,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -188,7 +196,7 @@ fun ToolConnectionsScreen(
                 )
             }
             uiState.connections.forEach { connection ->
-                ToolConnectionItem(
+                CollapsibleToolConnectionCard(
                     connection = connection,
                     onEditClick = { onEditConnectionClick(connection.connectionUid) },
                     onOAuthClick = {
@@ -246,6 +254,139 @@ fun ToolConnectionsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun CollapsibleToolConnectionCard(
+    connection: ToolConnection,
+    onEditClick: () -> Unit,
+    onOAuthClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "toolConnectionArrow"
+    )
+
+    val credentialStatus = when {
+        connection.authType == ToolConnectionAuthType.NONE -> stringResource(R.string.public_access)
+        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef == null -> stringResource(R.string.oauth_not_connected)
+        connection.authType == ToolConnectionAuthType.OAUTH -> stringResource(R.string.oauth_connected)
+        connection.secretRef == null -> stringResource(R.string.credential_not_set)
+        else -> stringResource(R.string.credential_set)
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable { expanded = !expanded },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = connection.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        overflow = TextOverflow.Ellipsis,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${providerLabel(connection.type)} • ${connection.alias}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = when {
+                        connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.surfaceContainerHighest
+                        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.primaryContainer
+                        connection.secretRef != null -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
+                    }
+                ) {
+                    Text(
+                        text = credentialStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
+                            connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.onPrimaryContainer
+                            connection.secretRef != null -> MaterialTheme.colorScheme.onSecondaryContainer
+                            else -> MaterialTheme.colorScheme.onErrorContainer
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    modifier = Modifier.rotate(arrowRotation)
+                )
+            }
+
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    connection.endpointUrl?.let { url ->
+                        if (url.isNotBlank()) {
+                            Text(
+                                text = "Endpoint: $url",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                    }
+
+                    Text(
+                        text = "Authentication: ${connection.authType}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (connection.type == ToolConnectionType.MCP && connection.authType == ToolConnectionAuthType.OAUTH) {
+                            TextButton(onClick = onOAuthClick) {
+                                Text(stringResource(if (connection.secretRef == null) R.string.connect else R.string.reconnect))
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        IconButton(onClick = onEditClick) {
+                            Icon(imageVector = Icons.Filled.Edit, contentDescription = "Edit Connection")
+                        }
+                        IconButton(onClick = onDeleteClick) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "Delete Connection",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -549,131 +690,6 @@ internal fun credentialEditState(
     credential.isNotBlank() -> CredentialEditState.REPLACE
     hasExistingCredential && canPreserveCredential -> CredentialEditState.KEEP
     else -> CredentialEditState.MISSING
-}
-
-@Composable
-private fun ToolConnectionItem(
-    connection: ToolConnection,
-    onEditClick: () -> Unit,
-    onOAuthClick: () -> Unit,
-    onDeleteClick: () -> Unit
-) {
-    val editDescription = stringResource(R.string.edit_named_connection, connection.name)
-    val deleteDescription = stringResource(R.string.delete_named_connection, connection.name)
-    val connectDescription = stringResource(R.string.connect_with_oauth, connection.name)
-    val credentialStatus = when {
-        connection.authType == ToolConnectionAuthType.NONE -> stringResource(R.string.public_access)
-        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef == null -> stringResource(R.string.oauth_not_connected)
-        connection.authType == ToolConnectionAuthType.OAUTH -> stringResource(R.string.oauth_connected)
-        connection.secretRef == null -> stringResource(R.string.credential_not_set)
-        else -> stringResource(R.string.credential_set)
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clickable(onClick = onEditClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = connection.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        overflow = TextOverflow.Ellipsis,
-                        maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${providerLabel(connection.type)} • ${connection.alias}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = when {
-                        connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.surfaceContainerHighest
-                        connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.primaryContainer
-                        connection.secretRef != null -> MaterialTheme.colorScheme.secondaryContainer
-                        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
-                    }
-                ) {
-                    Text(
-                        text = credentialStatus,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            connection.authType == ToolConnectionAuthType.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
-                            connection.authType == ToolConnectionAuthType.OAUTH && connection.secretRef != null -> MaterialTheme.colorScheme.onPrimaryContainer
-                            connection.secretRef != null -> MaterialTheme.colorScheme.onSecondaryContainer
-                            else -> MaterialTheme.colorScheme.onErrorContainer
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-
-            connection.endpointUrl?.let { url ->
-                if (url.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = url,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (connection.type == ToolConnectionType.MCP && connection.authType == ToolConnectionAuthType.OAUTH) {
-                    TextButton(
-                        modifier = Modifier.semantics { contentDescription = connectDescription },
-                        onClick = onOAuthClick
-                    ) {
-                        Text(stringResource(if (connection.secretRef == null) R.string.connect else R.string.reconnect))
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-                IconButton(
-                    modifier = Modifier.semantics { contentDescription = editDescription },
-                    onClick = onEditClick
-                ) {
-                    Icon(imageVector = Icons.Filled.Edit, contentDescription = null)
-                }
-                IconButton(
-                    modifier = Modifier.semantics { contentDescription = deleteDescription },
-                    onClick = onDeleteClick
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable

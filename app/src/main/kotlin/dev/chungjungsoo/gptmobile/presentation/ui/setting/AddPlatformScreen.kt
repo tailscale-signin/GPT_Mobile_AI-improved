@@ -53,11 +53,14 @@ import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelCatalogPicker
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private enum class AddPlatformStep { API_TYPE, DETAILS }
 
@@ -124,6 +127,11 @@ fun AddPlatformScreen(
                         null
                     }
                     val formattedApiKey = ApiCredentialRotator.formatKeys(apiTokens.toList())
+                    val defaultOllamaOptions = if (clientType == ClientType.OLLAMA) {
+                        Json.encodeToString(OllamaOptions.createDefault())
+                    } else {
+                        null
+                    }
                     val platform = PlatformV2(
                         name = platformName.trim(),
                         compatibleType = clientType,
@@ -143,7 +151,8 @@ fun AddPlatformScreen(
                         systemPrompt = ModelConstants.DEFAULT_PROMPT,
                         stream = true,
                         reasoning = isReasoningEnabled && clientType != ClientType.LITERT_LM,
-                        timeout = 30
+                        timeout = 30,
+                        ollamaOptions = defaultOllamaOptions
                     )
                     apiTokens.clear()
                     apiTokens.add("")
@@ -358,12 +367,8 @@ fun AddPlatformScreen(
         onConfirmRamWarning = viewModel::confirmRamWarning,
         onConfirmMeteredDownload = viewModel::confirmMeteredDownload,
         onDismissDialog = viewModel::dismissDownloadDialog,
-        onStartSignIn = viewModel::startHuggingFaceSignIn,
-        onAuthActivityResult = viewModel::onAuthActivityResult,
-        onLicenseTabClosed = viewModel::onLicenseTabClosed,
-        onRetryAfterLicense = viewModel::retryAfterLicense,
-        onEnterAccessToken = viewModel::openAccessTokenDialog,
-        onSaveAccessToken = viewModel::saveHuggingFaceAccessToken
+        onConfirmHighSpeedDownload = viewModel::confirmHighSpeedDownload,
+        onConfirmCellularMeteredDownload = viewModel::confirmCellularMeteredDownload
     )
 }
 
@@ -378,36 +383,64 @@ private fun AddPlatformTopBar(
     onActionClick: () -> Unit
 ) {
     LargeTopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, titleContentColor = MaterialTheme.colorScheme.onBackground),
-        title = { Text(modifier = Modifier.padding(4.dp), text = title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = {
+            Text(
+                text = title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
         navigationIcon = {
-            IconButton(modifier = Modifier.padding(4.dp), onClick = onNavigationClick) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
+            IconButton(
+                onClick = onNavigationClick,
+                modifier = Modifier.semantics {
+                    contentDescription = "Navigate back"
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null
+                )
             }
         },
         actions = {
-            actionLabel?.let { label ->
-                TextButton(modifier = Modifier.semantics { contentDescription = label }, enabled = isActionEnabled, onClick = onActionClick) { Text(label) }
+            if (actionLabel != null) {
+                TextButton(
+                    onClick = onActionClick,
+                    enabled = isActionEnabled
+                ) {
+                    Text(text = actionLabel)
+                }
             }
         },
-        scrollBehavior = scrollBehavior
+        scrollBehavior = scrollBehavior,
+        colors = TopAppBarDefaults.largeTopAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
     )
 }
 
 @Composable
 private fun getClientTypeName(clientType: ClientType): String = when (clientType) {
+    ClientType.OPENAI -> stringResource(R.string.openai)
+    ClientType.ANTHROPIC -> stringResource(R.string.anthropic)
+    ClientType.GOOGLE -> stringResource(R.string.google)
+    ClientType.GROQ -> stringResource(R.string.groq)
+    ClientType.OLLAMA -> stringResource(R.string.ollama)
+    ClientType.OPENROUTER -> stringResource(R.string.openrouter)
     ClientType.CUSTOM -> stringResource(R.string.custom)
-    else -> ModelConstants.defaultPlatformName(clientType)
+    ClientType.LITERT_LM -> stringResource(R.string.local_model)
 }
 
 @Composable
 private fun getClientTypeDescription(clientType: ClientType): String = when (clientType) {
-    ClientType.OPENAI -> stringResource(R.string.client_type_openai_desc)
-    ClientType.ANTHROPIC -> stringResource(R.string.client_type_anthropic_desc)
-    ClientType.GOOGLE -> stringResource(R.string.client_type_google_desc)
-    ClientType.GROQ -> stringResource(R.string.client_type_groq_desc)
-    ClientType.OLLAMA -> stringResource(R.string.client_type_ollama_desc)
-    ClientType.OPENROUTER -> stringResource(R.string.client_type_openrouter_desc)
-    ClientType.CUSTOM -> stringResource(R.string.client_type_custom_desc)
-    ClientType.LITERT_LM -> stringResource(R.string.client_type_litert_lm_desc)
+    ClientType.OPENAI -> stringResource(R.string.openai_description)
+    ClientType.ANTHROPIC -> stringResource(R.string.anthropic_description)
+    ClientType.GOOGLE -> stringResource(R.string.google_description)
+    ClientType.GROQ -> stringResource(R.string.groq_description)
+    ClientType.OLLAMA -> stringResource(R.string.ollama_description)
+    ClientType.OPENROUTER -> stringResource(R.string.openrouter_description)
+    ClientType.CUSTOM -> stringResource(R.string.custom_description)
+    ClientType.LITERT_LM -> stringResource(R.string.local_model_description)
 }

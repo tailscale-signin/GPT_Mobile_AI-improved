@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.ollama
 
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import kotlinx.serialization.encodeToString
@@ -36,7 +38,7 @@ class OllamaOptionsTest {
     fun `standard request does not serialize options when null`() {
         val request = ChatCompletionRequest(
             model = "gpt-oss",
-            messages = listOf(ChatMessage(role = "user", content = "Hello"))
+            messages = listOf(ChatMessage(role = Role.USER, content = listOf(TextContent("Hello"))))
         )
 
         val encoded = json.encodeToString(request)
@@ -49,7 +51,7 @@ class OllamaOptionsTest {
         val options = OllamaOptions.createDefault()
         val request = ChatCompletionRequest(
             model = "gpt-oss",
-            messages = listOf(ChatMessage(role = "user", content = "Hello")),
+            messages = listOf(ChatMessage(role = Role.USER, content = listOf(TextContent("Hello")))),
             options = options
         )
 

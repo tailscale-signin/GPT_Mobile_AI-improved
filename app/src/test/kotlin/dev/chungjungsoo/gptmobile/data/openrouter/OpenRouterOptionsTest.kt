@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.openrouter
 
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import kotlinx.serialization.encodeToString
@@ -43,7 +45,7 @@ class OpenRouterOptionsTest {
         )
         val request = ChatCompletionRequest(
             model = "anthropic/claude-3.5-sonnet",
-            messages = listOf(ChatMessage(role = "user", content = "Hello")),
+            messages = listOf(ChatMessage(role = Role.USER, content = listOf(TextContent("Hello")))),
             stream = true,
             maxTokens = 4096,
             temperature = 0.2f,

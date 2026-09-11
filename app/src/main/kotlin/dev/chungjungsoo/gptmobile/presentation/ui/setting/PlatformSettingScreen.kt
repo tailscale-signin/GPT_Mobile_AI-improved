@@ -72,6 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
 import dev.chungjungsoo.gptmobile.presentation.ui.openrouter.OpenRouterModelPickerDialog
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
@@ -478,8 +479,6 @@ fun PlatformSettingScreen(
                     showLeadingIcon = false
                 )
 
-                PlatformMaxToolCallsSettingHost(settingViewModel)
-
                 PlatformNameDialog(dialogState, platformData.name, settingViewModel)
                 if (!isLocalPlatform) {
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
@@ -529,6 +528,48 @@ fun PlatformSettingScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SearchBackendDialog(
+    toolBindingState: PlatformSettingViewModel.ToolBindingState,
+    settingViewModel: PlatformSettingViewModel
+) {
+    if (toolBindingState.isSearchBackendDialogOpen) {
+        AlertDialog(
+            title = { Text(stringResource(R.string.search_backend)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    RadioItem(
+                        modifier = Modifier.semantics { contentDescription = "None" },
+                        title = stringResource(R.string.none),
+                        description = null,
+                        value = "",
+                        selected = toolBindingState.selectedSearchConnectionUid == null
+                    ) {
+                        settingViewModel.selectSearchBackend(null)
+                    }
+                    toolBindingState.searchConnections.forEach { connection ->
+                        RadioItem(
+                            modifier = Modifier.semantics { contentDescription = connection.name },
+                            title = connection.name,
+                            description = connection.alias,
+                            value = connection.connectionUid,
+                            selected = toolBindingState.selectedSearchConnectionUid == connection.connectionUid
+                        ) {
+                            settingViewModel.selectSearchBackend(connection.connectionUid)
+                        }
+                    }
+                }
+            },
+            onDismissRequest = settingViewModel::closeSearchBackendDialog,
+            confirmButton = {
+                TextButton(onClick = settingViewModel::closeSearchBackendDialog) {
+                    Text(stringResource(R.string.close))
+                }
+            }
+        )
     }
 }
 

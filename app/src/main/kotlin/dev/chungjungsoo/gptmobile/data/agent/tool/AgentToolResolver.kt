@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError
@@ -32,6 +33,7 @@ data class ResolvedAgentTool(
 
 class AgentToolResolver @Inject constructor(
     private val toolConnectionRepository: ToolConnectionRepository,
+    private val settingRepository: SettingRepository,
     private val secretVault: SecretVault,
     private val networkClient: NetworkClient,
     private val mcpClientManager: McpClientManager,
@@ -58,6 +60,17 @@ class AgentToolResolver @Inject constructor(
         profileUid: String,
         chatToolConfig: ChatMcpToolConfig? = null
     ): List<ResolvedAgentTool> {
+        val platforms = settingRepository.fetchPlatformV2s()
+        val platform = platforms.firstOrNull { it.uid == profileUid }
+
+        // If master disableAllTools is toggled, return no tools immediately
+        if (platform?.disableAllTools == true) {
+            return emptyList()
+        }
+
+        val disableRemote = platform?.disableRemoteTools == true
+        val disableLocal = platform?.disableLocalTools == true
+
         // Baseline zero-config tools available out of the box to all models
         val defaultWebSearch = WebSearchTool(
             config = WebSearchProviderConfig(
@@ -68,40 +81,51 @@ class AgentToolResolver @Inject constructor(
             networkClient = networkClient
         )
 
-        val resolved = mutableListOf(
-            CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE),
-            CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION),
-            ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL),
-            ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE),
-            defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
-        )
+        val resolved = mutableListOf<ResolvedAgentTool>()
+
+        if (!disableLocal) {
+            resolved += CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
+            resolved += CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
+        }
+
+        if (!disableRemote) {
+            resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
+            resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
+        }
 
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
             .forEach { binding ->
-                resolveBinding(binding)?.let { customResolvedTool ->
-                    // Explicit binding overrides default built-in version of the same tool name
-                    resolved.removeAll { it.modelToolName == customResolvedTool.modelToolName }
-                    resolved += customResolvedTool
+                val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL)
+                val isLocalBinding = !isRemoteBinding
+                if ((isRemoteBinding && !disableRemote) || (isLocalBinding && !disableLocal)) {
+                    resolveBinding(binding)?.let { customResolvedTool ->
+                        resolved.removeAll { it.modelToolName == customResolvedTool.modelToolName }
+                        resolved += customResolvedTool
+                    }
                 }
             }
-        bindings.filter { it.connection?.type == ToolConnectionType.MCP }
-            .groupBy { requireNotNull(it.connection).connectionUid }
-            .toSortedMap()
-            .values
-            .forEach { mcpBindings ->
-                try {
-                    resolved += resolveMcpTools(requireNotNull(mcpBindings.first().connection), mcpBindings)
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: Exception) {
+
+        if (!disableRemote) {
+            bindings.filter { it.connection?.type == ToolConnectionType.MCP }
+                .groupBy { requireNotNull(it.connection).connectionUid }
+                .toSortedMap()
+                .values
+                .forEach { mcpBindings ->
+                    try {
+                        resolved += resolveMcpTools(requireNotNull(mcpBindings.first().connection), mcpBindings)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                    }
                 }
-            }
+        }
+
         return resolved.distinctBy { it.modelToolName }
             .filter { tool ->
-                // Check if tool is disabled in per-chat tool configuration
                 if (chatToolConfig == null) {
                     true
                 } else {
@@ -287,7 +311,6 @@ private class McpAgentTool(
             null
         }
 
-        // Clean out client-side line slicing parameters before forwarding to remote server
         val remoteArguments = if (isFileTool && (startLine != null || endLine != null)) {
             JsonObject(arguments.filterKeys { it != "start_line" && it != "end_line" })
         } else {

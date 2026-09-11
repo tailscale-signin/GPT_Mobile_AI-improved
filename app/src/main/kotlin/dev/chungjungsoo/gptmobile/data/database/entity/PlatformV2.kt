@@ -85,5 +85,11 @@ data class PlatformV2(
     val openRouterRouting: String? = null,
 
     @ColumnInfo(name = "disable_all_tools", defaultValue = "0")
-    val disableAllTools: Boolean = false
+    val disableAllTools: Boolean = false,
+
+    @ColumnInfo(name = "disable_remote_tools", defaultValue = "0")
+    val disableRemoteTools: Boolean = false,
+
+    @ColumnInfo(name = "disable_local_tools", defaultValue = "0")
+    val disableLocalTools: Boolean = false
 )

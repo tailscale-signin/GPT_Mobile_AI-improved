@@ -42,4 +42,11 @@ object ChatDatabaseV2Migrations {
             db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `disable_all_tools` INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+    val MIGRATION_16_17 = object : Migration(16, 17) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `disable_remote_tools` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `disable_local_tools` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }

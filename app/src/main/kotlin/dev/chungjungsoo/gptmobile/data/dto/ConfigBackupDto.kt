@@ -13,7 +13,7 @@ data class ConfigBackupDto(
 
 @Serializable
 data class ThemeBackupDto(
-    val dynamicTheme: Boolean = true,
+    val dynamicTheme: Boolean = false,
     val themeMode: Int = 0
 )
 
@@ -21,16 +21,16 @@ data class ThemeBackupDto(
 data class PlatformBackupDto(
     val name: String,
     val compatibleType: Int,
-    val enabled: Boolean = true,
-    val apiUrl: String = "",
-    val token: String = "",
-    val model: String = "",
-    val temperature: Float? = 1.0f,
-    val topP: Float? = 1.0f,
-    val topK: Int? = 40,
-    val maxTokens: Int? = 4096,
+    val enabled: Boolean,
+    val apiUrl: String,
+    val token: String,
+    val model: String,
+    val temperature: Float? = null,
+    val topP: Float? = null,
+    val topK: Int? = null,
+    val maxTokens: Int? = null,
     val accelerator: String? = null,
-    val systemPrompt: String? = "",
+    val systemPrompt: String? = null,
     val stream: Boolean = true,
     val reasoning: Boolean = false,
     val timeout: Int = 30,
@@ -38,5 +38,6 @@ data class PlatformBackupDto(
     val hateSpeechSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
     val sexuallyExplicitSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
     val dangerousContentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
-    val openRouterRouting: String? = null
+    val openRouterRouting: String? = null,
+    val ollamaOptions: String? = null
 )

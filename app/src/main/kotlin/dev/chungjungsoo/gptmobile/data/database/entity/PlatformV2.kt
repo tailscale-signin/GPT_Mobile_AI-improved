@@ -91,5 +91,8 @@ data class PlatformV2(
     val disableRemoteTools: Boolean = false,
 
     @ColumnInfo(name = "disable_local_tools", defaultValue = "0")
-    val disableLocalTools: Boolean = false
+    val disableLocalTools: Boolean = false,
+
+    @ColumnInfo(name = "ollama_options")
+    val ollamaOptions: String? = null
 )

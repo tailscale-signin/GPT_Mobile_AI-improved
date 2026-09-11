@@ -39,7 +39,8 @@ object DatabaseModule {
             ChatDatabaseV2Migrations.MIGRATION_13_14,
             ChatDatabaseV2Migrations.MIGRATION_14_15,
             ChatDatabaseV2Migrations.MIGRATION_15_16,
-            ChatDatabaseV2Migrations.MIGRATION_16_17
+            ChatDatabaseV2Migrations.MIGRATION_16_17,
+            ChatDatabaseV2Migrations.MIGRATION_17_18
         )
         .fallbackToDestructiveMigrationOnDowngrade()
         .build()

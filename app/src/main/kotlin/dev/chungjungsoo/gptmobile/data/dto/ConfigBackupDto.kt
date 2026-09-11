@@ -38,5 +38,6 @@ data class PlatformBackupDto(
     val hateSpeechSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
     val sexuallyExplicitSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
     val dangerousContentSafetyThreshold: String = GeminiSafetySettings.BLOCK_NONE,
-    val openRouterRouting: String? = null
+    val openRouterRouting: String? = null,
+    val ollamaOptions: String? = null
 )

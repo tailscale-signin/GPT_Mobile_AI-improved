@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.dto.openai.request
 
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPlugin
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
@@ -75,7 +76,11 @@ data class ChatCompletionRequest(
 
     @SerialName("plugins")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val plugins: List<OpenRouterPlugin>? = null
+    val plugins: List<OpenRouterPlugin>? = null,
+
+    @SerialName("options")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val options: OllamaOptions? = null
 )
 
 @Serializable

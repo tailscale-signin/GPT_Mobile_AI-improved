@@ -11,9 +11,11 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -23,8 +25,8 @@ class SettingViewModelV2 @Inject constructor(
     private val appBackupManager: AppBackupManager
 ) : ViewModel() {
 
-    private val _platformState = MutableStateFlow(listOf<PlatformV2>())
-    val platformState: StateFlow<List<PlatformV2>> = _platformState.asStateFlow()
+    val platformState: StateFlow<List<PlatformV2>> = settingRepository.observePlatformV2s()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
@@ -38,34 +40,30 @@ class SettingViewModelV2 @Inject constructor(
 
     fun fetchPlatforms() {
         viewModelScope.launch {
-            val platforms = settingRepository.fetchPlatformV2s()
-            _platformState.update { platforms }
+            settingRepository.fetchPlatformV2s()
         }
     }
 
     fun addPlatform(platform: PlatformV2) {
         viewModelScope.launch {
             settingRepository.addPlatformV2(platform)
-            fetchPlatforms()
         }
     }
 
     fun updatePlatform(platform: PlatformV2) {
         viewModelScope.launch {
             settingRepository.updatePlatformV2(platform)
-            fetchPlatforms()
         }
     }
 
     fun deletePlatform(platform: PlatformV2) {
         viewModelScope.launch {
             settingRepository.deletePlatformV2(platform)
-            fetchPlatforms()
         }
     }
 
     fun togglePlatformEnabled(platformId: Int) {
-        val platform = _platformState.value.find { it.id == platformId }
+        val platform = platformState.value.find { it.id == platformId }
         platform?.let { target ->
             val updated = target.copy(enabled = !target.enabled)
             updatePlatform(updated)
@@ -92,7 +90,7 @@ class SettingViewModelV2 @Inject constructor(
 
     fun confirmDelete() {
         _dialogState.value.platformToDelete?.let { platformId ->
-            val platform = _platformState.value.find { it.id == platformId }
+            val platform = platformState.value.find { it.id == platformId }
             platform?.let { deletePlatform(it) }
         }
         closeDeleteDialog()

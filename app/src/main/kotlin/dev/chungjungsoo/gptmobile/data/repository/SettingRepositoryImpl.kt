@@ -18,6 +18,8 @@ import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -119,6 +121,18 @@ class SettingRepositoryImpl @Inject constructor(
         }
         platformV2Cache.set(resolved)
         return resolved
+    }
+
+    override fun observePlatformV2s(): Flow<List<PlatformV2>> {
+        return platformV2Dao.observePlatforms().map { list ->
+            list.map { resolvePlatformToken(it) }
+        }
+    }
+
+    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> {
+        return platformV2Dao.observePlatformByUid(uid).map { platform ->
+            platform?.let { resolvePlatformToken(it) }
+        }
     }
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(

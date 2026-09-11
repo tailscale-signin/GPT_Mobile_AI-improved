@@ -62,8 +62,8 @@ class PlatformSettingViewModel @Inject constructor(
 
     val platformUid: String = checkNotNull(savedStateHandle["platformUid"])
 
-    private val _platformState = MutableStateFlow<PlatformV2?>(null)
-    val platformState: StateFlow<PlatformV2?> = _platformState.asStateFlow()
+    val platformState: StateFlow<PlatformV2?> = settingRepository.observePlatformV2ByUid(platformUid)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     val catalogEntries = _catalogEntries.asStateFlow()
@@ -81,7 +81,7 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val acceleratorOptions: StateFlow<List<AcceleratorOption>> = combine(_platformState, _catalogEntries) { platform, catalog ->
+    val acceleratorOptions: StateFlow<List<AcceleratorOption>> = combine(platformState, _catalogEntries) { platform, catalog ->
         val entry = catalog.firstOrNull { it.id == platform?.model }
         LocalAccelerators.choices(
             supported = entry?.supportedAccelerators.orEmpty(),
@@ -104,7 +104,6 @@ class PlatformSettingViewModel @Inject constructor(
     private var mcpDiscoveryJob: Job? = null
 
     init {
-        loadPlatform()
         loadToolBindings()
         loadCatalog()
     }
@@ -112,14 +111,6 @@ class PlatformSettingViewModel @Inject constructor(
     private fun loadCatalog() {
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getVisibleEntries()
-        }
-    }
-
-    private fun loadPlatform() {
-        viewModelScope.launch {
-            val platforms = settingRepository.fetchPlatformV2s()
-            val platform = platforms.firstOrNull { it.uid == platformUid }
-            _platformState.update { platform }
         }
     }
 
@@ -151,7 +142,7 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun toggleEnabled() {
-        val platform = _platformState.value ?: return
+        val platform = platformState.value ?: return
         val enabling = !platform.enabled
         if (enabling && platform.compatibleType == ClientType.LITERT_LM) {
             viewModelScope.launch {
@@ -168,7 +159,7 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun toggleDisableAllTools() {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(disableAllTools = !platform.disableAllTools))
         }
     }
@@ -178,7 +169,7 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun toggleReasoning() {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(reasoning = !platform.reasoning))
         }
     }
@@ -186,7 +177,6 @@ class PlatformSettingViewModel @Inject constructor(
     fun updatePlatform(platform: PlatformV2) {
         viewModelScope.launch {
             settingRepository.updatePlatformV2(platform)
-            _platformState.update { platform }
         }
     }
 
@@ -230,28 +220,28 @@ class PlatformSettingViewModel @Inject constructor(
     fun closeOpenRouterSettingsDialog() = _dialogState.update { it.copy(isOpenRouterSettingsDialogOpen = false) }
 
     fun updatePlatformName(name: String) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(name = name.trim()))
             closePlatformNameDialog()
         }
     }
 
     fun updateApiUrl(url: String) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(apiUrl = url.trim()))
             closeApiUrlDialog()
         }
     }
 
     fun updateApiToken(token: String) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(token = token.trim().takeIf { it.isNotEmpty() }))
             closeApiTokenDialog()
         }
     }
 
     fun updateApiModel(model: String) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             val trimmed = model.trim()
             val updated = if (platform.compatibleType == ClientType.LITERT_LM) {
                 reseedLocalModelDefaults(platform, trimmed)
@@ -278,28 +268,28 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun updateTemperature(temperature: Float?) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(temperature = temperature))
             closeTemperatureDialog()
         }
     }
 
     fun updateTopP(topP: Float?) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(topP = topP))
             closeTopPDialog()
         }
     }
 
     fun updateTopK(topK: Int?) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(topK = topK?.coerceIn(MIN_TOP_K, MAX_TOP_K)))
             closeTopKDialog()
         }
     }
 
     fun updateMaxTokens(maxTokens: Int?) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             val capped = maxTokens?.let { requested ->
                 resolvedEngineMaxTokens(
                     requestedMaxTokens = requested.coerceIn(MIN_MAX_TOKENS, DEFAULT_MAX_TOKENS_CAP),
@@ -315,7 +305,7 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun maxTokensCap(): Int {
-        val platform = _platformState.value ?: return DEFAULT_MAX_TOKENS_CAP
+        val platform = platformState.value ?: return DEFAULT_MAX_TOKENS_CAP
         if (platform.compatibleType != ClientType.LITERT_LM) {
             return DEFAULT_MAX_TOKENS_CAP
         }
@@ -344,21 +334,21 @@ class PlatformSettingViewModel @Inject constructor(
         }
         val option = acceleratorOptions.value.firstOrNull { it.accelerator == normalized }
         if (option?.enabled != true) return
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(accelerator = normalized))
             closeAcceleratorDialog()
         }
     }
 
     fun updateSystemPrompt(prompt: String) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(systemPrompt = prompt.trim()))
             closeSystemPromptDialog()
         }
     }
 
     fun updateTimeout(timeoutSeconds: Int) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             val normalizedTimeout = timeoutSeconds.coerceAtLeast(0)
             updatePlatform(platform.copy(timeout = normalizedTimeout))
             closeTimeoutDialog()
@@ -371,7 +361,7 @@ class PlatformSettingViewModel @Inject constructor(
         sexuallyExplicitSafetyThreshold: String,
         dangerousContentSafetyThreshold: String
     ) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(
                 platform.copy(
                     harassmentSafetyThreshold = GeminiSafetySettings.normalizeThreshold(harassmentSafetyThreshold),
@@ -385,7 +375,7 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun updateOpenRouterRouting(routingJson: String?) {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             updatePlatform(platform.copy(openRouterRouting = routingJson?.takeIf { it.isNotBlank() }))
             closeOpenRouterSettingsDialog()
         }
@@ -395,7 +385,7 @@ class PlatformSettingViewModel @Inject constructor(
     fun closeDeleteDialog() = _dialogState.update { it.copy(isDeleteDialogOpen = false) }
 
     fun deletePlatform() {
-        _platformState.value?.let { platform ->
+        platformState.value?.let { platform ->
             viewModelScope.launch {
                 settingRepository.deletePlatformV2(platform)
                 closeDeleteDialog()

@@ -15,7 +15,5 @@ class ArchiveConversationUseCase @Inject constructor(
         chatRepository.setChatArchived(chatId, isArchived = false)
     }
 
-    suspend fun getArchivedChats(): List<ChatRoomV2> {
-        return chatRepository.fetchArchivedChatListV2()
-    }
+    suspend fun getArchivedChats(): List<ChatRoomV2> = chatRepository.fetchArchivedChatListV2()
 }

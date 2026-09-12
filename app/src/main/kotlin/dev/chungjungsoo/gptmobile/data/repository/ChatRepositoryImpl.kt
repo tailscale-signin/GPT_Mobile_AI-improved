@@ -274,12 +274,6 @@ class ChatRepositoryImpl(
 
     override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
 
-    override suspend fun fetchArchivedChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getArchivedChatRooms()
-
-    override suspend fun setChatArchived(chatId: Int, isArchived: Boolean) {
-        chatRoomV2Dao.updateArchived(chatId, isArchived)
-    }
-
     override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
         if (query.isBlank()) {
             return chatRoomV2Dao.getChatRooms()

@@ -53,6 +53,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -289,6 +290,7 @@ fun HomeScreen(
                             contentType = { _, _ -> "chat-room-item" }
                         ) { idx, chatRoom ->
                             val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
+                            val isGenerating = activeChatIds.contains(chatRoom.id)
                             ListItem(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -315,6 +317,12 @@ fun HomeScreen(
                                         Checkbox(
                                             checked = chatListState.selectedChats[idx],
                                             onCheckedChange = { homeViewModel.selectChat(idx) }
+                                        )
+                                    } else if (isGenerating) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.5.dp,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     } else {
                                         Icon(

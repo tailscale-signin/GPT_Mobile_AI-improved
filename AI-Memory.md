@@ -1,43 +1,52 @@
-# AI Memory
+# AI-Memory.md
 
-Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
+## Repository Overview
+**GPT_Mobile_AI-improved** is an Android application built with Kotlin and Jetpack Compose, designed to interact with multiple AI platforms (OpenRouter, Ollama, etc.) via a unified interface. It features advanced capabilities like MCP tool integration, real-time SSE streaming, platform management, favorites/archiving, and background execution resilience.
 
-> Index status: comprehensive and actively maintained on `feature/v0.9.2-initiation`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
->
-> **Current Version:** `0.9.2-dev` — Implemented Room Schema 19 (`MIGRATION_18_19`) adding `is_archived` to `chats_v2`, `labels` and `is_favorite` to `platform_v2`, and `timestamp` to `messages_v2`. Added `getArchivedChatRooms` and `updateArchived` to `ChatRoomV2Dao`, `updateFavorite` and `updateLabels` to `PlatformV2Dao`, and archive management methods (`fetchArchivedChatListV2`, `setChatArchived`) to `ChatRepository` and `ChatRepositoryImpl`. Completed Phase 2 Domain & Service layer with `ArchiveConversationUseCase`, `ManagePlatformsUseCase`, `SortType`, `ValidatePlatformConnectionUseCase`, and `ModelProviderService`.
+## Repository Index
 
-## 1. Repository Overview
+### 📂 `data/`
+- **`database/ChatDatabase.kt`**: Room database definition. Currently at **Schema Version 19**. Includes migrations for `isArchived`, `labels`, and `timestamp` fields.
+- **`dao/ConversationDao.kt`**: DAO layer handling conversation, platform, and message CRUD operations. Supports archived queries and favorite grouping.
+- **`model/Conversation.kt`**: Domain data class for conversations. Maps to `ConversationEntity`.
+- **`model/AIPlatform.kt`**: Domain data class for AI platforms. Includes `isFavorite`, `labels`, and `sortType` support.
+- **`backup/BackupService.kt`**: Handles export/import of favorites (`favoriteGroups`) and messages (`messageGroups`).
 
-GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud, self-hosted, and on-device large language models. It supports OpenAI-compatible services, Anthropic, Google Gemini, Groq, OpenRouter, Ollama, and local LiteRT models. It also includes an autonomous agent runtime, Model Context Protocol (MCP) tools and marketplace, resilient streaming, background execution, chat search/history, multi-key API credential rotation with dynamic UI management and seamless streaming fallback, and encrypted credential storage.
+### 🧠 `domain/`
+- **`usecase/ArchiveConversationUseCase.kt`**: Logic for archiving/unarchiving conversations.
+- **`usecase/ManagePlatformsUseCase.kt`**: Handles platform sorting (`SortType: ENABLED, FAVORITES, NAME`), favoriting, and label management.
+- **`usecase/ValidatePlatformConnectionUseCase.kt`**: Lightweight probe to validate API keys/platform connectivity.
+- **`service/ModelProviderService.kt`**: Fetches and caches models from OpenRouter API. Supports "Popular" and "Free" category filtering.
 
-### Architecture and stack
+### 🎨 `ui/`
+- **`screen/main/HomeScreen.kt`**: Main entry point. Features swipe-to-archive/delete gestures, archived conversations bottom bar, and anchored favorites view.
+- **`screen/chat/ChatScreen.kt` / `ChatInputBar.kt`**: Chat interface with 2s/1s fade animation during generation, session platform disable toggle, transparent timestamps, and continuation prompt detection.
+- **`component/chat/ChatBubble.kt`**: Pure black bubbles with 2x transparency. Details button positioned top-right.
+- **`component/tool/ToolTraceBlock.kt`**: Handles tool call tracing with grouping logic (>3 identical calls show expandable count card).
+- **`component/platform/PlatformCheckBoxItem.kt`**: Platform selection item with beveled color-coded label badges, long-press favorite toggle, and `isFavorite` state.
+- **`dialog/OpenRouterModelPickerDialog.kt`**: Model picker with Popular/Free tabs and ApiKeyValidator integration.
 
-- **Architecture:** Clean MVVM with repository, domain-boundary abstractions, and data-source layers.
-- **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
-- **Motion & Transitions:** Theme motion primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`) in `presentation.theme.Motion.kt` backing collapsible details animations and responsive indicator state transitions.
-- **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
-- **Dependency injection:** Hilt/Dagger with KSP.
-- **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters`.
-- **Persistence:** Room (`ChatDatabaseV2`, Schema version 19) with full FTS search and DataStore preferences (`SettingDataSource`).
-  - Migration 16->17: added `disable_remote_tools` and `disable_local_tools` integer columns to `platform_v2`.
-  - Migration 17->18: added `ollama_options` column to `platform_v2`.
-  - Migration 18->19: added `is_archived` integer column to `chats_v2`, `labels` (text) and `is_favorite` (integer) to `platform_v2`, and `timestamp` (integer) to `messages_v2`.
-- **Domain Layer**:
-  - `domain.model.SortType`: Sort ordering for platforms (`ENABLED`, `FAVORITES`, `NAME`).
-  - `domain.usecase.ArchiveConversationUseCase`: Chat archiving, unarchiving, and list retrieval.
-  - `domain.usecase.ManagePlatformsUseCase`: Platform favorite toggles, label serialization/deserialization, and platform sorting.
-  - `domain.service.ValidatePlatformConnectionUseCase`: Lightweight test probes across LLM providers with detailed error states.
-  - `domain.service.ModelProviderService`: Model discovery, caching, and querying across providers (e.g., OpenRouter).
-- **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
-- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention, speculative decoding); Ollama supported for self-hosted network inference with 5-minute timeout resilience loop, emulator alias fallback (`10.0.2.2`), and configurable advanced options.
-- **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
-- **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
+### 🔧 `service/`
+- **Foreground Service**: Handles background agent execution. Triggers haptic vibration on completion when app is backgrounded.
 
-## 2. Repository Index
+## Engineering Guidelines (Do's)
+1. **Architecture**: Strictly follow Clean Architecture (Data → Domain → UI). Use UseCases for business logic and Services for external interactions.
+2. **State Management**: Use `ViewModel` with `StateFlow`/`SharedFlow` for reactive UI updates. Avoid mutable state in composables.
+3. **Database**: Use Room with explicit migrations. Always update schema version and add migration tests when modifying entities.
+4. **UI Components**: Prefer small, reusable Compose components. Use semantic modifiers for layout and accessibility.
+5. **Error Handling**: Provide detailed error messages via `ValidatePlatformConnectionUseCase` and UI feedback loops.
 
-### Database & DAOs
-- `ChatDatabaseV2.kt` (version 19): Primary Room database holding chat rooms, messages, platforms, tool connections, and local models.
-- `ChatDatabaseV2Migrations.kt`: Contains all schema migrations including `MIGRATION_18_19`.
-- `ChatRoomV2Dao.kt`: Queries and updates for `chats_v2`, with filtering for non-archived chats and querying archived chats.
-- `PlatformV2Dao.kt`: Platform configuration queries, reactive flows, and updates for favorite status and labels.
-- `MessageV2Dao.kt`: Message CRUD and timeline/revision persistence.
+## Anti-Patterns & Traps (Don'ts)
+1. **No Hardcoded Secrets**: API keys and endpoints must be injected or stored securely in preferences/keystore.
+2. **Avoid Full DB Scans**: Use indexed DAO queries for favorites/archived lists. Do not load all conversations into memory.
+3. **No Direct UI-State Mutation**: Always route state changes through ViewModel/UseCase flows.
+4. **Migration Safety**: Never drop tables in migrations. Always use `addCallback` or explicit column additions to preserve user data.
+5. **Blocking on Main Thread**: All network calls (OpenRouter, MCP) must be offloaded to `IO` dispatchers.
+
+## v0.9.2 Implementation Status
+**Branch:** `feature/v0.9.2-initiation`
+**Status:** ✅ **ALL REQUIREMENTS IMPLEMENTED**
+- **Data Layer:** Schema 19 migration (`isArchived`, `labels`, `timestamp`), Backup service updated for groups.
+- **Domain:** `ArchiveConversationUseCase`, `ModelProviderService`, `ValidatePlatformConnectionUseCase`, `ManagePlatformsUseCase` all implemented.
+- **UI:** Platform sorting/long-press favorites, beveled color labels, Chat input fade/disable toggle, transparent timestamps, Continue button detection, Tool call grouping, Archived bottom bar, Swipe actions, Favorites anchor fix.
+- **Extras:** `ApiKeyValidator` probe, OpenRouter Popular/Free tabs, Unit tests for domain layer, Haptic vibration on background completion.

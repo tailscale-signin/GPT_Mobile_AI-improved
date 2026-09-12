@@ -2,23 +2,26 @@ package dev.chungjungsoo.gptmobile.data.database.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import androidx.room.TypeConverter
-import dev.chungjungsoo.gptmobile.data.dto.ChatAttachment
-import dev.chungjungsoo.gptmobile.data.dto.ChatAttachmentDto
-import dev.chungjungsoo.gptmobile.data.dto.toDto
-import dev.chungjungsoo.gptmobile.data.dto.toModel
+import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 @Serializable
 @Entity(
     tableName = "messages_v2",
+    foreignKeys = [
+        ForeignKey(
+            entity = ChatRoomV2::class,
+            parentColumns = ["chat_id"],
+            childColumns = ["chat_id"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [
         Index(value = ["chat_id"]),
+        Index(value = ["chat_id", "created_at", "message_id"]),
         Index(value = ["is_favorite"])
     ]
 )
@@ -28,22 +31,22 @@ data class MessageV2(
     val id: Int = 0,
 
     @ColumnInfo(name = "chat_id")
-    val chatId: Int,
-
-    @ColumnInfo(name = "content")
-    val content: String,
+    val chatId: Int = 0,
 
     @ColumnInfo(name = "thoughts")
     val thoughts: String = "",
 
+    @ColumnInfo(name = "content")
+    val content: String,
+
+    @ColumnInfo(name = "attachments")
+    val attachments: List<ChatAttachment> = listOf(),
+
     @ColumnInfo(name = "revisions", defaultValue = "'[]'")
     val revisions: List<AssistantRevision> = emptyList(),
 
-    @ColumnInfo(name = "current_revision_index", defaultValue = "0")
+    @ColumnInfo(name = "active_revision_index", defaultValue = "-1")
     val activeRevisionIndex: Int = ACTIVE_REVISION_LATEST,
-
-    @ColumnInfo(name = "attachments")
-    val attachments: List<Attachment> = emptyList(),
 
     @ColumnInfo(name = "linked_message_id")
     val linkedMessageId: Int = 0,
@@ -123,113 +126,4 @@ fun MessageV2.snapshotLatestAssistantRevision(timestamp: Long = System.currentTi
         runId = currentRunId,
         timeline = timeline
     )
-}
-
-@Serializable
-data class AssistantTimelineItem(
-    val type: AssistantTimelineItemType,
-    val content: String? = null,
-    val callId: String? = null,
-    val toolSequence: Int? = null,
-    val timestamp: Long = System.currentTimeMillis() / 1000
-)
-
-enum class AssistantTimelineItemType {
-    THINKING,
-    TOOL,
-    TEXT,
-    NOTICE,
-    LEGACY_ORDER,
-    ANSWER
-}
-
-@Serializable
-data class Attachment(
-    val filePathForDisplay: String,
-    val localFilePath: String = filePathForDisplay,
-    val preparedFilePath: String = "",
-    val mimeType: String = "",
-    val originalFileName: String = "",
-    val fileSize: Long = 0L,
-    val imageWidth: Int? = null,
-    val imageHeight: Int? = null,
-    val providerAttachmentIds: Map<String, String> = emptyMap()
-)
-
-fun Attachment.toDto(): ChatAttachmentDto = ChatAttachmentDto(
-    filePathForDisplay = filePathForDisplay,
-    localFilePath = localFilePath,
-    preparedFilePath = preparedFilePath,
-    mimeType = mimeType,
-    originalFileName = originalFileName,
-    fileSize = fileSize,
-    imageWidth = imageWidth,
-    imageHeight = imageHeight,
-    providerAttachmentIds = providerAttachmentIds
-)
-
-fun ChatAttachment.toEntity(): Attachment = Attachment(
-    filePathForDisplay = filePathForDisplay,
-    localFilePath = localFilePath,
-    preparedFilePath = preparedFilePath,
-    mimeType = mimeType,
-    originalFileName = originalFileName,
-    fileSize = fileSize,
-    imageWidth = imageWidth,
-    imageHeight = imageHeight,
-    providerAttachmentIds = providerAttachmentIds
-)
-
-class ChatAttachmentListConverter {
-    private val json = Json { ignoreUnknownKeys = true }
-
-    @TypeConverter
-    fun fromString(value: String?): List<Attachment> {
-        if (value.isNullOrBlank()) return emptyList()
-        return runCatching {
-            json.decodeFromString<List<Attachment>>(value)
-        }.getOrDefault(emptyList())
-    }
-
-    @TypeConverter
-    fun fromList(value: List<Attachment>?): String {
-        if (value.isNullOrEmpty()) return "[]"
-        return json.encodeToString(value)
-    }
-}
-
-class AssistantRevisionListConverter {
-    private val json = Json { ignoreUnknownKeys = true }
-
-    @TypeConverter
-    fun fromString(value: String?): List<AssistantRevision> {
-        if (value.isNullOrBlank()) return emptyList()
-        return runCatching {
-            json.decodeFromString<List<AssistantRevision>>(value)
-        }.getOrDefault(emptyList())
-    }
-
-    @TypeConverter
-    fun fromList(value: List<AssistantRevision>?): String {
-        if (value.isNullOrEmpty()) return "[]"
-        return json.encodeToString(value)
-    }
-}
-
-class AssistantTimelineListConverter {
-    private val json = Json { ignoreUnknownKeys = true }
-
-    @TypeConverter
-    fun fromString(value: String?): List<AssistantTimelineItem> {
-        if (value.isNullOrBlank()) return emptyList()
-        return runCatching {
-            json.decodeFromString<List<AssistantTimelineItem>>(value)
-        }.getOrDefault(emptyList())
-    }
-
-    @TypeConverter
-    fun fromList(value: List<AssistantTimelineItem>?): String {
-        if (value.isNullOrEmpty()) return "[]"
-        return json.encodeToString(value)
-    }
 }

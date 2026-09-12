@@ -1,30 +1,32 @@
-# Release Notes - v0.9.2
+# Release Notes - v0.9.2.3 (Pre-release)
 
-Welcome to the official release of **GPT Mobile AI (Improved)** (v0.9.2)!
+Welcome to the pre-release of **GPT Mobile AI (Improved)** (v0.9.2.3)!
 
-This milestone release brings enhanced message favorites organization with custom labeling and categorization, Room Database Schema 19, improved chat navigation and deep-linking, refined background execution resilience, and stabilization across UI and local inference components.
+This release delivers refined chat layout aesthetics, enhanced conversational continuation detection with active UI prompts, high-priority background completion alerts, live loading spinners for in-progress chats on the Home screen, and platform branding visual cues in Tool Connections.
 
 ---
 
 ### Key Highlights & Features
 
-#### 1. Message Favorites & Custom Labeling
-- **Message-Level Favoriting**: Mark individual messages as favorites directly in chat threads with instant state synchronization.
-- **Custom Labels & Organization**: Assign custom labels, tags, and category groupings to favorited messages for structured access and search.
-- **Smooth Deep-Linking**: Jump directly to favorited responses from the Favorites management screen with accurate list scroll positioning and platform tab auto-selection.
+#### 1. Bottom-Right Message Timestamp Alignment
+- **Natural Spatial Anchor**: Replaced floating/left-aligned timestamp placement with a dedicated bottom-right anchor across all chat message bubbles.
+- **Visual Distinction**: Preserved custom semantic color palettes for user and assistant messages while ensuring consistent right-aligned baseline positioning for readability.
 
-#### 2. Persistence & Room Database Schema 19
-- **Schema Migration (18 -> 19)**: Added favorite status (`is_favorite`), labels (`labels`), and creation timestamp fields to database entities with backward-compatible SQLite migrations.
-- **Robust Backup & Restore**: Full preservation of message tags and favorite statuses across configuration export/import cycles.
+#### 2. Continuation Request Detection & Pulsating Glow Chip
+- **Expanded Conversational Trigger Keywords**: Added intelligent pattern detection for continuation phrases (including `"more"`, `"tell me more"`, `"keep going"`, `"continue"`, `"go on"`, `"elaborate"`, `"proceed"`, and `"more please"`).
+- **Infinite Continuation Animation**: Replaced static continuation buttons with an interactive pulsing glowing chip that animates smoothly when a message is truncated or ready for conversational extension.
+- **Turn Context Preservation**: Tap-to-continue automatically forwards the full conversational context and current platform parameters to seamlessly resume assistant thought generation.
 
-#### 3. Chat Layout & Performance Refinements
-- **Unified Notice & Execution Chips**: Streamlined presentation of agent tool execution, thinking traces, and provider notices within chat bubbles.
-- **Optimized Compose Rendering**: Reduced recompositions and improved scrolling responsiveness across long conversation histories.
-- **Hardware Acceleration Stability**: Tuned cooperative thread yielding and thermal throttling checkpoints during local LiteRT-LM model execution.
+#### 3. Background Completion High-Priority Heads-Up Notifications
+- **High-Importance Notification Channel**: Configured `CHANNEL_AGENT_COMPLETION` with `IMPORTANCE_HIGH` and dedicated sound alerts.
+- **Top-of-Screen Alert Banner**: Delivers immediate heads-up banners upon generation finish, allowing users to safely multitask or switch apps while waiting for complex multi-turn queries or tool executions to complete.
 
-#### 4. Build, Packaging & Architecture
-- **Target SDK**: Android 16 (API 36) with minimum SDK 31 and Java 21 bytecode.
-- **Modern 64-bit ABIs**: Optimized signed release APKs (`arm64-v8a`, `x86_64`, and universal) built with R8 code and resource shrinking.
+#### 4. Active Chat Status Indicator on HomeScreen
+- **Live Circular Progress Spinner**: Added an animated circular loading spinner directly onto the chat list item card whenever that specific conversation has an active background agent run.
+- **Immediate State Feedback**: Eliminates ambiguity on which chat thread is actively generating responses when browsing conversation history.
+
+#### 5. Tool Connection Platform Badges
+- **Visual Provider Icons**: Integrated visual platform badge icons directly into the Tool Connections screen headers for intuitive provider association (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, Groq, OpenRouter, LiteRT-LM, etc.).
 
 ---
 

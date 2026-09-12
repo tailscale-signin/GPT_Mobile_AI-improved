@@ -25,13 +25,12 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideChatDatabaseV2(
-        @ApplicationContext context: Context
-    ): ChatDatabaseV2 = Room.databaseBuilder(
-        context,
-        ChatDatabaseV2::class.java,
-        "chat_database_v2"
-    )
+    fun provideDatabase(@ApplicationContext context: Context): ChatDatabaseV2 = Room
+        .databaseBuilder(
+            context,
+            ChatDatabaseV2::class.java,
+            "chats_v2.db"
+        )
         .addMigrations(
             ChatDatabaseV2Migrations.MIGRATION_10_11,
             ChatDatabaseV2Migrations.MIGRATION_11_12,
@@ -40,7 +39,8 @@ object DatabaseModule {
             ChatDatabaseV2Migrations.MIGRATION_14_15,
             ChatDatabaseV2Migrations.MIGRATION_15_16,
             ChatDatabaseV2Migrations.MIGRATION_16_17,
-            ChatDatabaseV2Migrations.MIGRATION_17_18
+            ChatDatabaseV2Migrations.MIGRATION_17_18,
+            ChatDatabaseV2Migrations.MIGRATION_18_19
         )
         .fallbackToDestructiveMigrationOnDowngrade()
         .build()

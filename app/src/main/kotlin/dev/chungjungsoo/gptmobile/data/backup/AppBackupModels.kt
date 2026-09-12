@@ -22,7 +22,9 @@ data class ConfigBackupPayload(
     val theme: ThemeBackupDto? = null,
     val platforms: List<PlatformV2> = emptyList(),
     val toolConnections: List<ToolConnectionWithCredential> = emptyList(),
-    val agentToolBindings: List<AgentToolBinding> = emptyList()
+    val agentToolBindings: List<AgentToolBinding> = emptyList(),
+    val favoriteGroups: List<String> = emptyList(),
+    val messageGroups: Map<Int, String> = emptyMap()
 )
 
 @Serializable
@@ -31,5 +33,7 @@ data class DatabaseBackupPayload(
     val exportedAt: Long = System.currentTimeMillis(),
     val chatRooms: List<ChatRoomV2> = emptyList(),
     val messages: List<MessageV2> = emptyList(),
-    val chatPlatformModels: List<ChatPlatformModelV2> = emptyList()
+    val chatPlatformModels: List<ChatPlatformModelV2> = emptyList(),
+    val favoriteGroups: List<String> = emptyList(),
+    val messageGroups: Map<Int, String> = emptyMap()
 )

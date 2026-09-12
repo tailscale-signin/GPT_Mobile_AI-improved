@@ -1,28 +1,30 @@
-# Release Notes - v0.9.1.1
+# Release Notes - v0.9.2
 
-Welcome to **v0.9.1.1** of **GPT Mobile AI (Improved)**!
+Welcome to the official release of **GPT Mobile AI (Improved)** (v0.9.2)!
 
-This maintenance and stabilization release resolves Kotlin compiler and resource conflicts across platform settings, provides clean dialog bindings, fixes OpenRouter dialog resolution, and ensures reproducible signed release artifacts.
+This milestone release brings enhanced message favorites organization with custom labeling and categorization, Room Database Schema 19, improved chat navigation and deep-linking, refined background execution resilience, and stabilization across UI and local inference components.
 
 ---
 
-### What's New in v0.9.1.1
+### Key Highlights & Features
 
-#### 1. Platform Settings Dialogs & Compiler Fixes
-- **Timeout Dialog Delegation**: Corrected parameter resolution in `TimeoutDialog` composable to prevent overload ambiguity during Kotlin compilation.
-- **De-duplicated Dialog Declarations**: Stripped redundant legacy dialog implementations from `PlatformSettingDialogs.kt`.
-- **OpenRouter Model Picker Resolution**: Fixed package import in `PlatformSettingScreen.kt` for `OpenRouterModelPickerDialog`.
+#### 1. Message Favorites & Custom Labeling
+- **Message-Level Favoriting**: Mark individual messages as favorites directly in chat threads with instant state synchronization.
+- **Custom Labels & Organization**: Assign custom labels, tags, and category groupings to favorited messages for structured access and search.
+- **Smooth Deep-Linking**: Jump directly to favorited responses from the Favorites management screen with accurate list scroll positioning and platform tab auto-selection.
 
-#### 2. Resource Resolution & Build Resilience
-- **AAPT2 Default Value Synchronization**: Added and reconciled missing default resource strings (`gemini_safety_*`, `sample_item_*`, `openrouter_*`, `search_backend`, `none`).
-- **Resource Integrity**: Resolved duplicate and conflicting keys across `missing_build_resources.xml` and `strings.xml`.
+#### 2. Persistence & Room Database Schema 19
+- **Schema Migration (18 -> 19)**: Added favorite status (`is_favorite`), labels (`labels`), and creation timestamp fields to database entities with backward-compatible SQLite migrations.
+- **Robust Backup & Restore**: Full preservation of message tags and favorite statuses across configuration export/import cycles.
 
-#### 3. Core Features from v0.9.1 Series
-- **Full-Screen MCP Tools Selection**: Dedicated screen destination (`McpToolsSelectionScreen`) at `platform_setting/{platformId}/mcp_tools`.
-- **Immediate Platform State Synchronization**: Synchronous DB updates when toggling platform states.
-- **Visual Improvements**: Thinking and tool execution bubbles isolated to prevent UI overlaps; details indicator repositioned cleanly above user question bubbles.
-- **Round-Robin Auto-Retry**: Automated 3-second delay and credential failover when encountering high-demand spikes.
-- **Interactive Sorting**: Dynamic filter chips in `HomeScreen` platform selection dialog.
+#### 3. Chat Layout & Performance Refinements
+- **Unified Notice & Execution Chips**: Streamlined presentation of agent tool execution, thinking traces, and provider notices within chat bubbles.
+- **Optimized Compose Rendering**: Reduced recompositions and improved scrolling responsiveness across long conversation histories.
+- **Hardware Acceleration Stability**: Tuned cooperative thread yielding and thermal throttling checkpoints during local LiteRT-LM model execution.
+
+#### 4. Build, Packaging & Architecture
+- **Target SDK**: Android 16 (API 36) with minimum SDK 31 and Java 21 bytecode.
+- **Modern 64-bit ABIs**: Optimized signed release APKs (`arm64-v8a`, `x86_64`, and universal) built with R8 code and resource shrinking.
 
 ---
 

@@ -23,7 +23,7 @@ interface HuggingFaceAuthClient {
 }
 
 class HuggingFaceAuthClientImpl @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context
 ) : HuggingFaceAuthClient {
     private var authService: AuthorizationService? = null
 

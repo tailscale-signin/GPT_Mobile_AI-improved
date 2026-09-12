@@ -1,0 +1,8 @@
+        val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
+        when (sortOrder) {
+            PlatformSortOrder.FAVORITES -> list.sortedWith(compareByDescending<Pair<Int, PlatformV2>> { it.second.isFavorite }.thenBy { it.second.name.lowercase() })
+            PlatformSortOrder.DEFAULT -> list
+            PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
+            PlatformSortOrder.PROVIDER -> list.sortedBy { it.second.compatibleType.name }
+            PlatformSortOrder.ENABLED_FIRST -> list.sortedByDescending { it.second.enabled }
+        }

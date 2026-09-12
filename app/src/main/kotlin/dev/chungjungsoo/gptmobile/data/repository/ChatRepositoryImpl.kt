@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
@@ -44,10 +43,8 @@ import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
-import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
-import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -59,8 +56,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.withContext
 
-class ChatRepositoryImpl @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class ChatRepositoryImpl(
+    private val context: Context,
     private val chatRoomV2Dao: ChatRoomV2Dao,
     private val messageV2Dao: MessageV2Dao,
     private val chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
@@ -78,7 +75,7 @@ class ChatRepositoryImpl @Inject constructor(
     private val localRuntime: LocalRuntime,
     private val localModelRepository: LocalModelRepository,
     private val modelCatalogRepository: ModelCatalogRepository,
-    @param:DeviceSocModel private val deviceSocModel: String
+    private val deviceSocModel: String
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
@@ -276,6 +273,12 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
+
+    override suspend fun fetchArchivedChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getArchivedChatRooms()
+
+    override suspend fun setChatArchived(chatId: Int, isArchived: Boolean) {
+        chatRoomV2Dao.updateArchived(chatId, isArchived)
+    }
 
     override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
         if (query.isBlank()) {

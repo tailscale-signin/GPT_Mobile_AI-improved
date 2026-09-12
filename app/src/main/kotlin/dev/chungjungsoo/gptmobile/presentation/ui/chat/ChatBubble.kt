@@ -160,7 +160,8 @@ fun OpponentChatBubble(
     onShowNextRevision: () -> Unit = {},
     onContinueClick: (() -> Unit)? = null
 ) {
-    val normalColor = MaterialTheme.colorScheme.background
+    // Pure black opponent bubble with 2x transparency (0.25f) vs thinking bubble (0.5f)
+    val normalColor = Color.Black.copy(alpha = 0.25f)
     val bubbleColor = animateColorAsState(
         targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.2f) else normalColor,
         animationSpec = tween(durationMillis = 500),
@@ -206,6 +207,23 @@ fun OpponentChatBubble(
                 shape = RoundedCornerShape(32.dp)
             )
         ) {
+            // Details expand button moved to top-right corner of chat bubble header
+            if (hasDetails) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, end = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DetailsButton(
+                        isVisible = areDetailsVisible,
+                        isEnabled = true,
+                        onClick = { areDetailsVisible = !areDetailsVisible }
+                    )
+                }
+            }
+
             val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
                 hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
             }
@@ -263,12 +281,6 @@ fun OpponentChatBubble(
                     .padding(start = 16.dp, end = 16.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DetailsButton(
-                    isVisible = areDetailsVisible,
-                    isEnabled = hasDetails,
-                    onClick = { areDetailsVisible = !areDetailsVisible }
-                )
-
                 Spacer(modifier = Modifier.weight(1f))
 
                 if (!isLoading) {

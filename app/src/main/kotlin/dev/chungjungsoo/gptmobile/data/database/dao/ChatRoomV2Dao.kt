@@ -11,14 +11,17 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 @Dao
 interface ChatRoomV2Dao {
 
-    @Query("SELECT * FROM chats_v2 ORDER BY updated_at DESC")
+    @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 ORDER BY updated_at DESC")
     suspend fun getChatRooms(): List<ChatRoomV2>
 
-    @Query("SELECT * FROM chats_v2 ORDER BY is_favorite DESC, updated_at DESC")
+    @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 ORDER BY is_favorite DESC, updated_at DESC")
     suspend fun getChatRoomsWithFavorites(): List<ChatRoomV2>
 
-    @Query("SELECT * FROM chats_v2 WHERE title LIKE '%' || :query || '%' ORDER BY updated_at DESC")
+    @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 AND title LIKE '%' || :query || '%' ORDER BY updated_at DESC")
     suspend fun searchChatRoomsByTitle(query: String): List<ChatRoomV2>
+
+    @Query("SELECT * FROM chats_v2 WHERE is_archived = 1 ORDER BY updated_at DESC")
+    suspend fun getArchivedChatRooms(): List<ChatRoomV2>
 
     @Query("SELECT * FROM chats_v2 WHERE chat_id IN (:ids) ORDER BY updated_at DESC")
     suspend fun getChatRoomsByIds(ids: List<Int>): List<ChatRoomV2>
@@ -31,6 +34,9 @@ interface ChatRoomV2Dao {
 
     @Query("UPDATE chats_v2 SET is_favorite = :isFavorite WHERE chat_id = :chatId")
     suspend fun updateFavorite(chatId: Int, isFavorite: Boolean)
+
+    @Query("UPDATE chats_v2 SET is_archived = :isArchived WHERE chat_id = :chatId")
+    suspend fun updateArchived(chatId: Int, isArchived: Boolean)
 
     @Delete
     suspend fun deleteChatRooms(vararg chatRooms: ChatRoomV2)

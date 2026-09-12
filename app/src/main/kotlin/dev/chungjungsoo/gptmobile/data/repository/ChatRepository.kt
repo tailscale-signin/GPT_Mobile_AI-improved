@@ -29,6 +29,8 @@ interface ChatRepository {
     fun observeAgentRuns(chatId: Int): Flow<List<AgentRun>>
     fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>>
     suspend fun fetchChatListV2(): List<ChatRoomV2>
+    suspend fun fetchArchivedChatListV2(): List<ChatRoomV2>
+    suspend fun setChatArchived(chatId: Int, isArchived: Boolean)
     suspend fun searchChatsV2(query: String): List<ChatRoomV2>
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
     suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String>

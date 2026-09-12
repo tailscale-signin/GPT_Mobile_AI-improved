@@ -55,4 +55,13 @@ object ChatDatabaseV2Migrations {
             db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `ollama_options` TEXT DEFAULT NULL")
         }
     }
+
+    val MIGRATION_18_19 = object : Migration(18, 19) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `chats_v2` ADD COLUMN `is_archived` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `labels` TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE `platform_v2` ADD COLUMN `is_favorite` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `messages_v2` ADD COLUMN `timestamp` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }

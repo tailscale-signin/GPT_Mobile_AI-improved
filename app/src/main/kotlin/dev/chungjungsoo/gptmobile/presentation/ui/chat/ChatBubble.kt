@@ -16,9 +16,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
@@ -62,11 +62,19 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-internal fun formatMessageTimestamp(timestamp: Long?): String? {
-    if (timestamp == null || timestamp <= 0) return null
-    val date = if (timestamp < 100_000_000_000L) Date(timestamp * 1000) else Date(timestamp)
-    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-    return formatter.format(date)
+internal fun formatMessageTimestamp(timestampMillis: Long?): String {
+    if (timestampMillis == null || timestampMillis <= 0) return ""
+    return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestampMillis))
+}
+
+internal fun shouldShowContinuePrompt(text: String, isLoading: Boolean): Boolean {
+    if (isLoading || text.isBlank()) return false
+    val trimmed = text.trim()
+    return trimmed.endsWith("...") ||
+        trimmed.endsWith("…") ||
+        trimmed.endsWith("continue?") ||
+        trimmed.endsWith("Continue?") ||
+        (trimmed.count { it == '`' } % 2 != 0) // unclosed code block / truncated
 }
 
 @Composable
@@ -109,7 +117,7 @@ fun UserChatBubble(
             shape = RoundedCornerShape(32.dp), colors = cardColor
         ) { ChatMarkdown(content = text, modifier = Modifier.padding(16.dp)) }
         MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
-        if (formattedTime != null) {
+        if (formattedTime.isNotBlank()) {
             Text(
                 text = formattedTime,
                 style = MaterialTheme.typography.labelSmall,
@@ -152,7 +160,8 @@ fun OpponentChatBubble(
     onShowNextRevision: () -> Unit = {},
     onContinueClick: (() -> Unit)? = null
 ) {
-    val normalColor = MaterialTheme.colorScheme.background
+    // Pure black opponent bubble with 2x transparency (0.25f) vs thinking bubble (0.5f)
+    val normalColor = Color.Black.copy(alpha = 0.25f)
     val bubbleColor = animateColorAsState(
         targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.2f) else normalColor,
         animationSpec = tween(durationMillis = 500),
@@ -171,6 +180,8 @@ fun OpponentChatBubble(
     val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
         extractTelemetryNotice(noticeMessages)
     }
+    val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
+    val showContinueAction = remember(text, isLoading) { shouldShowContinuePrompt(text, isLoading) }
 
     var areDetailsVisible by rememberSaveable(contentIdentity) {
         mutableStateOf(isLoading)
@@ -186,21 +197,6 @@ fun OpponentChatBubble(
 
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
-    val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
-
-    val needsContinuation = remember(text, isLoading) {
-        if (isLoading || text.isBlank()) false
-        else {
-            val trimmed = text.trimEnd()
-            trimmed.endsWith("...") ||
-                trimmed.endsWith("…") ||
-                trimmed.endsWith("continue?") ||
-                trimmed.endsWith("Would you like me to continue?") ||
-                trimmed.endsWith("Shall I continue?") ||
-                trimmed.endsWith("Would you like to continue?") ||
-                (trimmed.count { it == '`' } % 2 != 0)
-        }
-    }
 
     Column(modifier = modifier) {
         RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
@@ -211,6 +207,23 @@ fun OpponentChatBubble(
                 shape = RoundedCornerShape(32.dp)
             )
         ) {
+            // Details expand button moved to top-right corner of chat bubble header
+            if (hasDetails) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, end = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DetailsButton(
+                        isVisible = areDetailsVisible,
+                        isEnabled = true,
+                        onClick = { areDetailsVisible = !areDetailsVisible }
+                    )
+                }
+            }
+
             val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
                 hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
             }
@@ -268,12 +281,6 @@ fun OpponentChatBubble(
                     .padding(start = 16.dp, end = 16.dp, top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                DetailsButton(
-                    isVisible = areDetailsVisible,
-                    isEnabled = hasDetails,
-                    onClick = { areDetailsVisible = !areDetailsVisible }
-                )
-
                 Spacer(modifier = Modifier.weight(1f))
 
                 if (!isLoading) {
@@ -299,38 +306,43 @@ fun OpponentChatBubble(
                 }
             }
 
+            // Minimal transparent timestamp & continuation chip below bubble
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (formattedTime.isNotBlank()) {
+                    Text(
+                        text = formattedTime,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.alpha(0.5f)
+                    )
+                } else {
+                    Spacer(Modifier.width(1.dp))
+                }
+
+                if (showContinueAction && onContinueClick != null) {
+                    SuggestionChip(
+                        onClick = onContinueClick,
+                        label = { Text("Continue") },
+                        icon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Continue", modifier = Modifier.size(14.dp)) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+            }
+
             if (!isLoading && canRetry) {
                 Text(
                     text = stringResource(R.string.retry_tools_warning),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-                )
-            }
-
-            if (needsContinuation && onContinueClick != null) {
-                SuggestionChip(
-                    onClick = onContinueClick,
-                    label = { Text("Continue") },
-                    icon = {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    },
-                    modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp)
-                )
-            }
-
-            if (formattedTime != null) {
-                Text(
-                    text = formattedTime,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .alpha(0.5f)
-                        .padding(start = 16.dp, top = 2.dp, bottom = 4.dp)
                 )
             }
 
@@ -389,64 +401,130 @@ fun OpponentResponseContainer(
 }
 
 @Composable
-internal fun DetailsButton(
-    isVisible: Boolean,
-    isEnabled: Boolean,
-    onClick: () -> Unit
-) {
+internal fun visibleChatRunNotices(
+    notices: List<ChatRunNotice>,
+    timelineNotices: List<String>,
+    isLoading: Boolean
+): List<String> {
+    val messages = (timelineNotices + notices.map { it.message }).distinct()
+    return if (isLoading) {
+        messages
+    } else {
+        messages.filter(::isTelemetryNotice)
+    }
+}
+
+internal fun timelineNoticeMessages(timeline: List<AssistantTimelineItem>): List<String> =
+    timeline.filter { it.type == AssistantTimelineItemType.NOTICE }
+        .mapNotNull { it.content?.takeIf(String::isNotBlank) }
+
+internal fun hasAssistantProcessDetails(
+    timeline: List<AssistantTimelineItem>,
+    fallbackThoughts: String,
+    hasToolEvents: Boolean
+): Boolean {
+    if (timeline.isNotEmpty()) {
+        return timeline.any {
+            it.type == AssistantTimelineItemType.THINKING ||
+                it.type == AssistantTimelineItemType.TOOL ||
+                it.type == AssistantTimelineItemType.NOTICE
+        } || hasToolEvents
+    }
+    return fallbackThoughts.isNotBlank() || hasToolEvents
+}
+
+@Composable
+private fun DetailsButton(isVisible: Boolean, isEnabled: Boolean, onClick: () -> Unit) {
     val rotation by animateFloatAsState(
         targetValue = if (isVisible) 180f else 0f,
-        animationSpec = fastEffectsSpec(),
+        animationSpec = tween(300),
         label = "detailsArrowRotation"
     )
-
-    val expandedDesc = stringResource(R.string.tool_trace_collapse)
-    val collapsedDesc = stringResource(R.string.tool_trace_expand)
-    val unavailableDesc = stringResource(R.string.details_unavailable)
-
-    Row(
+    val expandDetailsText = stringResource(R.string.expand_details)
+    val collapseDetailsText = stringResource(R.string.collapse_details)
+    val contentDesc = if (isVisible) collapseDetailsText else expandDetailsText
+    IconButton(
+        onClick = onClick,
+        enabled = isEnabled,
         modifier = Modifier
-            .clip(MaterialTheme.shapes.extraLarge)
-            .clickable(
-                enabled = isEnabled,
-                role = Role.Button,
-                onClick = onClick
-            )
-            .padding(horizontal = 8.dp, vertical = 4.dp)
             .semantics {
                 role = Role.Button
-                stateDescription = if (!isEnabled) {
-                    unavailableDesc
-                } else if (isVisible) {
-                    expandedDesc
-                } else {
-                    collapsedDesc
-                }
-            },
-        verticalAlignment = Alignment.CenterVertically
+                contentDescription = contentDesc
+                stateDescription = if (isVisible) collapseDetailsText else expandDetailsText
+            }
     ) {
         Icon(
             imageVector = Icons.Rounded.KeyboardArrowDown,
             contentDescription = null,
-            modifier = Modifier
-                .size(16.dp)
-                .rotate(rotation),
-            tint = if (isEnabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-            }
+            modifier = Modifier.rotate(rotation)
         )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = stringResource(R.string.details),
-            style = MaterialTheme.typography.labelSmall,
-            color = if (isEnabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+    }
+}
+
+@Composable
+private fun RunNoticeChips(notices: List<String>, modifier: Modifier = Modifier) {
+    if (notices.isEmpty()) return
+    Row(
+        modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        notices.forEach { notice ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-        )
+        }
+    }
+}
+
+@Composable
+private fun AgentRunStatusBlock(run: AgentRun?, modifier: Modifier = Modifier) {
+    if (run == null) return
+    val text = when (run.status) {
+        AgentRunStatus.PREPARING -> stringResource(R.string.agent_run_preparing)
+        AgentRunStatus.PLANNING -> stringResource(R.string.agent_run_planning)
+        AgentRunStatus.EXECUTING -> stringResource(R.string.agent_run_executing)
+        AgentRunStatus.SUMMARIZING -> stringResource(R.string.agent_run_summarizing)
+        AgentRunStatus.COMPLETED -> null
+        AgentRunStatus.FAILED -> stringResource(R.string.agent_run_failed)
+        AgentRunStatus.CANCELED -> stringResource(R.string.agent_run_canceled)
+        AgentRunStatus.ABORTED -> stringResource(R.string.agent_run_aborted)
+    } ?: return
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (run.status == AgentRunStatus.PREPARING || run.status == AgentRunStatus.PLANNING ||
+                run.status == AgentRunStatus.EXECUTING || run.status == AgentRunStatus.SUMMARIZING
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -457,29 +535,25 @@ private fun AssistantProcessContent(
     isLoading: Boolean,
     contentIdentity: Any
 ) {
-    val events = remember(toolEvents) { toolEvents.associateBy(ToolEvent::sequence) }
+    val processItems = remember(timeline) {
+        timeline.filter {
+            it.type == AssistantTimelineItemType.THINKING || it.type == AssistantTimelineItemType.TOOL
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
     ) {
-        timeline.forEachIndexed { index, item ->
+        processItems.forEachIndexed { index, item ->
+            val isLastProcessItem = index == processItems.lastIndex
             when (item.type) {
-                AssistantTimelineItemType.THINKING -> Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-                ) {
-                    ThinkingBlock(
-                        modifier = Modifier.fillMaxWidth(),
-                        thoughts = item.content.orEmpty(),
-                        contentIdentity = "$contentIdentity:thinking:$index",
-                        isLoading = isLoading && index == timeline.lastIndex
-                    )
-                }
-                AssistantTimelineItemType.TEXT -> {
-                    val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content.orEmpty()) }
-                    if (parsed.thinking.orEmpty().isNotBlank()) {
+                AssistantTimelineItemType.THINKING -> {
+                    val rawThoughts = item.content.orEmpty()
+                    val parsed = remember(rawThoughts) { ThinkingParser.extractThinking(rawThoughts) }
+                    val thoughtsToDisplay = parsed.thinking.ifBlank { parsed.response }
+                    if (thoughtsToDisplay.isNotBlank() || (isLoading && isLastProcessItem)) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -487,28 +561,36 @@ private fun AssistantProcessContent(
                         ) {
                             ThinkingBlock(
                                 modifier = Modifier.fillMaxWidth(),
-                                thoughts = parsed.thinking.orEmpty(),
-                                contentIdentity = "$contentIdentity:parsed-thinking:$index",
-                                isLoading = isLoading && parsed.isThinking && index == timeline.lastIndex
+                                thoughts = thoughtsToDisplay,
+                                contentIdentity = "$contentIdentity:thinking:$index",
+                                isLoading = isLoading && isLastProcessItem
                             )
                         }
                     }
                 }
-                AssistantTimelineItemType.TOOL -> item.toolSequence?.let(events::get)?.let { event ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-                    ) {
-                        ToolTraceBlock(
-                            events = listOf(event),
-                            modifier = Modifier.fillMaxWidth(),
-                            contentIdentity = "$contentIdentity:tool:${event.sequence}"
-                        )
+                AssistantTimelineItemType.TOOL -> {
+                    val matchingToolEvents = remember(toolEvents, item.callId) {
+                        if (item.callId != null) {
+                            toolEvents.filter { it.callId == item.callId }
+                        } else {
+                            toolEvents
+                        }
+                    }
+                    if (matchingToolEvents.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
+                        ) {
+                            ToolTraceBlock(
+                                events = matchingToolEvents,
+                                modifier = Modifier.fillMaxWidth(),
+                                contentIdentity = "$contentIdentity:tool:$index"
+                            )
+                        }
                     }
                 }
-                AssistantTimelineItemType.NOTICE,
-                AssistantTimelineItemType.LEGACY_ORDER -> Unit
+                else -> Unit
             }
         }
     }
@@ -522,9 +604,12 @@ private fun AssistantAnswerContent(
 ) {
     val textItems = remember(timeline) {
         timeline.mapIndexedNotNull { index, item ->
-            if (item.type == AssistantTimelineItemType.TEXT) index to item else null
+            if (item.type == AssistantTimelineItemType.ANSWER || item.type == AssistantTimelineItemType.TEXT) {
+                index to item
+            } else null
         }
     }
+
     textItems.forEach { (index, item) ->
         val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content.orEmpty()) }
         val isLastTextItem = index == textItems.lastOrNull()?.first

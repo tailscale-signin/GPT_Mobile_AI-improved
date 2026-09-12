@@ -24,6 +24,9 @@ data class PlatformV2(
     @ColumnInfo(name = "name")
     val name: String,
 
+    @ColumnInfo(name = "compatible_type")
+    val compatibleType: ClientType = ClientType.OPENAI,
+
     @ColumnInfo(name = "enabled", defaultValue = "1")
     val enabled: Boolean = true,
 
@@ -32,6 +35,9 @@ data class PlatformV2(
 
     @ColumnInfo(name = "token")
     val token: String? = null,
+
+    @ColumnInfo(name = "secret_ref")
+    val secretRef: String? = null,
 
     @ColumnInfo(name = "model")
     val model: String = "",
@@ -48,14 +54,20 @@ data class PlatformV2(
     @ColumnInfo(name = "max_tokens")
     val maxTokens: Int? = null,
 
-    @ColumnInfo(name = "timeout")
-    val timeout: Int = 60,
+    @ColumnInfo(name = "accelerator")
+    val accelerator: String? = null,
 
     @ColumnInfo(name = "system_prompt")
     val systemPrompt: String? = null,
 
-    @ColumnInfo(name = "compatible_type")
-    val compatibleType: ClientType = ClientType.OPENAI,
+    @ColumnInfo(name = "stream")
+    val stream: Boolean = true,
+
+    @ColumnInfo(name = "reasoning")
+    val reasoning: Boolean = false,
+
+    @ColumnInfo(name = "timeout")
+    val timeout: Int = 30,
 
     @ColumnInfo(name = "max_tool_calls", defaultValue = "2147483647")
     val maxToolCalls: Int = Int.MAX_VALUE,

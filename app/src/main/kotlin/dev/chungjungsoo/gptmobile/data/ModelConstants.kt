@@ -14,10 +14,35 @@ object ModelConstants {
     // OpenRouter has no unsuffixed alias; only the explicit tier slugs are served.
     const val OPENROUTER_DEFAULT_MODEL = "openai/gpt-5.6-sol"
 
-    val openaiModels = linkedSetOf(OPENAI_DEFAULT_MODEL, "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano")
-    val anthropicModels = linkedSetOf(ANTHROPIC_DEFAULT_MODEL, "claude-opus-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001")
-    val googleModels = linkedSetOf(GOOGLE_DEFAULT_MODEL, "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash")
-    val groqModels = linkedSetOf(GROQ_DEFAULT_MODEL, "openai/gpt-oss-20b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile")
+    val openaiModels = linkedSetOf(
+        OPENAI_DEFAULT_MODEL,
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "o3-mini",
+        "o1"
+    )
+    val anthropicModels = linkedSetOf(
+        ANTHROPIC_DEFAULT_MODEL,
+        "claude-opus-5",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-3-7-sonnet-20250219"
+    )
+    val googleModels = linkedSetOf(
+        GOOGLE_DEFAULT_MODEL,
+        "gemini-3.1-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash-exp"
+    )
+    val groqModels = linkedSetOf(
+        GROQ_DEFAULT_MODEL,
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.6-27b",
+        "llama-3.3-70b-versatile",
+        "deepseek-r1-distill-llama-70b"
+    )
     val ollamaModels = linkedSetOf(OLLAMA_DEFAULT_MODEL)
 
     const val OPENAI_API_URL = "https://api.openai.com/v1/"
@@ -78,7 +103,7 @@ object ModelConstants {
         ClientType.LITERT_LM -> ""
     }
 
-    const val ANTHROPIC_MAXIMUM_TOKEN = 4096
+    const val ANTHROPIC_MAXIMUM_TOKEN = 8192
 
     const val OPENAI_PROMPT =
         "You are a helpful, clever, and very friendly assistant. " +

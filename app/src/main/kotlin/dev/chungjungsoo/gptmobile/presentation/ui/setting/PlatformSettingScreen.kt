@@ -493,6 +493,9 @@ fun PlatformSettingScreen(
                     showLeadingIcon = false
                 )
 
+                // Advanced Settings: Maximum Tool Calls
+                PlatformMaxToolCallsSettingHost(settingViewModel)
+
                 PlatformNameDialog(dialogState, platformData.name, settingViewModel)
                 if (!isLocalPlatform) {
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)

@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Star
@@ -89,10 +90,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -111,7 +114,9 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.domain.model.SortType
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
+import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
@@ -140,6 +145,7 @@ fun HomeScreen(
     val showDeleteWarningDialog by homeViewModel.showDeleteWarningDialog.collectAsStateWithLifecycle()
     val platformState by homeViewModel.platformState.collectAsStateWithLifecycle()
     val activeChatIds by homeViewModel.activeChatIds.collectAsStateWithLifecycle()
+    val archivedChats by homeViewModel.archivedChats.collectAsStateWithLifecycle()
     val searchQuery by homeViewModel.searchQuery.collectAsStateWithLifecycle()
     val favoriteMessages by homeViewModel.favoriteMessages.collectAsStateWithLifecycle()
     val favoriteGroups by homeViewModel.favoriteGroups.collectAsStateWithLifecycle()
@@ -163,40 +169,24 @@ fun HomeScreen(
         }
     }
 
-    BackHandler(enabled = chatListState.isSelectionMode || chatListState.isSearchMode) {
-        when {
-            chatListState.isSelectionMode -> homeViewModel.disableSelectionMode()
-            chatListState.isSearchMode -> homeViewModel.disableSearchMode()
-        }
-    }
-
     Scaffold(
         modifier = modifier
+            .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            HomeTopAppBar(
-                isSelectionMode = chatListState.isSelectionMode,
-                isSearchMode = chatListState.isSearchMode,
-                selectedChats = selectedChatCount,
-                duplicateEnabled = selectedChat != null && selectedChat.id !in activeChatIds,
+            HomeTopBar(
+                chatListState = chatListState,
                 scrollBehavior = scrollBehavior,
-                actionOnClick = {
-                    if (chatListState.isSelectionMode) {
-                        homeViewModel.openDeleteWarningDialog()
-                    } else {
-                        settingOnClick()
-                    }
-                },
-                duplicateOnClick = {
+                selectedChatCount = selectedChatCount,
+                canDuplicate = selectedChat != null && !activeChatIds.contains(selectedChat.id),
+                onCloseSelectionMode = homeViewModel::disableSelectionMode,
+                onDuplicateClick = {
                     homeViewModel.duplicateSelectedChat()
                     Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
                 },
-                navigationOnClick = {
-                    if (chatListState.isSelectionMode) {
-                        homeViewModel.disableSelectionMode()
-                        return@HomeTopAppBar
-                    }
-
+                onDeleteClick = homeViewModel::openDeleteWarningDialog,
+                onSettingClick = settingOnClick,
+                onSearchToggle = {
                     if (chatListState.isSearchMode) {
                         homeViewModel.disableSearchMode()
                     } else {
@@ -218,6 +208,23 @@ fun HomeScreen(
                         homeViewModel.openSelectModelDialog()
                     }
                 })
+            }
+        },
+        bottomBar = {
+            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                ArchivedConversationsBar(
+                    archivedChats = archivedChats,
+                    onUnarchiveChat = { room ->
+                        homeViewModel.unarchiveChat(room)
+                        Toast.makeText(context, R.string.chat_unarchived, Toast.LENGTH_SHORT).show()
+                    },
+                    onDeleteChat = { room ->
+                        homeViewModel.deleteArchivedChat(room)
+                    },
+                    onChatClick = { room ->
+                        onExistingChatClick(room, null)
+                    }
+                )
             }
         }
     ) { innerPadding ->
@@ -316,7 +323,23 @@ fun HomeScreen(
                                         )
                                     }
                                 },
-                                supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) }
+                                supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) },
+                                trailingContent = {
+                                    if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                                        IconButton(
+                                            onClick = {
+                                                homeViewModel.archiveChat(chatRoom)
+                                                Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Archive,
+                                                contentDescription = stringResource(R.string.archive_chat),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -389,7 +412,13 @@ fun HomeScreen(
                     navigateToNewChat(it)
                     homeViewModel.closeSelectModelDialog()
                 },
-                onPlatformSelect = { homeViewModel.updatePlatformCheckedState(it) }
+                onPlatformSelect = { homeViewModel.updatePlatformCheckedState(it) },
+                onTogglePlatformFavorite = { platformId ->
+                    val target = platformState.find { it.id == platformId }
+                    if (target != null) {
+                        homeViewModel.togglePlatformFavorite(platformId, !target.isFavorite)
+                    }
+                }
             )
         }
 
@@ -418,8 +447,7 @@ fun FavoritesList(
     onFavoriteClick: (MessageV2) -> Unit,
     onToggleFavorite: (MessageV2) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // Custom Groups horizontal filter row
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -429,143 +457,86 @@ fun FavoritesList(
             verticalAlignment = Alignment.CenterVertically
         ) {
             favoriteGroups.forEach { group ->
-                val isSelected = (group == selectedGroup)
                 FilterChip(
-                    selected = isSelected,
+                    selected = selectedGroup == group,
                     onClick = { onSelectGroup(group) },
-                    label = {
-                        Text(
-                            text = if (group == HomeViewModel.GROUP_ALL) stringResource(R.string.all) else group,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color.Cyan.copy(alpha = 0.25f),
-                        selectedLabelColor = MaterialTheme.colorScheme.onSurface
-                    )
+                    label = { Text(group) }
                 )
             }
-            FilterChip(
-                selected = false,
-                onClick = onAddGroupClick,
-                label = { Text(stringResource(R.string.add_group)) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = stringResource(R.string.add_group),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            )
+            IconButton(onClick = onAddGroupClick) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = stringResource(R.string.add_group)
+                )
+            }
         }
 
         if (favorites.isEmpty()) {
-            Text(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(32.dp),
-                text = stringResource(R.string.no_favorites_yet),
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.no_favorites_yet),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(
-                    items = favorites,
-                    key = { it.id },
-                    contentType = { "favorite-message-item" }
-                ) { message ->
+                items(favorites, key = { it.id }) { message ->
                     val platformName = message.platformType?.let { platformState.getPlatformName(it) }
                         ?: stringResource(R.string.unknown)
                     val assignedGroup = messageGroups[message.id]
-                    FavoriteMessageItem(
-                        message = message,
-                        platformName = platformName,
-                        groupName = assignedGroup,
-                        onClick = { onFavoriteClick(message) },
-                        onUnfavoriteClick = { onToggleFavorite(message) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun FavoriteMessageItem(
-    message: MessageV2,
-    platformName: String,
-    groupName: String?,
-    onClick: () -> Unit,
-    onUnfavoriteClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(16.dp)
-    val topColor = MaterialTheme.colorScheme.surfaceContainerHigh
-    val bottomColor = MaterialTheme.colorScheme.surfaceContainerHighest
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .heightIn(min = 110.dp)
-            .clip(shape)
-            .background(Brush.verticalGradient(listOf(topColor, bottomColor)))
-            .combinedClickable(onClick = onClick),
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = platformName,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (!groupName.isNullOrBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color.Cyan.copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, Color.Cyan.copy(alpha = 0.5f))
-                        ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onFavoriteClick(message) },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = platformName,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                if (assignedGroup != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    ) {
+                                        Text(
+                                            text = assignedGroup,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
                             Text(
-                                text = groupName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                text = message.content,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 }
-                IconButton(onClick = onUnfavoriteClick) {
-                    Icon(
-                        imageVector = Icons.Filled.Star,
-                        contentDescription = stringResource(R.string.unfavorite),
-                        tint = Color.Cyan
-                    )
-                }
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = message.content,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }
@@ -575,25 +546,22 @@ fun AddFavoriteGroupDialog(
     onDismissRequest: () -> Unit,
     onAddGroup: (String) -> Unit
 ) {
-    var groupName by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismissRequest,
-        title = {
-            Text(text = stringResource(R.string.add_group))
-        },
+        title = { Text(stringResource(R.string.add_group)) },
         text = {
             OutlinedTextField(
-                value = groupName,
-                onValueChange = { groupName = it },
+                value = text,
+                onValueChange = { text = it },
                 label = { Text(stringResource(R.string.group_name)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                singleLine = true
             )
         },
         confirmButton = {
             TextButton(
-                enabled = groupName.isNotBlank(),
-                onClick = { onAddGroup(groupName) }
+                enabled = text.isNotBlank(),
+                onClick = { onAddGroup(text.trim()) }
             ) {
                 Text(stringResource(R.string.confirm))
             }
@@ -610,440 +578,70 @@ fun AddFavoriteGroupDialog(
 fun FavoriteDetailDialog(
     message: MessageV2,
     platformName: String,
-    favoriteGroups: List<String> = emptyList(),
-    currentGroup: String? = null,
+    favoriteGroups: List<String>,
+    currentGroup: String?,
     onDismiss: () -> Unit,
-    onAssignGroup: ((String?) -> Unit)? = null,
+    onAssignGroup: (String?) -> Unit,
     onViewInChat: () -> Unit,
     onUnfavorite: () -> Unit
 ) {
-    var showUnfavoriteConfirmDialog by remember { mutableStateOf(false) }
     var showGroupDropdown by remember { mutableStateOf(false) }
-
-    Dialog(
+    AlertDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
-        ) {
-            Scaffold(
-                topBar = {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            GPTMobileIcon(loading = false)
-                            Column {
-                                Text(
-                                    text = platformName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.favorites),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = stringResource(R.string.close)
-                            )
-                        }
-                    }
-                },
-                bottomBar = {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        tonalElevation = 8.dp,
-                        shadowElevation = 8.dp,
-                        color = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Persistent View Button to enter the chat room
-                            Button(
-                                onClick = onViewInChat,
-                                shape = RoundedCornerShape(24.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Visibility,
-                                    contentDescription = stringResource(R.string.view_in_chat),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.view_in_chat),
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                            }
-
-                            // Middle Group Button & Cyan Favorite Star Button
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (onAssignGroup != null) {
-                                    Box {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clickable { showGroupDropdown = true }
-                                        ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.fillMaxSize()
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Folder,
-                                                    contentDescription = stringResource(R.string.assign_group),
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                            }
-                                        }
-
-                                        DropdownMenu(
-                                            expanded = showGroupDropdown,
-                                            onDismissRequest = { showGroupDropdown = false }
-                                        ) {
-                                            val validGroups = favoriteGroups.filter { it != HomeViewModel.GROUP_ALL }
-                                            if (validGroups.isEmpty()) {
-                                                DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.no_custom_groups)) },
-                                                    onClick = { showGroupDropdown = false },
-                                                    enabled = false
-                                                )
-                                            } else {
-                                                DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.none_group)) },
-                                                    leadingIcon = {
-                                                        if (currentGroup == null) {
-                                                            Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
-                                                        }
-                                                    },
-                                                    onClick = {
-                                                        onAssignGroup(null)
-                                                        showGroupDropdown = false
-                                                    }
-                                                )
-                                                validGroups.forEach { group ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(group) },
-                                                        leadingIcon = {
-                                                            if (currentGroup == group) {
-                                                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.Cyan)
-                                                            }
-                                                        },
-                                                        onClick = {
-                                                            onAssignGroup(group)
-                                                            showGroupDropdown = false
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Persistent Cyan Favorite Star Button
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color.Cyan.copy(alpha = 0.2f),
-                                    border = BorderStroke(1.5.dp, Color.Cyan),
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clickable { showUnfavoriteConfirmDialog = true }
-                                ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Star,
-                                            contentDescription = stringResource(R.string.unfavorite),
-                                            tint = Color.Cyan,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            ) { innerPadding ->
-                // Fully scrollable message content with Markdown, LaTeX math, code highlighting, and custom typography
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .padding(horizontal = 20.dp, vertical = 8.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    ChatMarkdown(
-                        content = message.content,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-            }
-        }
-    }
-
-    if (showUnfavoriteConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showUnfavoriteConfirmDialog = false },
-            title = {
-                Text(text = stringResource(R.string.unfavorite_confirm_title))
-            },
-            text = {
-                Text(text = stringResource(R.string.unfavorite_confirm_message))
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showUnfavoriteConfirmDialog = false
-                        onUnfavorite()
-                    }
-                ) {
-                    Text(
-                        text = stringResource(R.string.unfavorite),
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUnfavoriteConfirmDialog = false }) {
-                    Text(text = stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HomeTopAppBar(
-    isSelectionMode: Boolean,
-    isSearchMode: Boolean,
-    selectedChats: Int,
-    duplicateEnabled: Boolean,
-    scrollBehavior: TopAppBarScrollBehavior,
-    actionOnClick: () -> Unit,
-    duplicateOnClick: () -> Unit,
-    navigationOnClick: () -> Unit,
-    onSearchQueryChanged: (String) -> Unit,
-    searchQuery: String
-) {
-    TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(
-            scrolledContainerColor = if (isSelectionMode) MaterialTheme.colorScheme.primaryContainer else Color.Unspecified,
-            containerColor = if (isSelectionMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background,
-            titleContentColor = if (isSelectionMode) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onBackground
-        ),
         title = {
-            when {
-                isSearchMode -> {
-                    TextField(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChanged,
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text(stringResource(R.string.search_chats)) },
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { onSearchQueryChanged("") }) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = stringResource(R.string.clear)
-                                    )
-                                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(platformName, style = MaterialTheme.typography.titleMedium)
+                Box {
+                    TextButton(onClick = { showGroupDropdown = true }) {
+                        Text(currentGroup ?: stringResource(R.string.none_group))
+                    }
+                    DropdownMenu(
+                        expanded = showGroupDropdown,
+                        onDismissRequest = { showGroupDropdown = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.none_group)) },
+                            onClick = {
+                                onAssignGroup(null)
+                                showGroupDropdown = false
                             }
-                        }
-                    )
-                }
-
-                isSelectionMode -> {
-                    Text(
-                        modifier = Modifier.padding(4.dp),
-                        text = stringResource(R.string.chats_selected, selectedChats),
-                        maxLines = 1,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                else -> {
-                    Text(
-                        modifier = Modifier.padding(4.dp),
-                        text = stringResource(R.string.chats),
-                        maxLines = 1,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = scrollBehavior.state.overlappedFraction),
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        },
-        navigationIcon = {
-            when {
-                isSelectionMode -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = navigationOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            contentDescription = stringResource(R.string.close)
                         )
-                    }
-                }
-
-                isSearchMode -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = navigationOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.close)
-                        )
-                    }
-                }
-
-                else -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = navigationOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Search,
-                            contentDescription = stringResource(R.string.search_chats)
-                        )
-                    }
-                }
-            }
-        },
-        actions = {
-            when {
-                isSelectionMode -> {
-                    if (selectedChats == 1) {
-                        IconButton(
-                            modifier = Modifier.padding(4.dp),
-                            enabled = duplicateEnabled,
-                            onClick = duplicateOnClick
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.ContentCopy,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                contentDescription = stringResource(R.string.duplicate)
+                        favoriteGroups.filter { it != HomeViewModel.GROUP_ALL }.forEach { group ->
+                            DropdownMenuItem(
+                                text = { Text(group) },
+                                onClick = {
+                                    onAssignGroup(group)
+                                    showGroupDropdown = false
+                                }
                             )
                         }
                     }
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = actionOnClick
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Delete,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            contentDescription = stringResource(R.string.delete)
-                        )
-                    }
-                }
-
-                !isSearchMode -> {
-                    IconButton(
-                        modifier = Modifier.padding(4.dp),
-                        onClick = actionOnClick
-                    ) {
-                        Icon(imageVector = Icons.Outlined.Settings, contentDescription = stringResource(R.string.settings))
-                    }
                 }
             }
         },
-        scrollBehavior = scrollBehavior
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ChatsTitle(scrollBehavior: TopAppBarScrollBehavior) {
-    Text(
-        modifier = Modifier
-            .padding(top = 32.dp)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        text = stringResource(R.string.chats),
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 1.0F - scrollBehavior.state.overlappedFraction),
-        style = MaterialTheme.typography.headlineLarge
-    )
-}
-
-@Composable
-private fun LazyListState.isScrollingUp(): Boolean {
-    var previousIndex by remember(this) { mutableIntStateOf(firstVisibleItemIndex) }
-    var previousScrollOffset by remember(this) { mutableIntStateOf(firstVisibleItemScrollOffset) }
-    return remember(this) {
-        derivedStateOf {
-            if (previousIndex != firstVisibleItemIndex) {
-                previousIndex > firstVisibleItemIndex
-            } else {
-                previousScrollOffset >= firstVisibleItemScrollOffset
-            }.also {
-                previousIndex = firstVisibleItemIndex
-                previousScrollOffset = firstVisibleItemScrollOffset
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                ChatMarkdown(content = message.content)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onViewInChat) {
+                Text(stringResource(R.string.view_in_chat))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onUnfavorite) {
+                Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
             }
         }
-    }.value
-}
-
-@Preview
-@Composable
-fun NewChatButton(
-    modifier: Modifier = Modifier,
-    expanded: Boolean = true,
-    onClick: () -> Unit = { }
-) {
-    val orientation = LocalConfiguration.current.orientation
-    val fabModifier = if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        modifier.systemBarsPadding()
-    } else {
-        modifier
-    }
-    ExtendedFloatingActionButton(
-        modifier = fabModifier,
-        onClick = { onClick() },
-        expanded = expanded,
-        icon = { Icon(Icons.Filled.Add, stringResource(R.string.new_chat)) },
-        text = { Text(text = stringResource(R.string.new_chat)) }
     )
 }
 
@@ -1053,7 +651,8 @@ fun SelectPlatformDialog(
     selectedPlatforms: List<Boolean>,
     onDismissRequest: () -> Unit,
     onConfirmation: (enabledPlatforms: List<String>) -> Unit,
-    onPlatformSelect: (idx: Int) -> Unit
+    onPlatformSelect: (idx: Int) -> Unit,
+    onTogglePlatformFavorite: (platformId: Int) -> Unit = {}
 ) {
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -1067,7 +666,10 @@ fun SelectPlatformDialog(
             PlatformSortOrder.DEFAULT -> list
             PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
             PlatformSortOrder.PROVIDER -> list.sortedBy { it.second.compatibleType.name }
-            PlatformSortOrder.ENABLED_FIRST -> list.sortedByDescending { it.second.enabled }
+            PlatformSortOrder.ENABLED_FIRST -> list.sortedWith(
+                compareByDescending<Pair<Int, PlatformV2>> { it.second.enabled }
+                    .thenByDescending { it.second.isFavorite }
+            )
         }
     }
 
@@ -1130,7 +732,10 @@ fun SelectPlatformDialog(
                             title = platform.name,
                             enabled = platform.enabled,
                             selected = selectedPlatforms.getOrElse(originalIndex) { false },
+                            isFavorite = platform.isFavorite,
+                            labels = platform.labels,
                             description = null,
+                            onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
                             onClickEvent = { onPlatformSelect(originalIndex) }
                         )
                     }
@@ -1158,17 +763,13 @@ fun SelectPlatformDialog(
     )
 }
 
-@Preview
 @Composable
 fun EnablePlatformWarningText() {
     Text(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(200.dp)
-            .wrapContentHeight(align = Alignment.CenterVertically)
-            .padding(16.dp),
-        textAlign = TextAlign.Center,
-        text = stringResource(R.string.enable_at_leat_one_platform)
+        text = stringResource(R.string.enable_at_leat_one_platform),
+        modifier = Modifier.padding(16.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.error
     )
 }
 
@@ -1177,27 +778,13 @@ fun DeleteWarningDialog(
     onDismissRequest: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    val configuration = LocalWindowInfo.current
-    val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
-    val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
     AlertDialog(
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .widthIn(max = screenWidth - 40.dp)
-            .heightIn(max = screenHeight - 80.dp),
-        title = {
-            Text(
-                text = stringResource(R.string.delete_selected_chats),
-                style = MaterialTheme.typography.headlineSmall
-            )
-        },
-        text = {
-            Text(stringResource(R.string.this_operation_can_t_be_undone))
-        },
         onDismissRequest = onDismissRequest,
+        title = { Text(stringResource(R.string.delete_selected_chats)) },
+        text = { Text(stringResource(R.string.this_operation_can_t_be_undone)) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text(stringResource(R.string.confirm))
+                Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {
@@ -1205,5 +792,114 @@ fun DeleteWarningDialog(
                 Text(stringResource(R.string.cancel))
             }
         }
+    )
+}
+
+@Composable
+fun LazyListState.isScrollingUp(): Boolean {
+    var previousIndex by remember(this) { mutableIntStateOf(firstVisibleItemIndex) }
+    var previousScrollOffset by remember(this) { mutableIntStateOf(firstVisibleItemScrollOffset) }
+    return remember(this) {
+        derivedStateOf {
+            if (previousIndex != firstVisibleItemIndex) {
+                previousIndex > firstVisibleItemIndex
+            } else {
+                previousScrollOffset >= firstVisibleItemScrollOffset
+            }.also {
+                previousIndex = firstVisibleItemIndex
+                previousScrollOffset = firstVisibleItemScrollOffset
+            }
+        }
+    }.value
+}
+
+@Composable
+fun NewChatButton(expanded: Boolean, onClick: () -> Unit) {
+    ExtendedFloatingActionButton(
+        onClick = onClick,
+        expanded = expanded,
+        icon = { Icon(Icons.Filled.Add, stringResource(R.string.new_chat)) },
+        text = { Text(text = stringResource(R.string.new_chat)) }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeTopBar(
+    chatListState: HomeViewModel.ChatListState,
+    scrollBehavior: TopAppBarScrollBehavior,
+    selectedChatCount: Int,
+    canDuplicate: Boolean,
+    onCloseSelectionMode: () -> Unit,
+    onDuplicateClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    onSettingClick: () -> Unit,
+    onSearchToggle: () -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
+    searchQuery: String
+) {
+    if (chatListState.isSelectionMode) {
+        TopAppBar(
+            title = { Text(stringResource(R.string.chats_selected, selectedChatCount)) },
+            navigationIcon = {
+                IconButton(onClick = onCloseSelectionMode) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close))
+                }
+            },
+            actions = {
+                if (canDuplicate) {
+                    IconButton(onClick = onDuplicateClick) {
+                        Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.duplicate))
+                    }
+                }
+                IconButton(onClick = onDeleteClick) {
+                    Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.delete))
+                }
+            }
+        )
+    } else if (chatListState.isSearchMode) {
+        TopAppBar(
+            title = {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChanged,
+                    placeholder = { Text(stringResource(R.string.search_chats)) },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
+                )
+            },
+            navigationIcon = {
+                IconButton(onClick = onSearchToggle) {
+                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close))
+                }
+            }
+        )
+    } else {
+        TopAppBar(
+            title = { Text(stringResource(R.string.app_name)) },
+            actions = {
+                IconButton(onClick = onSearchToggle) {
+                    Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.search))
+                }
+                IconButton(onClick = onSettingClick) {
+                    Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.settings))
+                }
+            },
+            scrollBehavior = scrollBehavior
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatsTitle(scrollBehavior: TopAppBarScrollBehavior) {
+    Text(
+        text = stringResource(R.string.chats),
+        style = MaterialTheme.typography.headlineMedium,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp)
     )
 }

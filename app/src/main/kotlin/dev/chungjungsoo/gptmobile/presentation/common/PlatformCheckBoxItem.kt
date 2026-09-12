@@ -166,7 +166,7 @@ private fun getBeveledLabelColors(label: String): Triple<Color, Color, Color> {
         Triple(Color(0x2AE65100), Color(0xFFE65100), Color(0xFFFFB74D)), // Orange
         Triple(Color(0x2A00838F), Color(0xFF00838F), Color(0xFF4DD0E1)), // Cyan
         Triple(Color(0x2AC2185B), Color(0xFFC2185B), Color(0xFFF06292)), // Pink
-        Triple(Color(0x2A5D4037), Color(0xFF5D4037), Color(0xFFA1887F))  // Brown
+        Triple(Color(0x2A5D4037), Color(0xFF5D4037), Color(0xFFA1887F)) // Brown
     )
     return palette[hash % palette.size]
 }

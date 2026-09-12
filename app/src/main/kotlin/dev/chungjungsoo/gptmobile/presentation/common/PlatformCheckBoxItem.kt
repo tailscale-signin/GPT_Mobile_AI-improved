@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Checkbox
@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import kotlin.math.abs
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -127,22 +128,23 @@ fun PlatformCheckBoxItem(
                 )
             }
             if (labelsList.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     labelsList.forEach { label ->
+                        val (chipBg, chipBorder, chipText) = getBeveledLabelColors(label)
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                            shape = CutCornerShape(topStart = 3.dp, bottomEnd = 3.dp, topEnd = 0.dp, bottomStart = 0.dp),
+                            color = chipBg,
+                            border = BorderStroke(1.dp, chipBorder)
                         ) {
                             Text(
                                 text = label,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                color = chipText,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -150,4 +152,21 @@ fun PlatformCheckBoxItem(
             }
         }
     }
+}
+
+/**
+ * Derives consistent color-coded palette for platform beveled label badges.
+ */
+private fun getBeveledLabelColors(label: String): Triple<Color, Color, Color> {
+    val hash = abs(label.hashCode())
+    val palette = listOf(
+        Triple(Color(0x2A1976D2), Color(0xFF1976D2), Color(0xFF64B5F6)), // Blue
+        Triple(Color(0x2A388E3C), Color(0xFF388E3C), Color(0xFF81C784)), // Green
+        Triple(Color(0x2A7B1FA2), Color(0xFF7B1FA2), Color(0xFFBA68C8)), // Purple
+        Triple(Color(0x2AE65100), Color(0xFFE65100), Color(0xFFFFB74D)), // Orange
+        Triple(Color(0x2A00838F), Color(0xFF00838F), Color(0xFF4DD0E1)), // Cyan
+        Triple(Color(0x2AC2185B), Color(0xFFC2185B), Color(0xFFF06292)), // Pink
+        Triple(Color(0x2A5D4037), Color(0xFF5D4037), Color(0xFFA1887F))  // Brown
+    )
+    return palette[hash % palette.size]
 }

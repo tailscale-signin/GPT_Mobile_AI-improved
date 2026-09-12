@@ -204,17 +204,40 @@ fun ChatScreen(
         }
         sendAfterNotificationPermission = false
     }
+
     val scope = rememberCoroutineScope()
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        chatViewModel.refreshEnabledPlatformsInApp()
-        chatViewModel.refreshDownloadedLocalModels()
+        chatViewModel.refreshLocalNetworkRequirement()
     }
 
-    LaunchedEffect(isLoaded) {
-        if (!isLoaded) {
-            chatViewModel.fetchMessages()
+    LaunchedEffect(isLoaded, groupedMessages.userMessages.size) {
+        if (isLoaded && !hasScrolledToTarget && chatViewModel.targetMessageId > 0) {
+            val targetTurn = groupedMessages.userMessages.indices.firstOrNull { turn ->
+                val userMatched = groupedMessages.userMessages.getOrNull(turn)?.id == chatViewModel.targetMessageId
+                val assistantMatched = groupedMessages.assistantMessages.getOrNull(turn)?.any { it.id == chatViewModel.targetMessageId } == true
+                userMatched || assistantMatched
+            }
+            if (targetTurn != null) {
+                hasScrolledToTarget = true
+                isFollowingBottom = false
+                val assistantList = groupedMessages.assistantMessages.getOrNull(targetTurn).orEmpty()
+                val targetPlatformIndex = assistantList.indexOfFirst { it.id == chatViewModel.targetMessageId }
+                if (targetPlatformIndex >= 0) {
+                    chatViewModel.updateChatPlatformIndex(targetTurn, targetPlatformIndex)
+                }
+                listState.scrollToItem(targetTurn)
+            }
         }
+    }
+
+    LaunchedEffect(isUserDragging, listState.isScrollInProgress, listState.canScrollForward, listState.lastScrolledBackward) {
+        isFollowingBottom = nextFollowBottom(
+            isFollowing = isFollowingBottom,
+            isUserScrolling = isUserDragging || listState.isScrollInProgress,
+            isScrollingAway = listState.lastScrolledBackward,
+            canScrollForward = listState.canScrollForward
+        )
     }
 
     LaunchedEffect(groupedMessages.userMessages.size) {
@@ -223,24 +246,6 @@ fun ChatScreen(
             isFollowingBottom = true
         }
         previousMessageCount = currentCount
-    }
-
-    LaunchedEffect(groupedMessages.userMessages.size, isLoaded, chatViewModel.targetMessageId) {
-        if (!hasTargetMessage || hasScrolledToTarget || !isLoaded || groupedMessages.userMessages.isEmpty()) return@LaunchedEffect
-        val targetIndex = chatViewModel.findTurnIndexForMessageId(chatViewModel.targetMessageId)
-        if (targetIndex >= 0) {
-            listState.scrollToItem(targetIndex)
-            hasScrolledToTarget = true
-        }
-    }
-
-    LaunchedEffect(listState.isScrollInProgress, isUserDragging, listState.lastScrolledBackward, listState.canScrollForward) {
-        isFollowingBottom = nextFollowBottom(
-            isFollowing = isFollowingBottom,
-            isUserScrolling = isUserDragging || listState.isScrollInProgress,
-            isScrollingAway = listState.lastScrolledBackward,
-            canScrollForward = listState.canScrollForward
-        )
     }
 
     ChatBottomAutoScroller(
@@ -813,53 +818,51 @@ fun ChatBubbleDropdownMenu(
             },
             text = { Text(text = stringResource(R.string.edit)) },
             onClick = {
-                onEditItemClick()
-                onDismissRequest()
+                onEditItemClick.invoke()
+                onDismissRequest.invoke()
             }
         )
         DropdownMenuItem(
             leadingIcon = {
                 Icon(
-                    ImageVector.vectorResource(R.drawable.ic_copy),
+                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_copy),
                     contentDescription = stringResource(R.string.copy_text)
                 )
             },
             text = { Text(text = stringResource(R.string.copy_text)) },
             onClick = {
-                onCopyItemClick()
-                onDismissRequest()
+                onCopyItemClick.invoke()
+                onDismissRequest.invoke()
             }
         )
     }
 }
 
-private fun shouldShowReplyLoadingIndicator(
-    isActiveMessage: Boolean,
-    loadingStates: List<ChatViewModel.LoadingState>
-): Boolean = isActiveMessage && loadingStates.any { it == ChatViewModel.LoadingState.Loading }
-
 private fun exportChat(context: Context, chatViewModel: ChatViewModel) {
-    val exportIntent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TITLE, chatViewModel.chatRoom.value.title)
-        putExtra(Intent.EXTRA_TEXT, chatViewModel.buildFullTranscript())
-    }
-    context.startActivity(Intent.createChooser(exportIntent, null))
-}
-
-@Composable
-fun ScrollToBottomButton(
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    SmallFloatingActionButton(
-        onClick = onClick,
-        modifier = modifier
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.KeyboardArrowDown,
-            contentDescription = stringResource(R.string.scroll_to_bottom_icon)
+    try {
+        val (fileName, fileContent) = chatViewModel.exportChat(
+            toolTraceLabels = context.toolTraceLabels(),
+            legacyOrderNotice = context.getString(R.string.legacy_assistant_order_unavailable)
         )
+        val file = File(context.getExternalFilesDir(null), fileName)
+        file.writeText(fileContent)
+        val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/markdown"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(shareIntent, "Share Chat Export").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val resInfo = context.packageManager.queryIntentActivities(chooser, PackageManager.MATCH_DEFAULT_ONLY)
+        resInfo.forEach { res ->
+            context.grantUriPermission(res.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        Log.e("ChatExport", "Failed to export chat", e)
+        Toast.makeText(context, "Failed to export chat", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1008,62 +1011,223 @@ fun ChatInputBox(
 }
 
 @Composable
-fun FileThumbnailRow(
+internal fun FileThumbnailRow(
     selectedAttachments: List<ChatAttachmentDraft>,
     onFileRemoved: (String) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
     ) {
         selectedAttachments.forEach { attachment ->
-            val file = remember(attachment.filePathForDisplay) { File(attachment.filePathForDisplay) }
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.padding(vertical = 4.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = file.name,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 120.dp)
-                    )
-                    IconButton(
-                        modifier = Modifier.size(16.dp),
-                        onClick = { onFileRemoved(attachment.filePathForDisplay) }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.remove),
-                            modifier = Modifier.size(12.dp)
-                        )
-                    }
-                }
-            }
+            FileThumbnail(
+                attachment = attachment,
+                onRemove = { onFileRemoved(attachment.sourceFilePath) }
+            )
         }
     }
 }
 
-private fun copyFileToAppDirectory(context: Context, uri: android.net.Uri): String? {
+@Composable
+internal fun FileThumbnail(
+    attachment: ChatAttachmentDraft,
+    onRemove: () -> Unit
+) {
+    val file = File(attachment.preparedFilePath ?: attachment.sourceFilePath)
+    val isImage = isImageFile(file.extension)
+
+    Column(
+        modifier = Modifier.width(72.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            if (isImage) {
+                Icon(
+                    imageVector = ImageVector.vectorResource(R.drawable.ic_image),
+                    contentDescription = file.name,
+                    modifier = Modifier.fillMaxSize(),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Icon(
+                    imageVector = ImageVector.vectorResource(R.drawable.ic_file),
+                    contentDescription = file.name,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(48.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .background(
+                            MaterialTheme.colorScheme.error,
+                            RoundedCornerShape(8.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.remove),
+                        tint = MaterialTheme.colorScheme.onError,
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
+            }
+
+            if (attachment.status == ChatAttachmentDraft.Status.Preparing) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 4.dp)
+                        .size(18.dp),
+                    strokeWidth = 2.dp
+                )
+            }
+        }
+
+        Text(
+            text = file.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .width(72.dp)
+        )
+
+        attachment.notice?.let { notice ->
+            Text(
+                text = notice,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.width(72.dp)
+            )
+        }
+
+        attachment.errorMessage?.let { errorMessage ->
+            Text(
+                text = errorMessage,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.width(72.dp)
+            )
+        }
+    }
+}
+
+internal fun copyFileToAppDirectory(context: Context, uri: android.net.Uri): String? {
     return try {
-        val fileName = "attachment_${System.currentTimeMillis()}"
-        val destFile = File(context.cacheDir, fileName)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            destFile.outputStream().use { output ->
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val rawFileName = getFileName(context, uri)
+        val sanitizedFileName = sanitizeFileName(rawFileName)
+
+        val attachmentsDir = File(context.filesDir, "attachments")
+        attachmentsDir.mkdirs()
+
+        var targetFile = File(attachmentsDir, sanitizedFileName)
+
+        // If file exists, append timestamp to avoid overwrites
+        if (targetFile.exists()) {
+            val nameWithoutExt = sanitizedFileName.substringBeforeLast(".")
+            val ext = sanitizedFileName.substringAfterLast(".", "")
+            val uniqueName = if (ext.isNotEmpty()) {
+                "${nameWithoutExt}_${System.currentTimeMillis()}.$ext"
+            } else {
+                "${sanitizedFileName}_${System.currentTimeMillis()}"
+            }
+            targetFile = File(attachmentsDir, uniqueName)
+        }
+
+        // Verify canonical path is within attachments directory to prevent path traversal
+        val attachmentsDirCanonical = attachmentsDir.canonicalPath
+        val targetFileCanonical = targetFile.canonicalPath
+        if (!targetFileCanonical.startsWith(attachmentsDirCanonical + File.separator) &&
+            targetFileCanonical != attachmentsDirCanonical
+        ) {
+            return null
+        }
+
+        inputStream.use { input ->
+            targetFile.outputStream().use { output ->
                 input.copyTo(output)
             }
         }
-        destFile.absolutePath
-    } catch (_: Exception) {
+
+        targetFile.absolutePath
+    } catch (e: Exception) {
         null
+    }
+}
+
+private fun getFileName(context: Context, uri: android.net.Uri): String {
+    var fileName = "attachment_${System.currentTimeMillis()}"
+
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        if (cursor.moveToFirst() && nameIndex != -1) {
+            fileName = cursor.getString(nameIndex) ?: fileName
+        }
+    }
+
+    return fileName
+}
+
+private fun sanitizeFileName(fileName: String): String {
+    val maxLength = 200
+
+    // Remove path separators and ".." segments
+    val withoutPathTraversal = fileName
+        .replace("..", "")
+        .replace("/", "")
+        .replace("\\", "")
+
+    // Keep only safe characters: alphanumerics, dash, underscore, dot
+    val sanitized = withoutPathTraversal
+        .filter { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' }
+        .take(maxLength)
+        .trim('.')
+
+    // If sanitized name is empty, generate a fallback
+    return sanitized.ifEmpty { "attachment_${System.currentTimeMillis()}" }
+}
+
+private fun isImageFile(extension: String?): Boolean {
+    val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")
+    return extension?.lowercase() in imageExtensions
+}
+
+@Composable
+fun ScrollToBottomButton(onClick: () -> Unit) {
+    SmallFloatingActionButton(
+        onClick = onClick,
+        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+    ) {
+        Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon))
     }
 }

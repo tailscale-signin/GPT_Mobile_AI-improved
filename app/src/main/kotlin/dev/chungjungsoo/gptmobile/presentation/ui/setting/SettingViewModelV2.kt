@@ -70,6 +70,14 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    fun togglePlatformFavorite(platformId: Int) {
+        val platform = platformState.value.find { it.id == platformId }
+        platform?.let { target ->
+            val updated = target.copy(isFavorite = !target.isFavorite)
+            updatePlatform(updated)
+        }
+    }
+
     fun openThemeDialog() = _dialogState.update { it.copy(isThemeDialogOpen = true) }
 
     fun closeThemeDialog() = _dialogState.update { it.copy(isThemeDialogOpen = false) }

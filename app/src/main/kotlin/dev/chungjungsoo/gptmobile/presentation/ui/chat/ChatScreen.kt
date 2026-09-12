@@ -232,17 +232,19 @@ fun ChatScreen(
     }
 
     LaunchedEffect(isUserDragging, listState.isScrollInProgress, listState.canScrollForward, listState.lastScrolledBackward) {
-        isFollowingBottom = nextFollowBottom(
-            isFollowing = isFollowingBottom,
-            isUserScrolling = isUserDragging || listState.isScrollInProgress,
-            isScrollingAway = listState.lastScrolledBackward,
-            canScrollForward = listState.canScrollForward
-        )
+        if (!hasTargetMessage) {
+            isFollowingBottom = nextFollowBottom(
+                isFollowing = isFollowingBottom,
+                isUserScrolling = isUserDragging || listState.isScrollInProgress,
+                isScrollingAway = listState.lastScrolledBackward,
+                canScrollForward = listState.canScrollForward
+            )
+        }
     }
 
     LaunchedEffect(groupedMessages.userMessages.size) {
         val currentCount = groupedMessages.userMessages.size
-        if (currentCount > previousMessageCount) {
+        if (currentCount > previousMessageCount && !hasTargetMessage) {
             isFollowingBottom = true
         }
         previousMessageCount = currentCount
@@ -250,7 +252,7 @@ fun ChatScreen(
 
     ChatBottomAutoScroller(
         listState = listState,
-        isEnabled = shouldAutoScrollToBottom(
+        isEnabled = !hasTargetMessage && shouldAutoScrollToBottom(
             isFollowing = isFollowingBottom,
             isUserDragging = isUserDragging,
             isScrollInProgress = listState.isScrollInProgress,
@@ -274,14 +276,17 @@ fun ChatScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             ChatTopBar(
-                chatRoom.title,
-                chatRoom.id > 0,
-                chatViewModel.enabledPlatformsInChat.isNotEmpty(),
-                onBackAction,
-                scrollBehavior,
-                chatViewModel::openChatTitleDialog,
-                chatViewModel::openChatModelDialog,
-                onExportChatItemClick = { exportChat(context, chatViewModel) }
+                title = chatRoom.title,
+                isMenuItemEnabled = chatRoom.id > 0,
+                isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
+                onBackAction = onBackAction,
+                scrollBehavior = scrollBehavior,
+                onChatTitleItemClick = chatViewModel::openChatTitleDialog,
+                onChatModelItemClick = chatViewModel::openChatModelDialog,
+                onExportChatItemClick = { exportChat(context, chatViewModel) },
+                onDisablePlatformClick = {
+                    Toast.makeText(context, R.string.disable_platform, Toast.LENGTH_SHORT).show()
+                }
             )
         }
     ) { innerPadding ->
@@ -337,7 +342,7 @@ fun ChatScreen(
                             },
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
                             onShowNextRevision = chatViewModel::showNextAssistantRevision,
-                            onContinueClick = { chatViewModel.askQuestion() }
+                            onContinueClick = { chatViewModel.sendContinueResponse() }
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
@@ -347,7 +352,7 @@ fun ChatScreen(
                     }
                 }
 
-                if (!isFollowingBottom && listState.canScrollForward) {
+                if (!isFollowingBottom && listState.canScrollForward && !hasTargetMessage) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -703,7 +708,8 @@ private fun ChatTopBar(
     scrollBehavior: TopAppBarScrollBehavior,
     onChatTitleItemClick: () -> Unit,
     onChatModelItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit
+    onExportChatItemClick: () -> Unit,
+    onDisablePlatformClick: () -> Unit = {}
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
@@ -740,7 +746,11 @@ private fun ChatTopBar(
                     onChatTitleItemClick.invoke()
                     isDropDownMenuExpanded = false
                 },
-                onExportChatItemClick = onExportChatItemClick
+                onExportChatItemClick = onExportChatItemClick,
+                onDisablePlatformClick = {
+                    onDisablePlatformClick()
+                    isDropDownMenuExpanded = false
+                }
             )
         },
         scrollBehavior = scrollBehavior
@@ -753,7 +763,8 @@ fun ChatDropdownMenu(
     isMenuItemEnabled: Boolean,
     onDismissRequest: () -> Unit,
     onChatTitleItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit
+    onExportChatItemClick: () -> Unit,
+    onDisablePlatformClick: () -> Unit = {}
 ) {
     DropdownMenu(
         modifier = Modifier.wrapContentSize(),
@@ -771,6 +782,15 @@ fun ChatDropdownMenu(
             text = { Text(text = stringResource(R.string.export_chat)) },
             onClick = {
                 onExportChatItemClick()
+                onDismissRequest()
+            }
+        )
+        /* Disable Platform in current session */
+        DropdownMenuItem(
+            enabled = isMenuItemEnabled,
+            text = { Text(text = stringResource(R.string.disable_platform)) },
+            onClick = {
+                onDisablePlatformClick()
                 onDismissRequest()
             }
         )

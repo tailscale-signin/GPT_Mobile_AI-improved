@@ -58,6 +58,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -209,6 +210,7 @@ class ChatViewModel @Inject constructor(
     val isLoaded = _isLoaded.asStateFlow()
 
     private var pendingQuestionText: String? = null
+    private val activeRetryJobs = mutableSetOf<String>()
 
     init {
         fetchChatRoom()
@@ -255,6 +257,10 @@ class ChatViewModel @Inject constructor(
         }
 
         sendQuestion(questionText, _selectedAttachments.value)
+    }
+
+    fun sendContinueResponse() {
+        sendQuestion("continue", emptyList())
     }
 
     fun cancelActiveRuns() {
@@ -1186,7 +1192,37 @@ class ChatViewModel @Inject constructor(
                         )
                     }
                     syncLoadingStates(runsById)
+                    autoRetryFailedRuns(runs)
                 }
+        }
+    }
+
+    private fun autoRetryFailedRuns(runs: List<AgentRun>) {
+        val failedRuns = runs.filter { it.status == AgentRunStatus.FAILED }
+        for (failedRun in failedRuns) {
+            if (!activeRetryJobs.add(failedRun.runId)) continue
+            val turnIndex = _groupedMessages.value.assistantMessages.indexOfLast { row ->
+                row.any { it.effectiveRunId() == failedRun.runId }
+            }
+            if (turnIndex < 0) continue
+            val platformIndex = _groupedMessages.value.assistantMessages[turnIndex].indexOfFirst {
+                it.effectiveRunId() == failedRun.runId
+            }
+            if (platformIndex < 0) continue
+
+            viewModelScope.launch {
+                val startTime = System.currentTimeMillis()
+                while (System.currentTimeMillis() - startTime < 60_000L) {
+                    delay(10_000L)
+                    val currentAssistant = _groupedMessages.value.assistantMessages.getOrNull(turnIndex)?.getOrNull(platformIndex)
+                    val runId = currentAssistant?.effectiveRunId()
+                    val runStatus = runId?.let { _agentRunsById.value[it]?.status }
+                    if (runStatus == AgentRunStatus.COMPLETED) {
+                        break
+                    }
+                    retryChat(turnIndex, platformIndex)
+                }
+            }
         }
     }
 

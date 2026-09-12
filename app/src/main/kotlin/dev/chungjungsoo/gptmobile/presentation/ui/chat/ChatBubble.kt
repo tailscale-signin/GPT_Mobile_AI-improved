@@ -70,10 +70,17 @@ internal fun formatMessageTimestamp(timestampMillis: Long?): String {
 internal fun shouldShowContinuePrompt(text: String, isLoading: Boolean): Boolean {
     if (isLoading || text.isBlank()) return false
     val trimmed = text.trim()
+    val lower = trimmed.lowercase(Locale.ROOT)
     return trimmed.endsWith("...") ||
         trimmed.endsWith("…") ||
         trimmed.endsWith("continue?") ||
         trimmed.endsWith("Continue?") ||
+        lower.endsWith("continue") ||
+        lower.contains("reply with continue") ||
+        lower.contains("reply 'continue'") ||
+        lower.contains("reply \"continue\"") ||
+        lower.contains("say continue") ||
+        lower.contains("type continue") ||
         (trimmed.count { it == '`' } % 2 != 0) // unclosed code block / truncated
 }
 

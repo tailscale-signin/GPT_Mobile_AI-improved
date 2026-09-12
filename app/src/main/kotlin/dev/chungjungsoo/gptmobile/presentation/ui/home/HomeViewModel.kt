@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.domain.usecase.ManagePlatformsUseCase
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -37,7 +38,8 @@ enum class HomeTab {
 class HomeViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val settingRepository: SettingRepository,
-    private val agentRunCoordinator: AgentRunCoordinator
+    private val agentRunCoordinator: AgentRunCoordinator,
+    private val managePlatformsUseCase: ManagePlatformsUseCase
 ) : ViewModel() {
 
     companion object {
@@ -61,6 +63,9 @@ class HomeViewModel @Inject constructor(
 
     private val _platformState = MutableStateFlow(listOf<PlatformV2>())
     val platformState = _platformState.asStateFlow()
+
+    private val _archivedChats = MutableStateFlow<List<ChatRoomV2>>(emptyList())
+    val archivedChats = _archivedChats.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
@@ -127,6 +132,8 @@ class HomeViewModel @Inject constructor(
         agentRunCoordinator.activeRuns
             .onEach { runs -> _activeChatIds.update { runs.values.mapTo(mutableSetOf()) { it.chatId } } }
             .launchIn(viewModelScope)
+
+        fetchArchivedChats()
     }
 
     fun selectTab(tab: HomeTab) {
@@ -163,6 +170,13 @@ class HomeViewModel @Inject constructor(
     fun toggleFavorite(messageId: Int, isFavorite: Boolean) {
         viewModelScope.launch {
             chatRepository.setMessageFavorite(messageId, isFavorite)
+        }
+    }
+
+    fun togglePlatformFavorite(platformId: Int, isFavorite: Boolean) {
+        viewModelScope.launch {
+            managePlatformsUseCase.toggleFavoritePlatform(platformId, isFavorite)
+            fetchPlatformStatus()
         }
     }
 
@@ -233,6 +247,39 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun archiveChat(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            chatRepository.setChatArchived(chatRoom.id, isArchived = true)
+            fetchChats()
+            fetchArchivedChats()
+        }
+    }
+
+    fun unarchiveChat(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            chatRepository.setChatArchived(chatRoom.id, isArchived = false)
+            fetchChats()
+            fetchArchivedChats()
+        }
+    }
+
+    fun deleteArchivedChat(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            agentRunCoordinator.withChatGate(chatRoom.id) {
+                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
+                chatRepository.deleteChatsV2(listOf(chatRoom))
+            }
+            fetchArchivedChats()
+        }
+    }
+
+    fun fetchArchivedChats() {
+        viewModelScope.launch {
+            val archived = chatRepository.fetchArchivedChatListV2()
+            _archivedChats.update { archived }
+        }
+    }
+
     fun duplicateSelectedChat() {
         viewModelScope.launch {
             val selectedChats = _chatListState.value.chats.filterIndexed { index, _ ->
@@ -284,6 +331,7 @@ class HomeViewModel @Inject constructor(
                     isSelectionMode = false
                 )
             }
+            fetchArchivedChats()
 
             Log.d("chats", "${_chatListState.value.chats}")
         }
@@ -291,12 +339,13 @@ class HomeViewModel @Inject constructor(
 
     fun getChatRoom(chatId: Int, onResult: (ChatRoomV2?) -> Unit) {
         val inMemory = _chatListState.value.chats.find { it.id == chatId }
+            ?: _archivedChats.value.find { it.id == chatId }
         if (inMemory != null) {
             onResult(inMemory)
             return
         }
         viewModelScope.launch {
-            val allChats = chatRepository.fetchChatListV2()
+            val allChats = chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()
             onResult(allChats.find { it.id == chatId })
         }
     }

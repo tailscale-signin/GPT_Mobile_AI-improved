@@ -9,7 +9,6 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.ThemeBackupDto
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
@@ -22,6 +21,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 data class BackupRestoreResult(
     val success: Boolean,
@@ -41,6 +42,57 @@ class AppBackupManager @Inject constructor(
     private val settingRepository: SettingRepository,
     private val secretVault: SecretVault
 ) {
+    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
+
+    suspend fun exportFavorites(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+        runCatching {
+            val allMessages = messageV2Dao.getMessageList()
+            val favoriteIds = allMessages.filter { it.isFavorite }.map { it.id }
+            val jsonString = json.encodeToString(favoriteIds)
+            context.contentResolver.openOutputStream(uri)?.use { outStream ->
+                outStream.write(jsonString.encodeToByteArray())
+            } ?: throw IllegalStateException("Could not open destination file for writing.")
+
+            BackupRestoreResult(
+                success = true,
+                message = "Favorites exported successfully.",
+                count = favoriteIds.size
+            )
+        }.getOrElse { error ->
+            BackupRestoreResult(
+                success = false,
+                message = error.localizedMessage ?: "Failed to export favorites."
+            )
+        }
+    }
+
+    suspend fun importFavorites(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+        runCatching {
+            val jsonString = context.contentResolver.openInputStream(uri)?.use { inStream ->
+                inStream.readBytes().decodeToString()
+            } ?: throw IllegalStateException("Could not read favorites file.")
+
+            val importedIds = json.decodeFromString<List<Int>>(jsonString)
+            var count = 0
+            importedIds.forEach { id ->
+                if (id > 0) {
+                    messageV2Dao.updateFavorite(id, true)
+                    count++
+                }
+            }
+
+            BackupRestoreResult(
+                success = true,
+                message = "Favorites imported successfully.",
+                count = count
+            )
+        }.getOrElse { error ->
+            BackupRestoreResult(
+                success = false,
+                message = error.localizedMessage ?: "Failed to import favorites."
+            )
+        }
+    }
 
     suspend fun exportConfiguration(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {

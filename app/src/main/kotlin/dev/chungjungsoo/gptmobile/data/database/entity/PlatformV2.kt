@@ -1,43 +1,40 @@
 package dev.chungjungsoo.gptmobile.data.database.entity
 
+import android.os.Parcelable
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
+import java.util.UUID
+import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.Serializable
-import java.util.*
 
+@Parcelize
 @Serializable
 @Entity(tableName = "platform_v2")
 data class PlatformV2(
     @PrimaryKey(autoGenerate = true)
-    @ColumnInfo("platform_id")
+    @ColumnInfo(name = "platform_id")
     val id: Int = 0,
 
-    @ColumnInfo("uid")
+    @ColumnInfo(name = "uid")
     val uid: String = UUID.randomUUID().toString(),
 
-    @ColumnInfo("name")
+    @ColumnInfo(name = "name")
     val name: String,
 
-    @ColumnInfo("compatible_type")
-    val compatibleType: ClientType,
-
-    @ColumnInfo(name = "enabled")
-    val enabled: Boolean = false,
+    @ColumnInfo(name = "enabled", defaultValue = "1")
+    val enabled: Boolean = true,
 
     @ColumnInfo(name = "api_url")
-    val apiUrl: String,
+    val apiUrl: String = "",
 
     @ColumnInfo(name = "token")
     val token: String? = null,
 
-    @ColumnInfo(name = "secret_ref")
-    val secretRef: String? = null,
-
     @ColumnInfo(name = "model")
-    val model: String,
+    val model: String = "",
 
     @ColumnInfo(name = "temperature")
     val temperature: Float? = null,
@@ -51,20 +48,14 @@ data class PlatformV2(
     @ColumnInfo(name = "max_tokens")
     val maxTokens: Int? = null,
 
-    @ColumnInfo(name = "accelerator")
-    val accelerator: String? = null,
+    @ColumnInfo(name = "timeout")
+    val timeout: Int = 60,
 
     @ColumnInfo(name = "system_prompt")
     val systemPrompt: String? = null,
 
-    @ColumnInfo(name = "stream")
-    val stream: Boolean = true,
-
-    @ColumnInfo(name = "reasoning")
-    val reasoning: Boolean = false,
-
-    @ColumnInfo(name = "timeout")
-    val timeout: Int = 30,
+    @ColumnInfo(name = "compatible_type")
+    val compatibleType: ClientType = ClientType.OPENAI,
 
     @ColumnInfo(name = "max_tool_calls", defaultValue = "2147483647")
     val maxToolCalls: Int = Int.MAX_VALUE,
@@ -94,5 +85,11 @@ data class PlatformV2(
     val disableLocalTools: Boolean = false,
 
     @ColumnInfo(name = "ollama_options")
-    val ollamaOptions: String? = null
-)
+    val ollamaOptions: String? = null,
+
+    @ColumnInfo(name = "labels")
+    val labels: String? = null,
+
+    @ColumnInfo(name = "is_favorite", defaultValue = "0")
+    val isFavorite: Boolean = false
+) : Parcelable

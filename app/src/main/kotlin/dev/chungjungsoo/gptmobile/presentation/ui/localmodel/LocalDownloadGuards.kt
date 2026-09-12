@@ -15,7 +15,7 @@ interface LocalDownloadGuards {
 
 @Singleton
 class LocalDownloadGuardsImpl @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context
 ) : LocalDownloadGuards {
     override fun isMeteredConnection(): Boolean {
         val connectivityManager = context.getSystemService(ConnectivityManager::class.java)

@@ -12,11 +12,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BasicTextField
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -38,15 +40,14 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
@@ -56,7 +57,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -88,11 +88,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
@@ -102,12 +101,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider.getUriForFile
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -117,7 +114,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
-import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
+import dev.chungjungsoo.gptmobile.data.dto.ChatAttachmentDraft
+import dev.chungjungsoo.gptmobile.presentation.ui.dialog.AssistantMessageEditDialog
+import dev.chungjungsoo.gptmobile.presentation.ui.dialog.ChatModelDialog
+import dev.chungjungsoo.gptmobile.presentation.ui.dialog.ChatTitleDialog
+import dev.chungjungsoo.gptmobile.presentation.ui.dialog.UserMessageEditDialog
+import dev.chungjungsoo.gptmobile.presentation.ui.tool.ToolTraceLabels
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -125,17 +127,19 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    chatViewModel: ChatViewModel = hiltViewModel(),
+    chatViewModel: ChatViewModel,
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {}
 ) {
-    val containerSize = LocalWindowInfo.current.containerSize
-    val screenWidthDp = with(LocalDensity.current) { containerSize.width.toDp() }
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp.dp
     val focusManager = LocalFocusManager.current
-    val clipboardManager = LocalClipboard.current
+    val clipboardManager = LocalClipboardManager.current
     val systemChatMargin = 32.dp
     val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
@@ -167,7 +171,6 @@ fun ChatScreen(
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
-    val sessionDisabledPlatformUids by chatViewModel.sessionDisabledPlatformUids.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
     val canUseChat = (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
@@ -283,11 +286,7 @@ fun ChatScreen(
                 scrollBehavior,
                 chatViewModel::openChatTitleDialog,
                 chatViewModel::openChatModelDialog,
-                onExportChatItemClick = { exportChat(context, chatViewModel) },
-                enabledPlatformsInChat = chatViewModel.enabledPlatformsInChat,
-                sessionDisabledPlatformUids = sessionDisabledPlatformUids,
-                platformLookup = enabledPlatformLookup,
-                onTogglePlatformDisabled = chatViewModel::toggleSessionPlatformDisabled
+                onExportChatItemClick = { exportChat(context, chatViewModel) }
             )
         }
     ) { innerPadding ->
@@ -709,11 +708,7 @@ private fun ChatTopBar(
     scrollBehavior: TopAppBarScrollBehavior,
     onChatTitleItemClick: () -> Unit,
     onChatModelItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit,
-    enabledPlatformsInChat: List<String> = emptyList(),
-    sessionDisabledPlatformUids: Set<String> = emptySet(),
-    platformLookup: Map<String, PlatformV2> = emptyMap(),
-    onTogglePlatformDisabled: (String) -> Unit = {}
+    onExportChatItemClick: () -> Unit
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
@@ -750,11 +745,7 @@ private fun ChatTopBar(
                     onChatTitleItemClick.invoke()
                     isDropDownMenuExpanded = false
                 },
-                onExportChatItemClick = onExportChatItemClick,
-                enabledPlatformsInChat = enabledPlatformsInChat,
-                sessionDisabledPlatformUids = sessionDisabledPlatformUids,
-                platformLookup = platformLookup,
-                onTogglePlatformDisabled = onTogglePlatformDisabled
+                onExportChatItemClick = onExportChatItemClick
             )
         },
         scrollBehavior = scrollBehavior
@@ -767,11 +758,7 @@ fun ChatDropdownMenu(
     isMenuItemEnabled: Boolean,
     onDismissRequest: () -> Unit,
     onChatTitleItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit,
-    enabledPlatformsInChat: List<String> = emptyList(),
-    sessionDisabledPlatformUids: Set<String> = emptySet(),
-    platformLookup: Map<String, PlatformV2> = emptyMap(),
-    onTogglePlatformDisabled: (String) -> Unit = {}
+    onExportChatItemClick: () -> Unit
 ) {
     DropdownMenu(
         modifier = Modifier.wrapContentSize(),
@@ -792,29 +779,6 @@ fun ChatDropdownMenu(
                 onDismissRequest()
             }
         )
-
-        // Session-level platform toggles
-        if (enabledPlatformsInChat.isNotEmpty()) {
-            HorizontalDivider()
-            enabledPlatformsInChat.forEach { uid ->
-                val platform = platformLookup[uid]
-                val name = platform?.name ?: uid
-                val isSessionActive = uid !in sessionDisabledPlatformUids
-                DropdownMenuItem(
-                    text = { Text(name) },
-                    trailingIcon = {
-                        if (isSessionActive) {
-                            Icon(
-                                Icons.Filled.Check,
-                                contentDescription = "Active for this session",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    onClick = { onTogglePlatformDisabled(uid) }
-                )
-            }
-        }
     }
 }
 

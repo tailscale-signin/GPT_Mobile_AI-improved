@@ -8,8 +8,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -58,6 +62,7 @@ class AgentRunForegroundService : Service() {
                     ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                     if (shouldNotifyAgentRunsCompleted(wasActive, isActive, AppForegroundTracker.isBackgrounded)) {
                         showCompletionNotification()
+                        triggerCompletionVibration()
                     }
                     stopSelf()
                 } else {
@@ -159,6 +164,33 @@ class AgentRunForegroundService : Service() {
     private fun showCompletionNotification() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(NOTIFICATION_ID, buildCompletionNotification())
+    }
+
+    private fun triggerCompletionVibration() {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vibratorManager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+
+            vibrator?.let { vib ->
+                if (vib.hasVibrator()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        // Double pulse pattern: wait 0ms, buzz 150ms, wait 100ms, buzz 250ms
+                        val timings = longArrayOf(0, 150, 100, 250)
+                        val amplitudes = intArrayOf(0, VibrationEffect.DEFAULT_AMPLITUDE, 0, VibrationEffect.DEFAULT_AMPLITUDE)
+                        val effect = VibrationEffect.createWaveform(timings, amplitudes, -1)
+                        vib.vibrate(effect)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vib.vibrate(longArrayOf(0, 150, 100, 250), -1)
+                    }
+                }
+            }
+        }
     }
 
     private fun buildCompletionNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)

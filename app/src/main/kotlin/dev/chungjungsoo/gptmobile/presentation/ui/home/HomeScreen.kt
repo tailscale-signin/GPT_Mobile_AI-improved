@@ -122,6 +122,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
 
 enum class PlatformSortOrder {
+    FAVORITES,
     DEFAULT,
     NAME,
     PROVIDER,
@@ -524,7 +525,8 @@ fun HomeScreen(
                     navigateToNewChat(it)
                     homeViewModel.closeSelectModelDialog()
                 },
-                onPlatformSelect = { homeViewModel.updatePlatformCheckedState(it) }
+                onPlatformSelect = { homeViewModel.updatePlatformCheckedState(it) },
+                onPlatformToggleFavorite = { platform -> homeViewModel.togglePlatformFavorite(platform) }
             )
         }
 
@@ -1188,7 +1190,8 @@ fun SelectPlatformDialog(
     selectedPlatforms: List<Boolean>,
     onDismissRequest: () -> Unit,
     onConfirmation: (enabledPlatforms: List<String>) -> Unit,
-    onPlatformSelect: (idx: Int) -> Unit
+    onPlatformSelect: (idx: Int) -> Unit,
+    onPlatformToggleFavorite: (PlatformV2) -> Unit = {}
 ) {
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -1199,6 +1202,7 @@ fun SelectPlatformDialog(
     val indexedPlatforms = remember(platforms, sortOrder) {
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
         when (sortOrder) {
+            PlatformSortOrder.FAVORITES -> list.sortedWith(compareByDescending<Pair<Int, PlatformV2>> { it.second.isFavorite }.thenBy { it.second.name.lowercase() })
             PlatformSortOrder.DEFAULT -> list
             PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
             PlatformSortOrder.PROVIDER -> list.sortedBy { it.second.compatibleType.name }
@@ -1234,6 +1238,19 @@ fun SelectPlatformDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FilterChip(
+                        selected = sortOrder == PlatformSortOrder.FAVORITES,
+                        onClick = { sortOrder = PlatformSortOrder.FAVORITES },
+                        label = { Text("Favorites") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (sortOrder == PlatformSortOrder.FAVORITES) Color(0xFFFFB300) else Color.Unspecified
+                            )
+                        }
+                    )
+                    FilterChip(
                         selected = sortOrder == PlatformSortOrder.DEFAULT,
                         onClick = { sortOrder = PlatformSortOrder.DEFAULT },
                         label = { Text("Default") }
@@ -1268,6 +1285,7 @@ fun SelectPlatformDialog(
                             isFavorite = platform.isFavorite,
                             labels = platform.labels,
                             description = null,
+                            onLongClickEvent = { onPlatformToggleFavorite(platform) },
                             onClickEvent = { onPlatformSelect(originalIndex) }
                         )
                     }

@@ -9,8 +9,6 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.ThemeBackupDto
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
@@ -49,8 +47,8 @@ class AppBackupManager @Inject constructor(
     suspend fun exportFavorites(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val allMessages = messageV2Dao.getMessageList()
-            val favoriteMessages = allMessages.filter { it.isFavorite }
-            val jsonString = json.encodeToString(favoriteMessages)
+            val favoriteIds = allMessages.filter { it.isFavorite }.map { it.id }
+            val jsonString = json.encodeToString(favoriteIds)
             context.contentResolver.openOutputStream(uri)?.use { outStream ->
                 outStream.write(jsonString.encodeToByteArray())
             } ?: throw IllegalStateException("Could not open destination file for writing.")
@@ -58,7 +56,7 @@ class AppBackupManager @Inject constructor(
             BackupRestoreResult(
                 success = true,
                 message = "Favorites exported successfully.",
-                count = favoriteMessages.size
+                count = favoriteIds.size
             )
         }.getOrElse { error ->
             BackupRestoreResult(
@@ -74,11 +72,11 @@ class AppBackupManager @Inject constructor(
                 inStream.readBytes().decodeToString()
             } ?: throw IllegalStateException("Could not read favorites file.")
 
-            val importedFavorites = json.decodeFromString<List<MessageV2>>(jsonString)
+            val importedIds = json.decodeFromString<List<Int>>(jsonString)
             var count = 0
-            importedFavorites.forEach { msg ->
-                if (msg.id > 0) {
-                    messageV2Dao.updateFavorite(msg.id, true)
+            importedIds.forEach { id ->
+                if (id > 0) {
+                    messageV2Dao.updateFavorite(id, true)
                     count++
                 }
             }

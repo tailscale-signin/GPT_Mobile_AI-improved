@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +48,27 @@ import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelItem
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterModelRepository
 import kotlinx.coroutines.launch
 
+private enum class OpenRouterCategoryFilter {
+    ALL,
+    POPULAR,
+    FREE
+}
+
+private val POPULAR_MODEL_IDS = setOf(
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3.5-sonnet",
+    "anthropic/claude-3-haiku",
+    "google/gemini-2.0-flash-exp:free",
+    "google/gemini-flash-1.5",
+    "meta-llama/llama-3.3-70b-instruct",
+    "meta-llama/llama-3.1-8b-instruct",
+    "deepseek/deepseek-chat",
+    "deepseek/deepseek-r1",
+    "qwen/qwen-2.5-72b-instruct",
+    "mistralai/mistral-large-2407"
+)
+
 @Composable
 fun OpenRouterModelPickerDialog(
     currentModel: String,
@@ -55,6 +77,7 @@ fun OpenRouterModelPickerDialog(
     onModelSelected: (String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf(OpenRouterCategoryFilter.ALL) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var models by remember { mutableStateOf<List<OpenRouterModelItem>>(emptyList()) }
@@ -79,16 +102,32 @@ fun OpenRouterModelPickerDialog(
         loadModels(forceRefresh = false)
     }
 
-    val filteredModels = remember(searchQuery, models) {
+    val filteredModels = remember(searchQuery, selectedCategory, models) {
         val query = searchQuery.trim().lowercase()
-        if (query.isEmpty()) {
-            models
-        } else {
-            models.filter { model ->
+        models.filter { model ->
+            val matchesCategory = when (selectedCategory) {
+                OpenRouterCategoryFilter.ALL -> true
+                OpenRouterCategoryFilter.POPULAR -> {
+                    POPULAR_MODEL_IDS.any { model.id.contains(it, ignoreCase = true) } ||
+                        model.id.contains("gpt-4", ignoreCase = true) ||
+                        model.id.contains("claude-3", ignoreCase = true) ||
+                        model.id.contains("deepseek", ignoreCase = true)
+                }
+                OpenRouterCategoryFilter.FREE -> {
+                    model.id.endsWith(":free") ||
+                        (model.pricing?.prompt == "0" && model.pricing.completion == "0")
+                }
+            }
+
+            val matchesSearch = if (query.isEmpty()) {
+                true
+            } else {
                 model.id.lowercase().contains(query) ||
                     (model.name?.lowercase()?.contains(query) == true) ||
                     (model.description?.lowercase()?.contains(query) == true)
             }
+
+            matchesCategory && matchesSearch
         }
     }
 
@@ -138,7 +177,31 @@ fun OpenRouterModelPickerDialog(
                     singleLine = true
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Category chips (All, Popular, Free)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedCategory == OpenRouterCategoryFilter.ALL,
+                        onClick = { selectedCategory = OpenRouterCategoryFilter.ALL },
+                        label = { Text("All") }
+                    )
+                    FilterChip(
+                        selected = selectedCategory == OpenRouterCategoryFilter.POPULAR,
+                        onClick = { selectedCategory = OpenRouterCategoryFilter.POPULAR },
+                        label = { Text("Popular") }
+                    )
+                    FilterChip(
+                        selected = selectedCategory == OpenRouterCategoryFilter.FREE,
+                        onClick = { selectedCategory = OpenRouterCategoryFilter.FREE },
+                        label = { Text("Free") }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 when {
                     isLoading -> {

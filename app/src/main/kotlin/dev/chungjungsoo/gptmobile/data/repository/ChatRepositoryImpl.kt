@@ -60,7 +60,7 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.withContext
 
 class ChatRepositoryImpl @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val chatRoomV2Dao: ChatRoomV2Dao,
     private val messageV2Dao: MessageV2Dao,
     private val chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
@@ -78,7 +78,7 @@ class ChatRepositoryImpl @Inject constructor(
     private val localRuntime: LocalRuntime,
     private val localModelRepository: LocalModelRepository,
     private val modelCatalogRepository: ModelCatalogRepository,
-    @DeviceSocModel private val deviceSocModel: String
+    @param:DeviceSocModel private val deviceSocModel: String
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)

@@ -330,7 +330,7 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.85f))
+            .background(Color.Black.copy(alpha = 0.28f))
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -407,7 +407,7 @@ private fun ToolTraceRepeatedGroupCard(group: ToolTraceDisplayItem.RepeatedGroup
     }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.9f)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.28f)),
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -475,7 +475,7 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
     val callDescription = stringResource(R.string.tool_trace_call_content_description, event.callId, event.status.lowercase(Locale.ROOT))
     val serviceInfo = resolveToolServiceInfo(event.toolName, event.modelToolName, event.connectionNameSnapshot, event.connectionUidSnapshot)
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.85f)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.28f)),
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentDescription = callDescription },
     ) {
         Column(Modifier.padding(12.dp)) {

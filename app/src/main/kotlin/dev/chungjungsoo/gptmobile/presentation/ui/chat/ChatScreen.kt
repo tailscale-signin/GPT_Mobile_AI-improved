@@ -232,17 +232,19 @@ fun ChatScreen(
     }
 
     LaunchedEffect(isUserDragging, listState.isScrollInProgress, listState.canScrollForward, listState.lastScrolledBackward) {
-        isFollowingBottom = nextFollowBottom(
-            isFollowing = isFollowingBottom,
-            isUserScrolling = isUserDragging || listState.isScrollInProgress,
-            isScrollingAway = listState.lastScrolledBackward,
-            canScrollForward = listState.canScrollForward
-        )
+        if (!hasTargetMessage) {
+            isFollowingBottom = nextFollowBottom(
+                isFollowing = isFollowingBottom,
+                isUserScrolling = isUserDragging || listState.isScrollInProgress,
+                isScrollingAway = listState.lastScrolledBackward,
+                canScrollForward = listState.canScrollForward
+            )
+        }
     }
 
     LaunchedEffect(groupedMessages.userMessages.size) {
         val currentCount = groupedMessages.userMessages.size
-        if (currentCount > previousMessageCount) {
+        if (currentCount > previousMessageCount && !hasTargetMessage) {
             isFollowingBottom = true
         }
         previousMessageCount = currentCount
@@ -250,7 +252,7 @@ fun ChatScreen(
 
     ChatBottomAutoScroller(
         listState = listState,
-        isEnabled = shouldAutoScrollToBottom(
+        isEnabled = !hasTargetMessage && shouldAutoScrollToBottom(
             isFollowing = isFollowingBottom,
             isUserDragging = isUserDragging,
             isScrollInProgress = listState.isScrollInProgress,
@@ -340,7 +342,7 @@ fun ChatScreen(
                             },
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
                             onShowNextRevision = chatViewModel::showNextAssistantRevision,
-                            onContinueClick = { chatViewModel.askQuestion() }
+                            onContinueClick = { chatViewModel.sendContinueResponse() }
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
@@ -350,7 +352,7 @@ fun ChatScreen(
                     }
                 }
 
-                if (!isFollowingBottom && listState.canScrollForward) {
+                if (!isFollowingBottom && listState.canScrollForward && !hasTargetMessage) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()

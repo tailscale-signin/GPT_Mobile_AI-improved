@@ -18,12 +18,12 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
-import dev.chungjungsoo.gptmobile.MainActivity
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
-import dev.chungjungsoo.gptmobile.data.agent.LocalInferencePhase
-import dev.chungjungsoo.gptmobile.presentation.util.AppForegroundTracker
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
+import dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker
+import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,7 +56,8 @@ class AgentRunForegroundService : Service() {
     private fun observeActiveRuns() {
         activeRunsJob = serviceScope.launch {
             agentRunCoordinator.activeRuns
-                .map { runs ->
+                .map { runsMap ->
+                    val runs = runsMap.values.toList()
                     val summaries = runs.map {
                         ActiveRunSummary(
                             runId = it.runId,

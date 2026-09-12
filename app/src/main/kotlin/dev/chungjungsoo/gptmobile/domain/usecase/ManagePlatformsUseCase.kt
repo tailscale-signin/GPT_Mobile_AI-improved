@@ -33,8 +33,8 @@ class ManagePlatformsUseCase @Inject constructor(
         }
     }
 
-    fun sortPlatforms(platforms: List<PlatformV2>, sortType: SortType): List<PlatformV2> {
-        return when (sortType) {
+    fun sortPlatforms(platforms: List<PlatformV2>, sortType: SortType): List<PlatformV2> =
+        when (sortType) {
             SortType.ENABLED -> platforms.sortedWith(
                 compareByDescending<PlatformV2> { it.enabled }
                     .thenByDescending { it.isFavorite }
@@ -49,5 +49,4 @@ class ManagePlatformsUseCase @Inject constructor(
                 compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
             )
         }
-    }
 }

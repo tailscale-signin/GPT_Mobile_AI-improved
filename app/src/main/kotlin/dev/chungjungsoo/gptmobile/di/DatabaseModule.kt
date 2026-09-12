@@ -29,7 +29,7 @@ object DatabaseModule {
         .databaseBuilder(
             context,
             ChatDatabaseV2::class.java,
-            "chats_v2.db"
+            "chat_database_v2"
         )
         .addMigrations(
             ChatDatabaseV2Migrations.MIGRATION_10_11,

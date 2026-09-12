@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GPT Mobile</string>
     <string name="quick_settings_tile_name">GPT Assistant</string>
@@ -397,6 +398,13 @@
     <string name="enable_at_leat_one_platform">Enable at least one platform in Settings</string>
     <string name="delete_selected_chats">Delete Selected Chats</string>
     <string name="this_operation_can_t_be_undone">This action cannot be undone. Selected conversations will be permanently deleted.</string>
+    <string name="archived_chats">Archived Chats</string>
+    <string name="archived_chats_count">Archived (%1$d)</string>
+    <string name="archive_chat">Archive</string>
+    <string name="unarchive_chat">Unarchive</string>
+    <string name="chat_archived">Chat archived</string>
+    <string name="chat_unarchived">Chat unarchived</string>
+    <string name="disable_platform">Disable Platform</string>
 
     <!-- Migration Assistant -->
     <string name="migration_assistant">Migration Assistant</string>

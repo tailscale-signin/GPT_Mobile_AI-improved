@@ -90,6 +90,13 @@ extensions.configure<ApplicationExtension> {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.all {
+            it.testLogging {
+                events("passed", "skipped", "failed", "standardError")
+            }
+        }
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

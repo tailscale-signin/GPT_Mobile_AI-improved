@@ -1,0 +1,15 @@
+        viewModelScope.launch {
+            val allChats = chatRepository.fetchChatListV2()
+            onResult(allChats.find { it.id == chatId })
+        }
+    }
+
+    fun togglePlatformFavorite(platform: PlatformV2) {
+        viewModelScope.launch {
+            val updated = platform.copy(isFavorite = !platform.isFavorite)
+            settingRepository.updatePlatformV2(updated)
+            fetchPlatformStatus()
+        }
+    }
+
+    fun fetchPlatformStatus() {

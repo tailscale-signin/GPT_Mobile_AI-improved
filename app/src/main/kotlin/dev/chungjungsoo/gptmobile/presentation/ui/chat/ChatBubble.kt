@@ -1,12 +1,19 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -81,6 +88,18 @@ internal fun shouldShowContinuePrompt(text: String, isLoading: Boolean): Boolean
         lower.contains("reply \"continue\"") ||
         lower.contains("say continue") ||
         lower.contains("type continue") ||
+        lower.contains("would you like me to continue") ||
+        lower.contains("would you like to continue") ||
+        lower.contains("shall i continue") ||
+        lower.contains("should i continue") ||
+        lower.contains("do you want me to continue") ||
+        lower.contains("do you want me to keep going") ||
+        lower.contains("let me know if you want me to continue") ||
+        lower.contains("let me know if you'd like me to continue") ||
+        lower.contains("let me know if you want me to keep going") ||
+        lower.contains("let me know if i should continue") ||
+        lower.contains("proceed?") ||
+        lower.endsWith("proceed") ||
         (trimmed.count { it == '`' } % 2 != 0) // unclosed code block / truncated
 }
 
@@ -189,6 +208,7 @@ fun OpponentChatBubble(
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
     val showContinueAction = remember(text, isLoading) { shouldShowContinuePrompt(text, isLoading) }
+    var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
 
     var areDetailsVisible by rememberSaveable(contentIdentity) {
         mutableStateOf(isLoading)
@@ -313,7 +333,8 @@ fun OpponentChatBubble(
                 }
             }
 
-            // Minimal transparent timestamp & continuation chip below bubble
+            // Minimal transparent continuation chip & bottom-right aligned timestamp
+            val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -321,25 +342,52 @@ fun OpponentChatBubble(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                AnimatedVisibility(
+                    visible = isContinueVisible,
+                    enter = fadeIn(tween(300)),
+                    exit = fadeOut(tween(500))
+                ) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
+                    val pulseAlpha by infiniteTransition.animateFloat(
+                        initialValue = 0.45f,
+                        targetValue = 0.95f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulseAlpha"
+                    )
+
+                    SuggestionChip(
+                        onClick = {
+                            continueDismissed = true
+                            onContinueClick?.invoke()
+                        },
+                        label = { Text("Continue") },
+                        icon = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = "Continue",
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
                 if (formattedTime.isNotBlank()) {
                     Text(
                         text = formattedTime,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.alpha(0.5f)
-                    )
-                } else {
-                    Spacer(Modifier.width(1.dp))
-                }
-
-                if (showContinueAction && onContinueClick != null) {
-                    SuggestionChip(
-                        onClick = onContinueClick,
-                        label = { Text("Continue") },
-                        icon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Continue", modifier = Modifier.size(14.dp)) },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        )
+                        modifier = Modifier
+                            .alpha(0.5f)
+                            .padding(start = 8.dp)
                     )
                 }
             }

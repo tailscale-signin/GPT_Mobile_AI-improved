@@ -346,6 +346,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun togglePlatformFavorite(platform: PlatformV2) {
+        viewModelScope.launch {
+            val updated = platform.copy(isFavorite = !platform.isFavorite)
+            settingRepository.updatePlatformV2(updated)
+            fetchPlatformStatus()
+        }
+    }
+
     fun fetchPlatformStatus() {
         viewModelScope.launch {
             val platforms = settingRepository.fetchPlatformV2s()

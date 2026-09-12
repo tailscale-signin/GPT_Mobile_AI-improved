@@ -10,6 +10,8 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -44,6 +46,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
@@ -163,6 +166,7 @@ fun ChatScreen(
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
+    val sessionDisabledPlatformUids by chatViewModel.sessionDisabledPlatformUids.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
     val canUseChat = (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
@@ -278,7 +282,11 @@ fun ChatScreen(
                 scrollBehavior,
                 chatViewModel::openChatTitleDialog,
                 chatViewModel::openChatModelDialog,
-                onExportChatItemClick = { exportChat(context, chatViewModel) }
+                onExportChatItemClick = { exportChat(context, chatViewModel) },
+                enabledPlatformsInChat = chatViewModel.enabledPlatformsInChat,
+                sessionDisabledPlatformUids = sessionDisabledPlatformUids,
+                platformLookup = enabledPlatformLookup,
+                onTogglePlatformDisabled = chatViewModel::toggleSessionPlatformDisabled
             )
         }
     ) { innerPadding ->
@@ -333,7 +341,8 @@ fun ChatScreen(
                                 Toast.makeText(context, R.string.favorite, Toast.LENGTH_SHORT).show()
                             },
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
-                            onShowNextRevision = chatViewModel::showNextAssistantRevision
+                            onShowNextRevision = chatViewModel::showNextAssistantRevision,
+                            onContinueClick = { chatViewModel.askQuestion() }
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
@@ -495,7 +504,8 @@ private fun ChatMessagePair(
     onFavoriteClick: () -> Unit,
     onFavoriteLongPress: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
-    onShowNextRevision: (Int, Int) -> Unit
+    onShowNextRevision: (Int, Int) -> Unit,
+    onContinueClick: () -> Unit = {}
 ) {
     val selectedAssistantMessage = assistantMessages.getOrNull(platformIndexState)
     val assistantContent = selectedAssistantMessage?.effectiveContent() ?: ""
@@ -528,6 +538,7 @@ private fun ChatMessagePair(
                 UserChatBubble(
                     modifier = Modifier.widthIn(max = maximumUserChatBubbleWidth),
                     text = message.content,
+                    timestamp = message.createdAt * 1000L,
                     files = message.attachments.map { it.filePathForDisplay },
                     onLongPress = { isDropDownMenuExpanded = true }
                 )
@@ -587,6 +598,7 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     text = assistantContent,
+                    timestamp = selectedAssistantMessage?.let { it.createdAt * 1000L },
                     thoughts = assistantThoughts,
                     timeline = assistantTimeline,
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
@@ -619,7 +631,8 @@ private fun ChatMessagePair(
                     onFavoriteClick = onFavoriteClick,
                     onFavoriteLongPress = onFavoriteLongPress,
                     onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
-                    onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) }
+                    onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) },
+                    onContinueClick = onContinueClick
                 )
             }
         }
@@ -695,7 +708,11 @@ private fun ChatTopBar(
     scrollBehavior: TopAppBarScrollBehavior,
     onChatTitleItemClick: () -> Unit,
     onChatModelItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit
+    onExportChatItemClick: () -> Unit,
+    enabledPlatformsInChat: List<String> = emptyList(),
+    sessionDisabledPlatformUids: Set<String> = emptySet(),
+    platformLookup: Map<String, PlatformV2> = emptyMap(),
+    onTogglePlatformDisabled: (String) -> Unit = {}
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
@@ -732,7 +749,11 @@ private fun ChatTopBar(
                     onChatTitleItemClick.invoke()
                     isDropDownMenuExpanded = false
                 },
-                onExportChatItemClick = onExportChatItemClick
+                onExportChatItemClick = onExportChatItemClick,
+                enabledPlatformsInChat = enabledPlatformsInChat,
+                sessionDisabledPlatformUids = sessionDisabledPlatformUids,
+                platformLookup = platformLookup,
+                onTogglePlatformDisabled = onTogglePlatformDisabled
             )
         },
         scrollBehavior = scrollBehavior
@@ -745,7 +766,11 @@ fun ChatDropdownMenu(
     isMenuItemEnabled: Boolean,
     onDismissRequest: () -> Unit,
     onChatTitleItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit
+    onExportChatItemClick: () -> Unit,
+    enabledPlatformsInChat: List<String> = emptyList(),
+    sessionDisabledPlatformUids: Set<String> = emptySet(),
+    platformLookup: Map<String, PlatformV2> = emptyMap(),
+    onTogglePlatformDisabled: (String) -> Unit = {}
 ) {
     DropdownMenu(
         modifier = Modifier.wrapContentSize(),
@@ -766,6 +791,29 @@ fun ChatDropdownMenu(
                 onDismissRequest()
             }
         )
+
+        // Session-level platform toggles
+        if (enabledPlatformsInChat.isNotEmpty()) {
+            HorizontalDivider()
+            enabledPlatformsInChat.forEach { uid ->
+                val platform = platformLookup[uid]
+                val name = platform?.name ?: uid
+                val isSessionActive = uid !in sessionDisabledPlatformUids
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    trailingIcon = {
+                        if (isSessionActive) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = "Active for this session",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    },
+                    onClick = { onTogglePlatformDisabled(uid) }
+                )
+            }
+        }
     }
 }
 
@@ -885,6 +933,13 @@ fun ChatInputBox(
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
     val hasQuestionText = inputState.text.isNotEmpty()
 
+    // 2-second fade-out on generation start, 1-second fade-in on return to idle
+    val inputAlpha by animateFloatAsState(
+        targetValue = if (isRunning) 0.0f else 1.0f,
+        animationSpec = tween(durationMillis = if (isRunning) 2000 else 1000),
+        label = "chat_input_box_alpha"
+    )
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -916,7 +971,7 @@ fun ChatInputBox(
             BasicTextField(
                 state = inputState,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = chatEnabled,
+                enabled = chatEnabled && !isRunning,
                 textStyle = mergedStyle,
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 lineLimits = chatInputLineLimits,
@@ -928,7 +983,8 @@ fun ChatInputBox(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            enabled = chatEnabled,
+                            enabled = chatEnabled && !isRunning,
+                            modifier = Modifier.alpha(inputAlpha),
                             onClick = { filePickerLauncher.launch("image/*") }
                         ) {
                             Icon(
@@ -940,6 +996,7 @@ fun ChatInputBox(
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(start = 8.dp)
+                                .alpha(inputAlpha)
                         ) {
                             if (inputState.text.isEmpty()) {
                                 Text(
@@ -962,6 +1019,7 @@ fun ChatInputBox(
                                 )
                             } else {
                                 Icon(
+                                    modifier = Modifier.alpha(inputAlpha),
                                     imageVector = ImageVector.vectorResource(id = R.drawable.ic_send),
                                     contentDescription = stringResource(R.string.send)
                                 )

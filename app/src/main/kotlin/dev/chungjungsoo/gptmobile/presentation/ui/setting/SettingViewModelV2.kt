@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.backup.AppBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.domain.usecase.ManagePlatformsUseCase
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +23,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SettingViewModelV2 @Inject constructor(
     private val settingRepository: SettingRepository,
-    private val appBackupManager: AppBackupManager
+    private val appBackupManager: AppBackupManager,
+    private val managePlatformsUseCase: ManagePlatformsUseCase
 ) : ViewModel() {
 
     val platformState: StateFlow<List<PlatformV2>> = settingRepository.observePlatformV2s()
@@ -67,6 +69,16 @@ class SettingViewModelV2 @Inject constructor(
         platform?.let { target ->
             val updated = target.copy(enabled = !target.enabled)
             updatePlatform(updated)
+        }
+    }
+
+    fun togglePlatformFavorite(platformId: Int) {
+        val platform = platformState.value.find { it.id == platformId }
+        platform?.let { target ->
+            viewModelScope.launch {
+                managePlatformsUseCase.toggleFavoritePlatform(target.id, !target.isFavorite)
+                fetchPlatforms()
+            }
         }
     }
 

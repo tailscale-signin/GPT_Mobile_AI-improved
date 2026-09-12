@@ -7,6 +7,7 @@ on:
       - main
       - master
       - release-*
+      - 0.9.2.3
 
 permissions:
   contents: write
@@ -204,21 +205,39 @@ jobs:
           VERSION_NAME=$(grep 'versionName =' app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           VERSION_CODE=$(grep 'versionCode =' app/build.gradle.kts | head -n 1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          REF_NAME="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')}"
+
+          # Determine whether this is a pre-release
+          IS_PRERELEASE="false"
+          if [[ "$REF_NAME" != "main" && "$REF_NAME" != "master" ]] || [[ "$VERSION_NAME" =~ -pre ]]; then
+            IS_PRERELEASE="true"
+          fi
+
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            TAG_NAME="v${VERSION_NAME}-pre.${SHORT_SHA}"
+            RELEASE_TITLE="v${VERSION_NAME} (Build ${SHORT_SHA}) - Pre-release"
+          else
+            TAG_NAME="v${VERSION_NAME}"
+            RELEASE_TITLE="v${VERSION_NAME} - GPT Mobile Improved"
+          fi
+
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "tag_name=v${VERSION_NAME}" >> "$GITHUB_OUTPUT"
-          echo "pre_tag_name=v${VERSION_NAME}-pre.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "Detected version: v$VERSION_NAME (code: $VERSION_CODE, sha: $SHORT_SHA)"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "release_title=$RELEASE_TITLE" >> "$GITHUB_OUTPUT"
+          echo "Detected: $RELEASE_TITLE with tag $TAG_NAME (code: $VERSION_CODE, prerelease: $IS_PRERELEASE)"
 
       - name: Publish or Update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.version_info.outputs.tag_name }}
           VERSION_NAME: ${{ steps.version_info.outputs.version_name }}
-          SHORT_SHA: ${{ steps.version_info.outputs.short_sha }}
+          IS_PRERELEASE: ${{ steps.version_info.outputs.is_prerelease }}
+          RELEASE_TITLE: ${{ steps.version_info.outputs.release_title }}
         run: |
-          echo "Publishing GitHub Official Latest Release for tag: $TAG_NAME"
+          echo "Publishing GitHub Release for tag: $TAG_NAME (prerelease: $IS_PRERELEASE)"
 
           shopt -s nullglob globstar
           ASSETS_TO_UPLOAD=()
@@ -239,24 +258,31 @@ jobs:
 
           echo "Found ${#ASSETS_TO_UPLOAD[@]} asset(s) to publish: ${ASSETS_TO_UPLOAD[*]}"
 
-          RELEASE_NOTES_BODY="Official release build for v${VERSION_NAME} (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
+          RELEASE_NOTES_BODY="Release build for v${VERSION_NAME} (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
           if [ -f "RELEASE_NOTES.md" ]; then
             RELEASE_NOTES_BODY=$(cat RELEASE_NOTES.md)
           fi
 
+          FLAGS=()
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            FLAGS+=(--prerelease)
+          else
+            FLAGS+=(--latest)
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Release $TAG_NAME already exists, uploading/overwriting release assets and updating to latest non-prerelease..."
-            gh release edit "$TAG_NAME" --prerelease=false --latest --title "v${VERSION_NAME} - GPT Mobile Improved" --notes "$RELEASE_NOTES_BODY"
+            echo "Release $TAG_NAME already exists, editing and uploading assets..."
+            gh release edit "$TAG_NAME" "${FLAGS[@]}" --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY"
             gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
-            echo "Creating fresh Official Latest GitHub Release $TAG_NAME..."
+            echo "Creating fresh GitHub Release $TAG_NAME..."
             gh release create "$TAG_NAME" \
               "${ASSETS_TO_UPLOAD[@]}" \
-              --latest \
-              --title "v${VERSION_NAME} - GPT Mobile Improved" \
+              "${FLAGS[@]}" \
+              --title "$RELEASE_TITLE" \
               --notes "$RELEASE_NOTES_BODY"
           fi
-          echo "Official GitHub Latest Release $TAG_NAME published successfully."
+          echo "GitHub Release $TAG_NAME published successfully."
 
       - name: Resolve existing build failure issues on success
         if: success()

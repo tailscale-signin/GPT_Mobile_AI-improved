@@ -205,12 +205,13 @@ class AgentRunForegroundService : Service() {
         }
     }
 
-    private fun buildCompletionNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildCompletionNotification(): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_gpt_mobile_monochrome_foreground)
         .setContentTitle(getString(R.string.agent_completion_notification_title))
         .setContentText(getString(R.string.agent_completion_notification_text))
         .setContentIntent(buildOpenAppPendingIntent(2))
         .setAutoCancel(true)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_STATUS)
         .build()
 
@@ -235,10 +236,21 @@ class AgentRunForegroundService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             )
         )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                COMPLETION_CHANNEL_ID,
+                getString(R.string.agent_completion_notification_title),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = getString(R.string.agent_completion_notification_text)
+                enableVibration(true)
+            }
+        )
     }
 
     companion object {
         private const val CHANNEL_ID = "agent_runs"
+        private const val COMPLETION_CHANNEL_ID = "agent_completion"
         private const val NOTIFICATION_ID = 8001
         private const val ACTION_CANCEL_ALL = "dev.chungjungsoo.gptmobile.action.CANCEL_AGENT_RUNS"
         private const val WAKELOCK_TAG = "dev.chungjungsoo.gptmobile:agent_execution_wakelock"

@@ -12,8 +12,11 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import java.net.URI
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.text.Normalizer
 import java.time.Clock
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -65,7 +68,7 @@ class WebSearchTool(
                         buildJsonObject {
                             put("type", "integer")
                             put("minimum", 1)
-                            put("maximum", 100)
+                            put("maximum", 10)
                         }
                     )
                     put("includeDomains", domainArraySchema())
@@ -178,82 +181,128 @@ class WebSearchTool(
 
     private suspend fun queryDuckDuckGo(request: WebSearchRequest): List<JsonObject> {
         val encodedQuery = URLEncoder.encode(request.query, StandardCharsets.UTF_8.name())
-        val url = "https://html.duckduckgo.com/html/?q=$encodedQuery"
-        val response = networkClient().get(url) {
-            header("User-Agent", "Mozilla/5.0 (Android; Mobile; rv:109.0) Gecko/114.0 Firefox/114.0")
-        }
-        if (response.status.value !in 200..299) {
-            throw IllegalStateException("DuckDuckGo HTML search HTTP ${response.status.value}")
-        }
-        val html = response.bodyAsText()
-        val parsed = parseDuckDuckGoHtml(html)
-        var filtered = parsed
-        if (request.includeDomains.isNotEmpty()) {
-            filtered = filtered.filter { result ->
-                val resultUrl = result["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                request.includeDomains.any { domain -> resultUrl.contains(domain, ignoreCase = true) }
+        val endpoints = listOf(
+            "https://html.duckduckgo.com/html/?q=$encodedQuery",
+            "https://duckduckgo.com/html/?q=$encodedQuery"
+        )
+
+        for (url in endpoints) {
+            try {
+                val response = networkClient().get(url) {
+                    header("User-Agent", USER_AGENT)
+                    header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    header("Accept-Language", "en-US,en;q=0.9")
+                }
+                if (response.status.value in 200..299) {
+                    val html = response.bodyAsText()
+                    if (html.isNotBlank()) {
+                        val parsed = parseDuckDuckGoHtml(html, request.maxResults)
+                        if (parsed.isNotEmpty()) {
+                            var filtered = parsed
+                            if (request.includeDomains.isNotEmpty()) {
+                                filtered = filtered.filter { result ->
+                                    val resultUrl = result["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                                    val host = runCatching { URI(resultUrl).host.orEmpty() }.getOrDefault("")
+                                    request.includeDomains.any { host.endsWith(it, ignoreCase = true) }
+                                }
+                            }
+                            if (request.excludeDomains.isNotEmpty()) {
+                                filtered = filtered.filter { result ->
+                                    val resultUrl = result["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                                    val host = runCatching { URI(resultUrl).host.orEmpty() }.getOrDefault("")
+                                    request.excludeDomains.none { host.endsWith(it, ignoreCase = true) }
+                                }
+                            }
+                            if (filtered.isNotEmpty()) {
+                                return filtered.take(request.maxResults)
+                            }
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Continue to next endpoint
             }
         }
-        if (request.excludeDomains.isNotEmpty()) {
-            filtered = filtered.filter { result ->
-                val resultUrl = result["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                request.excludeDomains.none { domain -> resultUrl.contains(domain, ignoreCase = true) }
-            }
-        }
-        return filtered.take(request.maxResults)
+        return emptyList()
     }
 
-    private fun parseDuckDuckGoHtml(html: String): List<JsonObject> {
+    private fun parseDuckDuckGoHtml(html: String, maxResults: Int): List<JsonObject> {
         val results = mutableListOf<JsonObject>()
-        // Match DuckDuckGo result blocks: class="result__body" or class="result results_links"
-        val linkRegex = Regex("""<a class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>|<a class="result__snippet[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
-        val titleRegex = Regex("""<a class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
-        val snippetRegex = Regex("""<a class="result__snippet[^"]*"[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE)
 
-        val titleMatches = titleRegex.findAll(html).toList()
-        val snippetMatches = snippetRegex.findAll(html).toList()
+        val resultBlockRegex = Regex(
+            """(?:class="[^"]*(?:web-result|result\b|result__body)[^"]*"|data-testid="result")[^>]*>(.*?)(?=(?:class="[^"]*(?:web-result|result\b|result__body)[^"]*"|data-testid="result")|</body>|</html>|$)""",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+        )
+        val blocks = resultBlockRegex.findAll(html).map { it.groupValues[1] }.toList()
 
-        for (i in titleMatches.indices) {
-            val titleMatch = titleMatches[i]
-            val rawHref = titleMatch.groupValues[1]
-            val rawTitle = cleanHtml(titleMatch.groupValues[2])
-            val actualUrl = extractActualUrl(rawHref)
-            val snippet = if (i < snippetMatches.size) {
-                cleanHtml(snippetMatches[i].groupValues[1])
-            } else {
-                ""
-            }
+        val candidateBlocks = if (blocks.isNotEmpty()) blocks else html.split(Regex("""<div[^>]+class="[^"]*result[^"]*"[^>]*>""", RegexOption.IGNORE_CASE)).drop(1)
 
-            if (actualUrl.isNotBlank() && rawTitle.isNotBlank()) {
+        val titleRegex = Regex("""<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val fallbackTitleRegex = Regex("""<a[^>]+href="([^"]+)"[^>]+data-testid="result-title-a"[^>]*>(.*?)</a>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val h2TitleRegex = Regex("""<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+
+        val snippetRegex = Regex("""<(?:a|div|span)[^>]+class="[^"]*(?:result__snippet|snippet)[^"]*"[^>]*>(.*?)</(?:a|div|span)>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val fallbackSnippetRegex = Regex("""<(?:div|span|p)[^>]+data-testid="result-snippet"[^>]*>(.*?)</(?:div|span|p)>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+
+        for (block in candidateBlocks) {
+            val titleMatch = titleRegex.find(block) ?: fallbackTitleRegex.find(block) ?: h2TitleRegex.find(block)
+            val rawUrl = titleMatch?.groupValues?.get(1).orEmpty()
+            val rawTitle = titleMatch?.groupValues?.get(2).orEmpty()
+
+            val url = extractActualUrl(rawUrl)
+            val title = cleanHtml(rawTitle)
+
+            val snippetMatch = snippetRegex.find(block) ?: fallbackSnippetRegex.find(block)
+            val rawSnippet = snippetMatch?.groupValues?.get(1).orEmpty()
+            val snippet = cleanHtml(rawSnippet)
+
+            if (url.isNotBlank() && title.isNotBlank()) {
                 results += buildJsonObject {
-                    put("title", rawTitle)
-                    put("url", actualUrl)
+                    put("title", title)
+                    put("url", url)
                     put("snippet", snippet)
                 }
             }
+
+            if (results.size >= maxResults) {
+                break
+            }
         }
+
         return results
     }
 
-    private fun extractActualUrl(href: String): String {
-        // DuckDuckGo result URLs are formatted as /l/?uddg=https%3A%2F%2Fexample.com...
-        if (href.contains("uddg=")) {
-            val uddg = href.substringAfter("uddg=").substringBefore("&")
-            return runCatching { java.net.URLDecoder.decode(uddg, StandardCharsets.UTF_8.name()) }.getOrDefault(href)
+    private fun extractActualUrl(rawUrl: String): String {
+        if (rawUrl.isBlank()) return ""
+        val resolvedUrl = when {
+            rawUrl.startsWith("//") -> "https:$rawUrl"
+            rawUrl.startsWith("/") && !rawUrl.startsWith("/l/?") && !rawUrl.startsWith("/html/?") -> "https://duckduckgo.com$rawUrl"
+            else -> rawUrl
         }
-        return if (href.startsWith("//")) "https:$href" else href
+        val uri = runCatching { URI(resolvedUrl) }.getOrNull() ?: return resolvedUrl
+        val queryParams = uri.rawQuery?.split("&").orEmpty()
+        for (param in queryParams) {
+            val parts = param.split("=", limit = 2)
+            if (parts.size == 2 && parts[0] == "uddg") {
+                return runCatching { URLDecoder.decode(parts[1], StandardCharsets.UTF_8.name()) }.getOrDefault(resolvedUrl)
+            }
+        }
+        return resolvedUrl
     }
 
-    private fun cleanHtml(html: String): String {
-        return html
-            .replace(Regex("<[^>]*>"), "")
+    private fun cleanHtml(text: String): String {
+        val withoutTags = text.replace(Regex("<[^>]+>"), " ")
+        val decoded = withoutTags
             .replace("&amp;", "&")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&#39;", "'")
-            .replace(Regex("\\s+"), " ")
-            .trim()
+            .replace("&nbsp;", " ")
+        val normalized = Normalizer.normalize(decoded, Normalizer.Form.NFKC)
+        return normalized.replace(Regex("\\s+"), " ").trim()
     }
 
     private fun parseRequest(arguments: JsonObject): WebSearchRequest? {
@@ -277,7 +326,7 @@ class WebSearchTool(
 
         if (query.isBlank()) errors += "query is required"
         if (arguments["maxResults"] != null && maxResults == null) errors += "maxResults must be an integer"
-        if (maxResults != null && maxResults !in 1..100) errors += "maxResults must be between 1 and 100"
+        if (maxResults != null && maxResults !in 1..10) errors += "maxResults must be between 1 and 10"
         if (arguments["recencyDays"] != null && recencyDays == null) errors += "recencyDays must be an integer"
         if (recencyDays != null && recencyDays < 0) errors += "recencyDays must be nonnegative"
         if (arguments["includeDomains"] != null && arguments["includeDomains"] !is JsonArray) errors += "includeDomains must be an array"
@@ -374,6 +423,10 @@ class WebSearchTool(
     private fun stringArgument(arguments: JsonObject, name: String): String? = runCatching {
         arguments[name]?.let { stringValue(it) }
     }.getOrNull()
+
+    private companion object {
+        const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    }
 }
 
 private data class WebSearchRequest(

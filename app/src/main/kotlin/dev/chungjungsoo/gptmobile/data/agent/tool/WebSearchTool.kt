@@ -30,7 +30,6 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.isString
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -418,7 +417,7 @@ class WebSearchTool(
     )
 
     private fun intArgument(arguments: JsonObject, name: String): Int? = runCatching {
-        arguments[name]?.jsonPrimitive?.takeUnless { it.isString }?.intOrNull
+        arguments[name]?.jsonPrimitive?.takeUnless { it.toString().startsWith("\"") }?.intOrNull
     }.getOrNull()
 
     private fun stringArgument(arguments: JsonObject, name: String): String? = runCatching {
@@ -466,5 +465,5 @@ private fun JsonObject.highlights(): String? = this["highlights"]
 
 private fun stringValue(element: JsonElement): String? {
     val primitive = runCatching { element.jsonPrimitive }.getOrNull() ?: return null
-    return primitive.contentOrNull?.takeIf { primitive.isString }
+    return primitive.contentOrNull?.takeIf { primitive.toString().startsWith("\"") }
 }

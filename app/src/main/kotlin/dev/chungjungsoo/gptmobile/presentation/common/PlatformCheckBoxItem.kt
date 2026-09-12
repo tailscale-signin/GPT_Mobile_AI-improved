@@ -157,7 +157,7 @@ fun PlatformCheckBoxItem(
 /**
  * Derives consistent color-coded palette for platform beveled label badges.
  */
-private fun getBeveledLabelColors(label: String): Triple<Color, Color, Color> {
+fun getBeveledLabelColors(label: String): Triple<Color, Color, Color> {
     val hash = abs(label.hashCode())
     val palette = listOf(
         Triple(Color(0x2A1976D2), Color(0xFF1976D2), Color(0xFF64B5F6)), // Blue

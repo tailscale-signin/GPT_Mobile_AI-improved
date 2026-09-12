@@ -1,52 +1,52 @@
-# AI-Memory.md
+# AI Memory
 
-## Repository Overview
-**GPT_Mobile_AI-improved** is an Android application built with Kotlin and Jetpack Compose, designed to interact with multiple AI platforms (OpenRouter, Ollama, etc.) via a unified interface. It features advanced capabilities like MCP tool integration, real-time SSE streaming, platform management, favorites/archiving, and background execution resilience.
+Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-## Repository Index
+> Index status: comprehensive and actively maintained on `main`, `0.9.1`, `release-0.9.1`, and `feature/v0.9.2-initiation`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed. Includes v0.9.2 enhancements: Room Schema 19 (`MIGRATION_18_19`) adding `is_archived` to `chats_v2`, `labels` and `is_favorite` to `platform_v2`, and `timestamp` to `messages_v2`, `ArchiveConversationUseCase`, `ManagePlatformsUseCase`, `ValidatePlatformConnectionUseCase`, `ModelProviderService`, swipe-to-archive/delete gestures, transparent timestamps, expandable tool trace call grouping, beveled color-coded label badges, and background run completion haptic vibration.
+>
+> **Latest Official Release:** [v0.9.1.1](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.1.1) (`prerelease: false`, `draft: false`, official latest release). Build pipeline configured with automated `apksigner` code signing and stripped `-unsigned` suffixes so all released APK artifacts are cleanly named signed release packages with accompanying `.idsig` v4 signature files: universal APK (`app-universal-release.apk`), ARM64 APK (`app-arm64-v8a-release.apk`), and x86_64 APK (`app-x86_64-release.apk`).
+> **Current Version:** `0.9.2` (in development on `feature/v0.9.2-initiation`) — Builds upon `0.9.1.1` (versionCode 34) with full Room Schema 19 support, conversation archiving and management, platform favorites and labels, transparent chat timestamps, and background execution notifications.
 
-### 📂 `data/`
-- **`database/ChatDatabase.kt`**: Room database definition. Currently at **Schema Version 19**. Includes migrations for `isArchived`, `labels`, and `timestamp` fields.
-- **`dao/ConversationDao.kt`**: DAO layer handling conversation, platform, and message CRUD operations. Supports archived queries and favorite grouping.
-- **`model/Conversation.kt`**: Domain data class for conversations. Maps to `ConversationEntity`.
-- **`model/AIPlatform.kt`**: Domain data class for AI platforms. Includes `isFavorite`, `labels`, and `sortType` support.
-- **`backup/BackupService.kt`**: Handles export/import of favorites (`favoriteGroups`) and messages (`messageGroups`).
+## 1. Repository Overview
 
-### 🧠 `domain/`
-- **`usecase/ArchiveConversationUseCase.kt`**: Logic for archiving/unarchiving conversations.
-- **`usecase/ManagePlatformsUseCase.kt`**: Handles platform sorting (`SortType: ENABLED, FAVORITES, NAME`), favoriting, and label management.
-- **`usecase/ValidatePlatformConnectionUseCase.kt`**: Lightweight probe to validate API keys/platform connectivity.
-- **`service/ModelProviderService.kt`**: Fetches and caches models from OpenRouter API. Supports "Popular" and "Free" category filtering.
+GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud, self-hosted, and on-device large language models. It supports OpenAI-compatible services, Anthropic, Google Gemini, Groq, OpenRouter, Ollama, and local LiteRT models. It also includes an autonomous agent runtime, Model Context Protocol (MCP) tools and marketplace, resilient streaming, background execution, chat search/history, multi-key API credential rotation with dynamic UI management and seamless streaming fallback, and encrypted credential storage.
 
-### 🎨 `ui/`
-- **`screen/main/HomeScreen.kt`**: Main entry point. Features swipe-to-archive/delete gestures, archived conversations bottom bar, and anchored favorites view.
-- **`screen/chat/ChatScreen.kt` / `ChatInputBar.kt`**: Chat interface with 2s/1s fade animation during generation, session platform disable toggle, transparent timestamps, and continuation prompt detection.
-- **`component/chat/ChatBubble.kt`**: Pure black bubbles with 2x transparency. Details button positioned top-right.
-- **`component/tool/ToolTraceBlock.kt`**: Handles tool call tracing with grouping logic (>3 identical calls show expandable count card).
-- **`component/platform/PlatformCheckBoxItem.kt`**: Platform selection item with beveled color-coded label badges, long-press favorite toggle, and `isFavorite` state.
-- **`dialog/OpenRouterModelPickerDialog.kt`**: Model picker with Popular/Free tabs and ApiKeyValidator integration.
+### Architecture and stack
 
-### 🔧 `service/`
-- **Foreground Service**: Handles background agent execution. Triggers haptic vibration on completion when app is backgrounded.
+- **Architecture:** Clean MVVM with repository, domain-boundary abstractions, and data-source layers.
+- **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
+- **Motion & Transitions:** Theme motion primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`) in `presentation.theme.Motion.kt` backing collapsible details animations and responsive indicator state transitions.
+- **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
+- **Dependency injection:** Hilt/Dagger with KSP.
+- **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services). Includes 3-second delay and rotation on high-demand spikes ("This model is currently experiencing high demand").
+- **Persistence:** Room (`ChatDatabaseV2`, Schema version 19) with full FTS search and DataStore preferences (`SettingDataSource`). Migration 16->17 adds `disable_remote_tools` and `disable_local_tools` integer columns to `platform_v2`. Migration 17->18 adds `ollama_options` column to `platform_v2`. Migration 18->19 adds `is_archived` to `chats_v2`, `labels` and `is_favorite` to `platform_v2`, and `timestamp` to `messages_v2`.
+- **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
+- **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention, speculative decoding); Ollama supported for self-hosted network inference with 5-minute timeout resilience loop, emulator alias fallback (`10.0.2.2`), and configurable advanced options.
+- **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
+- **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.1.1` (versionCode 34). Release workflow automatically runs `apksigner` and outputs clean signed artifacts (`app-*-release.apk` with `.idsig` v4 signatures).
+- **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing (`ChatDatabaseV2MigrationsTest`), and ktlint 1.3.1 using Android Studio style.
 
-## Engineering Guidelines (Do's)
-1. **Architecture**: Strictly follow Clean Architecture (Data → Domain → UI). Use UseCases for business logic and Services for external interactions.
-2. **State Management**: Use `ViewModel` with `StateFlow`/`SharedFlow` for reactive UI updates. Avoid mutable state in composables.
-3. **Database**: Use Room with explicit migrations. Always update schema version and add migration tests when modifying entities.
-4. **UI Components**: Prefer small, reusable Compose components. Use semantic modifiers for layout and accessibility.
-5. **Error Handling**: Provide detailed error messages via `ValidatePlatformConnectionUseCase` and UI feedback loops.
+## 2. Repository Index
 
-## Anti-Patterns & Traps (Don'ts)
-1. **No Hardcoded Secrets**: API keys and endpoints must be injected or stored securely in preferences/keystore.
-2. **Avoid Full DB Scans**: Use indexed DAO queries for favorites/archived lists. Do not load all conversations into memory.
-3. **No Direct UI-State Mutation**: Always route state changes through ViewModel/UseCase flows.
-4. **Migration Safety**: Never drop tables in migrations. Always use `addCallback` or explicit column additions to preserve user data.
-5. **Blocking on Main Thread**: All network calls (OpenRouter, MCP) must be offloaded to `IO` dispatchers.
+### Root
 
-## v0.9.2 Implementation Status
-**Branch:** `feature/v0.9.2-initiation`
-**Status:** ✅ **ALL REQUIREMENTS IMPLEMENTED**
-- **Data Layer:** Schema 19 migration (`isArchived`, `labels`, `timestamp`), Backup service updated for groups.
-- **Domain:** `ArchiveConversationUseCase`, `ModelProviderService`, `ValidatePlatformConnectionUseCase`, `ManagePlatformsUseCase` all implemented.
-- **UI:** Platform sorting/long-press favorites, beveled color labels, Chat input fade/disable toggle, transparent timestamps, Continue button detection, Tool call grouping, Archived bottom bar, Swipe actions, Favorites anchor fix.
-- **Extras:** `ApiKeyValidator` probe, OpenRouter Popular/Free tabs, Unit tests for domain layer, Haptic vibration on background completion.
+- `.editorconfig` — Editor and ktlint-compatible formatting rules.
+- `.github/workflows/` — CI build, check, formatting, and release automation workflows.
+- `.gitignore` — Version-control exclusions; do not scan ignored files for secrets.
+- `AGENTS.md` — Authoritative agent-facing build, style, architecture, and test guidance.
+- `AI-Memory.md` — This persistent architecture and structural index file.
+- `CHANGELOG.md`, `RELEASE_NOTES.md`, `PROGRESS.md` — Historical changes, release details, and progress records.
+- `CLAUDE.md`, `CONTEXT.md` — Additional AI/project context files.
+- `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE` — Product and contributor documentation.
+- `build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`, `gradle/`, `gradlew*` — Gradle build orchestration and wrappers.
+- `model_catalog.json` — Bundled offline model catalog consumed by local model discovery features.
+- `docs/` — ADRs, operational guidance, release validation, and CI diagnostics.
+- `images/`, `metadata/` — Documentation/store assets and distribution metadata.
+- `scripts/` — Build, maintenance, validation, and release helper scripts.
+
+### Core Application & UI Architecture
+
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt` — Core Compose navigation destination graph (`SetupNavGraph`, `homeScreenNavigation`, `chatScreenNavigation`, `settingNavigation`, `setupNavigation`). Correctly aligned composable arguments for `SetupPlatformTypeScreen`, `SetupCompleteScreen`, `PlatformSettingScreen`, `ToolConnectionsScreen`, `ToolConnectionEditorScreen`, `McpToolsSelectionScreen`, `AiPlatformsScreen`, and `McpMarketplaceScreen`.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt` — Dialog composables for platform customization, parameter tuning, accelerator selection, and advanced options. Single clean implementation of dialogs without duplicates, correct parameter mapping (`initialValue = timeout`), and safe null handling.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt` — Primary platform settings view with full reactive StateFlow observation, advanced options routing, and MCP/search tools integration.

@@ -9,9 +9,8 @@ import javax.inject.Singleton
 class ModelProviderService @Inject constructor(
     private val openRouterModelRepository: OpenRouterModelRepository
 ) {
-    suspend fun fetchOpenRouterModels(forceRefresh: Boolean = false): Result<List<OpenRouterModelItem>> {
-        return openRouterModelRepository.fetchModels(forceRefresh)
-    }
+    suspend fun fetchOpenRouterModels(forceRefresh: Boolean = false): Result<List<OpenRouterModelItem>> =
+        openRouterModelRepository.fetchModels(forceRefresh)
 
     suspend fun searchOpenRouterModels(query: String): Result<List<OpenRouterModelItem>> {
         val result = openRouterModelRepository.fetchModels(forceRefresh = false)

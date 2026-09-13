@@ -25,7 +25,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="31">
 
-        <!-- Qualcomm FastRPC library access for Hexagon DSP / NPU compute acceleration -->
+        <!-- Allow FastRPC driver access for Qualcomm Hexagon NPU / QNN HTP execution on Snapdragon -->
         <uses-native-library
             android:name="libcdsprpc.so"
             android:required="false" />

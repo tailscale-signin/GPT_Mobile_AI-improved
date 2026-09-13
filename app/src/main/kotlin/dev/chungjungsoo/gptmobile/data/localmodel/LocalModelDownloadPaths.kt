@@ -30,11 +30,14 @@ object LocalModelDownloadPaths {
 
     fun isCompleteDownload(tmpLength: Long, totalBytes: Long): Boolean {
         if (tmpLength <= 0L) return false
-        if (totalBytes <= 0L) return true
-        // Allow up to a 5% difference if remote content length was not exact or model was updated upstream
-        val diff = kotlin.math.abs(tmpLength - totalBytes)
-        val tolerance = (totalBytes * 0.05).toLong().coerceAtLeast(1024L * 1024L)
-        return diff <= tolerance || tmpLength >= totalBytes
+        if (totalBytes <= 0L || tmpLength == totalBytes) return true
+        // Allow up to a 5% tolerance for large model files (>= 10MB) if remote content length was slightly revised
+        if (totalBytes >= 10L * 1024L * 1024L) {
+            val diff = kotlin.math.abs(tmpLength - totalBytes)
+            val tolerance = (totalBytes * 0.05).toLong().coerceIn(1024L * 1024L, 50L * 1024L * 1024L)
+            return diff <= tolerance || tmpLength >= totalBytes
+        }
+        return false
     }
 
     fun relativeDirectory(catalogEntryId: String, commitHash: String): String {

@@ -338,6 +338,7 @@ private class FakeSettingRepository(
     private var platform = initialPlatform
     val updatedPlatforms = mutableListOf<PlatformV2>()
     var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
+    var debugMode: Boolean = false
 
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
 
@@ -352,6 +353,11 @@ private class FakeSettingRepository(
     override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
         localRuntimeBackend = backend
     }
+    override suspend fun getDebugMode(): Boolean = debugMode
+    override suspend fun updateDebugMode(enabled: Boolean) {
+        debugMode = enabled
+    }
+    override fun observeDebugMode(): Flow<Boolean> = flowOf(debugMode)
     override suspend fun migrateToPlatformV2() = Unit
     override suspend fun migrateSecrets(): List<SecretMigrationError> = emptyList()
     override suspend fun updatePlatforms(platforms: List<Platform>) = Unit

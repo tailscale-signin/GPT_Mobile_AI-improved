@@ -1,11 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
-import android.content.Context
 import android.util.Log
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 
 /**
  * Composite [LocalRuntime] router that dynamically dispatches to either the
@@ -13,7 +11,6 @@ import kotlinx.coroutines.flow.first
  * defaulting to Qualcomm QNN.
  */
 class LocalRuntimeRouter(
-    private val context: Context,
     private val settingRepository: SettingRepository,
     private val qnnRuntime: LocalRuntime,
     private val liteRtRuntime: LocalRuntime
@@ -21,7 +18,7 @@ class LocalRuntimeRouter(
 
     private suspend fun getActiveBackend(): LocalRuntimeBackend {
         return try {
-            settingRepository.getLocalRuntimeBackend().first()
+            settingRepository.getLocalRuntimeBackend()
         } catch (t: Throwable) {
             Log.w(TAG, "Failed reading runtime backend preference, falling back to QUALCOMM_QNN", t)
             LocalRuntimeBackend.QUALCOMM_QNN

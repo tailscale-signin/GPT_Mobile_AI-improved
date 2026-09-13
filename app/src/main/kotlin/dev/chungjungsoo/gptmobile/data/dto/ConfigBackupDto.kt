@@ -8,7 +8,9 @@ data class ConfigBackupDto(
     val version: Int = 1,
     val exportedAt: Long = System.currentTimeMillis(),
     val theme: ThemeBackupDto? = null,
-    val platforms: List<PlatformBackupDto> = emptyList()
+    val platforms: List<PlatformBackupDto> = emptyList(),
+    val favoriteGroups: List<String> = emptyList(),
+    val favoriteMessageGroups: Map<Int, String> = emptyMap()
 )
 
 @Serializable

@@ -15,6 +15,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 class SettingDataSourceImpl @Inject constructor(
     private val dataStore: DataStore<Preferences>
@@ -72,6 +74,10 @@ class SettingDataSourceImpl @Inject constructor(
     val themeModeKey = intPreferencesKey("theme_mode")
     val localRuntimeBackendKey = stringPreferencesKey("local_runtime_backend")
     val debugModeKey = booleanPreferencesKey("debug_mode")
+    val favoriteGroupsKey = stringPreferencesKey("favorite_groups_json")
+    val favoriteMessageGroupsKey = stringPreferencesKey("favorite_message_groups_json")
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun getPreferencesSnapshot(): Preferences = dataStore.data.first()
 
@@ -205,4 +211,54 @@ class SettingDataSourceImpl @Inject constructor(
     override suspend fun getSystemPrompt(apiType: ApiType): String? = dataStore.data.map { pref ->
         pref[apiSystemPromptMap[apiType]!!]
     }.first()
+
+    override suspend fun getFavoriteGroups(): List<String> = dataStore.data.map { pref ->
+        val raw = pref[favoriteGroupsKey]
+        if (!raw.isNullOrBlank()) {
+            runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+    }.first()
+
+    override suspend fun saveFavoriteGroups(groups: List<String>) {
+        val raw = json.encodeToString(groups)
+        dataStore.edit { pref ->
+            pref[favoriteGroupsKey] = raw
+        }
+    }
+
+    override fun observeFavoriteGroups(): Flow<List<String>> = dataStore.data.map { pref ->
+        val raw = pref[favoriteGroupsKey]
+        if (!raw.isNullOrBlank()) {
+            runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+    }
+
+    override suspend fun getFavoriteMessageGroups(): Map<Int, String> = dataStore.data.map { pref ->
+        val raw = pref[favoriteMessageGroupsKey]
+        if (!raw.isNullOrBlank()) {
+            runCatching { json.decodeFromString<Map<Int, String>>(raw) }.getOrDefault(emptyMap())
+        } else {
+            emptyMap()
+        }
+    }.first()
+
+    override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) {
+        val raw = json.encodeToString(messageGroups)
+        dataStore.edit { pref ->
+            pref[favoriteMessageGroupsKey] = raw
+        }
+    }
+
+    override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> = dataStore.data.map { pref ->
+        val raw = pref[favoriteMessageGroupsKey]
+        if (!raw.isNullOrBlank()) {
+            runCatching { json.decodeFromString<Map<Int, String>>(raw) }.getOrDefault(emptyMap())
+        } else {
+            emptyMap()
+        }
+    }
 }

@@ -135,7 +135,7 @@ fun ChatScreen(
     val screenWidthDp = configuration.screenWidthDp.dp
     val focusManager = LocalFocusManager.current
     val clipboard = LocalClipboard.current
-    val systemChatMargin = 32.dp
+    val systemChatMargin = 16.dp
     val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
@@ -534,7 +534,7 @@ private fun ChatMessagePair(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 8.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.End
         ) {
             Box {
@@ -558,7 +558,7 @@ private fun ChatMessagePair(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(horizontal = 8.dp, vertical = 12.dp)
         ) {
             OpponentResponseContainer(
                 isFavorite = selectedAssistantMessage?.isFavorite ?: false,
@@ -574,7 +574,7 @@ private fun ChatMessagePair(
                     if (enabledPlatformsInChat.size > 1) {
                         Row(
                             modifier = Modifier
-                                .padding(horizontal = 16.dp)
+                                .padding(horizontal = 8.dp)
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState())
                         ) {
@@ -593,7 +593,7 @@ private fun ChatMessagePair(
                 OpponentChatBubble(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle,
                     canRetry = canUseChat && isActiveMessage && !isCurrentPlatformLoading,

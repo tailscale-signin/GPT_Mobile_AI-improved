@@ -154,6 +154,20 @@ class SettingRepositoryImpl @Inject constructor(
 
     override fun observeDebugMode(): Flow<Boolean> = settingDataSource.observeDebugMode()
 
+    override suspend fun getFavoriteGroups(): List<String> = settingDataSource.getFavoriteGroups()
+
+    override suspend fun saveFavoriteGroups(groups: List<String>) = settingDataSource.saveFavoriteGroups(groups)
+
+    override fun observeFavoriteGroups(): Flow<List<String>> = settingDataSource.observeFavoriteGroups()
+
+    override suspend fun getFavoriteMessageGroups(): Map<Int, String> = settingDataSource.getFavoriteMessageGroups()
+
+    override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) =
+        settingDataSource.saveFavoriteMessageGroups(messageGroups)
+
+    override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> =
+        settingDataSource.observeFavoriteMessageGroups()
+
     override suspend fun migrateToPlatformV2() {
         val leftOverPlatformV2s = fetchPlatformV2s()
         leftOverPlatformV2s.forEach { deletePlatformV2(it) }
@@ -292,6 +306,8 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun exportConfigurationJson(): String {
         val currentPlatforms = fetchPlatformV2s()
         val currentThemes = fetchThemes()
+        val currentFavoriteGroups = getFavoriteGroups()
+        val currentMessageGroups = getFavoriteMessageGroups()
 
         val backup = ConfigBackupDto(
             version = 1,
@@ -324,7 +340,9 @@ class SettingRepositoryImpl @Inject constructor(
                     openRouterRouting = p.openRouterRouting,
                     ollamaOptions = p.ollamaOptions
                 )
-            }
+            },
+            favoriteGroups = currentFavoriteGroups,
+            favoriteMessageGroups = currentMessageGroups
         )
 
         return jsonSerializer.encodeToString(backup)
@@ -337,6 +355,13 @@ class SettingRepositoryImpl @Inject constructor(
             val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
             val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
             updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
+        }
+
+        if (backup.favoriteGroups.isNotEmpty()) {
+            saveFavoriteGroups(backup.favoriteGroups)
+        }
+        if (backup.favoriteMessageGroups.isNotEmpty()) {
+            saveFavoriteMessageGroups(backup.favoriteMessageGroups)
         }
 
         var importedCount = 0

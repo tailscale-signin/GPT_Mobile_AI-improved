@@ -22,6 +22,14 @@ interface SettingRepository {
     suspend fun updatePlatforms(platforms: List<Platform>)
     suspend fun updateThemes(themeSetting: ThemeSetting)
 
+    // Favorite Groups & Message Groups persistence
+    suspend fun getFavoriteGroups(): List<String>
+    suspend fun saveFavoriteGroups(groups: List<String>)
+    fun observeFavoriteGroups(): Flow<List<String>>
+    suspend fun getFavoriteMessageGroups(): Map<Int, String>
+    suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>)
+    fun observeFavoriteMessageGroups(): Flow<Map<Int, String>>
+
     // PlatformV2 CRUD operations
     suspend fun addPlatformV2(platform: PlatformV2)
     suspend fun updatePlatformV2(platform: PlatformV2)

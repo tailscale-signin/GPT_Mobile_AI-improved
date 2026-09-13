@@ -166,6 +166,7 @@ fun ChatScreen(
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
+    val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
     val canUseChat = (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
@@ -326,6 +327,7 @@ fun ChatScreen(
                             isActiveMessage = index == lastMessageIndex,
                             maximumUserChatBubbleWidth = maximumUserChatBubbleWidth,
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
+                            debugMode = debugMode,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                             onCopyText = { copiedText ->
@@ -495,6 +497,7 @@ private fun ChatMessagePair(
     isActiveMessage: Boolean,
     maximumUserChatBubbleWidth: Dp,
     maximumOpponentChatBubbleWidth: Dp,
+    debugMode: Boolean = false,
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -597,6 +600,7 @@ private fun ChatMessagePair(
                     isLoading = isActiveMessage && isCurrentPlatformLoading,
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
+                    debugMode = debugMode,
                     text = assistantContent,
                     timestamp = selectedAssistantMessage?.let { it.createdAt * 1000L },
                     thoughts = assistantThoughts,

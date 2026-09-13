@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3.0] - 2026-09-13
+
+### Added & Improved
+- **Debug Mode & Diagnostics HUD**:
+  - `SettingDataSource` and `SettingRepository`: Added `observeDebugMode()`, `getDebugMode()`, and `updateDebugMode(enabled: Boolean)` with full DataStore persistence.
+  - SettingScreen: Added toggles for Debug Mode and real-time Diagnostics HUD.
+  - ChatBubble & ChatScreen: Renders Diagnostics HUD for assistant responses, tracking generation latency, TTFT, token statistics, and memory/thermal state.
+  - Test suites: Parity across all test fakes and repositories (`FakeSettingDataSource`, `BackupFakeSettingDataSource`, `PlatformSettingViewModelTest`).
+- **Thinking UI Contrast Polish**:
+  - `ThinkingBlock`: Refined background alpha from `0.5f` to `0.25f` for improved legibility and seamless integration with dynamic Material 3 surfaces.
+- **Release Version Bump**:
+  - Version bump to `0.9.3.0` (versionCode `40`).
+
 ## [0.9.2.4] - 2026-09-13
 
 ### Added & Improved

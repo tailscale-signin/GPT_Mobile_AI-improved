@@ -12,8 +12,7 @@ enum class LocalRuntimeBackend(val displayName: String) {
     companion object {
         val DEFAULT = QUALCOMM_QNN
 
-        fun fromString(value: String?): LocalRuntimeBackend {
-            return entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
-        }
+        fun fromString(value: String?): LocalRuntimeBackend =
+            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
     }
 }

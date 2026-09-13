@@ -10,6 +10,7 @@
     <string name="confirm">Confirm</string>
     <string name="close">Close</string>
     <string name="done">Done</string>
+    <string name="ok">OK</string>
     <string name="reset">Reset</string>
     <string name="edit">Edit</string>
     <string name="delete">Delete</string>
@@ -200,6 +201,10 @@
     <string name="error_occurred">An error occurred</string>
     <string name="local_models">Local Models</string>
     <string name="local_models_description">Manage on-device AI models</string>
+    <string name="custom_local_models">Custom Models</string>
+    <string name="custom_local_models_description">Import model files (.bin, .task, .gguf) directly from your device storage</string>
+    <string name="import_model">Import Model</string>
+    <string name="local_model_import_error_title">Model Import Failed</string>
     <string name="download">Download</string>
     <string name="downloading">Downloading…</string>
     <string name="fetch_models">Refresh models</string>

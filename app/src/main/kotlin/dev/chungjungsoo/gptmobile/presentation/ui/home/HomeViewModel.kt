@@ -45,6 +45,7 @@ class HomeViewModel @Inject constructor(
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
         const val GROUP_ALL = "All"
+        val DEFAULT_GROUPS = listOf(GROUP_ALL, "Starred", "Work", "Personal")
     }
 
     data class ChatListState(
@@ -75,7 +76,7 @@ class HomeViewModel @Inject constructor(
 
     private val rawFavoriteMessagesState = MutableStateFlow<List<MessageV2>>(emptyList())
 
-    private val _favoriteGroups = MutableStateFlow<List<String>>(listOf(GROUP_ALL, "Starred", "Work", "Personal"))
+    private val _favoriteGroups = MutableStateFlow<List<String>>(DEFAULT_GROUPS)
     val favoriteGroups = _favoriteGroups.asStateFlow()
 
     private val _selectedFavoriteGroup = MutableStateFlow(GROUP_ALL)
@@ -129,6 +130,24 @@ class HomeViewModel @Inject constructor(
             .onEach { favorites -> rawFavoriteMessagesState.update { favorites } }
             .launchIn(viewModelScope)
 
+        // Observe persisted favorite groups and message-to-group mappings
+        settingRepository.observeFavoriteGroups()
+            .onEach { savedGroups ->
+                val merged = if (savedGroups.isEmpty()) {
+                    DEFAULT_GROUPS
+                } else {
+                    (DEFAULT_GROUPS + savedGroups).distinct()
+                }
+                _favoriteGroups.update { merged }
+            }
+            .launchIn(viewModelScope)
+
+        settingRepository.observeFavoriteMessageGroups()
+            .onEach { savedMappings ->
+                _messageGroups.update { savedMappings }
+            }
+            .launchIn(viewModelScope)
+
         agentRunCoordinator.activeRuns
             .onEach { runs -> _activeChatIds.update { runs.values.mapTo(mutableSetOf()) { it.chatId } } }
             .launchIn(viewModelScope)
@@ -152,18 +171,24 @@ class HomeViewModel @Inject constructor(
     fun addFavoriteGroup(newGroup: String) {
         val trimmed = newGroup.trim()
         if (trimmed.isNotEmpty() && !_favoriteGroups.value.contains(trimmed)) {
-            _favoriteGroups.update { it + trimmed }
+            val updated = _favoriteGroups.value + trimmed
+            _favoriteGroups.update { updated }
             _selectedFavoriteGroup.update { trimmed }
+            viewModelScope.launch {
+                settingRepository.saveFavoriteGroups(updated.filter { it !in DEFAULT_GROUPS })
+            }
         }
     }
 
     fun assignFavoriteMessageGroup(messageId: Int, groupName: String?) {
-        _messageGroups.update { current ->
-            if (groupName != null) {
-                current + (messageId to groupName)
-            } else {
-                current - messageId
-            }
+        val updated = if (groupName != null) {
+            _messageGroups.value + (messageId to groupName)
+        } else {
+            _messageGroups.value - messageId
+        }
+        _messageGroups.update { updated }
+        viewModelScope.launch {
+            settingRepository.saveFavoriteMessageGroups(updated)
         }
     }
 
@@ -221,163 +246,103 @@ class HomeViewModel @Inject constructor(
         _showDeleteWarningDialog.update { false }
     }
 
-    fun openSelectModelDialog() {
-        _showSelectModelDialog.update { true }
-        disableSelectionMode()
-    }
-
-    fun closeSelectModelDialog() {
-        _showSelectModelDialog.update { false }
-        _chatListState.update { it.copy(selectedPlatforms = List(it.selectedPlatforms.size) { false }) }
+    fun fetchPlatformStatus() {
+        viewModelScope.launch {
+            val platforms = managePlatformsUseCase.getManagePlatformsStatus()
+            _platformState.update { platforms }
+            _chatListState.update { it.copy(selectedPlatforms = platforms.map { p -> p.enabled }) }
+        }
     }
 
     fun deleteSelectedChats() {
         viewModelScope.launch {
-            val selectedChats = _chatListState.value.chats.filterIndexed { index, _ ->
+            val chatsToDelete = _chatListState.value.chats.filterIndexed { index, _ ->
                 _chatListState.value.selectedChats.getOrElse(index) { false }
             }
-
-            val chats = agentRunCoordinator.withChatGate(selectedChats.map { it.id }) {
-                selectedChats.forEach { agentRunCoordinator.cancelChatAndJoin(it.id) }
-                chatRepository.deleteChatsV2(selectedChats)
-                chatRepository.fetchChatListV2()
-            }
-            _chatListState.update { it.copy(chats = chats) }
+            chatRepository.deleteChatsV2(chatsToDelete)
+            fetchChatList()
             disableSelectionMode()
         }
     }
 
-    fun archiveChat(chatRoom: ChatRoomV2) {
+    fun fetchChatList() {
         viewModelScope.launch {
-            chatRepository.setChatArchived(chatRoom.id, isArchived = true)
-            fetchChats()
-            fetchArchivedChats()
-        }
-    }
-
-    fun unarchiveChat(chatRoom: ChatRoomV2) {
-        viewModelScope.launch {
-            chatRepository.setChatArchived(chatRoom.id, isArchived = false)
-            fetchChats()
-            fetchArchivedChats()
-        }
-    }
-
-    fun deleteArchivedChat(chatRoom: ChatRoomV2) {
-        viewModelScope.launch {
-            agentRunCoordinator.withChatGate(chatRoom.id) {
-                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
-                chatRepository.deleteChatsV2(listOf(chatRoom))
+            val chats = chatRepository.fetchChatListV2()
+            _chatListState.update {
+                it.copy(
+                    chats = chats,
+                    selectedChats = List(chats.size) { false }
+                )
             }
-            fetchArchivedChats()
         }
     }
 
     fun fetchArchivedChats() {
         viewModelScope.launch {
-            val archived = chatRepository.fetchArchivedChatListV2()
+            val archived = chatRepository.fetchArchivedChats()
             _archivedChats.update { archived }
         }
     }
 
-    fun duplicateSelectedChat() {
+    fun toggleArchiveChat(chat: ChatRoomV2) {
         viewModelScope.launch {
-            val selectedChats = _chatListState.value.chats.filterIndexed { index, _ ->
-                _chatListState.value.selectedChats.getOrElse(index) { false }
-            }
-            val selectedChat = selectedChats.singleOrNull() ?: return@launch
-            val chats = agentRunCoordinator.withChatGate(selectedChat.id) {
-                if (agentRunCoordinator.hasActiveRuns(selectedChat.id)) return@withChatGate null
-                chatRepository.duplicateChatV2(selectedChat)
-                chatRepository.fetchChatListV2()
-            } ?: return@launch
-            _chatListState.update { it.copy(chats = chats) }
-            disableSelectionMode()
+            chatRepository.toggleChatArchive(chat.id, !chat.isArchived)
+            fetchChatList()
+            fetchArchivedChats()
         }
+    }
+
+    fun getChatRoom(chatId: Int, onResult: (ChatRoomV2?) -> Unit) {
+        viewModelScope.launch {
+            val chat = chatRepository.fetchChatListV2().firstOrNull { it.id == chatId }
+                ?: chatRepository.fetchArchivedChats().firstOrNull { it.id == chatId }
+            onResult(chat)
+        }
+    }
+
+    fun enableSelectionMode() {
+        _chatListState.update { it.copy(isSelectionMode = true) }
     }
 
     fun disableSelectionMode() {
         _chatListState.update {
             it.copy(
-                selectedChats = List(it.chats.size) { false },
-                isSelectionMode = false
+                isSelectionMode = false,
+                selectedChats = List(it.chats.size) { false }
             )
         }
     }
 
-    fun disableSearchMode() {
-        _chatListState.update { it.copy(isSearchMode = false) }
-        _searchQuery.update { "" }
-    }
-
-    fun enableSelectionMode() {
-        disableSearchMode()
-        _chatListState.update { it.copy(isSelectionMode = true) }
-    }
-
     fun enableSearchMode() {
-        disableSelectionMode()
         _chatListState.update { it.copy(isSearchMode = true) }
     }
 
-    fun fetchChats() {
-        viewModelScope.launch {
-            val chats = chatRepository.fetchChatListV2()
-
-            _chatListState.update {
-                it.copy(
-                    chats = chats,
-                    selectedChats = List(chats.size) { false },
-                    isSelectionMode = false
-                )
-            }
-            fetchArchivedChats()
-
-            Log.d("chats", "${_chatListState.value.chats}")
-        }
+    fun disableSearchMode() {
+        _chatListState.update { it.copy(isSearchMode = false) }
+        updateSearchQuery("")
+        fetchChatList()
     }
 
-    fun getChatRoom(chatId: Int, onResult: (ChatRoomV2?) -> Unit) {
-        val inMemory = _chatListState.value.chats.find { it.id == chatId }
-            ?: _archivedChats.value.find { it.id == chatId }
-        if (inMemory != null) {
-            onResult(inMemory)
-            return
-        }
-        viewModelScope.launch {
-            val allChats = chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()
-            onResult(allChats.find { it.id == chatId })
-        }
+    fun openSelectModelDialog() {
+        _showSelectModelDialog.update { true }
     }
 
-    fun fetchPlatformStatus() {
-        viewModelScope.launch {
-            val platforms = settingRepository.fetchPlatformV2s()
-            _platformState.update { platforms }
-
-            if (_chatListState.value.selectedPlatforms.size != platforms.size) {
-                _chatListState.update { it.copy(selectedPlatforms = List(platforms.size) { false }) }
-            }
-        }
+    fun closeSelectModelDialog() {
+        _showSelectModelDialog.update { false }
     }
 
-    fun selectChat(chatRoomIdx: Int) {
-        if (chatRoomIdx < 0 || chatRoomIdx >= _chatListState.value.chats.size) return
-
+    fun updateSelectedChat(idx: Int) {
+        if (idx < 0 || idx >= _chatListState.value.selectedChats.size) return
         _chatListState.update {
             it.copy(
                 selectedChats = it.selectedChats.mapIndexed { index, b ->
-                    if (index == chatRoomIdx) {
+                    if (index == idx) {
                         !b
                     } else {
                         b
                     }
                 }
             )
-        }
-
-        if (_chatListState.value.selectedChats.count { it } == 0) {
-            disableSelectionMode()
         }
     }
 }

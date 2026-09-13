@@ -13,12 +13,15 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.database.dao.LocalModelDao
 import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelDownloadPaths
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelLocator
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelReconciler
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.localmodel.ReconcileAction
 import dev.chungjungsoo.gptmobile.data.localmodel.SocVariantResolver
 import dev.chungjungsoo.gptmobile.data.worker.LocalModelDownloadWorker
 import java.io.File
+import java.io.InputStream
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -143,6 +146,35 @@ class LocalModelRepositoryImpl(
                     ?.delete()
             }
         }
+    }
+
+    override suspend fun importCustomModel(
+        inputStream: InputStream,
+        fileName: String
+    ): LocalModelImportResult = withContext(ioDispatcher) {
+        val root = storageRoot()
+        val result = LocalModelLocator.importModel(
+            inputStream = inputStream,
+            fileName = fileName,
+            targetModelsRootDir = root
+        )
+        if (result is LocalModelImportResult.Success) {
+            val now = System.currentTimeMillis() / 1000
+            val existing = localModelDao.getById(result.record.catalogEntryId)
+            localModelDao.upsert(
+                LocalModel(
+                    catalogEntryId = result.record.catalogEntryId,
+                    commitHash = result.record.commitHash,
+                    fileName = result.record.fileName,
+                    relativeDirectory = result.record.relativeDirectory,
+                    totalBytes = result.sizeBytes,
+                    status = LocalModelStatus.READY,
+                    createdAt = existing?.createdAt ?: now,
+                    updatedAt = now
+                )
+            )
+        }
+        result
     }
 
     override suspend fun totalStorageUsed(): Long = withContext(ioDispatcher) {

@@ -32,6 +32,9 @@ class SettingViewModelV2 @Inject constructor(
     private val _localRuntimeBackend = MutableStateFlow(LocalRuntimeBackend.DEFAULT)
     val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = _localRuntimeBackend.asStateFlow()
 
+    val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
 
@@ -54,6 +57,13 @@ class SettingViewModelV2 @Inject constructor(
             settingRepository.updateLocalRuntimeBackend(backend)
             _localRuntimeBackend.value = backend
             _uiEvent.emit(UiEvent.ShowToast("Local inference engine set to ${backend.displayName}"))
+        }
+    }
+
+    fun updateDebugMode(enabled: Boolean) {
+        viewModelScope.launch {
+            settingRepository.updateDebugMode(enabled)
+            _uiEvent.emit(UiEvent.ShowToast(if (enabled) "Debug diagnostics HUD enabled" else "Debug diagnostics HUD disabled"))
         }
     }
 

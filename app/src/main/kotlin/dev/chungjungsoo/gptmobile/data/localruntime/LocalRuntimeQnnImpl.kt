@@ -4,11 +4,8 @@ import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
 import java.io.FileNotFoundException
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -96,30 +93,52 @@ class LocalRuntimeQnnImpl(
         }
     }
 
-    override suspend fun sendMessage(prompt: String, images: List<ByteArray>): Flow<String> {
-        return if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.sendMessage(prompt, images)
+    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> =
+        if (isUsingFallback || !isQnnNativeAvailable) {
+            fallbackLiteRtRuntime.sendMessage(text, images)
         } else {
-            callbackFlow {
-                val isCancelled = AtomicBoolean(false)
-                try {
-                    // QNN streaming token generator dispatch
-                    channel.send("QNN: ")
-                } catch (e: Exception) {
-                    close(e)
-                }
-                awaitClose {
-                    isCancelled.set(true)
-                }
-            }
+            fallbackLiteRtRuntime.sendMessage(text, images)
+        }
+
+    override fun cancelActive() {
+        if (isUsingFallback || !isQnnNativeAvailable) {
+            fallbackLiteRtRuntime.cancelActive()
         }
     }
 
-    override fun close() {
+    override fun hasOpenConversation(): Boolean =
         if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.close()
+            fallbackLiteRtRuntime.hasOpenConversation()
+        } else {
+            false
+        }
+
+    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean =
+        if (isUsingFallback || !isQnnNativeAvailable) {
+            fallbackLiteRtRuntime.isEngineLoaded(spec)
+        } else {
+            loadedSpec == spec
+        }
+
+    override suspend fun closeConversation() {
+        if (isUsingFallback || !isQnnNativeAvailable) {
+            fallbackLiteRtRuntime.closeConversation()
         }
     }
+
+    override suspend fun unloadEngine() {
+        if (isUsingFallback || !isQnnNativeAvailable) {
+            fallbackLiteRtRuntime.unloadEngine()
+        }
+        loadedSpec = null
+    }
+
+    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean =
+        if (isUsingFallback || !isQnnNativeAvailable) {
+            fallbackLiteRtRuntime.unloadIfIdle(idleThresholdMs)
+        } else {
+            false
+        }
 
     companion object {
         private const val TAG = "LocalRuntimeQnnImpl"

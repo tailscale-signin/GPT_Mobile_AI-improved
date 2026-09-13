@@ -21,6 +21,7 @@ class LocalModelLocatorTest {
         assertTrue(LocalModelLocator.isSupportedModelFile("model.task"))
         assertTrue(LocalModelLocator.isSupportedModelFile("model.tflite"))
         assertTrue(LocalModelLocator.isSupportedModelFile("model.litertmodel"))
+        assertTrue(LocalModelLocator.isSupportedModelFile("model.litertlm"))
         assertTrue(LocalModelLocator.isSupportedModelFile("model.gguf"))
 
         assertFalse(LocalModelLocator.isSupportedModelFile("model.txt"))

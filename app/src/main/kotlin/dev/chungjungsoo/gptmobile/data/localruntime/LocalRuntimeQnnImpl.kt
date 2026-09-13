@@ -34,13 +34,22 @@ class LocalRuntimeQnnImpl(
     private var loadedSpec: LocalEngineSpec? = null
 
     init {
-        // Probe system properties and QNN shared libraries (libQnnHtp.so / libQnnCpu.so / libQnnGpu.so)
+        // Probe system properties, QNN shared libraries (libQnnHtp.so), or QnnDelegate
         isQnnNativeAvailable = try {
             System.loadLibrary("QnnHtp")
             Log.i(TAG, "Qualcomm QNN HTP native library loaded successfully.")
             true
         } catch (e: UnsatisfiedLinkError) {
-            Log.i(TAG, "Qualcomm QNN HTP runtime not found in library path; using fallback integration.")
+            try {
+                Class.forName("com.qualcomm.qti.QnnDelegate")
+                Log.i(TAG, "Qualcomm QnnDelegate class available.")
+                true
+            } catch (t: Throwable) {
+                Log.i(TAG, "Qualcomm QNN HTP runtime not found in library path; using fallback integration.")
+                false
+            }
+        } catch (t: Throwable) {
+            Log.i(TAG, "Qualcomm QNN probe: ${t.message}; using fallback integration.")
             false
         }
     }
@@ -69,76 +78,48 @@ class LocalRuntimeQnnImpl(
                 }
             }
 
-            if (isQnnNativeAvailable) {
-                // Initialize Qualcomm QNN context on Hexagon NPU (HTP backend)
+            // Route through LiteRT-LM with Snapdragon Hexagon NPU acceleration
+            val targetAccelerator = if (isQnnNativeAvailable) {
                 Log.i(TAG, "Deploying model graph to Qualcomm Hexagon NPU backend via QNN.")
-                isUsingFallback = false
-                loadedSpec = spec
+                LocalAccelerators.NPU
             } else {
-                // Fall back gracefully to LiteRT-LM backend with NPU/GPU accelerator mapping
-                Log.i(TAG, "QNN native context delegated to LiteRT-LM runtime backend with Snapdragon acceleration.")
-                isUsingFallback = true
-                fallbackLiteRtRuntime.loadEngine(spec)
-                loadedSpec = spec
+                Log.i(TAG, "QNN native library not present; deploying with user accelerator ${spec.accelerator}.")
+                spec.accelerator
             }
+
+            fallbackLiteRtRuntime.loadEngine(spec.copy(accelerator = targetAccelerator))
+            loadedSpec = spec
         }
     }
 
     override suspend fun createConversation(config: LocalConversationConfig) {
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.createConversation(config)
-        } else {
-            // Setup QNN conversation context state
-            Log.i(TAG, "Setting up conversation state in Qualcomm QNN context.")
-        }
+        fallbackLiteRtRuntime.createConversation(config)
     }
 
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> =
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.sendMessage(text, images)
-        } else {
-            fallbackLiteRtRuntime.sendMessage(text, images)
-        }
+        fallbackLiteRtRuntime.sendMessage(text, images)
 
     override fun cancelActive() {
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.cancelActive()
-        }
+        fallbackLiteRtRuntime.cancelActive()
     }
 
     override fun hasOpenConversation(): Boolean =
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.hasOpenConversation()
-        } else {
-            false
-        }
+        fallbackLiteRtRuntime.hasOpenConversation()
 
     override fun isEngineLoaded(spec: LocalEngineSpec): Boolean =
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.isEngineLoaded(spec)
-        } else {
-            loadedSpec == spec
-        }
+        fallbackLiteRtRuntime.isEngineLoaded(spec)
 
     override suspend fun closeConversation() {
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.closeConversation()
-        }
+        fallbackLiteRtRuntime.closeConversation()
     }
 
     override suspend fun unloadEngine() {
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.unloadEngine()
-        }
+        fallbackLiteRtRuntime.unloadEngine()
         loadedSpec = null
     }
 
     override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean =
-        if (isUsingFallback || !isQnnNativeAvailable) {
-            fallbackLiteRtRuntime.unloadIfIdle(idleThresholdMs)
-        } else {
-            false
-        }
+        fallbackLiteRtRuntime.unloadIfIdle(idleThresholdMs)
 
     companion object {
         private const val TAG = "LocalRuntimeQnnImpl"

@@ -11,7 +11,7 @@ import kotlinx.coroutines.withContext
 /**
  * Qualcomm QNN (Qualcomm Neural Network) runtime implementation.
  *
- * Designed specifically for Snapdragon chips (such as Snapdragon 8 Elite / Oryon / Adreno / Hexagon NPU).
+ * Designed specifically for Snapdragon chips (such as Snapdragon 8 Gen 3 / 8 Elite / Adreno / Hexagon NPU).
  * Leverages direct Hexagon Tensor Processor (HTP) execution for low-power, high-throughput INT4/INT8
  * weights, while falling back gracefully to LiteRT-LM backend if QNN context binaries or libraries
  * are unavailable for the target architecture.
@@ -34,8 +34,27 @@ class LocalRuntimeQnnImpl(
     private var loadedSpec: LocalEngineSpec? = null
 
     init {
-        // Probe system properties, QNN shared libraries (libQnnHtp.so), or QnnDelegate
+        // Sequentially load Qualcomm QNN & LiteRT Qualcomm delegate shared libraries
         isQnnNativeAvailable = try {
+            // Load base QNN libraries in dependency order
+            val qnnLibs = listOf(
+                "QnnSystem",
+                "QnnIr",
+                "QnnSaver",
+                "QnnHtpV79Stub",
+                "QnnHtp",
+                "LiteRtCompilerPlugin_Qualcomm",
+                "LiteRtDispatch_Qualcomm"
+            )
+            for (lib in qnnLibs) {
+                try {
+                    System.loadLibrary(lib)
+                    Log.d(TAG, "Loaded native library: $lib")
+                } catch (t: UnsatisfiedLinkError) {
+                    Log.d(TAG, "Optional or dependent lib $lib not loaded directly: ${t.message}")
+                }
+            }
+            // Check primary HTP library presence
             System.loadLibrary("QnnHtp")
             Log.i(TAG, "Qualcomm QNN HTP native library loaded successfully.")
             true

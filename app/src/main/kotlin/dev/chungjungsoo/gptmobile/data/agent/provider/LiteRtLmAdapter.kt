@@ -286,7 +286,13 @@ class LiteRtLmAdapter(
                     throw error
                 } catch (error: LocalEngineLoadException) {
                     isConversationDirty = true
-                    send(ProviderEvent.Failed(error.message ?: engineLoadFailedError))
+                    val detail = error.cause?.message?.takeIf { it.isNotBlank() } ?: error.message
+                    val message = if (!detail.isNullOrBlank() && detail != engineLoadFailedError) {
+                        "$engineLoadFailedError: $detail"
+                    } else {
+                        engineLoadFailedError
+                    }
+                    send(ProviderEvent.Failed(message))
                 } catch (error: Exception) {
                     isConversationDirty = true
                     send(ProviderEvent.Failed(error.message ?: "Local inference failed"))
@@ -384,7 +390,7 @@ class LiteRtLmAdapter(
         } catch (error: Exception) {
             logEngineFailure(requested, error)
             if (LocalAccelerators.normalize(requested.accelerator) == LocalAccelerators.CPU) {
-                throw LocalEngineLoadException(engineLoadFailedError)
+                throw LocalEngineLoadException(engineLoadFailedError, error)
             }
             val cpuSpec = requested.copy(accelerator = LocalAccelerators.CPU)
             try {
@@ -393,7 +399,7 @@ class LiteRtLmAdapter(
                 throw cpuCancelled
             } catch (cpuError: Exception) {
                 logEngineFailure(cpuSpec, cpuError)
-                throw LocalEngineLoadException(engineLoadFailedError)
+                throw LocalEngineLoadException(engineLoadFailedError, cpuError)
             }
             cpuFallbackByModelAccelerator += cpuFallbackKey(requested.modelPath, requested.accelerator)
             val notice = acceleratorUnavailableNotice(requested.accelerator)
@@ -524,4 +530,4 @@ class LiteRtLmAdapter(
     }
 }
 
-private class LocalEngineLoadException(message: String) : Exception(message)
+private class LocalEngineLoadException(message: String, cause: Throwable? = null) : Exception(message, cause)

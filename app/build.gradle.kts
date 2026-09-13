@@ -1,55 +1,32 @@
-@file:Suppress("UnstableApiUsage")
-
-import com.android.build.api.dsl.ApplicationExtension
-import com.android.build.api.variant.ApplicationAndroidComponentsExtension
-import org.gradle.kotlin.dsl.aboutLibraries
-import org.gradle.kotlin.dsl.configure
-
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.android.hilt)
-    alias(libs.plugins.compose.compiler)
-    alias(libs.plugins.kotlin.ksp)
-    alias(libs.plugins.kotlin.parcelize)
-    alias(libs.plugins.auto.license)
-    kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt.android)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.aboutlibraries)
 }
 
-extensions.configure<ApplicationExtension> {
+android {
     namespace = "dev.chungjungsoo.gptmobile"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.melo.gptmobile.improved"
-        minSdk = 31
-        targetSdk = 36
-        versionCode = 39
-        versionName = "0.9.2.4"
+        applicationId = "dev.chungjungsoo.gptmobile"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 38
+        versionName = "0.9.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
-
-        // Hugging Face OAuth. Replace these after registering an HF OAuth app;
-        // the gallery credentials cannot be reused.
-        manifestPlaceholders["appAuthRedirectScheme"] =
-            "REPLACE_WITH_YOUR_REDIRECT_SCHEME_IN_HUGGINGFACE_APP"
-        buildConfigField(
-            "String",
-            "HF_OAUTH_CLIENT_ID",
-            "\"REPLACE_WITH_YOUR_CLIENT_ID_IN_HUGGINGFACE_APP\""
-        )
-        buildConfigField(
-            "String",
-            "HF_OAUTH_REDIRECT_URI",
-            "\"REPLACE_WITH_YOUR_REDIRECT_URI_IN_HUGGINGFACE_APP\""
-        )
 
         ndk {
-            // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
+
+        // OAuth browser flow deep link scheme
+        manifestPlaceholders["appAuthRedirectScheme"] = "dev.chungjungsoo.gptmobile"
     }
 
     splits {
@@ -61,42 +38,40 @@ extensions.configure<ApplicationExtension> {
         }
     }
 
-    androidResources {
-        generateLocaleConfig = true
-    }
-
-    lint {
-        disable += "MissingTranslation"
-        abortOnError = false
-        checkReleaseBuilds = false
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            vcsInfo.include = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+            isDebuggable = true
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+
+    kotlinOptions {
+        jvmTarget = "21"
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
     }
+
     testOptions {
-        unitTests.all {
-            it.testLogging {
-                events("passed", "skipped", "failed", "standardError")
-            }
-        }
+        unitTests.isReturnDefaultValues = true
     }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -104,8 +79,8 @@ extensions.configure<ApplicationExtension> {
             excludes += "META-INF/io.netty.versions.properties"
         }
         jniLibs {
-            // Extract native libraries to nativeLibraryDir on installation so dlopen works with FastRPC / QNN
-            useLegacyPackaging = true
+            // Keep native libraries uncompressed in APK to allow direct page mapping into memory
+            useLegacyPackaging = false
             // Keep pre-stripped native libraries without triggering stripping warnings
             keepDebugSymbols += setOf(
                 "**/libLiteRt.so",
@@ -115,8 +90,7 @@ extensions.configure<ApplicationExtension> {
                 "**/liblitertlm_jni.so",
                 "**/libdatastore_shared_counter.so",
                 "**/libandroidx.graphics.path.so",
-                "**/libQnn*.so",
-                "**/libcdsprpc.so"
+                "**/libQnn*.so"
             )
             pickFirsts += setOf(
                 "**/libQnn*.so",

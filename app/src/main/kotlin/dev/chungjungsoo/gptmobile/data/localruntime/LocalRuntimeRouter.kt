@@ -48,7 +48,11 @@ class LocalRuntimeRouter(
     }
 
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> =
-        liteRtRuntime.sendMessage(text, images)
+        if (qnnRuntime.hasOpenConversation()) {
+            qnnRuntime.sendMessage(text, images)
+        } else {
+            liteRtRuntime.sendMessage(text, images)
+        }
 
     override fun cancelActive() {
         qnnRuntime.cancelActive()

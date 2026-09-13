@@ -58,7 +58,7 @@ class LocalRuntimeRouterTest {
     @Test
     fun loadEngine_whenQnnFails_fallsBackToLiteRtRuntime() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        qnnRuntime.failLoadEngineIf = { RuntimeException("QNN native load error") }
+        qnnRuntime.failLoadEngineIf = { _ -> RuntimeException("QNN native load error") }
         val spec = LocalEngineSpec(modelPath = "/path/to/model.bin")
 
         router.loadEngine(spec)
@@ -71,7 +71,7 @@ class LocalRuntimeRouterTest {
     @Test
     fun createConversationAndSendMessage_afterFallback_delegatesToLiteRtRuntime() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        qnnRuntime.failLoadEngineIf = { RuntimeException("QNN load error") }
+        qnnRuntime.failLoadEngineIf = { _ -> RuntimeException("QNN load error") }
         val spec = LocalEngineSpec(modelPath = "/path/to/model.bin")
         router.loadEngine(spec)
         router.createConversation(LocalConversationConfig())

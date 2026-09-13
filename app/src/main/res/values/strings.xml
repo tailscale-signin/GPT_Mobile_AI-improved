@@ -202,7 +202,7 @@
     <string name="local_models">Local Models</string>
     <string name="local_models_description">Manage on-device AI models</string>
     <string name="custom_local_models">Custom Models</string>
-    <string name="custom_local_models_description">Import model files (.bin, .task, .gguf) directly from your device storage</string>
+    <string name="custom_local_models_description">Import model files (.bin, .task, .gguf, .litertlm, .litertmodel) directly from your device storage</string>
     <string name="import_model">Import Model</string>
     <string name="local_model_import_error_title">Model Import Failed</string>
     <string name="download">Download</string>

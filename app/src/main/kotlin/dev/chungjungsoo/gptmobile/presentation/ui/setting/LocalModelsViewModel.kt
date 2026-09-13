@@ -22,7 +22,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -50,14 +49,13 @@ class LocalModelsViewModel @Inject constructor(
     )
 
     private val _listState = MutableStateFlow(LocalModelsListState())
-    private val listState = _listState.asStateFlow()
-    private val _dialog = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
+    private val customDialogState = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
     private val hasHuggingFaceToken = MutableStateFlow(false)
 
     val uiState: StateFlow<LocalModelsUiState> = combine(
         _listState,
         downloadActions.uiState,
-        _dialog,
+        customDialogState,
         hasHuggingFaceToken
     ) { list, download, customDialog, hasToken ->
         LocalModelsUiState(
@@ -118,12 +116,12 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     fun onDeleteClick(entry: CatalogEntry) {
-        _dialog.value = LocalModelsDialog.DeleteConfirm(entry)
+        customDialogState.value = LocalModelsDialog.DeleteConfirm(entry)
     }
 
     fun confirmDelete() {
-        val entry = (_dialog.value as? LocalModelsDialog.DeleteConfirm)?.entry ?: return
-        _dialog.value = LocalModelsDialog.Hidden
+        val entry = (customDialogState.value as? LocalModelsDialog.DeleteConfirm)?.entry ?: return
+        customDialogState.value = LocalModelsDialog.Hidden
         viewModelScope.launch { localModelRepository.deleteModel(entry.id) }
     }
 
@@ -132,8 +130,8 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     fun dismissDialog() {
-        if (_dialog.value !is LocalModelsDialog.Hidden) {
-            _dialog.value = LocalModelsDialog.Hidden
+        if (customDialogState.value !is LocalModelsDialog.Hidden) {
+            customDialogState.value = LocalModelsDialog.Hidden
         } else {
             downloadActions.dismissDialog()
         }
@@ -144,12 +142,12 @@ class LocalModelsViewModel @Inject constructor(
             val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "custom.gguf"
             val inputStream = runCatching { contentResolver.openInputStream(uri) }.getOrNull()
             if (inputStream == null) {
-                _dialog.value = LocalModelsDialog.ImportFailed("Could not open file stream.")
+                customDialogState.value = LocalModelsDialog.ImportFailed("Could not open file stream.")
                 return@launch
             }
             val result = localModelRepository.importCustomModel(inputStream, fileName)
             if (result is LocalModelImportResult.Failure) {
-                _dialog.value = LocalModelsDialog.ImportFailed(result.message)
+                customDialogState.value = LocalModelsDialog.ImportFailed(result.message)
             }
         }
     }

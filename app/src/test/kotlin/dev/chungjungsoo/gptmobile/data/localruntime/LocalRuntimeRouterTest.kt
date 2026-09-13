@@ -115,11 +115,19 @@ class LocalRuntimeRouterTest {
         }
 
         override suspend fun fetchPlatforms(): List<Platform> = emptyList()
+        override suspend fun fetchPlatformV2s(): List<PlatformV2> = emptyList()
         override fun observePlatformV2s(): Flow<List<PlatformV2>> = emptyFlow()
         override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = emptyFlow()
         override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
         override suspend fun migrateToPlatformV2() = Unit
         override suspend fun migrateSecrets(): List<SecretMigrationError> = emptyList()
         override suspend fun updatePlatforms(platforms: List<Platform>) = Unit
+        override suspend fun updateThemes(themeSetting: ThemeSetting) = Unit
+        override suspend fun addPlatformV2(platform: PlatformV2) = Unit
+        override suspend fun updatePlatformV2(platform: PlatformV2) = Unit
+        override suspend fun deletePlatformV2(platform: PlatformV2) = Unit
+        override suspend fun getPlatformV2ById(id: Int): PlatformV2? = null
+        override suspend fun exportConfigurationJson(): String = "{}"
+        override suspend fun importConfigurationJson(json: String): Result<Int> = Result.success(0)
     }
 }

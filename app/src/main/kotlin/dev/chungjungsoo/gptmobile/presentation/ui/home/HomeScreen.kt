@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
+import android.content.ClipData
 import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -32,17 +33,20 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.rounded.Close
@@ -93,6 +97,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -594,63 +600,144 @@ fun FavoriteDetailDialog(
     onUnfavorite: () -> Unit
 ) {
     var showGroupDropdown by remember { mutableStateOf(false) }
-    AlertDialog(
+    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(platformName, style = MaterialTheme.typography.titleMedium)
-                Box {
-                    TextButton(onClick = { showGroupDropdown = true }) {
-                        Text(currentGroup ?: stringResource(R.string.none_group))
-                    }
-                    DropdownMenu(
-                        expanded = showGroupDropdown,
-                        onDismissRequest = { showGroupDropdown = false }
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Top Action Bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.none_group)) },
-                            onClick = {
-                                onAssignGroup(null)
-                                showGroupDropdown = false
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close))
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = platformName,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Copy Button
+                        IconButton(onClick = {
+                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(message.content, message.content)))
+                            Toast.makeText(context, R.string.copy_text, Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentCopy,
+                                contentDescription = stringResource(R.string.copy_text),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        // Group Selector
+                        Box {
+                            IconButton(onClick = { showGroupDropdown = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Folder,
+                                    contentDescription = stringResource(R.string.group_name),
+                                    tint = if (currentGroup != null) Color.Cyan else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        )
-                        favoriteGroups.filter { it != HomeViewModel.GROUP_ALL }.forEach { group ->
-                            DropdownMenuItem(
-                                text = { Text(group) },
-                                onClick = {
-                                    onAssignGroup(group)
-                                    showGroupDropdown = false
+                            DropdownMenu(
+                                expanded = showGroupDropdown,
+                                onDismissRequest = { showGroupDropdown = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.none_group)) },
+                                    leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                                    onClick = {
+                                        onAssignGroup(null)
+                                        showGroupDropdown = false
+                                    }
+                                )
+                                favoriteGroups.filter { it != HomeViewModel.GROUP_ALL }.forEach { group ->
+                                    DropdownMenuItem(
+                                        text = { Text(group) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.Folder,
+                                                contentDescription = null,
+                                                tint = if (currentGroup == group) Color.Cyan else MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        onClick = {
+                                            onAssignGroup(group)
+                                            showGroupDropdown = false
+                                        }
+                                    )
                                 }
+                            }
+                        }
+
+                        // View in Chat
+                        IconButton(onClick = onViewInChat) {
+                            Icon(
+                                imageVector = Icons.Outlined.ChatBubbleOutline,
+                                contentDescription = stringResource(R.string.view_in_chat),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // Delete / Unfavorite
+                        IconButton(onClick = onUnfavorite) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = stringResource(R.string.delete),
+                                tint = MaterialTheme.colorScheme.error
                             )
                         }
                     }
                 }
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                ChatMarkdown(content = message.content)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onViewInChat) {
-                Text(stringResource(R.string.view_in_chat))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onUnfavorite) {
-                Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+
+                HorizontalDivider()
+
+                // Content area with SelectionContainer for text selection and copying
+                SelectionContainer(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(20.dp)
+                    ) {
+                        ChatMarkdown(content = message.content)
+                    }
+                }
             }
         }
-    )
+    }
 }
 
 @Composable

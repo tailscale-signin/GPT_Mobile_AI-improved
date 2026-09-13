@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import javax.inject.Inject
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -70,6 +71,7 @@ class SettingDataSourceImpl @Inject constructor(
     val dynamicThemeKey = intPreferencesKey("dynamic_mode")
     val themeModeKey = intPreferencesKey("theme_mode")
     val localRuntimeBackendKey = stringPreferencesKey("local_runtime_backend")
+    val debugModeKey = booleanPreferencesKey("debug_mode")
 
     override suspend fun getPreferencesSnapshot(): Preferences = dataStore.data.first()
 
@@ -89,6 +91,20 @@ class SettingDataSourceImpl @Inject constructor(
         dataStore.edit { pref ->
             pref[localRuntimeBackendKey] = backend.name
         }
+    }
+
+    override suspend fun updateDebugMode(enabled: Boolean) {
+        dataStore.edit { pref ->
+            pref[debugModeKey] = enabled
+        }
+    }
+
+    override suspend fun getDebugMode(): Boolean = dataStore.data.map { pref ->
+        pref[debugModeKey] ?: false
+    }.first()
+
+    override fun observeDebugMode(): Flow<Boolean> = dataStore.data.map { pref ->
+        pref[debugModeKey] ?: false
     }
 
     override suspend fun updateStatus(apiType: ApiType, status: Boolean) {

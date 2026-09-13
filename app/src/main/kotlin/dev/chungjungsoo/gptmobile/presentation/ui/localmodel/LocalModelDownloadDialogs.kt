@@ -218,28 +218,20 @@ private fun HuggingFaceSignInSheet(
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                text = stringResource(
-                    if (isSessionExpired) {
-                        R.string.local_model_session_expired_title
-                    } else {
-                        R.string.local_model_sign_in_title
-                    }
-                ),
+                text = stringResource(R.string.local_model_sign_in_title),
                 style = MaterialTheme.typography.titleLarge
             )
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(
                     if (isSessionExpired) {
-                        R.string.local_model_session_expired_message
+                        R.string.local_model_session_expired
                     } else {
                         R.string.local_model_sign_in_message
                     }
                 ),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                modifier = Modifier.padding(vertical = 16.dp)
             )
-            Spacer(modifier = Modifier.height(24.dp))
             Button(
                 onClick = onSignIn,
                 modifier = Modifier.fillMaxWidth()
@@ -268,20 +260,17 @@ private fun HuggingFaceLicenseSheet(
                 text = stringResource(R.string.local_model_license_title),
                 style = MaterialTheme.typography.titleLarge
             )
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = stringResource(R.string.local_model_license_message),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                modifier = Modifier.padding(vertical = 16.dp)
             )
-            Spacer(modifier = Modifier.height(24.dp))
             Button(
                 onClick = onOpenAgreement,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(stringResource(R.string.local_model_license_open_agreement))
+                Text(stringResource(R.string.local_model_open_license))
             }
-            Spacer(modifier = Modifier.height(8.dp))
             TextButton(
                 onClick = onRetry,
                 modifier = Modifier.fillMaxWidth()
@@ -301,53 +290,47 @@ private fun HuggingFaceAccessTokenDialog(
     var token by remember { mutableStateOf("") }
     val context = LocalContext.current
     AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                stringResource(
-                    if (isSessionExpired) {
-                        R.string.local_model_session_expired_title
-                    } else {
-                        R.string.huggingface_access_token_title
-                    }
-                )
-            )
-        },
+        title = { Text(stringResource(R.string.huggingface_token_dialog_title)) },
         text = {
             Column {
                 Text(
-                    text = stringResource(R.string.huggingface_access_token_hint),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = stringResource(
+                        if (isSessionExpired) {
+                            R.string.local_model_session_expired
+                        } else {
+                            R.string.huggingface_token_dialog_guidance
+                        }
+                    )
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    label = { Text(stringResource(R.string.huggingface_token_label)) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 TextButton(
                     onClick = {
-                        val customTabsIntent = CustomTabsIntent.Builder().build()
-                        customTabsIntent.intent.data = HuggingFaceUrls.USER_SETTINGS_TOKENS.toUri()
-                        runCatching { context.startActivity(customTabsIntent.intent) }
+                        val launched = runCatching {
+                            CustomTabsIntent.Builder().build()
+                                .launchUrl(context, HuggingFaceUrls.ACCESS_TOKENS_URL.toUri())
+                        }.isSuccess
+                        if (!launched) {
+                            Toast.makeText(context, R.string.local_model_open_link_failed, Toast.LENGTH_SHORT).show()
+                        }
                     }
                 ) {
                     Text(stringResource(R.string.huggingface_open_token_settings))
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = token,
-                    onValueChange = { token = it },
-                    label = { Text(stringResource(R.string.huggingface_token_field_label)) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
         },
+        onDismissRequest = onDismiss,
         confirmButton = {
-            Button(
-                onClick = {
-                    onSave(token)
-                    onDismiss()
-                },
-                enabled = token.isNotBlank()
+            TextButton(
+                enabled = token.isNotBlank(),
+                onClick = { onSave(token) }
             ) {
                 Text(stringResource(R.string.save))
             }
@@ -369,46 +352,11 @@ private fun ActionDialog(
     onDismiss: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onDismiss()
-                    onConfirm()
-                }
-            ) {
-                Text(confirmLabel)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun ConfirmDialog(
-    title: String,
-    text: String,
-    confirmLabel: String = stringResource(R.string.download),
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(text) },
         confirmButton = {
-            Button(
-                onClick = {
-                    onDismiss()
-                    onConfirm()
-                }
-            ) {
+            TextButton(onClick = onConfirm) {
                 Text(confirmLabel)
             }
         },
@@ -427,12 +375,37 @@ private fun MessageDialog(
     onDismiss: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },
+        onDismissRequest = onDismiss,
         confirmButton = {
-            Button(onClick = onDismiss) {
-                Text(stringResource(R.string.ok))
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
+}
+
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    text: String,
+    confirmLabel: String = stringResource(R.string.confirm),
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        title = { Text(title) },
+        text = { Text(text) },
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
             }
         }
     )

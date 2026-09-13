@@ -54,6 +54,7 @@ sealed class LocalModelsDialog {
     data class EnterAccessToken(val isSessionExpired: Boolean = false) : LocalModelsDialog()
     data object ProbeError : LocalModelsDialog()
     data object SignInFailed : LocalModelsDialog()
+    data class ImportFailed(val message: String) : LocalModelsDialog()
 }
 
 fun catalogLocalModelItems(
@@ -68,7 +69,7 @@ fun catalogLocalModelItems(
         id?.let { it to info }
     }.toMap()
     val modelsById = records.associateBy { it.catalogEntryId }
-    return catalog.map { entry ->
+    val catalogItems = catalog.map { entry ->
         toLocalModelListItem(
             entry,
             modelsById[entry.id],
@@ -77,6 +78,23 @@ fun catalogLocalModelItems(
             downloadSizeBytes = SocVariantResolver.resolve(entry, deviceSocModel).sizeInBytes
         )
     }
+    val catalogIds = catalog.map { it.id }.toSet()
+    val customItems = records.filter { it.catalogEntryId !in catalogIds }.map { record ->
+        val syntheticEntry = CatalogEntry(
+            id = record.catalogEntryId,
+            displayName = record.fileName,
+            sizeInBytes = record.totalBytes,
+            isGated = false
+        )
+        toLocalModelListItem(
+            entry = syntheticEntry,
+            record = record,
+            workInfo = workById[record.catalogEntryId],
+            diskPartialBytes = partialBytesById[record.catalogEntryId] ?: 0L,
+            downloadSizeBytes = record.totalBytes
+        )
+    }
+    return catalogItems + customItems
 }
 
 fun toLocalModelListItem(

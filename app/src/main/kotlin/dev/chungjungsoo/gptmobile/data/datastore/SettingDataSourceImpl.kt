@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import javax.inject.Inject
 import kotlinx.coroutines.flow.first
@@ -68,6 +69,7 @@ class SettingDataSourceImpl @Inject constructor(
     )
     val dynamicThemeKey = intPreferencesKey("dynamic_mode")
     val themeModeKey = intPreferencesKey("theme_mode")
+    val localRuntimeBackendKey = stringPreferencesKey("local_runtime_backend")
 
     override suspend fun getPreferencesSnapshot(): Preferences = dataStore.data.first()
 
@@ -80,6 +82,12 @@ class SettingDataSourceImpl @Inject constructor(
     override suspend fun updateThemeMode(themeMode: ThemeMode) {
         dataStore.edit { pref ->
             pref[themeModeKey] = themeMode.ordinal
+        }
+    }
+
+    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
+        dataStore.edit { pref ->
+            pref[localRuntimeBackendKey] = backend.name
         }
     }
 
@@ -145,6 +153,13 @@ class SettingDataSourceImpl @Inject constructor(
         }.first() ?: return null
 
         return ThemeMode.getByValue(mode)
+    }
+
+    override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend {
+        val backendStr = dataStore.data.map { pref ->
+            pref[localRuntimeBackendKey]
+        }.first()
+        return LocalRuntimeBackend.fromString(backendStr)
     }
 
     override suspend fun getStatus(apiType: ApiType): Boolean? = dataStore.data.map { pref ->

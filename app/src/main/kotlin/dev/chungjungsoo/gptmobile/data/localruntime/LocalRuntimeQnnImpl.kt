@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
+import java.io.File
 import java.io.FileNotFoundException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -34,19 +35,34 @@ class LocalRuntimeQnnImpl(
     private var loadedSpec: LocalEngineSpec? = null
 
     init {
-        // Probe system properties, QNN shared libraries (libQnnHtp.so), or QnnDelegate
+        // Probe system properties, QNN shared libraries (libQnnHtp.so / libLiteRtDispatch_Qualcomm.so), or QnnDelegate
         isQnnNativeAvailable = try {
-            System.loadLibrary("QnnHtp")
-            Log.i(TAG, "Qualcomm QNN HTP native library loaded successfully.")
+            System.loadLibrary("LiteRtDispatch_Qualcomm")
+            Log.i(TAG, "LiteRtDispatch_Qualcomm native library loaded successfully.")
             true
         } catch (e: UnsatisfiedLinkError) {
             try {
-                Class.forName("com.qualcomm.qti.QnnDelegate")
-                Log.i(TAG, "Qualcomm QnnDelegate class available.")
+                System.loadLibrary("QnnHtp")
+                Log.i(TAG, "Qualcomm QNN HTP native library loaded successfully.")
                 true
             } catch (t: Throwable) {
-                Log.i(TAG, "Qualcomm QNN HTP runtime not found in library path; using fallback integration.")
-                false
+                try {
+                    Class.forName("com.qualcomm.qti.QnnDelegate")
+                    Log.i(TAG, "Qualcomm QnnDelegate class available.")
+                    true
+                } catch (t2: Throwable) {
+                    val nativeDir = File(context.applicationInfo.nativeLibraryDir)
+                    val hasDispatchOrQnn = nativeDir.listFiles()?.any {
+                        it.name.contains("LiteRtDispatch_Qualcomm") || it.name.contains("QnnHtp")
+                    } == true
+                    if (hasDispatchOrQnn) {
+                        Log.i(TAG, "Qualcomm dispatch / QnnHtp libraries found in nativeLibraryDir.")
+                        true
+                    } else {
+                        Log.i(TAG, "Qualcomm QNN HTP runtime not found in library path; using fallback integration.")
+                        false
+                    }
+                }
             }
         } catch (t: Throwable) {
             Log.i(TAG, "Qualcomm QNN probe: ${t.message}; using fallback integration.")
@@ -79,15 +95,20 @@ class LocalRuntimeQnnImpl(
             }
 
             // Route through LiteRT-LM with Snapdragon Hexagon NPU acceleration
-            val targetAccelerator = if (isQnnNativeAvailable) {
+            val (targetAccelerator, dispatchDir) = if (isQnnNativeAvailable) {
                 Log.i(TAG, "Deploying model graph to Qualcomm Hexagon NPU backend via QNN.")
-                LocalAccelerators.NPU
+                Pair(LocalAccelerators.NPU, context.applicationInfo.nativeLibraryDir)
             } else {
                 Log.i(TAG, "QNN native library not present; deploying with user accelerator ${spec.accelerator}.")
-                spec.accelerator
+                Pair(spec.accelerator, null)
             }
 
-            fallbackLiteRtRuntime.loadEngine(spec.copy(accelerator = targetAccelerator))
+            fallbackLiteRtRuntime.loadEngine(
+                spec.copy(
+                    accelerator = targetAccelerator,
+                    litertDispatchLibDir = dispatchDir
+                )
+            )
             loadedSpec = spec
         }
     }

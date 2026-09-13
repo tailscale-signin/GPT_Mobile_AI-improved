@@ -188,7 +188,8 @@ private class FakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
 
 private class FakeSettingDataSource(
     val tokens: MutableMap<ApiType, String> = mutableMapOf(),
-    var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
+    var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN,
+    var debugMode: Boolean = false
 ) : SettingDataSource {
     override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
         androidx.datastore.preferences.core.emptyPreferences()
@@ -222,4 +223,9 @@ private class FakeSettingDataSource(
     override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
         localRuntimeBackend = backend
     }
+    override suspend fun updateDebugMode(enabled: Boolean) {
+        debugMode = enabled
+    }
+    override suspend fun getDebugMode(): Boolean = debugMode
+    override fun observeDebugMode(): Flow<Boolean> = flowOf(debugMode)
 }

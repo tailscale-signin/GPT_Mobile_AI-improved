@@ -95,6 +95,7 @@ internal class MapSecretVault(
 internal class RecordingSettingRepository : SettingRepository {
     val addedPlatforms = mutableListOf<PlatformV2>()
     var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
+    var debugMode: Boolean = false
 
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
 
@@ -111,6 +112,14 @@ internal class RecordingSettingRepository : SettingRepository {
     override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
         localRuntimeBackend = backend
     }
+
+    override suspend fun getDebugMode(): Boolean = debugMode
+
+    override suspend fun updateDebugMode(enabled: Boolean) {
+        debugMode = enabled
+    }
+
+    override fun observeDebugMode(): Flow<Boolean> = flowOf(debugMode)
 
     override suspend fun migrateToPlatformV2() = Unit
 

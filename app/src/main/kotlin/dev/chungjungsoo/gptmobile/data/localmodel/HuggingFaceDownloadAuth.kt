@@ -24,7 +24,6 @@ object HuggingFaceDownloadAuth {
         readTimeoutMs: Int
     ): HttpURLConnection {
         var currentUrl = url
-        var remainingToken = accessToken
         repeat(MAX_REDIRECTS + 1) {
             val connection = URL(currentUrl).openConnection() as HttpURLConnection
             connection.instanceFollowRedirects = false
@@ -33,8 +32,8 @@ object HuggingFaceDownloadAuth {
             extraHeaders.forEach { (header, value) ->
                 connection.setRequestProperty(header, value)
             }
-            if (!remainingToken.isNullOrBlank() && shouldAttachBearerToken(currentUrl)) {
-                connection.setRequestProperty("Authorization", HuggingFaceTokenStore.bearerHeader(remainingToken))
+            if (!accessToken.isNullOrBlank() && shouldAttachBearerToken(currentUrl)) {
+                connection.setRequestProperty("Authorization", HuggingFaceTokenStore.bearerHeader(accessToken))
             }
             connection.connect()
             val code = connection.responseCode
@@ -45,7 +44,6 @@ object HuggingFaceDownloadAuth {
                     throw IOException("HTTP error code: $code")
                 }
                 currentUrl = URL(URL(currentUrl), location).toString()
-                remainingToken = null
             } else {
                 return connection
             }

@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.flow.Flow
@@ -186,7 +187,8 @@ private class FakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
 }
 
 private class FakeSettingDataSource(
-    val tokens: MutableMap<ApiType, String> = mutableMapOf()
+    val tokens: MutableMap<ApiType, String> = mutableMapOf(),
+    var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
 ) : SettingDataSource {
     override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
         androidx.datastore.preferences.core.emptyPreferences()
@@ -216,4 +218,8 @@ private class FakeSettingDataSource(
     override suspend fun getTemperature(apiType: ApiType): Float? = null
     override suspend fun getTopP(apiType: ApiType): Float? = null
     override suspend fun getSystemPrompt(apiType: ApiType): String? = null
+    override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = localRuntimeBackend
+    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
+        localRuntimeBackend = backend
+    }
 }

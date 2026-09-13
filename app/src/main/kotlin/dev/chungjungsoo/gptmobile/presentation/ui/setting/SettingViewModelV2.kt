@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.backup.AppBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,6 +29,9 @@ class SettingViewModelV2 @Inject constructor(
     val platformState: StateFlow<List<PlatformV2>> = settingRepository.observePlatformV2s()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private val _localRuntimeBackend = MutableStateFlow(LocalRuntimeBackend.DEFAULT)
+    val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = _localRuntimeBackend.asStateFlow()
+
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
 
@@ -36,6 +40,21 @@ class SettingViewModelV2 @Inject constructor(
 
     init {
         fetchPlatforms()
+        loadLocalRuntimeBackend()
+    }
+
+    private fun loadLocalRuntimeBackend() {
+        viewModelScope.launch {
+            _localRuntimeBackend.value = settingRepository.getLocalRuntimeBackend()
+        }
+    }
+
+    fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
+        viewModelScope.launch {
+            settingRepository.updateLocalRuntimeBackend(backend)
+            _localRuntimeBackend.value = backend
+            _uiEvent.emit(UiEvent.ShowToast("Local inference engine set to ${backend.displayName}"))
+        }
     }
 
     fun fetchPlatforms() {

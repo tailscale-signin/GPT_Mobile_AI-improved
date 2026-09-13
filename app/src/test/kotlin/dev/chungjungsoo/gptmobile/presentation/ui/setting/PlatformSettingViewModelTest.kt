@@ -23,6 +23,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.MAX_HIGH_RAM_CONTEXT_TOKENS
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
@@ -336,6 +337,7 @@ private class FakeSettingRepository(
 ) : SettingRepository {
     private var platform = initialPlatform
     val updatedPlatforms = mutableListOf<PlatformV2>()
+    var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
 
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
 
@@ -346,6 +348,10 @@ private class FakeSettingRepository(
     override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(if (platform.uid == uid) platform else null)
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
+    override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = localRuntimeBackend
+    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
+        localRuntimeBackend = backend
+    }
     override suspend fun migrateToPlatformV2() = Unit
     override suspend fun migrateSecrets(): List<SecretMigrationError> = emptyList()
     override suspend fun updatePlatforms(platforms: List<Platform>) = Unit

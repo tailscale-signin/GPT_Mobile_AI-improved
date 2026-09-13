@@ -1,0 +1,4 @@
+    private fun autoRetryFailedRuns(runs: List<AgentRun>) {
+        // Disabled automatic retry loop to prevent repetitive glitching.
+        // Retries are triggered manually by the user or through multi-platform failover mechanisms.
+    }

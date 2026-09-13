@@ -112,7 +112,11 @@ extensions.configure<ApplicationExtension> {
                 "**/libLiteRtClGlAccelerator.so",
                 "**/liblitertlm_jni.so",
                 "**/libdatastore_shared_counter.so",
-                "**/libandroidx.graphics.path.so"
+                "**/libandroidx.graphics.path.so",
+                "**/libQnn*.so"
+            )
+            pickFirsts += setOf(
+                "**/libQnn*.so"
             )
         }
     }
@@ -178,6 +182,10 @@ dependencies {
 
     // On-device LiteRT-LM serving
     implementation(libs.litertlm)
+
+    // Qualcomm AI Engine Direct (QNN) SDK and LiteRT Delegate
+    implementation(libs.qnn.runtime)
+    implementation(libs.qnn.litert.delegate)
 
     // License page UI
     implementation(libs.auto.license.core)

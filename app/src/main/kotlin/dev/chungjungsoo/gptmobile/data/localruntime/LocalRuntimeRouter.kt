@@ -16,20 +16,16 @@ class LocalRuntimeRouter(
     private val liteRtRuntime: LocalRuntime
 ) : LocalRuntime {
 
-    private suspend fun getActiveBackend(): LocalRuntimeBackend {
-        return try {
-            settingRepository.getLocalRuntimeBackend()
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed reading runtime backend preference, falling back to QUALCOMM_QNN", t)
-            LocalRuntimeBackend.QUALCOMM_QNN
-        }
+    private suspend fun getActiveBackend(): LocalRuntimeBackend = try {
+        settingRepository.getLocalRuntimeBackend()
+    } catch (t: Throwable) {
+        Log.w(TAG, "Failed reading runtime backend preference, falling back to QUALCOMM_QNN", t)
+        LocalRuntimeBackend.QUALCOMM_QNN
     }
 
-    private suspend fun getActiveRuntime(): LocalRuntime {
-        return when (getActiveBackend()) {
-            LocalRuntimeBackend.QUALCOMM_QNN -> qnnRuntime
-            LocalRuntimeBackend.LITERT_LM -> liteRtRuntime
-        }
+    private suspend fun getActiveRuntime(): LocalRuntime = when (getActiveBackend()) {
+        LocalRuntimeBackend.QUALCOMM_QNN -> qnnRuntime
+        LocalRuntimeBackend.LITERT_LM -> liteRtRuntime
     }
 
     override val deviceRamGb: Long
@@ -51,13 +47,34 @@ class LocalRuntimeRouter(
         getActiveRuntime().createConversation(config)
     }
 
-    override suspend fun sendMessage(prompt: String, images: List<ByteArray>): Flow<String> {
-        return getActiveRuntime().sendMessage(prompt, images)
+    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> =
+        liteRtRuntime.sendMessage(text, images)
+
+    override fun cancelActive() {
+        qnnRuntime.cancelActive()
+        liteRtRuntime.cancelActive()
     }
 
-    override fun close() {
-        qnnRuntime.close()
-        liteRtRuntime.close()
+    override fun hasOpenConversation(): Boolean =
+        qnnRuntime.hasOpenConversation() || liteRtRuntime.hasOpenConversation()
+
+    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean =
+        qnnRuntime.isEngineLoaded(spec) || liteRtRuntime.isEngineLoaded(spec)
+
+    override suspend fun closeConversation() {
+        qnnRuntime.closeConversation()
+        liteRtRuntime.closeConversation()
+    }
+
+    override suspend fun unloadEngine() {
+        qnnRuntime.unloadEngine()
+        liteRtRuntime.unloadEngine()
+    }
+
+    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
+        val qnnUnloaded = qnnRuntime.unloadIfIdle(idleThresholdMs)
+        val liteRtUnloaded = liteRtRuntime.unloadIfIdle(idleThresholdMs)
+        return qnnUnloaded || liteRtUnloaded
     }
 
     companion object {

@@ -13,8 +13,7 @@ import kotlinx.coroutines.withContext
  *
  * Designed specifically for Snapdragon chips (such as Snapdragon 8 Gen 3 / 8 Elite / Adreno / Hexagon NPU).
  * Leverages direct Hexagon Tensor Processor (HTP) execution for low-power, high-throughput INT4/INT8
- * weights, while falling back gracefully to LiteRT-LM backend if QNN context binaries or libraries
- * are unavailable for the target architecture.
+ * weights, passing the native dispatch library directory to LiteRT-LM's Qualcomm backend.
  */
 class LocalRuntimeQnnImpl(
     private val context: Context,
@@ -30,7 +29,6 @@ class LocalRuntimeQnnImpl(
     }
 
     private var isQnnNativeAvailable = false
-    private var isUsingFallback = false
     private var loadedSpec: LocalEngineSpec? = null
 
     init {
@@ -106,7 +104,17 @@ class LocalRuntimeQnnImpl(
                 spec.accelerator
             }
 
-            fallbackLiteRtRuntime.loadEngine(spec.copy(accelerator = targetAccelerator))
+            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val engineConfig = if (targetAccelerator == LocalAccelerators.NPU) {
+                spec.copy(
+                    accelerator = targetAccelerator,
+                    litertDispatchLibDir = spec.litertDispatchLibDir ?: nativeLibDir
+                )
+            } else {
+                spec.copy(accelerator = targetAccelerator)
+            }
+
+            fallbackLiteRtRuntime.loadEngine(engineConfig)
             loadedSpec = spec
         }
     }

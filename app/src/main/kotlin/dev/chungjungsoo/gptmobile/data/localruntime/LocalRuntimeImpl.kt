@@ -144,8 +144,8 @@ class LocalRuntimeImpl(
                     Log.i(TAG, "Attempting to initialize LiteRT-LM engine with accelerator: $candidateAccelerator")
                     val engineConfig = EngineConfig(
                         modelPath = spec.modelPath,
-                        backend = backendFor(candidateAccelerator),
-                        visionBackend = visionBackendFor(spec.copy(accelerator = candidateAccelerator)),
+                        backend = backendFor(candidateAccelerator, spec.litertDispatchLibDir),
+                        visionBackend = visionBackendFor(spec.copy(accelerator = candidateAccelerator), spec.litertDispatchLibDir),
                         audioBackend = null,
                         maxNumTokens = effectiveMaxTokens,
                         maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null
@@ -324,17 +324,17 @@ class LocalRuntimeImpl(
         }
     }
 
-    private fun backendFor(accelerator: String): Backend = when (LocalAccelerators.normalize(accelerator)) {
+    private fun backendFor(accelerator: String, dispatchLibDir: String? = null): Backend = when (LocalAccelerators.normalize(accelerator)) {
         LocalAccelerators.GPU -> Backend.GPU()
-        LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+        LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = dispatchLibDir ?: context.applicationInfo.nativeLibraryDir)
         else -> Backend.CPU()
     }
 
-    private fun visionBackendFor(spec: LocalEngineSpec): Backend? {
+    private fun visionBackendFor(spec: LocalEngineSpec, dispatchLibDir: String? = null): Backend? {
         if (!spec.isVisionEnabled) return null
         return when (LocalAccelerators.normalize(spec.accelerator)) {
             LocalAccelerators.CPU -> Backend.CPU()
-            LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+            LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = dispatchLibDir ?: context.applicationInfo.nativeLibraryDir)
             else -> Backend.GPU()
         }
     }

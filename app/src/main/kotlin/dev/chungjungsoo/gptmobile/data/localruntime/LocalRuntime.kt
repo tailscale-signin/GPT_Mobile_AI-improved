@@ -7,7 +7,8 @@ data class LocalEngineSpec(
     val modelPath: String,
     val accelerator: String,
     val maxTokens: Int,
-    val isVisionEnabled: Boolean = false
+    val isVisionEnabled: Boolean = false,
+    val litertDispatchLibDir: String? = null
 )
 
 data class LocalSamplerConfig(

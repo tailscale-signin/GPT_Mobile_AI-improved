@@ -1,12 +1,16 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.content.ContentResolver
 import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
 import dev.chungjungsoo.gptmobile.data.localmodel.GatedDownloadCoordinator
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
@@ -47,22 +51,21 @@ class LocalModelsViewModel @Inject constructor(
 
     private val _listState = MutableStateFlow(LocalModelsListState())
     private val listState = _listState.asStateFlow()
-    private val _deleteDialog = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
-    private val deleteDialog = _deleteDialog.asStateFlow()
+    private val _dialog = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
     private val hasHuggingFaceToken = MutableStateFlow(false)
 
     val uiState: StateFlow<LocalModelsUiState> = combine(
         _listState,
         downloadActions.uiState,
-        _deleteDialog,
+        _dialog,
         hasHuggingFaceToken
-    ) { list, download, delete, hasToken ->
+    ) { list, download, customDialog, hasToken ->
         LocalModelsUiState(
             items = list.items,
             isLoading = list.isLoading,
             totalStorageBytes = list.totalStorageBytes,
             checkingAccessEntryId = download.checkingAccessEntryId,
-            dialog = if (delete !is LocalModelsDialog.Hidden) delete else download.dialog,
+            dialog = if (customDialog !is LocalModelsDialog.Hidden) customDialog else download.dialog,
             hasHuggingFaceToken = hasToken
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, LocalModelsUiState())
@@ -115,12 +118,12 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     fun onDeleteClick(entry: CatalogEntry) {
-        _deleteDialog.value = LocalModelsDialog.DeleteConfirm(entry)
+        _dialog.value = LocalModelsDialog.DeleteConfirm(entry)
     }
 
     fun confirmDelete() {
-        val entry = (_deleteDialog.value as? LocalModelsDialog.DeleteConfirm)?.entry ?: return
-        _deleteDialog.value = LocalModelsDialog.Hidden
+        val entry = (_dialog.value as? LocalModelsDialog.DeleteConfirm)?.entry ?: return
+        _dialog.value = LocalModelsDialog.Hidden
         viewModelScope.launch { localModelRepository.deleteModel(entry.id) }
     }
 
@@ -129,11 +132,42 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     fun dismissDialog() {
-        if (_deleteDialog.value !is LocalModelsDialog.Hidden) {
-            _deleteDialog.value = LocalModelsDialog.Hidden
+        if (_dialog.value !is LocalModelsDialog.Hidden) {
+            _dialog.value = LocalModelsDialog.Hidden
         } else {
             downloadActions.dismissDialog()
         }
+    }
+
+    fun importCustomModel(contentResolver: ContentResolver, uri: Uri) {
+        viewModelScope.launch {
+            val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "custom.gguf"
+            val inputStream = runCatching { contentResolver.openInputStream(uri) }.getOrNull()
+            if (inputStream == null) {
+                _dialog.value = LocalModelsDialog.ImportFailed("Could not open file stream.")
+                return@launch
+            }
+            val result = localModelRepository.importCustomModel(inputStream, fileName)
+            if (result is LocalModelImportResult.Failure) {
+                _dialog.value = LocalModelsDialog.ImportFailed(result.message)
+            }
+        }
+    }
+
+    private fun queryDisplayName(contentResolver: ContentResolver, uri: Uri): String? {
+        if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
+            runCatching {
+                contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1) {
+                            return cursor.getString(nameIndex)
+                        }
+                    }
+                }
+            }
+        }
+        return uri.path?.substringAfterLast('/')
     }
 
     fun startHuggingFaceSignIn(): Intent? = downloadActions.startHuggingFaceSignIn()

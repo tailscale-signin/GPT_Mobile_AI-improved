@@ -1,11 +1,11 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt.android)
-    alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.aboutlibraries)
+    alias(libs.plugins.android.hilt)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.ksp)
+    alias(libs.plugins.kotlin.parcelize)
+    alias(libs.plugins.auto.license)
+    kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
 }
 
 android {

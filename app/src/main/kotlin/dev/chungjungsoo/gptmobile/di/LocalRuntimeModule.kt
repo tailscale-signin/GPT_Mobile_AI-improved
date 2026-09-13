@@ -27,7 +27,6 @@ object LocalRuntimeModule {
         val liteRtRuntime = LocalRuntimeImpl(context)
         val qnnRuntime = LocalRuntimeQnnImpl(context, liteRtRuntime)
         val router = LocalRuntimeRouter(
-            context = context,
             settingRepository = settingRepository,
             qnnRuntime = qnnRuntime,
             liteRtRuntime = liteRtRuntime

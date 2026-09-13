@@ -104,19 +104,24 @@ extensions.configure<ApplicationExtension> {
             excludes += "META-INF/io.netty.versions.properties"
         }
         jniLibs {
-            // Keep native libraries uncompressed in APK to allow direct page mapping into memory
-            useLegacyPackaging = false
+            // Extract native libraries to nativeLibraryDir on installation so dlopen works with FastRPC / QNN
+            useLegacyPackaging = true
             // Keep pre-stripped native libraries without triggering stripping warnings
             keepDebugSymbols += setOf(
                 "**/libLiteRt.so",
                 "**/libLiteRtClGlAccelerator.so",
+                "**/libLiteRtDispatch_Qualcomm.so",
+                "**/libLiteRtCompilerPlugin_Qualcomm.so",
                 "**/liblitertlm_jni.so",
                 "**/libdatastore_shared_counter.so",
                 "**/libandroidx.graphics.path.so",
-                "**/libQnn*.so"
+                "**/libQnn*.so",
+                "**/libcdsprpc.so"
             )
             pickFirsts += setOf(
-                "**/libQnn*.so"
+                "**/libQnn*.so",
+                "**/libLiteRtDispatch_Qualcomm.so",
+                "**/libLiteRtCompilerPlugin_Qualcomm.so"
             )
         }
     }

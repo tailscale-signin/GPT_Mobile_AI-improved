@@ -1,0 +1,180 @@
+name: Release Pre-release (Auto-increment)
+
+on:
+  workflow_dispatch:
+    inputs:
+      increment_version:
+        description: 'Increment to add to the current version (e.g. 0.0.1 or 0.0.0.0.1)'
+        required: false
+        default: '0.0.0.0.1'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release Pre-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free runner disk and memory space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android/sdk/ndk
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "gradle"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;35.0.0"
+
+      - name: Accept Android licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Set up Keystore
+        id: setup-keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias gptmobile \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "gptmobile-deterministic-release-key" \
+              -keypass "gptmobile-deterministic-release-key" \
+              -dname "CN=GPT Mobile Improved, OU=Development, O=OpenSource, L=Global, ST=Global, C=XX"
+            echo "KEYSTORE_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=gptmobile" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
+          fi
+          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Increment Version
+        id: version
+        run: |
+          # Get current versionName from build.gradle.kts
+          CURRENT_VERSION=$(grep 'versionName =' app/build.gradle.kts | sed -E 's/.*"(.+)".*/\1/')
+          INCREMENT="${{ github.event.inputs.increment_version || '0.0.0.0.1' }}"
+          
+          # Parse version parts (handling 4 or 5 segments)
+          IFS='.' read -r V1 V2 V3 V4 V5 <<< "$CURRENT_VERSION"
+          V5=${V5:-0}
+          
+          # Parse increment parts
+          IFS='.' read -r I1 I2 I3 I4 I5 <<< "$INCREMENT"
+          I1=${I1:-0}
+          I2=${I2:-0}
+          I3=${I3:-0}
+          I4=${I4:-0}
+          I5=${I5:-0}
+          
+          # Add parts
+          SUM_V5=$((V5 + I5))
+          SUM_V4=$((V4 + I4 + SUM_V5 / 10))
+          SUM_V3=$((V3 + I3 + SUM_V4 / 10))
+          SUM_V2=$((V2 + I2 + SUM_V3 / 10))
+          SUM_V1=$((V1 + I1 + SUM_V2 / 10))
+          
+          NEW_V5=$((SUM_V5 % 10))
+          NEW_V4=$((SUM_V4 % 10))
+          NEW_V3=$((SUM_V3 % 10))
+          NEW_V2=$((SUM_V2 % 10))
+          NEW_V1=$SUM_V1
+          
+          # If the sum is less than 5 segments and the last is 0, we can keep 4 segments
+          if [ "$NEW_V5" -eq 0 ]; then
+            NEW_VERSION="${NEW_V1}.${NEW_V2}.${NEW_V3}.${NEW_V4}"
+          else
+            NEW_VERSION="${NEW_V1}.${NEW_V2}.${NEW_V3}.${NEW_V4}.${NEW_V5}"
+          fi
+          
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT_VERSION, Increment: $INCREMENT, New: $NEW_VERSION"
+          
+          # Update build.gradle.kts with new version
+          sed -i "s/versionName = \"$CURRENT_VERSION\"/versionName = \"$NEW_VERSION\"/" app/build.gradle.kts
+
+      - name: Build Release APK
+        env:
+          GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
+        run: |
+          ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2
+
+      - name: Build Release Bundle
+        env:
+          GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
+        run: |
+          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build skipped or non-fatal"
+
+      - name: Sign APKs with apksigner
+        run: |
+          mkdir -p app/build/outputs/apk/release/signed/
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          shopt -s nullglob globstar
+          for apk in app/build/outputs/**/release*.apk; do
+            case "$apk" in
+              *"/signed/"*) continue ;;
+              *) ;;
+            esac
+            "$APKSIGNER" sign \
+              --ks "$KEYSTORE_PATH" \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              --out "app/build/outputs/apk/release/signed/$(basename "$apk")" \
+              "$apk"
+          done
+          ls -la app/build/outputs/apk/release/signed/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          TAG_NAME="v${NEW_VERSION}-pre"
+          RELEASE_TITLE="v${NEW_VERSION} - Pre-release"
+          
+          ASSETS=""
+          for apk in app/build/outputs/apk/release/signed/*.apk; do
+            ASSETS="$ASSETS $apk"
+          done
+          if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then
+            ASSETS="$ASSETS app/build/outputs/bundle/release/app-release.aab"
+          fi
+
+          gh release create "$TAG_NAME" $ASSETS \
+            --prerelease \
+            --title "$RELEASE_TITLE" \
+            --notes "Automated pre-release for version $NEW_VERSION"

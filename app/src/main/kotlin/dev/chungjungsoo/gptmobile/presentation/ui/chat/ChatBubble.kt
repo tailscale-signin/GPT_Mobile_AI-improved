@@ -21,6 +21,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -187,10 +188,10 @@ fun OpponentChatBubble(
     onShowNextRevision: () -> Unit = {},
     onContinueClick: (() -> Unit)? = null
 ) {
-    // Pure black opponent bubble with 2x transparency (0.25f) vs thinking bubble (0.5f)
-    val normalColor = Color.Black.copy(alpha = 0.25f)
+    // Background bubble 3x more transparent (0.08f vs previous 0.25f)
+    val normalColor = Color.Black.copy(alpha = 0.08f)
     val bubbleColor = animateColorAsState(
-        targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.2f) else normalColor,
+        targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.12f) else normalColor,
         animationSpec = tween(durationMillis = 500),
         label = "favoriteBubbleColor"
     ).value
@@ -229,204 +230,222 @@ fun OpponentChatBubble(
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
 
+    // Determine if the bubble has any visible content.
+    // When details is collapsed, no AI generated response yet, and no notices/run info, hide bubble with 1-second fade.
+    val hasVisibleText = text.isNotBlank() || (showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
+    val hasVisibleProcess = hasDetails && areDetailsVisible
+    val hasVisibleExtras = nonTelemetryNotices.isNotEmpty() || agentRun != null || attachments.isNotEmpty() || (!isLoading && (canRetry || canEdit || isError))
+    val shouldShowBubble = hasVisibleText || hasVisibleProcess || hasVisibleExtras
+
     Column(modifier = modifier) {
-        RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
-        AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 8.dp, end = 8.dp))
-        Column(
-            modifier = Modifier.background(
-                color = bubbleColor,
-                shape = RoundedCornerShape(32.dp)
-            )
+        RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
+        AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
+
+        AnimatedVisibility(
+            visible = shouldShowBubble,
+            enter = fadeIn(animationSpec = tween(1000)),
+            exit = fadeOut(animationSpec = tween(1000))
         ) {
-            // Details expand button moved to top-right corner of chat bubble header
-            if (hasDetails) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = bubbleColor,
+                        shape = RoundedCornerShape(32.dp)
+                    )
+            ) {
+                // Details expand button moved to top-right corner of chat bubble header
+                if (hasDetails) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, end = 12.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        DetailsButton(
+                            isVisible = areDetailsVisible,
+                            isEnabled = true,
+                            onClick = { areDetailsVisible = !areDetailsVisible }
+                        )
+                    }
+                }
+
+                val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
+                    hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
+                }
+
+                AnimatedContent(
+                    targetState = areDetailsVisible && hasDetails,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
+                    },
+                    label = "assistantProcessDetails"
+                ) { isVisible ->
+                    if (isVisible) {
+                        if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
+                            AssistantProcessContent(
+                                timeline = contentTimeline,
+                                toolEvents = toolEvents,
+                                isLoading = showProcessStreamingIndicator,
+                                contentIdentity = contentIdentity
+                            )
+                        } else {
+                            LegacyAssistantProcessContent(
+                                thoughts = thoughts,
+                                toolEvents = toolEvents,
+                                isLoading = showProcessStreamingIndicator,
+                                contentIdentity = contentIdentity,
+                                showOrderNotice = hasUnavailableOrder
+                            )
+                        }
+                    }
+                }
+
+                if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
+                    AssistantAnswerContent(
+                        timeline = contentTimeline,
+                        isLoading = showAnswerStreamingIndicator,
+                        contentIdentity = contentIdentity
+                    )
+                } else {
+                    LegacyAssistantAnswerContent(
+                        cardColor = cardColor,
+                        text = text,
+                        thoughts = thoughts,
+                        isLoading = showAnswerStreamingIndicator,
+                        contentIdentity = contentIdentity
+                    )
+                }
+
+                MessageFileThumbnailRow(
+                    files = attachments,
+                    usePrimaryColors = false,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp, end = 12.dp),
-                    horizontalArrangement = Arrangement.End,
+                        .padding(start = 16.dp, end = 16.dp, top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    DetailsButton(
-                        isVisible = areDetailsVisible,
-                        isEnabled = true,
-                        onClick = { areDetailsVisible = !areDetailsVisible }
-                    )
-                }
-            }
+                    Spacer(modifier = Modifier.weight(1f))
 
-            val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
-                hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
-            }
-
-            AnimatedContent(
-                targetState = areDetailsVisible && hasDetails,
-                transitionSpec = { fadeIn(fastEffectsSpec()) togetherWith fadeOut(fastEffectsSpec()) },
-                label = "assistantProcessDetails"
-            ) { isVisible ->
-                if (isVisible) {
-                    if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
-                        AssistantProcessContent(
-                            timeline = contentTimeline,
-                            toolEvents = toolEvents,
-                            isLoading = showProcessStreamingIndicator,
-                            contentIdentity = contentIdentity
-                        )
-                    } else {
-                        LegacyAssistantProcessContent(
-                            thoughts = thoughts,
-                            toolEvents = toolEvents,
-                            isLoading = showProcessStreamingIndicator,
-                            contentIdentity = contentIdentity,
-                            showOrderNotice = hasUnavailableOrder
-                        )
-                    }
-                }
-            }
-
-            if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
-                AssistantAnswerContent(
-                    timeline = contentTimeline,
-                    isLoading = showAnswerStreamingIndicator,
-                    contentIdentity = contentIdentity
-                )
-            } else {
-                LegacyAssistantAnswerContent(
-                    cardColor = cardColor,
-                    text = text,
-                    thoughts = thoughts,
-                    isLoading = showAnswerStreamingIndicator,
-                    contentIdentity = contentIdentity
-                )
-            }
-
-            MessageFileThumbnailRow(
-                files = attachments,
-                usePrimaryColors = false,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Spacer(modifier = Modifier.weight(1f))
-
-                if (!isLoading) {
-                    if (!isError) {
-                        CopyTextIcon(onCopyClick)
-                        Spacer(Modifier.width(8.dp))
-                        SelectTextIcon(onSelectClick)
-                        Spacer(Modifier.width(8.dp))
-                        FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
-                        if (canEdit) {
+                    if (!isLoading) {
+                        if (!isError) {
+                            CopyTextIcon(onCopyClick)
                             Spacer(Modifier.width(8.dp))
-                            EditTextIcon(onEditClick)
+                            SelectTextIcon(onSelectClick)
+                            Spacer(Modifier.width(8.dp))
+                            FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
+                            if (canEdit) {
+                                Spacer(Modifier.width(8.dp))
+                                EditTextIcon(onEditClick)
+                            }
+                        }
+                        if (canRetry) {
+                            Spacer(Modifier.width(8.dp))
+                            RetryIcon(onRetryClick)
+                        }
+                        diagnosticsHudText?.let { hudText ->
+                            Spacer(Modifier.width(8.dp))
+                            TelemetryBadge(hudText)
                         }
                     }
-                    if (canRetry) {
-                        Spacer(Modifier.width(8.dp))
-                        RetryIcon(onRetryClick)
-                    }
-                    diagnosticsHudText?.let { hudText ->
-                        Spacer(Modifier.width(8.dp))
-                        TelemetryBadge(hudText)
-                    }
                 }
-            }
 
-            // Minimal transparent continuation chip & bottom-right aligned timestamp
-            val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AnimatedVisibility(
-                    visible = isContinueVisible,
-                    enter = fadeIn(tween(300)),
-                    exit = fadeOut(tween(500))
+                // Minimal transparent continuation chip & bottom-right aligned timestamp
+                val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
-                    val pulseAlpha by infiniteTransition.animateFloat(
-                        initialValue = 0.45f,
-                        targetValue = 0.95f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "pulseAlpha"
-                    )
-
-                    SuggestionChip(
-                        onClick = {
-                            continueDismissed = true
-                            onContinueClick?.invoke()
-                        },
-                        label = { Text("Continue") },
-                        icon = {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Continue",
-                                modifier = Modifier.size(14.dp)
-                            )
-                        },
-                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                    AnimatedVisibility(
+                        visible = isContinueVisible,
+                        enter = fadeIn(tween(300)),
+                        exit = fadeOut(tween(500))
+                    ) {
+                        val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
+                        val pulseAlpha by infiniteTransition.animateFloat(
+                            initialValue = 0.45f,
+                            targetValue = 0.95f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "pulseAlpha"
                         )
-                    )
+
+                        SuggestionChip(
+                            onClick = {
+                                continueDismissed = true
+                                onContinueClick?.invoke()
+                            },
+                            label = { Text("Continue") },
+                            icon = {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Continue",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            },
+                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    if (formattedTime.isNotBlank()) {
+                        Text(
+                            text = formattedTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .alpha(0.5f)
+                                .padding(start = 8.dp)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
-
-                if (formattedTime.isNotBlank()) {
+                if (!isLoading && canRetry) {
                     Text(
-                        text = formattedTime,
+                        text = stringResource(R.string.retry_tools_warning),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .alpha(0.5f)
-                            .padding(start = 8.dp)
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
                     )
                 }
-            }
 
-            if (!isLoading && canRetry) {
-                Text(
-                    text = stringResource(R.string.retry_tools_warning),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-                )
-            }
-
-            if (!isLoading) {
-                revisionIndexLabel?.let { label ->
-                    Row(
-                        modifier = Modifier.padding(start = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                stringResource(R.string.previous_revision)
+                if (!isLoading) {
+                    revisionIndexLabel?.let { label ->
+                        Row(
+                            modifier = Modifier.padding(start = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    stringResource(R.string.previous_revision)
+                                )
+                            }
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        }
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        IconButton(enabled = canShowNextRevision, onClick = onShowNextRevision) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                stringResource(R.string.next_revision)
-                            )
+                            IconButton(enabled = canShowNextRevision, onClick = onShowNextRevision) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    stringResource(R.string.next_revision)
+                                )
+                            }
                         }
                     }
                 }
@@ -698,20 +717,32 @@ private fun LegacyAssistantAnswerContent(
 @Composable
 fun GPTMobileIcon(loading: Boolean) {
     Box(
-        modifier = Modifier.padding(start = 8.dp).size(40.dp).clip(RoundedCornerShape(40.dp)).background(Color.Cyan),
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .size(40.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (loading) CircularProgressIndicator(
-            modifier = Modifier.size(40.dp),
-            color = Color.White,
-            trackColor = Color.Transparent
-        )
-        Icon(
-            painter = painterResource(R.drawable.ic_gpt_mobile_no_padding),
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = Color.White
-        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(40.dp),
+                color = Color(0xFF00E5FF),
+                strokeWidth = 2.5.dp,
+                trackColor = Color.Transparent
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF00BCD4)),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_gpt_mobile_no_padding),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp)
+            )
+        }
     }
 }
 

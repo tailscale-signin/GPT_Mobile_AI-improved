@@ -164,7 +164,8 @@ private class BackupFakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
 private class BackupFakeSettingDataSource(
     var dynamicTheme: DynamicTheme? = null,
     var themeMode: ThemeMode? = null,
-    var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
+    var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN,
+    var debugMode: Boolean = false
 ) : SettingDataSource {
     override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
         androidx.datastore.preferences.core.emptyPreferences()
@@ -176,6 +177,18 @@ private class BackupFakeSettingDataSource(
     override suspend fun updateThemeMode(themeMode: ThemeMode) {
         this.themeMode = themeMode
     }
+
+    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
+        localRuntimeBackend = backend
+    }
+
+    override suspend fun updateDebugMode(enabled: Boolean) {
+        debugMode = enabled
+    }
+
+    override suspend fun getDebugMode(): Boolean = debugMode
+
+    override fun observeDebugMode(): Flow<Boolean> = flowOf(debugMode)
 
     override suspend fun updateStatus(apiType: ApiType, status: Boolean) = Unit
     override suspend fun updateAPIUrl(apiType: ApiType, url: String) = Unit
@@ -195,7 +208,4 @@ private class BackupFakeSettingDataSource(
     override suspend fun getTopP(apiType: ApiType): Float? = null
     override suspend fun getSystemPrompt(apiType: ApiType): String? = null
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = localRuntimeBackend
-    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
-        localRuntimeBackend = backend
-    }
 }

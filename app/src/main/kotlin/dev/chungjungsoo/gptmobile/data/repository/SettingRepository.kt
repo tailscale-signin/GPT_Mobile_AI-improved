@@ -14,6 +14,9 @@ interface SettingRepository {
     suspend fun fetchThemes(): ThemeSetting
     suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
+    suspend fun getDebugMode(): Boolean
+    suspend fun updateDebugMode(enabled: Boolean)
+    fun observeDebugMode(): Flow<Boolean>
     suspend fun migrateToPlatformV2()
     suspend fun migrateSecrets(): List<SecretMigrationError>
     suspend fun updatePlatforms(platforms: List<Platform>)

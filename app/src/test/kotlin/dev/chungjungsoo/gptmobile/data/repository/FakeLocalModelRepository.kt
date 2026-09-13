@@ -3,7 +3,10 @@ package dev.chungjungsoo.gptmobile.data.repository
 import androidx.work.WorkInfo
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelRecord
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import java.io.InputStream
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,7 +48,36 @@ class FakeLocalModelRepository(
         cancelDownloadCalls += catalogEntryId
     }
 
-    override suspend fun deleteModel(catalogEntryId: String) = Unit
+    override suspend fun deleteModel(catalogEntryId: String) {
+        models.value = models.value.filterNot { it.catalogEntryId == catalogEntryId }
+    }
+
+    override suspend fun importCustomModel(inputStream: InputStream, fileName: String): LocalModelImportResult {
+        val now = System.currentTimeMillis() / 1000
+        val id = "local_model_${fileName.replace(Regex("[^a-zA-Z0-9]"), "_")}"
+        val record = LocalModel(
+            catalogEntryId = id,
+            commitHash = "local",
+            fileName = fileName,
+            relativeDirectory = "models/$id/local",
+            totalBytes = 1000L,
+            status = LocalModelStatus.READY,
+            createdAt = now,
+            updatedAt = now
+        )
+        models.value = models.value.filterNot { it.catalogEntryId == id } + record
+        return LocalModelImportResult.Success(
+            record = LocalModelRecord(
+                catalogEntryId = id,
+                commitHash = "local",
+                fileName = fileName,
+                relativeDirectory = "models/$id/local",
+                status = LocalModelStatus.READY
+            ),
+            absoluteFilePath = "/mock/$fileName",
+            sizeBytes = 1000L
+        )
+    }
 
     fun setModels(next: List<LocalModel>) {
         models.value = next

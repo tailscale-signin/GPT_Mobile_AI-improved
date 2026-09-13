@@ -4,11 +4,13 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 internal class RecordingSettingRepository : SettingRepository {
     val addedPlatforms = mutableListOf<PlatformV2>()
+    var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
 
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
 
@@ -19,6 +21,12 @@ internal class RecordingSettingRepository : SettingRepository {
     override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(null)
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
+
+    override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = localRuntimeBackend
+
+    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
+        localRuntimeBackend = backend
+    }
 
     override suspend fun migrateToPlatformV2() = Unit
 

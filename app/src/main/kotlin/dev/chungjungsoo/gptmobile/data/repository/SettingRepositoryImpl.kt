@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -140,6 +141,12 @@ class SettingRepositoryImpl @Inject constructor(
         dynamicTheme = settingDataSource.getDynamicTheme() ?: DynamicTheme.OFF,
         themeMode = settingDataSource.getThemeMode() ?: ThemeMode.SYSTEM
     )
+
+    override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
+        settingDataSource.getLocalRuntimeBackend()
+
+    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) =
+        settingDataSource.updateLocalRuntimeBackend(backend)
 
     override suspend fun migrateToPlatformV2() {
         val leftOverPlatformV2s = fetchPlatformV2s()

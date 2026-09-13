@@ -26,6 +26,7 @@ browser = "1.9.0"
 work = "2.11.2"
 appauth = "0.11.1"
 litertlm = "0.11.0"
+qnn = "2.47.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -75,6 +76,8 @@ androidx-browser = { group = "androidx.browser", name = "browser", version.ref =
 androidx-lifecycle-runtime-compose-android = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose-android", version.ref = "lifecycleRuntime" }
 openid-appauth = { group = "net.openid", name = "appauth", version.ref = "appauth" }
 litertlm = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
+qnn-runtime = { group = "com.qualcomm.qti", name = "qnn-runtime", version.ref = "qnn" }
+qnn-litert-delegate = { group = "com.qualcomm.qti", name = "qnn-litert-delegate", version.ref = "qnn" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

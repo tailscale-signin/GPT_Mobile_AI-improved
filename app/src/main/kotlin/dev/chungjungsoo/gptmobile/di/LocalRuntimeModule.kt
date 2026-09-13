@@ -10,6 +10,9 @@ import dagger.hilt.components.SingletonComponent
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineHolder
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeImpl
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeQnnImpl
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeRouter
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Singleton
 
 @Module
@@ -18,8 +21,18 @@ object LocalRuntimeModule {
     @Provides
     @Singleton
     fun provideLocalRuntime(
-        @ApplicationContext context: Context
-    ): LocalRuntime = LocalEngineHolder(LocalRuntimeImpl(context))
+        @ApplicationContext context: Context,
+        settingRepository: SettingRepository
+    ): LocalRuntime {
+        val liteRtRuntime = LocalRuntimeImpl(context)
+        val qnnRuntime = LocalRuntimeQnnImpl(context, liteRtRuntime)
+        val router = LocalRuntimeRouter(
+            settingRepository = settingRepository,
+            qnnRuntime = qnnRuntime,
+            liteRtRuntime = liteRtRuntime
+        )
+        return LocalEngineHolder(router)
+    }
 
     @Provides
     @Singleton

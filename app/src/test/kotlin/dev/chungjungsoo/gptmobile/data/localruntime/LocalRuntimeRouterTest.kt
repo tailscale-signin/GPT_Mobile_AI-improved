@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
-import com.google.common.truth.Truth.assertThat
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
@@ -11,6 +10,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -40,8 +42,8 @@ class LocalRuntimeRouterTest {
 
         router.loadEngine(spec)
 
-        assertThat(qnnRuntime.loadEngineCalls).hasSize(1)
-        assertThat(liteRtRuntime.loadEngineCalls).isEmpty()
+        assertEquals(1, qnnRuntime.loadEngineCalls.size)
+        assertTrue(liteRtRuntime.loadEngineCalls.isEmpty())
     }
 
     @Test
@@ -51,8 +53,8 @@ class LocalRuntimeRouterTest {
 
         router.loadEngine(spec)
 
-        assertThat(liteRtRuntime.loadEngineCalls).hasSize(1)
-        assertThat(qnnRuntime.loadEngineCalls).isEmpty()
+        assertEquals(1, liteRtRuntime.loadEngineCalls.size)
+        assertTrue(qnnRuntime.loadEngineCalls.isEmpty())
     }
 
     @Test
@@ -63,9 +65,9 @@ class LocalRuntimeRouterTest {
 
         router.loadEngine(spec)
 
-        assertThat(qnnRuntime.loadEngineCalls).hasSize(1)
-        assertThat(liteRtRuntime.loadEngineCalls).hasSize(1)
-        assertThat(router.isEngineLoaded(spec)).isTrue()
+        assertEquals(1, qnnRuntime.loadEngineCalls.size)
+        assertEquals(1, liteRtRuntime.loadEngineCalls.size)
+        assertTrue(router.isEngineLoaded(spec))
     }
 
     @Test
@@ -78,11 +80,11 @@ class LocalRuntimeRouterTest {
 
         val events = router.sendMessage("Fallback test", emptyList()).toList()
 
-        assertThat(liteRtRuntime.createConversationCalls).hasSize(1)
-        assertThat(liteRtRuntime.sendMessageCalls).containsExactly("Fallback test")
-        assertThat(qnnRuntime.createConversationCalls).isEmpty()
-        assertThat(qnnRuntime.sendMessageCalls).isEmpty()
-        assertThat(events).isNotEmpty()
+        assertEquals(1, liteRtRuntime.createConversationCalls.size)
+        assertEquals(listOf("Fallback test"), liteRtRuntime.sendMessageCalls)
+        assertTrue(qnnRuntime.createConversationCalls.isEmpty())
+        assertTrue(qnnRuntime.sendMessageCalls.isEmpty())
+        assertTrue(events.isNotEmpty())
     }
 
     @Test
@@ -94,45 +96,45 @@ class LocalRuntimeRouterTest {
 
         val events = router.sendMessage("Hello NPU", emptyList()).toList()
 
-        assertThat(qnnRuntime.sendMessageCalls).containsExactly("Hello NPU")
-        assertThat(liteRtRuntime.sendMessageCalls).isEmpty()
-        assertThat(events).isNotEmpty()
+        assertEquals(listOf("Hello NPU"), qnnRuntime.sendMessageCalls)
+        assertTrue(liteRtRuntime.sendMessageCalls.isEmpty())
+        assertTrue(events.isNotEmpty())
     }
 
     @Test
     fun cancelActive_cancelsBothRuntimes() {
         router.cancelActive()
 
-        assertThat(qnnRuntime.cancelActiveCalls).isEqualTo(1)
-        assertThat(liteRtRuntime.cancelActiveCalls).isEqualTo(1)
+        assertEquals(1, qnnRuntime.cancelActiveCalls)
+        assertEquals(1, liteRtRuntime.cancelActiveCalls)
     }
 
     @Test
     fun unloadEngine_unloadsBothRuntimes() = runTest {
         router.unloadEngine()
 
-        assertThat(qnnRuntime.unloadEngineCalls).isEqualTo(1)
-        assertThat(liteRtRuntime.unloadEngineCalls).isEqualTo(1)
+        assertEquals(1, qnnRuntime.unloadEngineCalls)
+        assertEquals(1, liteRtRuntime.unloadEngineCalls)
     }
 
     @Test
     fun closeConversation_closesBothRuntimes() = runTest {
         router.closeConversation()
 
-        assertThat(qnnRuntime.closeConversationCalls).isEqualTo(1)
-        assertThat(liteRtRuntime.closeConversationCalls).isEqualTo(1)
+        assertEquals(1, qnnRuntime.closeConversationCalls)
+        assertEquals(1, liteRtRuntime.closeConversationCalls)
     }
 
     @Test
     fun hasOpenConversation_reflectsAnyRuntimeWithOpenConversation() = runTest {
-        assertThat(router.hasOpenConversation()).isFalse()
+        assertFalse(router.hasOpenConversation())
 
         qnnRuntime.createConversation(LocalConversationConfig())
-        assertThat(router.hasOpenConversation()).isTrue()
+        assertTrue(router.hasOpenConversation())
 
         qnnRuntime.closeConversation()
         liteRtRuntime.createConversation(LocalConversationConfig())
-        assertThat(router.hasOpenConversation()).isTrue()
+        assertTrue(router.hasOpenConversation())
     }
 
     private class FakeRouterSettingRepository : SettingRepository {

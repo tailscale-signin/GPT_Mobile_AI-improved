@@ -125,6 +125,12 @@ jobs:
           
           # Update build.gradle.kts with new version
           sed -i "s/versionName = \"$CURRENT_VERSION\"/versionName = \"$NEW_VERSION\"/" app/build.gradle.kts
+          
+          # Increment versionCode as well to ensure unique builds
+          CURRENT_CODE=$(grep 'versionCode =' app/build.gradle.kts | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          NEW_CODE=$((CURRENT_CODE + 1))
+          sed -i "s/versionCode = $CURRENT_CODE/versionCode = $NEW_CODE/" app/build.gradle.kts
+          echo "version_code=$NEW_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Build Release APK
         env:

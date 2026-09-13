@@ -173,6 +173,7 @@ fun OpponentChatBubble(
     contentIdentity: Any = text,
     canEdit: Boolean = false,
     isFavorite: Boolean = false,
+    debugMode: Boolean = false,
     revisionIndexLabel: String? = null,
     canShowPreviousRevision: Boolean = false,
     canShowNextRevision: Boolean = false,
@@ -205,6 +206,9 @@ fun OpponentChatBubble(
     val contentTimeline = remember(timeline) { timeline.filter { it.type != AssistantTimelineItemType.NOTICE } }
     val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
         extractTelemetryNotice(noticeMessages)
+    }
+    val diagnosticsHudText = remember(agentRun, telemetryNotice, debugMode) {
+        buildDiagnosticsHudText(agentRun, telemetryNotice, debugMode)
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
     val showContinueAction = remember(text, isLoading) { shouldShowContinuePrompt(text, isLoading) }
@@ -326,9 +330,9 @@ fun OpponentChatBubble(
                         Spacer(Modifier.width(8.dp))
                         RetryIcon(onRetryClick)
                     }
-                    telemetryNotice?.let { telemetry ->
+                    diagnosticsHudText?.let { hudText ->
                         Spacer(Modifier.width(8.dp))
-                        TelemetryBadge(telemetry)
+                        TelemetryBadge(hudText)
                     }
                 }
             }
@@ -796,6 +800,23 @@ internal fun extractTelemetryNotice(notices: List<String>): Pair<String?, List<S
     val telemetry = notices.firstOrNull(::isTelemetryNotice)
     val remaining = notices.filterNot(::isTelemetryNotice)
     return telemetry to remaining
+}
+
+internal fun buildDiagnosticsHudText(
+    agentRun: AgentRun?,
+    telemetryNotice: String?,
+    debugMode: Boolean
+): String? {
+    if (!debugMode) return telemetryNotice
+
+    val parts = mutableListOf<String>()
+    agentRun?.modelSnapshot?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
+    agentRunDurationSeconds(agentRun ?: return telemetryNotice)?.let { duration ->
+        parts.add("${duration}s")
+    }
+    telemetryNotice?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
+
+    return if (parts.isNotEmpty()) parts.joinToString(" • ") else telemetryNotice
 }
 
 @Preview

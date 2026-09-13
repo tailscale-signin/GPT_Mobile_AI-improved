@@ -2,10 +2,7 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 
 import android.app.ActivityManager
 import android.content.Context
-import android.os.SystemClock
 import android.util.Log
-import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
-import java.io.File
 import java.io.FileNotFoundException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +10,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.yield
 
 /**
  * Qualcomm QNN (Qualcomm Neural Network) runtime implementation.

@@ -5,12 +5,16 @@ import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
+import kotlinx.coroutines.flow.Flow
 
 interface SettingDataSource {
     suspend fun getPreferencesSnapshot(): Preferences
     suspend fun updateDynamicTheme(theme: DynamicTheme)
     suspend fun updateThemeMode(themeMode: ThemeMode)
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
+    suspend fun updateDebugMode(enabled: Boolean)
+    suspend fun getDebugMode(): Boolean
+    fun observeDebugMode(): Flow<Boolean>
     suspend fun updateStatus(apiType: ApiType, status: Boolean)
     suspend fun updateAPIUrl(apiType: ApiType, url: String)
     suspend fun updateToken(apiType: ApiType, token: String)

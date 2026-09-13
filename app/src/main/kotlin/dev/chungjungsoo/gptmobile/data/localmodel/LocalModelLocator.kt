@@ -47,6 +47,7 @@ object LocalModelLocator {
         "task",
         "tflite",
         "litertmodel",
+        "litertlm",
         "gguf"
     )
 

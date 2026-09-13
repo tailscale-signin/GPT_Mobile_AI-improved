@@ -148,6 +148,12 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) =
         settingDataSource.updateLocalRuntimeBackend(backend)
 
+    override suspend fun getDebugMode(): Boolean = settingDataSource.getDebugMode()
+
+    override suspend fun updateDebugMode(enabled: Boolean) = settingDataSource.updateDebugMode(enabled)
+
+    override fun observeDebugMode(): Flow<Boolean> = settingDataSource.observeDebugMode()
+
     override suspend fun migrateToPlatformV2() {
         val leftOverPlatformV2s = fetchPlatformV2s()
         leftOverPlatformV2s.forEach { deletePlatformV2(it) }

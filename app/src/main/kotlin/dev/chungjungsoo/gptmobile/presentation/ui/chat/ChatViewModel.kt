@@ -158,6 +158,9 @@ class ChatViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     // All platforms configured in app (including disabled)
     private val _platformsInApp = MutableStateFlow(listOf<PlatformV2>())
     val platformsInApp = _platformsInApp.asStateFlow()

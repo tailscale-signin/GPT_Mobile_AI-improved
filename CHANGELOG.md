@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2.4] - 2026-09-13
+
+### Added & Improved
+- **Voice Session Coordination (Full-Duplex Conversations)**:
+  - `VoiceSessionCoordinator`: State machine managing full-duplex voice conversation lifecycle (`IDLE → LISTENING → TRANSCRIBING → THINKING → SPEAKING`).
+  - User interruption handling with graceful state transitions and audio resource management.
+  - Low-latency voice interaction pipeline for real-time conversational AI.
+- **Sandboxed Artifact Previewing**:
+  - `SandboxedArtifactView`: Safe interactive HTML/SVG artifact previewing with sandboxed WebView isolation.
+  - Prevents XSS and malicious script execution while allowing rich interactive content display.
+- **Multi-Step Agent Workflow Display**:
+  - `AgentPlanCard`: Composable UI component for displaying multi-step autonomous agent workflows.
+  - `AgentPlan` and `AgentTaskStep` models for structured multi-step task planning and execution tracking.
+  - Visual progress indicators for agent task steps with status tracking.
+- **Local Document RAG Engine**:
+  - `DocumentRagEngine`: On-device document chunking, keyword retrieval (BM25), and vector retrieval (cosine similarity).
+  - Local document indexing and retrieval without external API dependencies.
+  - Supports document ingestion, chunking, and semantic search capabilities.
+- **Resilient Streaming Client**:
+  - `ResilientStreamingClient`: Enhanced streaming with automatic retry, exponential backoff, and connection recovery.
+  - Improved reliability for long-running streaming sessions with graceful degradation.
+- **Streaming Diff Parser**:
+  - `StreamingDiffParser`: Real-time diff parsing for streaming responses with incremental updates.
+  - Supports live code diff visualization and progressive content rendering.
+- **Thermal & Memory Governor**:
+  - `ThermalAndMemoryGovernor`: Dynamic thermal and memory management for sustained performance.
+  - Adaptive throttling based on device thermal state and available memory.
+  - Prevents thermal throttling and memory pressure during intensive AI workloads.
+
 ## [0.9.0] - 2026-09-10
 
 ### Added & Improved

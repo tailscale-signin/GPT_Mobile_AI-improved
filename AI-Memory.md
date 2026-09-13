@@ -2,10 +2,10 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`, `0.9.2.3`, `release-0.9.2.3`, `0.9.1`, and `feature/v0.9.2-initiation`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
+> Index status: comprehensive and actively maintained on `main`, `0.9.2.4`, `0.9.2.3`, `release-0.9.2.3`, `0.9.1`, and `feature/v0.9.2-initiation`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 >
-> **Latest Official Release:** [v0.9.2.1](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.2.1) (`prerelease: false`, `draft: false`, official release).
-> **Current Version:** `0.9.2.3` (versionCode 38, pre-release on `0.9.2.3` / `release-0.9.2.3`). Key additions: bottom-right message timestamp layout, conversational continuation trigger detection with pulsing glowing chip, high-importance heads-up background completion alerts, live active chat loading spinner in HomeScreen, and visual platform badges in Tool Connections.
+> **Latest Official Release:** [v0.9.2.3](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.2.3) (`prerelease: false`, `draft: false`, official release).
+> **Current Version:** `0.9.2.4` (versionCode 39, on `0.9.2.4` branch). Key additions: VoiceSessionCoordinator for full-duplex voice conversations, SandboxedArtifactView for safe HTML/SVG previewing, AgentPlanCard for multi-step agent workflows, DocumentRagEngine for local document RAG, ResilientStreamingClient, StreamingDiffParser, and ThermalAndMemoryGovernor.
 
 ## 1. Repository Overview
 
@@ -24,7 +24,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Local inference:** LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention, speculative decoding); Ollama supported for self-hosted network inference with timeout resilience and configurable advanced options.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, high-importance completion notifications (`CHANNEL_AGENT_COMPLETION`), and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.2.3` (versionCode 38). Release workflow automatically runs `apksigner` and outputs signed release packages (`app-universal-release.apk`, `app-arm64-v8a-release.apk`, `app-x86_64-release.apk`, `app-release.aab`).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.2.4` (versionCode 39). Release workflow automatically runs `apksigner` and outputs signed release packages (`app-universal-release.apk`, `app-arm64-v8a-release.apk`, `app-x86_64-release.apk`, `app-release.aab`).
 - **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing (`ChatDatabaseV2MigrationsTest`), and ktlint 1.3.1 using Android Studio style.
 
 ## 2. Repository Index
@@ -50,3 +50,14 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt` — Core Compose navigation destination graph (`SetupNavGraph`, `homeScreenNavigation`, `chatScreenNavigation`, `settingNavigation`, `setupNavigation`). Correctly aligned composable arguments for `SetupPlatformTypeScreen`, `SetupCompleteScreen`, `PlatformSettingScreen`, `ToolConnectionsScreen`, `ToolConnectionEditorScreen`, `McpToolsSelectionScreen`, `AiPlatformsScreen`, and `McpMarketplaceScreen`.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt` — Dialog composables for platform customization, parameter tuning, accelerator selection, and advanced options. Single clean implementation of dialogs without duplicates, correct parameter mapping, and safe null handling.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt` — Primary platform settings view with full reactive StateFlow observation, advanced options routing, and MCP/search tools integration.
+
+### New v0.9.2.4 Features
+
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audio/VoiceSessionCoordinator.kt` — Full-duplex voice conversation state machine (IDLE→LISTENING→TRANSCRIBING→THINKING→SPEAKING) with user interruption handling.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/component/SandboxedArtifactView.kt` — Safe interactive HTML/SVG artifact previewing with sandboxed WebView isolation.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/component/AgentPlanCard.kt` — Multi-step agent workflow display composable with progress indicators.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/rag/DocumentRagEngine.kt` — On-device document chunking, keyword retrieval (BM25), and vector retrieval (cosine similarity).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/AgentPlan.kt` — Multi-step autonomous workflow models (`AgentPlan`, `AgentTaskStep`).
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClient.kt` — Enhanced streaming with automatic retry, exponential backoff, and connection recovery.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/StreamingDiffParser.kt` — Real-time diff parsing for streaming responses with incremental updates.
+- `app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ThermalAndMemoryGovernor.kt` — Dynamic thermal and memory management for sustained performance.

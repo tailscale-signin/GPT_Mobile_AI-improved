@@ -1,1 +1,4 @@
-# Release trigger v0.9.2.3 - WebSearchTool build fix verified
+# Trigger fresh release build for v0.9.2.4
+release_version=0.9.2.4
+build_timestamp=2026-09-13T01:45:00Z
+trigger_reason=Dispatch fresh v0.9.2.4 release artifacts build and publish to GitHub Releases

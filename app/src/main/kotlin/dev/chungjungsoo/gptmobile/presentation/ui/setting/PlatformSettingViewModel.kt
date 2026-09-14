@@ -312,8 +312,8 @@ class PlatformSettingViewModel @Inject constructor(
             val capped = maxTokens?.let { requested ->
                 resolvedEngineMaxTokens(
                     requestedMaxTokens = requested.coerceIn(MIN_MAX_TOKENS, DEFAULT_MAX_TOKENS_CAP),
-                    platformModel = platform.model,
-                    catalog = _catalogEntries.value,
+                    accelerator = platform.accelerator.orEmpty(),
+                    entry = catalogEntryFor(platform),
                     deviceSocModel = deviceSocModel,
                     deviceRamGb = deviceRamGb
                 )
@@ -323,17 +323,22 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
-    fun hardwareCappedMaxTokens(entry: CatalogEntry?): Int {
-        if (entry == null) return MAX_HIGH_RAM_CONTEXT_TOKENS
-        val variant = SocVariantResolver.resolveVariant(entry, deviceSocModel)
-        val variantCap = variant?.maxTokens
-        if (variantCap != null && variantCap > 0) return variantCap
-        if (deviceRamGb < 8L) {
-            val tierCap = entry.lowRamContextLimitTokens
-            if (tierCap != null && tierCap > 0) return tierCap
+    fun maxTokensCap(): Int {
+        val platform = platformState.value ?: return DEFAULT_MAX_TOKENS_CAP
+        if (platform.compatibleType != ClientType.LITERT_LM) {
+            return DEFAULT_MAX_TOKENS_CAP
+        }
+        val entry = catalogEntryFor(platform)
+        if (LocalAccelerators.normalize(platform.accelerator) == LocalAccelerators.NPU && entry != null) {
+            val variantLimit = SocVariantResolver.resolve(entry, deviceSocModel).contextSize
+            if (variantLimit > 0) {
+                return variantLimit
+            }
+        }
+        if (deviceRamGb >= 12L) {
             return MAX_HIGH_RAM_CONTEXT_TOKENS
         }
-        return entry.defaultConfig?.maxTokens ?: MAX_HIGH_RAM_CONTEXT_TOKENS
+        return entry?.defaultConfig?.maxTokens ?: MAX_HIGH_RAM_CONTEXT_TOKENS
     }
 
     private fun catalogEntryFor(platform: PlatformV2): CatalogEntry? = _catalogEntries.value.firstOrNull { it.id == platform.model }
@@ -460,28 +465,35 @@ class PlatformSettingViewModel @Inject constructor(
             )
         }
         mcpDiscoveryJob = viewModelScope.launch {
-            val options = coroutineScope {
-                connections.map { conn ->
-                    async {
-                        runCatching {
-                            agentToolResolver.fetchMcpTools(conn).map { tool ->
-                                McpToolOption(
-                                    connectionUid = conn.connectionUid,
-                                    connectionName = conn.name,
-                                    toolName = tool.name,
-                                    modelToolName = namespaceMcpToolName(conn.stableAlias ?: conn.name, tool.name),
-                                    description = tool.description
-                                )
-                            }
-                        }.getOrDefault(emptyList())
+            try {
+                val results = coroutineScope {
+                    connections.map { connection ->
+                        async { connection to discoverMcpTools(connection) }
+                    }.awaitAll()
+                }
+                val options = results.flatMap { (connection, result) ->
+                    result.getOrDefault(emptyList()).map { tool ->
+                        McpToolOption(
+                            connectionUid = connection.connectionUid,
+                            connectionName = connection.name,
+                            toolName = tool.name,
+                            modelToolName = namespaceMcpToolName(connection.alias, tool.name),
+                            description = tool.description
+                        )
                     }
-                }.awaitAll().flatten()
-            }
-            _toolBindingState.update {
-                it.copy(
-                    mcpToolOptions = options,
-                    isMcpToolsLoading = false
-                )
+                }.sortedWith(compareBy<McpToolOption> { it.connectionName }.thenBy { it.toolName })
+                val failures = results.mapNotNull { (connection, result) ->
+                    result.exceptionOrNull()?.let { "${connection.name}: ${it.message ?: "discovery failed"}" }
+                }
+                _toolBindingState.update {
+                    it.copy(
+                        isMcpToolsLoading = false,
+                        mcpToolOptions = options,
+                        errorMessage = failures.takeIf(List<String>::isNotEmpty)?.joinToString("\n")
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
             }
         }
     }
@@ -491,27 +503,37 @@ class PlatformSettingViewModel @Inject constructor(
         _toolBindingState.update { it.copy(isMcpToolsDialogOpen = false, isMcpToolsLoading = false) }
     }
 
+    private suspend fun discoverMcpTools(connection: ToolConnection) = try {
+        Result.success(agentToolResolver.discoverMcpTools(connection))
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
     fun toggleMcpTool(connectionUid: String, toolName: String) {
+        val selection = ToolBindingSelection(connectionUid, toolName)
         _toolBindingState.update { state ->
-            val selection = ToolBindingSelection(connectionUid, toolName)
-            val updated = if (state.pendingMcpTools.contains(selection)) {
-                state.pendingMcpTools - selection
-            } else {
-                state.pendingMcpTools + selection
-            }
-            state.copy(pendingMcpTools = updated)
+            state.copy(
+                pendingMcpTools = state.pendingMcpTools.toMutableSet().apply {
+                    if (!add(selection)) remove(selection)
+                }
+            )
         }
     }
 
     fun saveMcpTools() {
-        val selected = _toolBindingState.value.pendingMcpTools
+        val selections = _toolBindingState.value.pendingMcpTools
+            .sortedWith(compareBy<ToolBindingSelection> { it.connectionUid }.thenBy { it.toolName })
         viewModelScope.launch {
-            runCatching {
-                toolConnectionRepository.replaceMcpBindings(platformUid, selected)
-            }
+            runCatching { toolConnectionRepository.replaceMcpToolBindings(platformUid, selections) }
                 .onSuccess {
                     _toolBindingState.update {
-                        it.copy(selectedMcpTools = selected, isMcpToolsDialogOpen = false, errorMessage = null)
+                        it.copy(
+                            selectedMcpTools = selections.toSet(),
+                            isMcpToolsDialogOpen = false,
+                            errorMessage = null
+                        )
                     }
                 }
                 .onFailure(::showToolError)
@@ -519,7 +541,6 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     private fun showToolError(error: Throwable) {
-        if (error is CancellationException) return
         _toolBindingState.update { it.copy(errorMessage = error.message ?: "Tool binding update failed.") }
     }
 

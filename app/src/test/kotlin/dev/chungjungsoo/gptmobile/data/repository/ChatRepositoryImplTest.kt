@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.repository
 import android.content.ContextWrapper
 import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
+import dev.chungjungsoo.gptmobile.data.agent.tool.DeviceLocationTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
@@ -54,6 +55,7 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
+import io.mockk.mockk
 import java.io.File
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
@@ -559,7 +561,10 @@ class ChatRepositoryImplTest {
             ),
             states
         )
-        assertEquals(listOf("current_date", "web_search"), openAIAPI.requests.first().tools!!.map { it.function.name }.sorted())
+        assertEquals(
+            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            openAIAPI.requests.first().tools!!.map { it.function.name }.sorted()
+        )
         assertEquals("call_exact", openAIAPI.requests.last().messages.takeLast(2).first().toolCalls!!.single().id)
         val event = traceDao.events.single()
         assertEquals("run-web", event.runId)
@@ -616,11 +621,13 @@ class ChatRepositoryImplTest {
         val networkClient = NetworkClient(CIO)
         val manager = McpClientManager(networkClient())
         return AgentToolResolver(
-            repository,
-            vault,
-            networkClient,
-            manager,
-            McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+            toolConnectionRepository = repository,
+            settingRepository = proxy(),
+            secretVault = vault,
+            networkClient = networkClient,
+            mcpClientManager = manager,
+            mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
+            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
         )
     }
 

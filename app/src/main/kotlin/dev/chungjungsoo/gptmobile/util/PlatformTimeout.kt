@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.util
 
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.HttpRequestBuilder
 
@@ -8,11 +9,19 @@ internal fun platformTimeoutSecondsToSocketTimeoutMillis(timeoutSeconds: Int): L
     else -> timeoutSeconds * 1_000L
 }
 
+/**
+ * Configures timeouts for streaming SSE / chat completions.
+ * Sets requestTimeoutMillis to INFINITE_TIMEOUT_MS so that long generations, reasoning chains,
+ * and multi-step tool sessions are never prematurely aborted by a fixed request deadline.
+ * Socket inactivity timeout is bound to [timeoutSeconds] (defaulting to 90s if disabled)
+ * so idle or severed TCP connections are still promptly detected.
+ */
 internal fun HttpRequestBuilder.applyPlatformStreamingTimeout(timeoutSeconds: Int) {
-    platformTimeoutSecondsToSocketTimeoutMillis(timeoutSeconds)?.let { socketTimeoutMillis ->
-        timeout {
-            this.socketTimeoutMillis = socketTimeoutMillis
-        }
+    val socketTimeout = platformTimeoutSecondsToSocketTimeoutMillis(timeoutSeconds) ?: 90_000L
+    timeout {
+        this.requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
+        this.socketTimeoutMillis = socketTimeout
+        this.connectTimeoutMillis = 30_000L
     }
 }
 

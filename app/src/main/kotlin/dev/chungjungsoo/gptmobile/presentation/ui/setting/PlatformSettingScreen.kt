@@ -431,13 +431,13 @@ fun PlatformSettingScreen(
                             enabled = platformData.enabled,
                             isChecked = platformData.batchMode,
                             onCheckedChange = {
-                                settingViewModel.setPlatform(platformData.copy(batchMode = it))
+                                settingViewModel.updatePlatform(platformData.copy(batchMode = it))
                             }
                         )
                         if (platformData.batchMode) {
                             SettingItem(
                                 modifier = Modifier.height(64.dp),
-                                title = stringResource(R.string.batch_endpoint_url),
+                                title = stringResource(R.string.batch_api_url),
                                 description = platformData.batchApiUrl ?: stringResource(R.string.not_set),
                                 enabled = platformData.enabled,
                                 onItemClick = { showBatchUrlDialog = true },
@@ -446,7 +446,7 @@ fun PlatformSettingScreen(
                                 leadingIcon = {
                                     Icon(
                                         ImageVector.vectorResource(id = R.drawable.ic_link),
-                                        contentDescription = stringResource(R.string.batch_endpoint_url)
+                                        contentDescription = stringResource(R.string.batch_api_url)
                                     )
                                 }
                             )
@@ -571,7 +571,7 @@ fun PlatformSettingScreen(
                     var batchUrlInput by remember { mutableStateOf(platformData.batchApiUrl.orEmpty()) }
                     AlertDialog(
                         onDismissRequest = { showBatchUrlDialog = false },
-                        title = { Text(stringResource(R.string.batch_endpoint_url)) },
+                        title = { Text(stringResource(R.string.batch_api_url)) },
                         text = {
                             OutlinedTextField(
                                 value = batchUrlInput,
@@ -583,7 +583,7 @@ fun PlatformSettingScreen(
                         confirmButton = {
                             TextButton(onClick = {
                                 val url = batchUrlInput.trim().takeIf { it.isNotBlank() }
-                                settingViewModel.setPlatform(platformData.copy(batchApiUrl = url))
+                                settingViewModel.updatePlatform(platformData.copy(batchApiUrl = url))
                                 showBatchUrlDialog = false
                             }) {
                                 Text(stringResource(R.string.confirm))

@@ -1305,6 +1305,22 @@ private fun OllamaAdvancedSettingsDialog(
     var seedText by remember { mutableStateOf((initialParsed.seed ?: OllamaOptions.DEFAULT_SEED).toString()) }
     var stopTokensText by remember { mutableStateOf((initialParsed.stop ?: OllamaOptions.DEFAULT_STOP).joinToString(", ")) }
 
+    var flashAttentionEnabled by remember {
+        mutableStateOf(initialParsed.flashAttention ?: OllamaOptions.DEFAULT_FLASH_ATTENTION)
+    }
+    var kvCacheTypeText by remember {
+        mutableStateOf(initialParsed.kvCacheType ?: OllamaOptions.DEFAULT_KV_CACHE_TYPE)
+    }
+    var keepAliveText by remember {
+        mutableStateOf(initialParsed.keepAlive ?: OllamaOptions.DEFAULT_KEEP_ALIVE)
+    }
+    var numParallelText by remember {
+        mutableStateOf((initialParsed.numParallel ?: OllamaOptions.DEFAULT_NUM_PARALLEL).toString())
+    }
+    var gpuOverheadText by remember {
+        mutableStateOf((initialParsed.gpuOverhead ?: OllamaOptions.DEFAULT_GPU_OVERHEAD).toString())
+    }
+
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
@@ -1328,13 +1344,45 @@ private fun OllamaAdvancedSettingsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.ollama_flash_attention),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = stringResource(R.string.ollama_flash_attention_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = flashAttentionEnabled,
+                        onCheckedChange = { flashAttentionEnabled = it }
+                    )
+                }
+
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = numGpuText,
-                    onValueChange = { numGpuText = it },
-                    label = { Text(stringResource(R.string.ollama_num_gpu)) },
-                    placeholder = { Text(stringResource(R.string.ollama_num_gpu_hint)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    value = kvCacheTypeText,
+                    onValueChange = { kvCacheTypeText = it },
+                    label = { Text(stringResource(R.string.ollama_kv_cache_type)) },
+                    placeholder = { Text(stringResource(R.string.ollama_kv_cache_type_hint)) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = keepAliveText,
+                    onValueChange = { keepAliveText = it },
+                    label = { Text(stringResource(R.string.ollama_keep_alive)) },
+                    placeholder = { Text(stringResource(R.string.ollama_keep_alive_hint)) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     singleLine = true
                 )
 
@@ -1344,6 +1392,36 @@ private fun OllamaAdvancedSettingsDialog(
                     onValueChange = { numCtxText = it },
                     label = { Text(stringResource(R.string.ollama_num_ctx)) },
                     placeholder = { Text(stringResource(R.string.ollama_num_ctx_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numParallelText,
+                    onValueChange = { numParallelText = it },
+                    label = { Text(stringResource(R.string.ollama_num_parallel)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_parallel_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gpuOverheadText,
+                    onValueChange = { gpuOverheadText = it },
+                    label = { Text(stringResource(R.string.ollama_gpu_overhead)) },
+                    placeholder = { Text(stringResource(R.string.ollama_gpu_overhead_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = numGpuText,
+                    onValueChange = { numGpuText = it },
+                    label = { Text(stringResource(R.string.ollama_num_gpu)) },
+                    placeholder = { Text(stringResource(R.string.ollama_num_gpu_hint)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
@@ -1438,7 +1516,12 @@ private fun OllamaAdvancedSettingsDialog(
                         topK = topKText.toIntOrNull() ?: OllamaOptions.DEFAULT_TOP_K,
                         repeatPenalty = repeatPenaltyText.toFloatOrNull() ?: OllamaOptions.DEFAULT_REPEAT_PENALTY,
                         seed = seedText.toIntOrNull() ?: OllamaOptions.DEFAULT_SEED,
-                        stop = stopList ?: OllamaOptions.DEFAULT_STOP
+                        stop = stopList ?: OllamaOptions.DEFAULT_STOP,
+                        flashAttention = flashAttentionEnabled,
+                        kvCacheType = kvCacheTypeText.trim().takeIf { it.isNotEmpty() } ?: OllamaOptions.DEFAULT_KV_CACHE_TYPE,
+                        keepAlive = keepAliveText.trim().takeIf { it.isNotEmpty() } ?: OllamaOptions.DEFAULT_KEEP_ALIVE,
+                        numParallel = numParallelText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_PARALLEL,
+                        gpuOverhead = gpuOverheadText.toLongOrNull() ?: OllamaOptions.DEFAULT_GPU_OVERHEAD
                     )
                     val resultJson = jsonSerializer.encodeToString(options)
                     onConfirmRequest(resultJson)

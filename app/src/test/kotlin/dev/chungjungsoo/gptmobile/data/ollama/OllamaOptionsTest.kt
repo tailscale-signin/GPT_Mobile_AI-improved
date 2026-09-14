@@ -23,7 +23,7 @@ class OllamaOptionsTest {
         val options = OllamaOptions.createDefault()
 
         assertEquals(999, options.numGpu)
-        assertEquals(8192, options.numCtx)
+        assertEquals(4096, options.numCtx)
         assertEquals(512, options.numBatch)
         assertEquals(10, options.numThread)
         assertEquals(0.2f, options.temperature ?: 0f, 0.001f)
@@ -32,6 +32,11 @@ class OllamaOptionsTest {
         assertEquals(1.1f, options.repeatPenalty ?: 0f, 0.001f)
         assertEquals(42, options.seed)
         assertEquals(listOf("```end", "delimiter", "You"), options.stop)
+        assertEquals(true, options.flashAttention)
+        assertEquals("q8_0", options.kvCacheType)
+        assertEquals("30m", options.keepAlive)
+        assertEquals(2, options.numParallel)
+        assertEquals(1073741824L, options.gpuOverhead)
     }
 
     @Test
@@ -59,7 +64,7 @@ class OllamaOptionsTest {
 
         assertTrue(encoded.contains("\"options\":{"))
         assertTrue(encoded.contains("\"num_gpu\":999"))
-        assertTrue(encoded.contains("\"num_ctx\":8192"))
+        assertTrue(encoded.contains("\"num_ctx\":4096"))
         assertTrue(encoded.contains("\"num_batch\":512"))
         assertTrue(encoded.contains("\"num_thread\":10"))
         assertTrue(encoded.contains("\"temperature\":0.2"))
@@ -68,5 +73,10 @@ class OllamaOptionsTest {
         assertTrue(encoded.contains("\"repeat_penalty\":1.1"))
         assertTrue(encoded.contains("\"seed\":42"))
         assertTrue(encoded.contains("\"stop\":[\"```end\",\"delimiter\",\"You\"]"))
+        assertTrue(encoded.contains("\"flash_attention\":true"))
+        assertTrue(encoded.contains("\"kv_cache_type\":\"q8_0\""))
+        assertTrue(encoded.contains("\"keep_alive\":\"30m\""))
+        assertTrue(encoded.contains("\"num_parallel\":2"))
+        assertTrue(encoded.contains("\"gpu_overhead\":1073741824"))
     }
 }

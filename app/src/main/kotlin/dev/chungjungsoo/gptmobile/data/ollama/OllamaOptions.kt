@@ -50,11 +50,31 @@ data class OllamaOptions(
 
     @SerialName("stop")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val stop: List<String>? = DEFAULT_STOP
+    val stop: List<String>? = DEFAULT_STOP,
+
+    @SerialName("flash_attention")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val flashAttention: Boolean? = DEFAULT_FLASH_ATTENTION,
+
+    @SerialName("kv_cache_type")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val kvCacheType: String? = DEFAULT_KV_CACHE_TYPE,
+
+    @SerialName("keep_alive")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val keepAlive: String? = DEFAULT_KEEP_ALIVE,
+
+    @SerialName("num_parallel")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val numParallel: Int? = DEFAULT_NUM_PARALLEL,
+
+    @SerialName("gpu_overhead")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val gpuOverhead: Long? = DEFAULT_GPU_OVERHEAD
 ) {
     companion object {
         const val DEFAULT_NUM_GPU = 999
-        const val DEFAULT_NUM_CTX = 8192
+        const val DEFAULT_NUM_CTX = 4096
         const val DEFAULT_NUM_BATCH = 512
         const val DEFAULT_NUM_THREAD = 10
         const val DEFAULT_TEMPERATURE = 0.2f
@@ -63,6 +83,11 @@ data class OllamaOptions(
         const val DEFAULT_REPEAT_PENALTY = 1.1f
         const val DEFAULT_SEED = 42
         val DEFAULT_STOP = listOf("```end", "delimiter", "You")
+        const val DEFAULT_FLASH_ATTENTION = true
+        const val DEFAULT_KV_CACHE_TYPE = "q8_0"
+        const val DEFAULT_KEEP_ALIVE = "30m"
+        const val DEFAULT_NUM_PARALLEL = 2
+        const val DEFAULT_GPU_OVERHEAD = 1073741824L
 
         fun createDefault(): OllamaOptions = OllamaOptions(
             numGpu = DEFAULT_NUM_GPU,
@@ -74,7 +99,12 @@ data class OllamaOptions(
             topK = DEFAULT_TOP_K,
             repeatPenalty = DEFAULT_REPEAT_PENALTY,
             seed = DEFAULT_SEED,
-            stop = DEFAULT_STOP
+            stop = DEFAULT_STOP,
+            flashAttention = DEFAULT_FLASH_ATTENTION,
+            kvCacheType = DEFAULT_KV_CACHE_TYPE,
+            keepAlive = DEFAULT_KEEP_ALIVE,
+            numParallel = DEFAULT_NUM_PARALLEL,
+            gpuOverhead = DEFAULT_GPU_OVERHEAD
         )
     }
 }

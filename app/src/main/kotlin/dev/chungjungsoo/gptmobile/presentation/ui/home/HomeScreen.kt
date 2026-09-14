@@ -799,7 +799,7 @@ fun SelectPlatformDialog(
     var sortOrder by remember { mutableStateOf(PlatformSortOrder.DEFAULT) }
 
     val allLabels = remember(platforms) {
-        platforms.flatMap { it.labels.split(",") }
+        platforms.flatMap { it.labels?.split(",") ?: emptyList() }
             .map { it.trim().substringBefore("#") }
             .filter { it.isNotBlank() }
             .distinct()
@@ -811,7 +811,7 @@ fun SelectPlatformDialog(
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
             .filter { (_, platform) ->
                 if (selectedLabelFilter == null) true
-                else platform.labels.split(",").map { it.trim().substringBefore("#") }.contains(selectedLabelFilter)
+                else platform.labels?.split(",")?.map { it.trim().substringBefore("#") }?.contains(selectedLabelFilter) == true
             }
         when (sortOrder) {
             PlatformSortOrder.DEFAULT -> list

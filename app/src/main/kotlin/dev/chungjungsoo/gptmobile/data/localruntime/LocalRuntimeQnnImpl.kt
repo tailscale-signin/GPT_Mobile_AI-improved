@@ -33,66 +33,25 @@ class LocalRuntimeQnnImpl(
     private var loadedSpec: LocalEngineSpec? = null
 
     init {
+        // Ensure QNN environment (ADSP_LIBRARY_PATH and LD_LIBRARY_PATH) is set up FIRST
+        val probe = QnnEnvironment.initialize(context)
+
         // Sequentially probe Qualcomm QNN & LiteRT Qualcomm delegate shared libraries
         isQnnNativeAvailable = try {
-            val isQualcommDevice = isQualcommPlatform()
-            // Load base QNN libraries in dependency order if present
-            val qnnLibs = listOf(
-                "QnnSystem",
-                "QnnIr",
-                "QnnSaver",
-                "QnnHtpV79Stub",
-                "QnnHtp",
-                "LiteRtCompilerPlugin_Qualcomm",
-                "LiteRtDispatch_Qualcomm"
-            )
-            var loadedAny = false
-            for (lib in qnnLibs) {
-                try {
-                    System.loadLibrary(lib)
-                    loadedAny = true
-                    Log.d(TAG, "Loaded native library: $lib")
-                } catch (t: UnsatisfiedLinkError) {
-                    Log.d(TAG, "Optional or dependent lib $lib not loaded directly: ${t.message}")
-                }
-            }
+            val isQualcommDevice = probe.isQualcommDevice || QnnEnvironment.isQualcommPlatform()
 
-            // Verify Qualcomm runtime readiness: either QnnHtp or LiteRtDispatch_Qualcomm loaded,
-            // or on Qualcomm hardware with QnnDelegate class present
-            val htpOrDispatchLoaded = try {
-                System.loadLibrary("LiteRtDispatch_Qualcomm")
-                true
-            } catch (t: UnsatisfiedLinkError) {
-                try {
-                    System.loadLibrary("QnnHtp")
-                    true
-                } catch (t2: UnsatisfiedLinkError) {
-                    false
-                }
-            }
-
-            val ready = htpOrDispatchLoaded || (isQualcommDevice && hasQnnDelegateClass())
+            // Verify Qualcomm runtime readiness
+            val ready = probe.isReady || (isQualcommDevice && hasQnnDelegateClass())
             if (ready) {
-                Log.i(TAG, "Qualcomm QNN HTP runtime verified ready.")
+                Log.i(TAG, "Qualcomm QNN HTP runtime verified ready. Dispatch dir: ${probe.dispatchDir}")
             } else {
-                Log.i(TAG, "Qualcomm QNN HTP runtime not available on this platform.")
+                Log.i(TAG, "Qualcomm QNN HTP runtime not available on this platform: ${probe.errorMessage}")
             }
             ready
         } catch (t: Throwable) {
             Log.i(TAG, "Qualcomm QNN probe: ${t.message}; using fallback integration.")
             false
         }
-    }
-
-    private fun isQualcommPlatform(): Boolean {
-        val manufacturer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Build.SOC_MANUFACTURER
-        } else {
-            ""
-        }
-        val hardware = Build.HARDWARE
-        return manufacturer.contains("qualcomm", ignoreCase = true) ||
-            hardware.contains("qcom", ignoreCase = true)
     }
 
     private fun hasQnnDelegateClass(): Boolean = try {
@@ -126,8 +85,7 @@ class LocalRuntimeQnnImpl(
                 }
             }
 
-            // Determine target accelerator: respect explicit CPU/GPU selections, and only target
-            // Hexagon NPU when requested or when auto-selecting with native QNN available.
+            // Target Hexagon NPU unless caller explicitly requested CPU or GPU.
             val normalizedRequested = LocalAccelerators.normalize(spec.accelerator)
             val targetAccelerator = when {
                 normalizedRequested == LocalAccelerators.CPU || normalizedRequested == LocalAccelerators.GPU -> {
@@ -144,11 +102,11 @@ class LocalRuntimeQnnImpl(
                 }
             }
 
-            val nativeLibDir = context.applicationInfo.nativeLibraryDir
+            val dispatchDir = QnnEnvironment.getDispatchDir(context)
             val engineConfig = if (targetAccelerator == LocalAccelerators.NPU) {
                 spec.copy(
                     accelerator = targetAccelerator,
-                    litertDispatchLibDir = spec.litertDispatchLibDir ?: nativeLibDir
+                    litertDispatchLibDir = spec.litertDispatchLibDir ?: dispatchDir
                 )
             } else {
                 spec.copy(accelerator = targetAccelerator)

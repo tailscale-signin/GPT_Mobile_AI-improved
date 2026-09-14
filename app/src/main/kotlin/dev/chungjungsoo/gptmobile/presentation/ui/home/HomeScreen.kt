@@ -88,6 +88,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -127,6 +128,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsB
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
+import kotlinx.coroutines.launch
 
 enum class PlatformSortOrder {
     DEFAULT,
@@ -602,6 +604,7 @@ fun FavoriteDetailDialog(
     var showGroupDropdown by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -648,8 +651,10 @@ fun FavoriteDetailDialog(
                     ) {
                         // Copy Button
                         IconButton(onClick = {
-                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(message.content, message.content)))
-                            Toast.makeText(context, R.string.copy_text, Toast.LENGTH_SHORT).show()
+                            scope.launch {
+                                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(message.content, message.content)))
+                                Toast.makeText(context, R.string.copy_text, Toast.LENGTH_SHORT).show()
+                            }
                         }) {
                             Icon(
                                 imageVector = Icons.Outlined.ContentCopy,

@@ -91,6 +91,7 @@ class AgentToolResolver @Inject constructor(
 
         if (!disableRemote) {
             resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
+            resolved += GitHubTool().resolved(null, null, BuiltInAgentTool.GITHUB)
             resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
         }
 
@@ -99,7 +100,7 @@ class AgentToolResolver @Inject constructor(
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
             .forEach { binding ->
-                val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL)
+                val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
                 val isLocalBinding = !isRemoteBinding
                 if ((isRemoteBinding && !disableRemote) || (isLocalBinding && !disableLocal)) {
                     resolveBinding(binding)?.let { customResolvedTool ->
@@ -124,231 +125,198 @@ class AgentToolResolver @Inject constructor(
                 }
         }
 
-        return resolved.distinctBy { it.modelToolName }
-            .filter { tool ->
-                if (chatToolConfig == null) {
-                    true
-                } else {
-                    val candidateIds = listOfNotNull(
-                        tool.connectionUid?.let { "$it:${tool.realToolName}" },
-                        tool.modelToolName,
-                        tool.realToolName,
-                        tool.connectionUid
-                    )
-                    candidateIds.all { chatToolConfig.isToolEnabled(it) }
-                }
-            }
-            .sortedBy { it.modelToolName }
+        val sanitized = sanitizeToolNames(resolved)
+        return applyChatToolConfig(sanitized, chatToolConfig)
     }
 
-    private suspend fun resolveBinding(binding: AgentToolBindingWithConnection): ResolvedAgentTool? = when (binding.binding.toolName) {
-        WEB_SEARCH_TOOL -> resolveWebSearch(binding.connection)
-
-        BuiltInAgentTool.READ_URL -> if (binding.binding.connectionUid == null) {
-            ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
-        } else {
-            null
-        }
-
-        BuiltInAgentTool.READ_FILE_SLICE -> if (binding.binding.connectionUid == null) {
-            ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
-        } else {
-            null
-        }
-
-        BuiltInAgentTool.DEVICE_LOCATION -> if (binding.binding.connectionUid == null) {
-            deviceLocationTool.resolved(null, null, BuiltInAgentTool.DEVICE_LOCATION)
-        } else {
-            null
-        }
-
-        BuiltInAgentTool.CALCULATE_EXPRESSION -> if (binding.binding.connectionUid == null) {
-            CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
-        } else {
-            null
-        }
-
-        else -> null
+    private fun applyChatToolConfig(
+        tools: List<ResolvedAgentTool>,
+        chatToolConfig: ChatMcpToolConfig?
+    ): List<ResolvedAgentTool> {
+        if (chatToolConfig == null) return tools
+        if (!chatToolConfig.enabled) return emptyList()
+        val allowedModelNames = chatToolConfig.activeModelToolNames?.toSet() ?: return tools
+        return tools.filter { it.modelToolName in allowedModelNames }
     }
 
-    private suspend fun resolveWebSearch(connection: ToolConnection?): ResolvedAgentTool? {
-        val actualConnection = connection ?: return null
-        val provider = SEARCH_PROVIDERS[actualConnection.type] ?: return null
-        val endpointUrl = provider.defaultEndpointUrl
-        val definition = WebSearchTool(
-            config = WebSearchProviderConfig(provider.provider, "", endpointUrl),
-            networkClient = networkClient
-        ).definition
-        val credential = actualConnection.secretRef?.let { secretRef ->
-            secretVault.read(secretRef)
-        }
-        val tool = credential?.let { bytes ->
-            try {
-                val token = String(bytes, StandardCharsets.UTF_8)
-                if (token.isBlank()) {
-                    MissingCredentialTool(definition)
-                } else {
-                    WebSearchTool(
-                        config = WebSearchProviderConfig(
-                            provider = provider.provider,
-                            bearerToken = token,
-                            endpointUrl = endpointUrl
-                        ),
-                        networkClient = networkClient
+    private fun resolveBinding(binding: AgentToolBindingWithConnection): ResolvedAgentTool? {
+        val toolName = binding.binding.toolName
+        val connection = binding.connection
+        val tool = when (toolName) {
+            BuiltInAgentTool.CURRENT_DATE -> CurrentDateTool()
+            BuiltInAgentTool.CALCULATE_EXPRESSION -> CalculatorTool()
+            BuiltInAgentTool.READ_URL -> ReadUrlTool()
+            BuiltInAgentTool.DEVICE_LOCATION -> deviceLocationTool
+            BuiltInAgentTool.READ_FILE_SLICE -> ReadFileSliceTool()
+            BuiltInAgentTool.GITHUB -> {
+                val secretToken = connection?.secretRef?.let(secretVault::retrieveSecret)?.let { String(it, StandardCharsets.UTF_8) }.orEmpty()
+                GitHubTool(apiToken = secretToken)
+            }
+            WEB_SEARCH_TOOL -> {
+                val config = when (connection?.type) {
+                    ToolConnectionType.FIRECRAWL -> WebSearchProviderConfig(
+                        provider = WebSearchProvider.FIRECRAWL,
+                        bearerToken = connection.secretRef?.let(secretVault::retrieveSecret)?.let { String(it, StandardCharsets.UTF_8) }.orEmpty(),
+                        endpointUrl = connection.endpointUrl.orEmpty()
+                    )
+                    ToolConnectionType.PERPLEXITY -> WebSearchProviderConfig(
+                        provider = WebSearchProvider.PERPLEXITY,
+                        bearerToken = connection.secretRef?.let(secretVault::retrieveSecret)?.let { String(it, StandardCharsets.UTF_8) }.orEmpty(),
+                        endpointUrl = connection.endpointUrl.orEmpty()
+                    )
+                    ToolConnectionType.EXA -> WebSearchProviderConfig(
+                        provider = WebSearchProvider.EXA,
+                        bearerToken = connection.secretRef?.let(secretVault::retrieveSecret)?.let { String(it, StandardCharsets.UTF_8) }.orEmpty(),
+                        endpointUrl = connection.endpointUrl.orEmpty()
+                    )
+                    else -> WebSearchProviderConfig(
+                        provider = WebSearchProvider.AUTO,
+                        bearerToken = "",
+                        endpointUrl = "http://127.0.0.1:8000/search"
                     )
                 }
-            } finally {
-                bytes.fill(0)
+                WebSearchTool(config = config, networkClient = networkClient)
             }
-        } ?: MissingCredentialTool(definition)
-        return tool.resolved(actualConnection.connectionUid, actualConnection.name, WEB_SEARCH_TOOL)
+            else -> null
+        } ?: return null
+
+        return tool.resolved(
+            connectionUid = connection?.connectionUid,
+            connectionName = connection?.name,
+            modelToolName = toolName
+        )
     }
 
     private suspend fun resolveMcpTools(
         connection: ToolConnection,
         bindings: List<AgentToolBindingWithConnection>
     ): List<ResolvedAgentTool> {
-        val selectedNames = bindings.map { it.binding.toolName }.toSet()
-        val remoteTools = discoverMcpTools(connection)
-        return remoteTools
-            .filter { it.name in selectedNames }
-            .map { remoteTool ->
-                val tool = McpAgentTool(
-                    definition = mcpToolDefinition(connection.alias, remoteTool),
-                    authType = connection.authType,
-                    config = { forceRefresh, rejectedHeader -> mcpConfig(connection, forceRefresh, rejectedHeader) },
-                    remoteToolName = remoteTool.name,
-                    clientManager = mcpClientManager
+        val activeNames = bindings.map { it.binding.toolName }.toSet()
+        val tools = discoverMcpTools(connection).filter { it.name in activeNames }
+        return tools.map { mcpTool ->
+            val agentTool = object : AgentTool {
+                override val definition: AgentToolDefinition = AgentToolDefinition(
+                    name = mcpTool.name,
+                    description = mcpTool.description.orEmpty(),
+                    inputSchema = McpToolMapper.toJsonSchema(mcpTool.inputSchema)
                 )
-                ResolvedAgentTool(
-                    tool = tool,
-                    connectionUid = connection.connectionUid,
-                    connectionName = connection.name,
-                    realToolName = remoteTool.name,
-                    modelToolName = tool.definition.name
-                )
+
+                override suspend fun execute(arguments: JsonObject): AgentToolResult {
+                    return executeMcpToolWithRefresh(connection, mcpTool.name, arguments)
+                }
             }
+            agentTool.resolved(
+                connectionUid = connection.connectionUid,
+                connectionName = connection.name,
+                modelToolName = mcpTool.name
+            )
+        }
+    }
+
+    private suspend fun executeMcpToolWithRefresh(
+        connection: ToolConnection,
+        toolName: String,
+        arguments: JsonObject
+    ): AgentToolResult {
+        val config = mcpConfig(connection)
+        return try {
+            val result = mcpClientManager.executeTool(config, toolName, arguments)
+            McpToolMapper.toAgentToolResult(result)
+        } catch (error: Exception) {
+            if (connection.authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) {
+                AgentToolResult(
+                    content = listOf(ToolResultContent(type = "text", text = "MCP tool execution failed: ${error.message}")),
+                    isError = true
+                )
+            } else {
+                try {
+                    val refreshedConfig = mcpConfig(
+                        connection,
+                        forceOAuthRefresh = true,
+                        rejectedAuthorizationHeader = config.authorizationHeader
+                    )
+                    val result = mcpClientManager.executeTool(refreshedConfig, toolName, arguments)
+                    McpToolMapper.toAgentToolResult(result)
+                } catch (refreshError: Exception) {
+                    AgentToolResult(
+                        content = listOf(ToolResultContent(type = "text", text = "MCP tool execution failed: ${refreshError.message}")),
+                        isError = true
+                    )
+                }
+            }
+        }
     }
 
     private suspend fun mcpConfig(
         connection: ToolConnection,
         forceOAuthRefresh: Boolean = false,
         rejectedAuthorizationHeader: String? = null
-    ): McpConnectionConfig {
-        val authorization = when (connection.authType) {
-            ToolConnectionAuthType.NONE -> null
-
-            ToolConnectionAuthType.BEARER -> readBearerHeader(connection)
-
-            ToolConnectionAuthType.OAUTH -> mcpOAuthCoordinator.authorizationHeader(
-                connection,
-                forceOAuthRefresh,
-                rejectedAuthorizationHeader
-            )
-
-            else -> throw IllegalArgumentException("Unsupported MCP authentication type.")
+    ): ChatMcpToolConfig.ServerConfig {
+        val authHeader = when (connection.authType) {
+            ToolConnectionAuthType.BEARER -> {
+                connection.secretRef?.let(secretVault::retrieveSecret)?.let { secret ->
+                    "Bearer ${String(secret, StandardCharsets.UTF_8)}"
+                }
+            }
+            ToolConnectionAuthType.API_KEY -> {
+                connection.secretRef?.let(secretVault::retrieveSecret)?.let { secret ->
+                    String(secret, StandardCharsets.UTF_8)
+                }
+            }
+            ToolConnectionAuthType.OAUTH -> {
+                mcpOAuthCoordinator.getValidAccessToken(
+                    connectionUid = connection.connectionUid,
+                    forceRefresh = forceOAuthRefresh,
+                    rejectedToken = rejectedAuthorizationHeader?.removePrefix("Bearer ")?.trim()
+                )?.let { token -> "Bearer $token" }
+            }
+            else -> null
         }
-        return McpConnectionConfig(
+
+        return ChatMcpToolConfig.ServerConfig(
             connectionUid = connection.connectionUid,
-            endpointUrl = connection.endpointUrl ?: throw IllegalArgumentException("MCP endpoint is required."),
-            allowCleartext = connection.allowCleartext,
-            authorizationHeader = authorization
+            endpointUrl = requireNotNull(connection.endpointUrl),
+            authorizationHeader = authHeader,
+            allowCleartext = connection.allowCleartext
         )
     }
 
-    private suspend fun readBearerHeader(connection: ToolConnection): String {
-        val secretRef = connection.secretRef ?: throw IllegalArgumentException("MCP bearer credential is missing.")
-        val bytes = secretVault.read(secretRef) ?: throw IllegalArgumentException("MCP bearer credential is missing.")
-        return try {
-            val token = bytes.decodeToString().trim()
-            require(token.isNotEmpty()) { "MCP bearer credential is missing." }
-            require('\r' !in token && '\n' !in token) { "MCP bearer credential is invalid." }
-            "Bearer $token"
-        } finally {
-            bytes.fill(0)
+    private fun sanitizeToolNames(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> {
+        val counts = mutableMapOf<String, Int>()
+        return tools.map { resolved ->
+            val base = sanitizeModelToolName(resolved.modelToolName)
+            val index = counts.getOrDefault(base, 0)
+            counts[base] = index + 1
+            val finalName = if (index == 0) base else "${base}_$index"
+            val updatedTool = object : AgentTool {
+                override val definition: AgentToolDefinition = resolved.tool.definition.copy(name = finalName)
+                override suspend fun execute(arguments: JsonObject): AgentToolResult = resolved.tool.execute(arguments)
+            }
+            resolved.copy(
+                tool = updatedTool,
+                modelToolName = finalName
+            )
         }
+    }
+
+    private fun sanitizeModelToolName(name: String): String {
+        val replaced = name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        return replaced.take(64).ifEmpty { "tool" }
     }
 
     private fun AgentTool.resolved(
         connectionUid: String?,
         connectionName: String?,
-        realToolName: String
-    ) = ResolvedAgentTool(
+        modelToolName: String
+    ): ResolvedAgentTool = ResolvedAgentTool(
         tool = this,
         connectionUid = connectionUid,
         connectionName = connectionName,
-        realToolName = realToolName,
-        modelToolName = definition.name
+        realToolName = definition.name,
+        modelToolName = modelToolName
     )
 
-    private companion object {
-        const val WEB_SEARCH_TOOL = "web_search"
-        val SEARCH_PROVIDERS = mapOf(
-            ToolConnectionType.FIRECRAWL to SearchProvider(WebSearchProvider.FIRECRAWL, "https://api.firecrawl.dev/v2/search"),
-            ToolConnectionType.PERPLEXITY to SearchProvider(WebSearchProvider.PERPLEXITY, "https://api.perplexity.ai/search"),
-            ToolConnectionType.EXA to SearchProvider(WebSearchProvider.EXA, "https://api.exa.ai/search")
-        )
+    private fun Throwable.isUnauthorized(): Boolean {
+        return this is StreamableHttpError && statusCode == 401
     }
-}
-
-private class McpAgentTool(
-    override val definition: AgentToolDefinition,
-    private val authType: String,
-    private val config: suspend (Boolean, String?) -> McpConnectionConfig,
-    private val remoteToolName: String,
-    private val clientManager: McpClientManager
-) : AgentTool {
-    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-        val isFileTool = isFileReadingTool(remoteToolName)
-        val startLine = if (isFileTool) {
-            arguments["start_line"]?.jsonPrimitive?.intOrNull
-        } else {
-            null
-        }
-        val endLine = if (isFileTool) {
-            arguments["end_line"]?.jsonPrimitive?.intOrNull
-        } else {
-            null
-        }
-
-        val remoteArguments = if (isFileTool && (startLine != null || endLine != null)) {
-            JsonObject(arguments.filterKeys { it != "start_line" && it != "end_line" })
-        } else {
-            arguments
-        }
-
-        val initialConfig = config(false, null)
-        val result = try {
-            clientManager.callTool(initialConfig, remoteToolName, remoteArguments)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            if (authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
-            clientManager.callTool(
-                config(true, initialConfig.authorizationHeader),
-                remoteToolName,
-                remoteArguments
-            )
-        }
-        return mapMcpToolResult(callId, result, startLine, endLine)
-    }
-}
-
-private fun Throwable.isUnauthorized(): Boolean = generateSequence(this) { it.cause }
-    .any { error -> error is StreamableHttpError && error.code == 401 }
-
-private data class SearchProvider(
-    val provider: WebSearchProvider,
-    val defaultEndpointUrl: String
-)
-
-private class MissingCredentialTool(
-    override val definition: AgentToolDefinition
-) : AgentTool {
-
-    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = AgentToolResult(
-        callId = callId,
-        content = ToolResultContent.Text("Tool web_search is unavailable: missing credential."),
-        isError = true
-    )
 }

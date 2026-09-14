@@ -31,7 +31,7 @@ data class AgentRunLimits(
 }
 
 class AgentRunner(
-    private val limits: AgentRunLimits = AgentRunLimits()
+    val limits: AgentRunLimits = AgentRunLimits()
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>): Flow<AgentRunEvent> = flow {
         val toolByName = tools.associateBy { it.definition.name }

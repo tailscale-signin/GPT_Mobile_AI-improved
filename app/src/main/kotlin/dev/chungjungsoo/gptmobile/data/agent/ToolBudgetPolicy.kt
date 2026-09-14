@@ -5,14 +5,14 @@ package dev.chungjungsoo.gptmobile.data.agent
  */
 object ToolBudgetPolicy {
 
-    fun executionLimit(limits: AgentExecutionLimits): Int =
+    fun executionLimit(limits: AgentRunLimits): Int =
         if (limits.maxToolCalls == Int.MAX_VALUE) {
             Int.MAX_VALUE
         } else {
             (limits.maxToolCalls - limits.finalResponseToolCallReserve.coerceAtLeast(0)).coerceAtLeast(0)
         }
 
-    fun wrapUpThreshold(limits: AgentExecutionLimits): Int =
+    fun wrapUpThreshold(limits: AgentRunLimits): Int =
         (limits.maxToolCalls / 5).coerceAtLeast(1)
 
     fun remainingAllowance(executionLimit: Int, toolCallCount: Int): Int =
@@ -20,7 +20,7 @@ object ToolBudgetPolicy {
 
     fun shouldEmitWrapUpNotice(
         executionLimit: Int,
-        limits: AgentExecutionLimits,
+        limits: AgentRunLimits,
         toolCallCount: Int,
         wrapUpNoticeEmitted: Boolean
     ): Boolean {
@@ -33,7 +33,7 @@ object ToolBudgetPolicy {
 
     fun shouldInjectWrapUpPrompt(
         executionLimit: Int,
-        limits: AgentExecutionLimits,
+        limits: AgentRunLimits,
         toolCallCount: Int
     ): Boolean {
         if (executionLimit == Int.MAX_VALUE || limits.maxToolCalls <= 2) {

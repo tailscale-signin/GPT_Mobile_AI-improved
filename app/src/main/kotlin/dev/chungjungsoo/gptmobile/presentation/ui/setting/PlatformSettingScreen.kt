@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.filled.AllInbox
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Language
@@ -55,6 +56,7 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -116,6 +118,7 @@ fun PlatformSettingScreen(
     val userMessage by settingViewModel.userMessage.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var openMcpToolsAfterPermission by remember { mutableStateOf(false) }
+    var showBatchUrlDialog by remember { mutableStateOf(false) }
     val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -417,6 +420,38 @@ fun PlatformSettingScreen(
                         isChecked = platformData.reasoning,
                         onCheckedChange = { settingViewModel.toggleReasoning() }
                     )
+
+                    // Batch API Mode for OpenAI & Anthropic
+                    if (platformData.compatibleType == ClientType.OPENAI || platformData.compatibleType == ClientType.ANTHROPIC) {
+                        PreferenceListSwitch(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.batch_mode),
+                            description = stringResource(R.string.batch_mode_description),
+                            icon = Icons.Default.AllInbox,
+                            enabled = platformData.enabled,
+                            isChecked = platformData.batchMode,
+                            onCheckedChange = {
+                                settingViewModel.updatePlatform(platformData.copy(batchMode = it))
+                            }
+                        )
+                        if (platformData.batchMode) {
+                            SettingItem(
+                                modifier = Modifier.height(64.dp),
+                                title = stringResource(R.string.batch_api_url),
+                                description = platformData.batchApiUrl ?: stringResource(R.string.not_set),
+                                enabled = platformData.enabled,
+                                onItemClick = { showBatchUrlDialog = true },
+                                showTrailingIcon = false,
+                                showLeadingIcon = true,
+                                leadingIcon = {
+                                    Icon(
+                                        ImageVector.vectorResource(id = R.drawable.ic_link),
+                                        contentDescription = stringResource(R.string.batch_api_url)
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
 
                 // Global Master Tool Disablement
@@ -531,6 +566,37 @@ fun PlatformSettingScreen(
                 DeletePlatformDialog(dialogState, settingViewModel)
                 SearchBackendDialog(toolBindingState, settingViewModel)
                 LegacyMcpToolsDialog(toolBindingState, settingViewModel)
+
+                if (showBatchUrlDialog) {
+                    var batchUrlInput by remember { mutableStateOf(platformData.batchApiUrl.orEmpty()) }
+                    AlertDialog(
+                        onDismissRequest = { showBatchUrlDialog = false },
+                        title = { Text(stringResource(R.string.batch_api_url)) },
+                        text = {
+                            OutlinedTextField(
+                                value = batchUrlInput,
+                                onValueChange = { batchUrlInput = it },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                val url = batchUrlInput.trim().takeIf { it.isNotBlank() }
+                                settingViewModel.updatePlatform(platformData.copy(batchApiUrl = url))
+                                showBatchUrlDialog = false
+                            }) {
+                                Text(stringResource(R.string.confirm))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showBatchUrlDialog = false }) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    )
+                }
+
                 toolBindingState.errorMessage?.let { message ->
                     AlertDialog(
                         title = { Text(stringResource(R.string.error)) },

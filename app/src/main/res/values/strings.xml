@@ -485,4 +485,16 @@
     <string name="ollama_stop">stop (Comma-separated)</string>
     <string name="ollama_stop_hint">e.g. ```end, delimiter, You</string>
     <string name="ollama_stop_tokens">stop (Comma-separated)</string>
+
+    <!-- Improvements: Labels, Batch Mode, Completion Notification -->
+    <string name="platform_labels">Labels</string>
+    <string name="platform_labels_description">Color-coded tags to organize and filter platforms</string>
+    <string name="add_label">Add Label</string>
+    <string name="label_name">Label Name</string>
+    <string name="no_labels">No labels assigned</string>
+    <string name="batch_mode">Batch Mode</string>
+    <string name="batch_mode_description">Asynchronous batch API processing for high throughput</string>
+    <string name="batch_api_url">Batch Endpoint URL</string>
+    <string name="batch_api_url_description">Custom endpoint for batch API requests</string>
+    <string name="agent_completion_platform_title">%1$s has finished</string>
 </resources>

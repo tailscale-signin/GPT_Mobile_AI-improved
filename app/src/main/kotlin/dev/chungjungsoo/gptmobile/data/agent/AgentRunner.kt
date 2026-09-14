@@ -75,11 +75,8 @@ class AgentRunner(
         var toolMayHaveExecuted = initialToolMayHaveExecuted
         var retriedWithoutTools = initialRetriedWithoutTools
         var finalResponseRequested = false
-        val executionToolCallLimit = if (limits.maxToolCalls == Int.MAX_VALUE) {
-            Int.MAX_VALUE
-        } else {
-            (limits.maxToolCalls - limits.finalResponseToolCallReserve.coerceAtLeast(0)).coerceAtLeast(0)
-        }
+        var wrapUpNoticeEmitted = false
+        val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit) {
@@ -89,6 +86,10 @@ class AgentRunner(
                     finalResponseRequested = true
                     emit(AgentRunEvent.Notice(FINAL_RESPONSE_NOTICE, persistent = false))
                 }
+            } else if (ToolBudgetPolicy.shouldEmitWrapUpNotice(executionToolCallLimit, limits, toolCallCount, wrapUpNoticeEmitted)) {
+                wrapUpNoticeEmitted = true
+                val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
+                emit(AgentRunEvent.Notice("Approaching tool limit ($remainingAllowance remaining). Wrapping up.", persistent = false))
             }
             if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
                 emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
@@ -184,8 +185,14 @@ class AgentRunner(
             }
             val allResults = (executedResults + deferredResults).toMutableList()
             val mustFinalize = executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit
+            val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
+            val shouldInjectWrapUp = ToolBudgetPolicy.shouldInjectWrapUpPrompt(executionToolCallLimit, limits, toolCallCount)
+
             if (mustFinalize && allResults.isNotEmpty()) {
                 allResults[allResults.lastIndex] = appendFinalResponseInstruction(allResults.last())
+            } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
+                val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance)
+                allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
             }
 
             calls.zip(allResults).forEach { (call, result) ->
@@ -193,6 +200,16 @@ class AgentRunner(
             }
             exchanges += AgentToolExchange(calls, allResults)
         }
+    }
+
+    private fun appendInstruction(result: AgentToolResult, instruction: String): AgentToolResult {
+        val existing = when (val content = result.content) {
+            is ToolResultContent.Text -> content.text
+            is ToolResultContent.Json -> Json.encodeToString(content.value)
+            is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
+        }
+        if (existing.contains(instruction)) return result
+        return result.copy(content = ToolResultContent.Text("$existing\n\n$instruction"))
     }
 
     private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult {
@@ -270,7 +287,7 @@ class AgentRunner(
 
     private fun failed(message: String) = AgentRunEvent.Provider(ProviderEvent.Failed(message))
 
-    private companion object {
+    companion object {
         const val TOOLS_UNAVAILABLE_MESSAGE = "Tools unavailable for this model."
         const val FINAL_RESPONSE_NOTICE = "Tool-call limit is approaching; generating a final response."
         const val FINAL_RESPONSE_INSTRUCTION =

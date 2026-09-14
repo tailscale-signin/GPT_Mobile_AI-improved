@@ -80,14 +80,19 @@ import java.util.Locale
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
-    return SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestampMillis))
+    return SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(timestampMillis))
 }
 
-internal fun shouldShowContinuePrompt(text: String, isLoading: Boolean): Boolean {
+internal fun shouldShowContinuePrompt(
+    text: String,
+    isLoading: Boolean,
+    isLastMessage: Boolean = false
+): Boolean {
     if (isLoading || text.isBlank()) return false
     val trimmed = text.trim()
     val lower = trimmed.lowercase(Locale.ROOT)
-    return trimmed.endsWith("...") ||
+    return isLastMessage ||
+        trimmed.endsWith("...") ||
         trimmed.endsWith("…") ||
         trimmed.endsWith("continue?") ||
         trimmed.endsWith("Continue?") ||
@@ -150,18 +155,24 @@ fun UserChatBubble(
         Card(
             modifier = modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
             shape = RoundedCornerShape(32.dp), colors = cardColor
-        ) { ChatMarkdown(content = text, modifier = Modifier.padding(16.dp)) }
-        MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
-        if (formattedTime.isNotBlank()) {
-            Text(
-                text = formattedTime,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .alpha(0.5f)
-                    .padding(top = 2.dp, end = 8.dp)
-            )
+        ) {
+            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp)) {
+                ChatMarkdown(content = text)
+                if (formattedTime.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Text(
+                            text = formattedTime,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
         }
+        MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
@@ -186,6 +197,8 @@ fun OpponentChatBubble(
     revisionIndexLabel: String? = null,
     canShowPreviousRevision: Boolean = false,
     canShowNextRevision: Boolean = false,
+    isUserTyping: Boolean = false,
+    isLastMessage: Boolean = false,
     onCopyClick: () -> Unit = {},
     onSelectClick: () -> Unit = {},
     onRetryClick: () -> Unit = {},
@@ -196,8 +209,8 @@ fun OpponentChatBubble(
     onShowNextRevision: () -> Unit = {},
     onContinueClick: (() -> Unit)? = null
 ) {
-    // Background bubble 3x more transparent (0.08f vs previous 0.25f)
-    val normalColor = Color.Black.copy(alpha = 0.08f)
+    // Bubble background 2x more transparent than 0.08f (0.04f)
+    val normalColor = Color.Black.copy(alpha = 0.04f)
     val bubbleColor = animateColorAsState(
         targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.12f) else normalColor,
         animationSpec = tween(durationMillis = 500),
@@ -220,7 +233,7 @@ fun OpponentChatBubble(
         buildDiagnosticsHudText(agentRun, telemetryNotice, debugMode)
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
-    val showContinueAction = remember(text, isLoading) { shouldShowContinuePrompt(text, isLoading) }
+    val showContinueAction = remember(text, isLoading, isLastMessage) { shouldShowContinuePrompt(text, isLoading, isLastMessage) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
 
     var areDetailsVisible by rememberSaveable(contentIdentity) {
@@ -238,8 +251,6 @@ fun OpponentChatBubble(
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
 
-    // Determine if the bubble has any visible content.
-    // When details is collapsed, no AI generated response yet, and no notices/run info, hide bubble with 1-second fade.
     val hasVisibleText = text.isNotBlank() || (showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
     val hasVisibleProcess = hasDetails && areDetailsVisible
     val hasVisibleExtras = nonTelemetryNotices.isNotEmpty() || agentRun != null || attachments.isNotEmpty() || (!isLoading && (canRetry || canEdit || isError))
@@ -262,7 +273,6 @@ fun OpponentChatBubble(
                         shape = RoundedCornerShape(32.dp)
                     )
             ) {
-                // Details expand button moved to top-right corner of chat bubble header
                 if (hasDetails) {
                     Row(
                         modifier = Modifier
@@ -363,7 +373,6 @@ fun OpponentChatBubble(
                     }
                 }
 
-                // In-depth Debug Mode Hardware & NPU Telemetry Inspector
                 if (debugMode && !isLoading) {
                     ChatDebugDiagnosticsCard(
                         agentRun = agentRun,
@@ -375,7 +384,7 @@ fun OpponentChatBubble(
                 }
 
                 // Minimal transparent continuation chip & bottom-right aligned timestamp
-                val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed
+                val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -425,9 +434,8 @@ fun OpponentChatBubble(
                         Text(
                             text = formattedTime,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             modifier = Modifier
-                                .alpha(0.5f)
                                 .padding(start = 8.dp)
                         )
                     }

@@ -325,13 +325,13 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
     val noMatchingToolCalls = stringResource(R.string.no_matching_tool_calls)
     val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
 
-    // Make the tool call chat bubble 2x more transparent (0.14f instead of 0.28f)
+    // Make the tool call chat bubble 2x more transparent (0.07f instead of 0.14f)
     Column(
         modifier = modifier
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.14f))
+            .background(Color.Black.copy(alpha = 0.07f))
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(
@@ -408,8 +408,8 @@ private fun ToolTraceRepeatedGroupCard(group: ToolTraceDisplayItem.RepeatedGroup
     }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.14f)),
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.07f)),
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(
@@ -435,7 +435,7 @@ private fun ToolTraceRepeatedGroupCard(group: ToolTraceDisplayItem.RepeatedGroup
                 )
             }
             AnimatedVisibility(isGroupExpanded, enter = expandVertically(), exit = shrinkVertically()) {
-                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                     group.events.forEach { event ->
                         ToolTraceEventCard(event, labels)
                     }
@@ -476,8 +476,8 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
     val callDescription = stringResource(R.string.tool_trace_call_content_description, event.callId, event.status.lowercase(Locale.ROOT))
     val serviceInfo = resolveToolServiceInfo(event.toolName, event.modelToolName, event.connectionNameSnapshot, event.connectionUidSnapshot)
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.14f)),
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { contentDescription = callDescription },
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.07f)),
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp).semantics { contentDescription = callDescription },
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

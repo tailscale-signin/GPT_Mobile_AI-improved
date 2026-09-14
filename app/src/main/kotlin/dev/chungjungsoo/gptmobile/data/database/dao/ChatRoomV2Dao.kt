@@ -38,6 +38,9 @@ interface ChatRoomV2Dao {
     @Query("UPDATE chats_v2 SET is_archived = :isArchived WHERE chat_id = :chatId")
     suspend fun updateArchived(chatId: Int, isArchived: Boolean)
 
+    @Query("UPDATE chats_v2 SET draft_text = :draftText, draft_updated_at = :timestamp WHERE chat_id = :chatId")
+    suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
+
     @Delete
     suspend fun deleteChatRooms(vararg chatRooms: ChatRoomV2)
 }

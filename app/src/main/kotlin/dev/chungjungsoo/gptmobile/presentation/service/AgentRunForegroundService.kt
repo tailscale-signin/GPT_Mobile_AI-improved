@@ -22,6 +22,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
 import javax.inject.Inject
@@ -40,11 +41,16 @@ class AgentRunForegroundService : Service() {
     @Inject
     lateinit var agentRunCoordinator: AgentRunCoordinator
 
+    @Inject
+    lateinit var settingRepository: SettingRepository
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var activeRunsJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wasActive = false
     private var isForeground = false
+    private var lastActiveProfileUid: String? = null
+    private var lastActiveChatId: Int? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +79,10 @@ class AgentRunForegroundService : Service() {
                 }
                 .collect { (isActive, _, runs) ->
                     if (isActive) {
+                        runs.firstOrNull()?.let {
+                            lastActiveProfileUid = it.profileUid
+                            lastActiveChatId = it.chatId
+                        }
                         updateNotification(runs)
                         wasActive = true
                     } else if (wasActive) {
@@ -148,7 +158,7 @@ class AgentRunForegroundService : Service() {
     private fun buildNotification(activeRuns: List<ActiveAgentRun>): Notification {
         val contentText = resolveNotificationContentText(this, activeRuns)
 
-        val openApp = buildOpenAppPendingIntent(1)
+        val openApp = buildOpenAppPendingIntent(1, lastActiveChatId)
 
         val cancelIntent = Intent(this, AgentRunForegroundService::class.java).apply {
             action = ACTION_CANCEL_ALL
@@ -174,8 +184,18 @@ class AgentRunForegroundService : Service() {
     }
 
     private fun showCompletionNotification() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildCompletionNotification())
+        serviceScope.launch {
+            val platformName = lastActiveProfileUid?.let { uid ->
+                settingRepository.fetchPlatformV2s().firstOrNull { it.uid == uid }?.name
+            }
+            val title = if (!platformName.isNullOrBlank()) {
+                getString(R.string.agent_completion_platform_title, platformName)
+            } else {
+                getString(R.string.agent_completion_notification_title)
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID, buildCompletionNotification(title, lastActiveChatId))
+        }
     }
 
     private fun triggerCompletionVibration() {
@@ -205,19 +225,22 @@ class AgentRunForegroundService : Service() {
         }
     }
 
-    private fun buildCompletionNotification(): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
+    private fun buildCompletionNotification(title: String, chatId: Int?): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_gpt_mobile_monochrome_foreground)
-        .setContentTitle(getString(R.string.agent_completion_notification_title))
+        .setContentTitle(title)
         .setContentText(getString(R.string.agent_completion_notification_text))
-        .setContentIntent(buildOpenAppPendingIntent(2))
+        .setContentIntent(buildOpenAppPendingIntent(2, chatId))
         .setAutoCancel(true)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_STATUS)
         .build()
 
-    private fun buildOpenAppPendingIntent(requestCode: Int): PendingIntent {
+    private fun buildOpenAppPendingIntent(requestCode: Int, chatId: Int? = null): PendingIntent {
         val openAppIntent = Intent().setClass(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (chatId != null && chatId > 0) {
+                putExtra("chatRoomId", chatId)
+            }
         }
         return PendingIntent.getActivity(
             this,

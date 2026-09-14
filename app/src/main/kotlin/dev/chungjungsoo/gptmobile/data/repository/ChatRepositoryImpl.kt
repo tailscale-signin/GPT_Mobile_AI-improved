@@ -280,6 +280,10 @@ class ChatRepositoryImpl(
         chatRoomV2Dao.updateArchived(chatId, isArchived)
     }
 
+    override suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?) {
+        chatRoomV2Dao.updateDraft(chatId, draftText, timestamp)
+    }
+
     override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
         if (query.isBlank()) {
             return chatRoomV2Dao.getChatRooms()

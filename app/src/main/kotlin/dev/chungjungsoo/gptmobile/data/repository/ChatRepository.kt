@@ -32,6 +32,7 @@ interface ChatRepository {
     suspend fun fetchArchivedChatListV2(): List<ChatRoomV2>
     suspend fun setChatArchived(chatId: Int, isArchived: Boolean)
     suspend fun searchChatsV2(query: String): List<ChatRoomV2>
+    suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
     suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String>
     suspend fun saveChatPlatformModels(chatId: Int, models: Map<String, String>)

@@ -107,11 +107,13 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -339,7 +341,44 @@ fun HomeScreen(
                                         )
                                     }
                                 },
-                                supportingContent = { Text(text = stringResource(R.string.using_certain_platform, usingPlatform)) },
+                                supportingContent = {
+                                    if (!chatRoom.draftText.isNullOrBlank()) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0x33FFC107),
+                                                border = BorderStroke(1.dp, Color(0xFFFFC107).copy(alpha = 0.6f))
+                                            ) {
+                                                Text(
+                                                    text = "DRAFT",
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontStyle = FontStyle.Italic,
+                                                        letterSpacing = 0.5.sp
+                                                    ),
+                                                    color = Color(0xFFFFB300),
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = chatRoom.draftText,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = stringResource(R.string.using_certain_platform, usingPlatform),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                },
                                 trailingContent = {
                                     if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
                                         IconButton(
@@ -351,7 +390,7 @@ fun HomeScreen(
                                             Icon(
                                                 imageVector = Icons.Default.Archive,
                                                 contentDescription = stringResource(R.string.archive_chat),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                             )
                                         }
                                     }
@@ -759,9 +798,21 @@ fun SelectPlatformDialog(
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
     var sortOrder by remember { mutableStateOf(PlatformSortOrder.DEFAULT) }
 
+    val allLabels = remember(platforms) {
+        platforms.flatMap { it.labels?.split(",") ?: emptyList() }
+            .map { it.trim().substringBefore("#") }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+    var selectedLabelFilter by remember { mutableStateOf<String?>(null) }
+
     // Map platform indices for stable checkbox selection even when sorted
-    val indexedPlatforms = remember(platforms, sortOrder) {
+    val indexedPlatforms = remember(platforms, sortOrder, selectedLabelFilter) {
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
+            .filter { (_, platform) ->
+                if (selectedLabelFilter == null) true
+                else platform.labels?.split(",")?.map { it.trim().substringBefore("#") }?.contains(selectedLabelFilter) == true
+            }
         when (sortOrder) {
             PlatformSortOrder.DEFAULT -> list
             PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
@@ -820,6 +871,32 @@ fun SelectPlatformDialog(
                         onClick = { sortOrder = PlatformSortOrder.ENABLED_FIRST },
                         label = { Text("Enabled") }
                     )
+                }
+
+                if (allLabels.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = selectedLabelFilter == null,
+                            onClick = { selectedLabelFilter = null },
+                            label = { Text("All Labels") }
+                        )
+                        allLabels.forEach { label ->
+                            FilterChip(
+                                selected = selectedLabelFilter == label,
+                                onClick = {
+                                    selectedLabelFilter = if (selectedLabelFilter == label) null else label
+                                },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
                 }
             }
         },

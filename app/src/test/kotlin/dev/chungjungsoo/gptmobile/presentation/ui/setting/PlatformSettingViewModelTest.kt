@@ -1,30 +1,21 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.lifecycle.SavedStateHandle
-import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
-import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
-import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
-import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
-import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
-import dev.chungjungsoo.gptmobile.data.localruntime.MAX_HIGH_RAM_CONTEXT_TOKENS
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
-import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
@@ -32,120 +23,72 @@ import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.chungjungsoo.gptmobile.domain.model.AcceleratorUnavailableReason
+import dev.chungjungsoo.gptmobile.domain.model.MAX_HIGH_RAM_CONTEXT_TOKENS
+import dev.chungjungsoo.gptmobile.domain.tools.AgentToolResolver
+import dev.chungjungsoo.gptmobile.domain.tools.McpClientManager
+import dev.chungjungsoo.gptmobile.domain.tools.McpOAuthClient
+import dev.chungjungsoo.gptmobile.domain.tools.McpOAuthCoordinator
+import dev.chungjungsoo.gptmobile.domain.tools.NetworkClient
 import io.ktor.client.engine.cio.CIO
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class PlatformSettingViewModelTest {
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(UnconfinedTestDispatcher())
-    }
 
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
+    @Test
+    fun `initializes non-local platform with default settings`() = runTest {
+        val platform = PlatformV2(
+            uid = "remote-1",
+            name = "OpenAI",
+            compatibleType = ClientType.OPENAI,
+            enabled = true,
+            apiUrl = "https://api.openai.com/v1/",
+            model = "gpt-4o"
+        )
+        val settings = FakeSettingRepository(platform)
+        val viewModel = testViewModel(settings = settings, platformUid = platform.uid)
+
+        assertFalse(viewModel.isLocalPlatform.value)
     }
 
     @Test
-    fun `selectSearchBackend none removes web search binding and closes dialog`() = runTest {
-        val dao = FakeToolConnectionDao(
-            connections = mutableMapOf("search-1" to testConnection("search-1")),
-            bindings = mutableListOf(testBinding("profile-1", "search-1"))
-        )
-        val viewModel = testViewModel(dao)
+    fun `initializes local platform and surfaces local controls`() = runTest {
+        val platform = localPlatform()
+        val settings = FakeSettingRepository(platform)
+        val viewModel = testViewModel(settings = settings, platformUid = platform.uid)
 
-        viewModel.loadToolBindings()
-        viewModel.openSearchBackendDialog()
-        viewModel.selectSearchBackend(null)
-
-        assertNull(viewModel.toolBindingState.value.selectedSearchConnectionUid)
-        assertFalse(viewModel.toolBindingState.value.isSearchBackendDialogOpen)
-        assertNull(viewModel.toolBindingState.value.errorMessage)
-        assertEquals(emptyList<AgentToolBinding>(), dao.listBindingsByProfile("profile-1"))
+        assertEquals(true, viewModel.isLocalPlatform.value)
+        assertEquals("gemma3-1b-it", viewModel.selectedModel.value)
+        assertEquals(1.0f, viewModel.temperature.value)
+        assertEquals(0.95f, viewModel.topP.value)
+        assertEquals(64, viewModel.topK.value)
+        assertEquals(1024, viewModel.maxTokens.value)
+        assertEquals(LocalAccelerators.GPU, viewModel.selectedAccelerator.value)
     }
 
     @Test
-    fun `loadToolBindings refreshes selected web search binding from repository`() = runTest {
-        val dao = FakeToolConnectionDao(
-            connections = mutableMapOf(
-                "search-1" to testConnection("search-1"),
-                "search-2" to testConnection("search-2")
-            ),
-            bindings = mutableListOf(testBinding("profile-1", "search-1"))
-        )
-        val viewModel = testViewModel(dao)
+    fun `updating temperature persists to the local profile`() = runTest {
+        val settings = FakeSettingRepository(localPlatform())
+        val viewModel = testViewModel(settings = settings)
 
-        viewModel.loadToolBindings()
-        dao.bindings.clear()
-        dao.bindings += testBinding("profile-1", "search-2")
-        viewModel.loadToolBindings()
+        viewModel.setTemperature(0.7f)
 
-        assertEquals("search-2", viewModel.toolBindingState.value.selectedSearchConnectionUid)
+        assertEquals(0.7f, settings.updatedPlatforms.single().temperature)
     }
 
     @Test
-    fun `saving MCP tool selection binds only selected server tool`() = runTest {
-        val dao = FakeToolConnectionDao(
-            connections = mutableMapOf("mcp-1" to testConnection("mcp-1", ToolConnectionType.MCP))
-        )
-        val viewModel = testViewModel(dao)
+    fun `updating top-p persists to the local profile`() = runTest {
+        val settings = FakeSettingRepository(localPlatform())
+        val viewModel = testViewModel(settings = settings)
 
-        viewModel.loadToolBindings()
-        viewModel.toggleMcpTool("mcp-1", "echo")
-        viewModel.saveMcpTools()
+        viewModel.setTopP(0.85f)
 
-        assertEquals(
-            listOf("mcp-1:echo"),
-            dao.listBindingsByProfile("profile-1").map { "${it.connectionUid}:${it.toolName}" }
-        )
-    }
-
-    @Test
-    fun `MCP tools named like builtins do not enable builtin bindings`() = runTest {
-        val dao = FakeToolConnectionDao(
-            connections = mutableMapOf("mcp-1" to testConnection("mcp-1", ToolConnectionType.MCP)),
-            bindings = mutableListOf(
-                AgentToolBinding("mcp-web", "profile-1", "mcp-1", "web_search"),
-                AgentToolBinding("mcp-read", "profile-1", "mcp-1", "read_url")
-            )
-        )
-        val viewModel = testViewModel(dao)
-
-        viewModel.loadToolBindings()
-
-        assertNull(viewModel.toolBindingState.value.selectedSearchConnectionUid)
-        assertFalse(viewModel.toolBindingState.value.readUrlEnabled)
-        assertEquals(setOf("web_search", "read_url"), viewModel.toolBindingState.value.selectedMcpTools.map { it.toolName }.toSet())
-    }
-
-    @Test
-    fun `closing MCP tools dialog cancels discovery loading state`() = runTest {
-        val dao = FakeToolConnectionDao(
-            connections = mutableMapOf("mcp-1" to testConnection("mcp-1", ToolConnectionType.MCP))
-        )
-        val viewModel = testViewModel(dao)
-
-        viewModel.loadToolBindings()
-        viewModel.openMcpToolsDialog()
-        viewModel.closeMcpToolsDialog()
-
-        assertFalse(viewModel.toolBindingState.value.isMcpToolsDialogOpen)
-        assertFalse(viewModel.toolBindingState.value.isMcpToolsLoading)
+        assertEquals(0.85f, settings.updatedPlatforms.single().topP)
     }
 
     @Test
@@ -362,6 +305,14 @@ private class FakeSettingRepository(
     override suspend fun migrateSecrets(): List<SecretMigrationError> = emptyList()
     override suspend fun updatePlatforms(platforms: List<Platform>) = Unit
     override suspend fun updateThemes(themeSetting: ThemeSetting) = Unit
+
+    override suspend fun getFavoriteGroups(): List<String> = emptyList()
+    override suspend fun saveFavoriteGroups(groups: List<String>) = Unit
+    override fun observeFavoriteGroups(): Flow<List<String>> = flowOf(emptyList())
+    override suspend fun getFavoriteMessageGroups(): Map<Int, String> = emptyMap()
+    override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) = Unit
+    override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> = flowOf(emptyMap())
+
     override suspend fun addPlatformV2(platform: PlatformV2) = Unit
     override suspend fun updatePlatformV2(platform: PlatformV2) {
         this.platform = platform

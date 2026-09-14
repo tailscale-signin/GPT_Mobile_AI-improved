@@ -2,10 +2,10 @@
 
 Persistent repository context for AI coding agents. Keep this file synchronized whenever repository files are added, modified, renamed, or deleted.
 
-> Index status: comprehensive and actively maintained on `main`, `release-0.9.3.2`, `0.9.2.4`, `0.9.2.3`, `release-0.9.2.3`, `0.9.1`, and `feature/v0.9.2-initiation`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
+> Index status: comprehensive and actively maintained on `main`, `release-0.9.4.0`, `release-0.9.3.2`, `0.9.2.4`, `0.9.2.3`, `release-0.9.2.3`, `0.9.1`, and `feature/v0.9.2-initiation`. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 >
-> **Latest Official Release:** [v0.9.2.3](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.2.3) (`prerelease: false`, `draft: false`, official release).
-> **Current Pre-Release:** `0.9.3.2` (versionCode 42). Key additions: Qualcomm AI Engine Direct (QNN) & Hexagon NPU acceleration, FastRPC native library integration (`libQnnHtpV79Skel.so`), in-chat Diagnostics Telemetry HUD (`ChatDebugDiagnosticsCard`), nullable thinking parser safety fix, infinite streaming request watchdog, and 45s tool timeout ceiling.
+> **Latest Official Release:** [v0.9.3.2](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.3.2) (`prerelease: false`, `draft: false`).
+> **Current Pre-Release:** `0.9.4.0-pre` (versionCode 43). Key additions: Authoritative database migration registry, pure-domain ToolBudgetPolicy with comprehensive unit tests, theme alpha tokens standardization, Qualcomm AI Engine Direct (QNN) & Hexagon NPU acceleration, FastRPC native library integration (`libQnnHtpV79Skel.so`), in-chat Diagnostics Telemetry HUD (`ChatDebugDiagnosticsCard`).
 
 ## 1. Repository Overview
 
@@ -15,16 +15,16 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 
 - **Architecture:** Clean MVVM with repository, domain-boundary abstractions, and data-source layers.
 - **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
-- **Motion & Transitions:** Theme motion primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`) in `presentation.theme.Motion.kt` backing collapsible details animations, continuation pulsing chip, and responsive indicator state transitions.
+- **Motion & Design Tokens:** Theme motion primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`) in `presentation.theme.Motion.kt` and alpha tokens (`ChatAlphaTokens`, `LocalChatAlpha`) in `presentation.theme.ChatAlphaTokens.kt`.
 - **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
 - **Dependency injection:** Hilt/Dagger with KSP.
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, and OpenAI-compatible services).
-- **Persistence:** Room (`ChatDatabaseV2`, Schema version 19) with full FTS search and DataStore preferences (`SettingDataSource`). Migration 18->19 adds `is_archived` to `chats_v2`, `labels` and `is_favorite` to `platform_v2`, and `timestamp` to `messages_v2`.
+- **Persistence:** Room (`ChatDatabaseV2`, Schema version 19) with full FTS search and DataStore preferences (`SettingDataSource`). Authoritative migration registry in `ChatDatabaseV2Migrations.ALL_MIGRATIONS`.
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
 - **Local inference:** Qualcomm AI Engine Direct (QNN) + LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention, speculative decoding); Ollama supported for self-hosted network inference with timeout resilience and configurable advanced options.
 - **Background work:** Foreground service (`AgentRunForegroundService`) with partial wake locks for active agent runs, high-importance completion notifications (`CHANNEL_AGENT_COMPLETION`), and WorkManager (`LocalModelDownloadWorker`) for resilient background model downloads.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
-- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.3.2` (versionCode 42). Release workflow automatically runs `apksigner` and outputs signed release packages (`app-universal-release.apk`, `app-arm64-v8a-release.apk`, `app-x86_64-release.apk`, `app-release.aab`).
+- **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.4.0-pre` (versionCode 43). Release workflow automatically runs `apksigner` and outputs signed release packages (`app-universal-release.apk`, `app-arm64-v8a-release.apk`, `app-x86_64-release.apk`, `app-release.aab`).
 - **Testing/style:** JUnit 4/5, kotlinx-coroutines-test, AndroidX instrumented/Compose tests, Room testing (`ChatDatabaseV2MigrationsTest`), and ktlint 1.3.1 using Android Studio style.
 
 ## 2. Repository Index
@@ -51,7 +51,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingDialogs.kt` — Dialog composables for platform customization, parameter tuning, accelerator selection, and advanced options. Single clean implementation of dialogs without duplicates, correct parameter mapping, and safe null handling.
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/PlatformSettingScreen.kt` — Primary platform settings view with full reactive StateFlow observation, advanced options routing, and MCP/search tools integration.
 
-### Diagnostics HUD & Debug Features (v0.9.3.2)
+### Diagnostics HUD & Debug Features
 
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/datastore/SettingDataSource.kt` — Preference observation and persistence for Debug Mode (`observeDebugMode`, `getDebugMode`, `updateDebugMode`).
 - `app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt` — Opponent chat bubble rendering with circular `GPTMobileIcon`, collapsible details, and real-time hardware diagnostics telemetry card (`ChatDebugDiagnosticsCard`).

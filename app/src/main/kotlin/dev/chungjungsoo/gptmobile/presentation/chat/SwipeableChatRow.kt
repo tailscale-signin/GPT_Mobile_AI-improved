@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.presentation.chat
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +34,7 @@ import kotlin.math.abs
  * - Staggered icon reveal animation
  * - Spring-based snap-back
  * - Haptic feedback on trigger threshold
+ * - Long-press (1s) to pin/unpin chat
  */
 @Composable
 fun SwipeableChatRow(
@@ -51,6 +54,21 @@ fun SwipeableChatRow(
     val maxSwipe = 200f
     val triggerThreshold = 80f  // 40% of maxSwipe
     var hasTriggeredHaptic by remember { mutableStateOf(false) }
+    var isLongPressing by remember { mutableStateOf(false) }
+    
+    val longPressScale by animateFloatAsState(
+        targetValue = if (isLongPressing) 1.02f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "longPressScale"
+    )
+    val longPressGlow by animateFloatAsState(
+        targetValue = if (isLongPressing) 1f else 0f,
+        animationSpec = tween(300),
+        label = "longPressGlow"
+    )
 
     Box(
         modifier = modifier
@@ -68,6 +86,12 @@ fun SwipeableChatRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
+                .scale(longPressScale)
+                .shadow(
+                    elevation = (8.dp * longPressGlow).toDp(),
+                    shape = RoundedCornerShape(16.dp),
+                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f * longPressGlow)
+                )
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -85,6 +109,7 @@ fun SwipeableChatRow(
                                 else -> 0f
                             }
                             hasTriggeredHaptic = false
+                            isLongPressing = false
                             // Spring animation back to target
                             launch {
                                 swipeOffset.animateTo(
@@ -98,6 +123,7 @@ fun SwipeableChatRow(
                         },
                         onDragCancel = {
                             hasTriggeredHaptic = false
+                            isLongPressing = false
                             launch {
                                 swipeOffset.animateTo(
                                     targetValue = 0f,
@@ -126,6 +152,37 @@ fun SwipeableChatRow(
                             }
                         }
                     )
+                }
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downTime = System.currentTimeMillis()
+
+                            // Start long press detection
+                            isLongPressing = true
+
+                            // Wait for 1 second
+                            val holdDuration = 1000L
+                            var elapsed = 0L
+                            while (elapsed < holdDuration) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.any { !it.pressed }) {
+                                    // Released early
+                                    isLongPressing = false
+                                    break
+                                }
+                                elapsed = System.currentTimeMillis() - downTime
+                            }
+
+                            if (elapsed >= holdDuration) {
+                                // Long press confirmed
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onPin(chatId)
+                                isLongPressing = false
+                            }
+                        }
+                    }
                 }
                 .zIndex(1f)
         ) {

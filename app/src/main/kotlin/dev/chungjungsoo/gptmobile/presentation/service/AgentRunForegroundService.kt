@@ -189,7 +189,7 @@ class AgentRunForegroundService : Service() {
                 settingRepository.fetchPlatformV2s().firstOrNull { it.uid == uid }?.name
             }
             val title = if (!platformName.isNullOrBlank()) {
-                getString(R.string.platform_finished_notification_title, platformName)
+                getString(R.string.agent_completion_platform_title, platformName)
             } else {
                 getString(R.string.agent_completion_notification_title)
             }

@@ -9,27 +9,27 @@ class ToolBudgetPolicyTest {
 
     @Test
     fun `executionLimit subtracts finalResponseToolCallReserve`() {
-        val limits = AgentExecutionLimits(maxToolCalls = 20, finalResponseToolCallReserve = 2)
+        val limits = AgentRunLimits(maxToolCalls = 20, finalResponseToolCallReserve = 2)
         assertEquals(18, ToolBudgetPolicy.executionLimit(limits))
     }
 
     @Test
     fun `executionLimit handles Int MAX_VALUE without underflow`() {
-        val limits = AgentExecutionLimits(maxToolCalls = Int.MAX_VALUE, finalResponseToolCallReserve = 2)
+        val limits = AgentRunLimits(maxToolCalls = Int.MAX_VALUE, finalResponseToolCallReserve = 2)
         assertEquals(Int.MAX_VALUE, ToolBudgetPolicy.executionLimit(limits))
     }
 
     @Test
     fun `wrapUpThreshold calculates 1 fifth of maxToolCalls`() {
-        assertEquals(4, ToolBudgetPolicy.wrapUpThreshold(AgentExecutionLimits(maxToolCalls = 20)))
-        assertEquals(2, ToolBudgetPolicy.wrapUpThreshold(AgentExecutionLimits(maxToolCalls = 10)))
-        assertEquals(1, ToolBudgetPolicy.wrapUpThreshold(AgentExecutionLimits(maxToolCalls = 5)))
-        assertEquals(1, ToolBudgetPolicy.wrapUpThreshold(AgentExecutionLimits(maxToolCalls = 3)))
+        assertEquals(4, ToolBudgetPolicy.wrapUpThreshold(AgentRunLimits(maxToolCalls = 20)))
+        assertEquals(2, ToolBudgetPolicy.wrapUpThreshold(AgentRunLimits(maxToolCalls = 10)))
+        assertEquals(1, ToolBudgetPolicy.wrapUpThreshold(AgentRunLimits(maxToolCalls = 5)))
+        assertEquals(1, ToolBudgetPolicy.wrapUpThreshold(AgentRunLimits(maxToolCalls = 3)))
     }
 
     @Test
     fun `shouldEmitWrapUpNotice returns false when maxToolCalls is 2 or fewer`() {
-        val limits = AgentExecutionLimits(maxToolCalls = 2, finalResponseToolCallReserve = 1)
+        val limits = AgentRunLimits(maxToolCalls = 2, finalResponseToolCallReserve = 1)
         assertFalse(
             ToolBudgetPolicy.shouldEmitWrapUpNotice(
                 executionLimit = 1,
@@ -42,7 +42,7 @@ class ToolBudgetPolicyTest {
 
     @Test
     fun `shouldEmitWrapUpNotice returns true within threshold window`() {
-        val limits = AgentExecutionLimits(maxToolCalls = 10, finalResponseToolCallReserve = 0)
+        val limits = AgentRunLimits(maxToolCalls = 10, finalResponseToolCallReserve = 0)
         // executionLimit = 10, threshold = 2. When toolCallCount = 8, remaining = 2 (in 1..2)
         assertTrue(
             ToolBudgetPolicy.shouldEmitWrapUpNotice(

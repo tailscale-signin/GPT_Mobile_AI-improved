@@ -588,7 +588,8 @@ private fun AssistantProcessContent(
                 }
                 AssistantTimelineItemType.TEXT -> {
                     val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
-                    if (parsed.thinking.isNotBlank()) {
+                    val thinking = parsed.thinking
+                    if (!thinking.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -596,7 +597,7 @@ private fun AssistantProcessContent(
                         ) {
                             ThinkingBlock(
                                 modifier = Modifier.fillMaxWidth(),
-                                thoughts = parsed.thinking,
+                                thoughts = thinking,
                                 contentIdentity = "$contentIdentity:parsed-thinking:$index",
                                 isLoading = isLoading && parsed.isThinking && index == timeline.lastIndex
                             )

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -60,12 +61,18 @@ object DiagnosticsTelemetryProvider {
             Build.HARDWARE.orEmpty()
         }
 
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager?.getMemoryInfo(memoryInfo)
+        val totalRamGb = if (memoryInfo.totalMem > 0) memoryInfo.totalMem / (1024L * 1024L * 1024L) else 0L
+        val availableRamMb = if (memoryInfo.availMem > 0) memoryInfo.availMem / (1024L * 1024L) else 0L
+
         return DiagnosticsSnapshot(
             backendName = backendName,
             accelerator = accelerator,
             socModel = soc,
-            totalRamGb = hwState.totalDeviceRamBytes / (1024L * 1024L * 1024L),
-            availableRamMb = hwState.availableRamMb,
+            totalRamGb = totalRamGb,
+            availableRamMb = availableRamMb,
             thermalStatus = thermalStatus,
             batteryPct = batteryPct,
             isCharging = isCharging,

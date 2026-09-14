@@ -103,5 +103,11 @@ data class PlatformV2(
     val labels: String? = null,
 
     @ColumnInfo(name = "is_favorite", defaultValue = "0")
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+
+    @ColumnInfo(name = "batch_mode", defaultValue = "0")
+    val batchMode: Boolean = false,
+
+    @ColumnInfo(name = "batch_api_url")
+    val batchApiUrl: String? = null
 ) : Parcelable

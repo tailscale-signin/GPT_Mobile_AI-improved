@@ -1,8 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
-import android.app.ActivityManager
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import java.io.FileNotFoundException
 import kotlinx.coroutines.Dispatchers
@@ -12,18 +10,14 @@ import kotlinx.coroutines.withContext
 /**
  * Qualcomm QNN (Qualcomm Neural Network) runtime implementation.
  *
- * Designed specifically for Snapdragon chips (such as Snapdragon 8 Gen 3 / 8 Elite / Adreno / Hexagon NPU).
- * Leverages direct Hexagon Tensor Processor (HTP) execution for low-power, high-throughput INT4/INT8
- * weights, passing the native dispatch library directory to LiteRT-LM's Qualcomm backend.
+ * Designed specifically for Snapdragon chips (such as Snapdragon 8 Gen 3 / 8 Elite / Hexagon NPU).
+ * Leverages direct Hexagon Tensor Processor (HTP) execution for low-power, high-throughput weights,
+ * passing the native dispatch library directory to LiteRT-LM's Qualcomm backend.
  */
 class LocalRuntimeQnnImpl(
     private val context: Context,
     private val fallbackLiteRtRuntime: LocalRuntimeImpl = LocalRuntimeImpl(context)
 ) : LocalRuntime {
-
-    private val activityManager: ActivityManager? by lazy {
-        context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-    }
 
     override val deviceRamGb: Long by lazy {
         fallbackLiteRtRuntime.deviceRamGb
@@ -36,11 +30,9 @@ class LocalRuntimeQnnImpl(
         // Ensure QNN environment (ADSP_LIBRARY_PATH and LD_LIBRARY_PATH) is set up FIRST
         val probe = QnnEnvironment.initialize(context)
 
-        // Sequentially probe Qualcomm QNN & LiteRT Qualcomm delegate shared libraries
+        // Verify Qualcomm runtime readiness via library probe and hardware checks
         isQnnNativeAvailable = try {
             val isQualcommDevice = probe.isQualcommDevice || QnnEnvironment.isQualcommPlatform()
-
-            // Verify Qualcomm runtime readiness
             val ready = probe.isReady || (isQualcommDevice && hasQnnDelegateClass())
             if (ready) {
                 Log.i(TAG, "Qualcomm QNN HTP runtime verified ready. Dispatch dir: ${probe.dispatchDir}")
@@ -85,12 +77,13 @@ class LocalRuntimeQnnImpl(
                 }
             }
 
-            // Target Hexagon NPU unless caller explicitly requested CPU or GPU.
+            // Target Hexagon NPU unless caller explicitly requested CPU.
+            // If caller requested GPU or NPU under QNN backend, prioritize Qualcomm Hexagon NPU.
             val normalizedRequested = LocalAccelerators.normalize(spec.accelerator)
             val targetAccelerator = when {
-                normalizedRequested == LocalAccelerators.CPU || normalizedRequested == LocalAccelerators.GPU -> {
-                    Log.i(TAG, "Caller explicitly requested accelerator $normalizedRequested; honoring selection.")
-                    normalizedRequested
+                normalizedRequested == LocalAccelerators.CPU -> {
+                    Log.i(TAG, "Caller explicitly requested CPU; honoring selection.")
+                    LocalAccelerators.CPU
                 }
                 isQnnNativeAvailable -> {
                     Log.i(TAG, "Deploying model graph to Qualcomm Hexagon NPU backend via QNN.")

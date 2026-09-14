@@ -1,39 +1,33 @@
-# Release Notes - v0.9.3.2
+# Release Notes - v0.9.4.0 (Pre-release)
 
-Welcome to **GPT Mobile AI (Improved)** (v0.9.3.2)!
+Welcome to **GPT Mobile AI (Improved)** v0.9.4.0 Pre-release!
 
-This release delivers cutting-edge Qualcomm Snapdragon NPU acceleration, real-time in-chat hardware diagnostics HUD, safe reasoning UI handling, and end-to-end streaming & tool execution hardening.
+This release brings stability hardening across database migrations, core agent tooling architecture, design token standardization, and build pipeline optimization.
 
 ---
 
-### Key Highlights & New Features
+### Key Highlights & Improvements
 
-#### 1. ⚡ Qualcomm AI Engine Direct (QNN) & Hexagon NPU Acceleration
-- **Native Qualcomm QNN Integration**: Bundles `qnn.runtime` and `qnn.litert.delegate` to run on-device models directly on Qualcomm Hexagon NPUs.
-- **FastRPC cDSP Native Library Setup**: Configured `QnnEnvironment` to dynamically register `ADSP_LIBRARY_PATH` and verify native DSP skeleton libraries (`libQnnHtpV79Skel.so`). Enabled uncompressed legacy native library packaging (`useLegacyPackaging = true` and `android:extractNativeLibs="true"`) to satisfy Android cDSP loading requirements.
-- **Hardware-Aware Backend Routing**: Directs on-device inference to the Hexagon NPU by default when running on supported Snapdragon platforms, yielding superior tokens-per-second and substantial battery savings.
-- **Enriched Model Catalog**: Updated bundled `model_catalog.json` with Snapdragon Hexagon NPU model profiles.
+#### 1. 🗄️ Authoritative Database Migration Architecture
+- **Consolidated Migration Registry**: Centralized all database migrations into an authoritative `ChatDatabaseV2Migrations.ALL_MIGRATIONS` array, eliminating manual duplicate registrations in `DatabaseModule`.
+- **Dynamic Schema Continuity Verification**: Enhanced `ChatDatabaseV2MigrationsTest` to dynamically validate incremental migration step continuity up through Schema 19.
 
-#### 2. 📊 In-Chat Diagnostics & Hardware Telemetry HUD
-- **Real-Time Telemetry Badge**: When **Debug Mode** is enabled, an interactive hardware diagnostics chip is rendered inside assistant chat bubbles (`ChatDebugDiagnosticsCard`).
-- **Comprehensive Device Metrics**: Displays processor/SoC identifier, exact RAM statistics (total GB and available MB via `ActivityManager.getMemoryInfo`), battery percentage, charging status, thermal throttling levels, and Qualcomm HTP NPU readiness.
-- **Instant Diagnostics Inspection**: Tap the diagnostics chip to pop open a detailed hardware inspection dialog right inside the active chat thread.
+#### 2. 🛡️ Pure-Domain Tool Budget & Safety Ceiling Engine
+- **Decoupled Tool Budget Policy**: Isolated agent tool budget enforcement, step thresholds, and steering prompts into a standalone, pure-domain `ToolBudgetPolicy`.
+- **Exhaustive Edge-Case Validation**: Comprehensive test suite covering budget limits, token reserve calculations, low-ceiling fixtures, and step-budget boundaries.
 
-#### 3. 🛡️ Resilient UI & Nullable Reasoning Safety
-- **Safe `<think>` Reasoning Blocks**: Fixed thinking block parser integration to safely handle nullable thought strings (`ThinkingBlock`), preventing chat bubble crashes on deep-thinking or non-thinking streaming responses.
-- **Refined Opponent Chat Bubble Layout**: Polished bubble container background styling with adaptive tool container alpha (0.14), centered circular avatar (`GPTMobileIcon`), and clean collapsible details integration.
+#### 3. 🎨 Standardized Chat UI Design Tokens
+- **Theme Alpha Tokens**: Introduced `@Immutable data class ChatAlphaTokens` and `LocalChatAlpha` design token container to standardize UI surface alphas across chat bubbles, code surfaces, and tool traces.
 
-#### 4. 🌐 Streaming Resilience & Watchdog Protections
-- **Infinite Streaming Request Watchdog**: Replaced rigid request timeouts with `HttpTimeoutConfig.INFINITE_TIMEOUT_MS` backed by adaptive socket inactivity detection.
-- **Tool Timeout Watchdog**: 45-second execution timeout guard prevents stalled local or MCP tool executions from hanging conversation runs.
-- **Ktor Keep-Alive Hardening**: 60-second connection keep-alives and hardened connection pooling prevent silent TCP drops across cellular networks.
-
-#### 5. 📦 Version Bump to v0.9.3.2
-- Version code incremented to `42`, version name updated to `0.9.3.2`.
+#### 4. 📦 Build & Packaging Details
+- Version code incremented to `43`, version name set to `0.9.4.0-pre`.
+- Target SDK 36 (Android 16), Min SDK 31 (Android 12).
+- Supported ABIs: `arm64-v8a`, `x86_64`.
+- Automated release build with R8 minification and resource shrinking.
 
 ---
 
 ### Artifacts & Downloads
-- **Universal APK**: `app-universal-release.apk` (universal binary supporting all modern 64-bit devices)
+- **Universal APK**: `app-universal-release.apk` (universal binary for all modern 64-bit devices)
 - **Targeted ABI APKs**: `app-arm64-v8a-release.apk` (optimized footprint for modern Android phones) and `app-x86_64-release.apk` (for emulators and Chromebooks)
 - **Release Bundle (AAB)**: `app-release.aab`

@@ -10,9 +10,9 @@ class PlatformAgentRunnerTest {
     @Test
     fun `agentRunnerForPlatform uses platform maxToolCalls when runOverride is null`() {
         val platform = PlatformV2(
-            id = "test-platform",
+            uid = "test-platform",
             name = "Test Platform",
-            clientType = ClientType.OPENAI,
+            compatibleType = ClientType.OPENAI,
             token = "sk-test",
             maxToolCalls = 25
         )
@@ -25,9 +25,9 @@ class PlatformAgentRunnerTest {
     @Test
     fun `agentRunnerForPlatform uses runOverride when provided`() {
         val platform = PlatformV2(
-            id = "test-platform",
+            uid = "test-platform",
             name = "Test Platform",
-            clientType = ClientType.OPENAI,
+            compatibleType = ClientType.OPENAI,
             token = "sk-test",
             maxToolCalls = 25
         )
@@ -40,9 +40,9 @@ class PlatformAgentRunnerTest {
     @Test
     fun `agentRunnerForPlatform retains default maxToolCalls when platform has default value`() {
         val platform = PlatformV2(
-            id = "test-platform",
+            uid = "test-platform",
             name = "Test Platform",
-            clientType = ClientType.OPENAI,
+            compatibleType = ClientType.OPENAI,
             token = "sk-test"
         )
 

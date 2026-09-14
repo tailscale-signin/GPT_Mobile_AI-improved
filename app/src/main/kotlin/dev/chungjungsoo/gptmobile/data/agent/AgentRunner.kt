@@ -75,6 +75,7 @@ class AgentRunner(
         var toolMayHaveExecuted = initialToolMayHaveExecuted
         var retriedWithoutTools = initialRetriedWithoutTools
         var finalResponseRequested = false
+        var wrapUpNoticeEmitted = false
         val executionToolCallLimit = if (limits.maxToolCalls == Int.MAX_VALUE) {
             Int.MAX_VALUE
         } else {
@@ -88,6 +89,13 @@ class AgentRunner(
                 if (!finalResponseRequested) {
                     finalResponseRequested = true
                     emit(AgentRunEvent.Notice(FINAL_RESPONSE_NOTICE, persistent = false))
+                }
+            } else if (executionToolCallLimit < Int.MAX_VALUE && !wrapUpNoticeEmitted) {
+                val wrapUpThreshold = (limits.maxToolCalls / 5).coerceAtLeast(1)
+                val remainingAllowance = executionToolCallLimit - toolCallCount
+                if (remainingAllowance <= wrapUpThreshold) {
+                    wrapUpNoticeEmitted = true
+                    emit(AgentRunEvent.Notice("Approaching tool limit ($remainingAllowance remaining). Wrapping up.", persistent = false))
                 }
             }
             if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
@@ -184,8 +192,17 @@ class AgentRunner(
             }
             val allResults = (executedResults + deferredResults).toMutableList()
             val mustFinalize = executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit
+            val wrapUpThreshold = (limits.maxToolCalls / 5).coerceAtLeast(1)
+            val remainingAllowance = if (executionToolCallLimit == Int.MAX_VALUE) Int.MAX_VALUE else (executionToolCallLimit - toolCallCount)
+            val shouldInjectWrapUp = executionToolCallLimit < Int.MAX_VALUE && remainingAllowance in 1..wrapUpThreshold
+
             if (mustFinalize && allResults.isNotEmpty()) {
                 allResults[allResults.lastIndex] = appendFinalResponseInstruction(allResults.last())
+            } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
+                val wrapUpPrompt = "You have $remainingAllowance tool call(s) remaining before your hard limit. " +
+                    "Begin wrapping up your response now. Do not perform any further file inspections, web searches, or tool calls. " +
+                    "Synthesize your findings and provide your final answer now."
+                allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
             }
 
             calls.zip(allResults).forEach { (call, result) ->
@@ -193,6 +210,16 @@ class AgentRunner(
             }
             exchanges += AgentToolExchange(calls, allResults)
         }
+    }
+
+    private fun appendInstruction(result: AgentToolResult, instruction: String): AgentToolResult {
+        val existing = when (val content = result.content) {
+            is ToolResultContent.Text -> content.text
+            is ToolResultContent.Json -> Json.encodeToString(content.value)
+            is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
+        }
+        if (existing.contains(instruction)) return result
+        return result.copy(content = ToolResultContent.Text("$existing\n\n$instruction"))
     }
 
     private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult {

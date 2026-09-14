@@ -31,18 +31,7 @@ object DatabaseModule {
             ChatDatabaseV2::class.java,
             "chat_database_v2"
         )
-        .addMigrations(
-            ChatDatabaseV2Migrations.MIGRATION_10_11,
-            ChatDatabaseV2Migrations.MIGRATION_11_12,
-            ChatDatabaseV2Migrations.MIGRATION_12_13,
-            ChatDatabaseV2Migrations.MIGRATION_13_14,
-            ChatDatabaseV2Migrations.MIGRATION_14_15,
-            ChatDatabaseV2Migrations.MIGRATION_15_16,
-            ChatDatabaseV2Migrations.MIGRATION_16_17,
-            ChatDatabaseV2Migrations.MIGRATION_17_18,
-            ChatDatabaseV2Migrations.MIGRATION_18_19,
-            ChatDatabaseV2Migrations.MIGRATION_19_20
-        )
+        .addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS)
         .fallbackToDestructiveMigrationOnDowngrade()
         .build()
 

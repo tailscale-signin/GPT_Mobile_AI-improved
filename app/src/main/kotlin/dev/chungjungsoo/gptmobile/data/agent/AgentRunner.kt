@@ -1,73 +1,30 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.model.AgentRunEvent
+import dev.chungjungsoo.gptmobile.data.model.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.model.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.model.ToolResultContent
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
-data class AgentRunLimits(
-    val runTimeoutMillis: Long = Long.MAX_VALUE,
-    val maxRounds: Int = Int.MAX_VALUE,
-    val maxToolCalls: Int = 12,
-    val maxConcurrentTools: Int = 32,
-    val toolTimeoutMillis: Long = Long.MAX_VALUE,
-    val maxToolOutputBytes: Int = Int.MAX_VALUE,
-    val finalResponseToolCallReserve: Int = 1
-) {
-    companion object {
-        const val DEFAULT_MAX_TOOL_CALLS: Int = 12
-
-        fun defaultMaxConcurrentTools(): Int = 32
-
-        fun defaultMaxToolOutputBytes(): Int = Int.MAX_VALUE
-    }
-}
-
 class AgentRunner(
-    val limits: AgentRunLimits = AgentRunLimits()
+    private val limits: AgentExecutionLimits = AgentExecutionLimits()
 ) {
-    fun run(session: AgentProviderSession, tools: List<AgentTool>): Flow<AgentRunEvent> = flow {
-        val toolByName = tools.associateBy { it.definition.name }
-        var executableToolByName = toolByName
-        var exposedDefinitions = tools.map { it.definition }
-        val exchanges = mutableListOf<AgentToolExchange>()
-        var rounds = 0
-        var toolCallCount = 0
-        var toolMayHaveExecuted = false
-        var retriedWithoutTools = false
 
-        val finishedInTime = if (limits.runTimeoutMillis < Long.MAX_VALUE) {
-            withTimeoutOrNull(limits.runTimeoutMillis) {
-                executeLoop(session, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
-            }
-        } else {
-            executeLoop(session, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools)
-            true
-        }
-
-        if (finishedInTime == null) {
-            emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
-        }
-    }
-
-    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.executeLoop(
-        session: AgentProviderSession,
-        toolByName: Map<String, AgentTool>,
-        initialExecutableToolByName: Map<String, AgentTool>,
-        initialExposedDefinitions: List<AgentToolDefinition>,
-        exchanges: MutableList<AgentToolExchange>,
-        initialRounds: Int,
-        initialToolCallCount: Int,
-        initialToolMayHaveExecuted: Boolean,
-        initialRetriedWithoutTools: Boolean
-    ) {
+    fun run(
+        session: AgentModelSession,
+        tools: List<AgentTool>,
+        exchanges: List<AgentExchange>,
+        initialRounds: Int = 0,
+        initialToolCallCount: Int = 0,
+        initialToolMayHaveExecuted: Boolean = false,
+        initialRetriedWithoutTools: Boolean = false,
+        initialExecutableToolByName: Map<String, AgentTool> = tools.associateBy { it.definition.name },
+        initialExposedDefinitions: List<AgentToolDefinition> = tools.map { it.definition }
+    ): Flow<AgentRunEvent> = flow {
         var executableToolByName = initialExecutableToolByName
         var exposedDefinitions = initialExposedDefinitions
         var rounds = initialRounds
@@ -76,11 +33,7 @@ class AgentRunner(
         var retriedWithoutTools = initialRetriedWithoutTools
         var finalResponseRequested = false
         var wrapUpNoticeEmitted = false
-        val executionToolCallLimit = if (limits.maxToolCalls == Int.MAX_VALUE) {
-            Int.MAX_VALUE
-        } else {
-            (limits.maxToolCalls - limits.finalResponseToolCallReserve.coerceAtLeast(0)).coerceAtLeast(0)
-        }
+        val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit) {
@@ -90,17 +43,14 @@ class AgentRunner(
                     finalResponseRequested = true
                     emit(AgentRunEvent.Notice(FINAL_RESPONSE_NOTICE, persistent = false))
                 }
-            } else if (executionToolCallLimit < Int.MAX_VALUE && limits.maxToolCalls > 2 && !wrapUpNoticeEmitted) {
-                val wrapUpThreshold = (limits.maxToolCalls / 5).coerceAtLeast(1)
-                val remainingAllowance = executionToolCallLimit - toolCallCount
-                if (remainingAllowance in 1..wrapUpThreshold) {
-                    wrapUpNoticeEmitted = true
-                    emit(AgentRunEvent.Notice("Approaching tool limit ($remainingAllowance remaining). Wrapping up.", persistent = false))
-                }
+            } else if (ToolBudgetPolicy.shouldEmitWrapUpNotice(executionToolCallLimit, limits, toolCallCount, wrapUpNoticeEmitted)) {
+                wrapUpNoticeEmitted = true
+                val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
+                emit(AgentRunEvent.Notice("Approaching tool limit ($remainingAllowance remaining). Wrapping up.", persistent = false))
             }
             if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
                 emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
-                return
+                return@flow
             }
             rounds += 1
 
@@ -118,97 +68,73 @@ class AgentRunner(
                                 }
                                 emit(AgentRunEvent.Provider(event))
                             }
-
-                            is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
-
                             is ProviderEvent.Failed -> {
                                 failed = true
                                 emit(AgentRunEvent.Provider(event))
                             }
-
-                            is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
-
-                            ProviderEvent.Completed -> completed = true
-
+                            is ProviderEvent.Completed -> {
+                                completed = true
+                                emit(AgentRunEvent.Provider(event))
+                            }
                             else -> emit(AgentRunEvent.Provider(event))
                         }
                     }
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: ToolDefinitionsRejectedException) {
-                if (exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools) {
-                    retriedWithoutTools = true
-                    exposedDefinitions = emptyList()
-                    executableToolByName = emptyMap()
-                    rounds -= 1
-                    emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
+            } catch (error: Throwable) {
+                emit(failed(error.message ?: "Agent round execution failed."))
+                return@flow
+            }
+
+            if (failed) return@flow
+            if (calls.isEmpty()) {
+                if (completed) return@flow
+                emit(failed("Model stopped without completing response."))
+                return@flow
+            }
+
+            val deferredResults = mutableListOf<AgentToolResult>()
+            val executedResults = mutableListOf<AgentToolResult>()
+            for (call in calls) {
+                if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit) {
+                    deferredResults += AgentToolResult(
+                        callId = call.callId,
+                        content = ToolResultContent.Text("Tool call skipped: tool-call limit reached."),
+                        isError = true
+                    )
                     continue
                 }
-                emit(failed(error.message ?: "Tools are unavailable for this model."))
-                return
-            } catch (error: Throwable) {
-                emit(failed(error.message ?: "Provider request failed."))
-                return
-            }
-
-            if (failed) return
-            if (calls.isEmpty()) {
-                if (completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
-                return
-            }
-            if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
-                emit(failed("Agent stopped after ${limits.maxRounds} model/tool rounds."))
-                return
-            }
-
-            val remainingCalls = if (executionToolCallLimit == Int.MAX_VALUE) {
-                calls.size
-            } else {
-                (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
-            }
-            val executableCalls = calls.take(remainingCalls)
-            val deferredCalls = calls.drop(executableCalls.size)
-
-            executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
-            if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
-            val semaphore = Semaphore(limits.maxConcurrentTools)
-            val executedResults = coroutineScope {
-                executableCalls.map { call ->
-                    async {
-                        semaphore.withPermit {
-                            executeBounded(call, executableToolByName[call.name])
-                        }
-                    }
-                }.awaitAll()
-            }
-            toolCallCount += executableCalls.size
-
-            val deferredResults = deferredCalls.map { call ->
-                AgentToolResult(
-                    callId = call.callId,
-                    content = ToolResultContent.Text(FINAL_RESPONSE_INSTRUCTION),
-                    isError = true
-                )
+                val tool = executableToolByName[call.name]
+                if (tool == null) {
+                    deferredResults += AgentToolResult(
+                        callId = call.callId,
+                        content = ToolResultContent.Text("Tool '${call.name}' not found."),
+                        isError = true
+                    )
+                    continue
+                }
+                toolCallCount += 1
+                val result = executeTool(tool, call)
+                if (result.mayHaveExecuted) {
+                    toolMayHaveExecuted = true
+                }
+                executedResults += result
             }
             val allResults = (executedResults + deferredResults).toMutableList()
             val mustFinalize = executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit
-            val wrapUpThreshold = (limits.maxToolCalls / 5).coerceAtLeast(1)
-            val remainingAllowance = if (executionToolCallLimit == Int.MAX_VALUE) Int.MAX_VALUE else (executionToolCallLimit - toolCallCount)
-            val shouldInjectWrapUp = executionToolCallLimit < Int.MAX_VALUE && limits.maxToolCalls > 2 && remainingAllowance in 1..wrapUpThreshold
+            val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
+            val shouldInjectWrapUp = ToolBudgetPolicy.shouldInjectWrapUpPrompt(executionToolCallLimit, limits, toolCallCount)
 
             if (mustFinalize && allResults.isNotEmpty()) {
                 allResults[allResults.lastIndex] = appendFinalResponseInstruction(allResults.last())
             } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
-                val wrapUpPrompt = "You have $remainingAllowance tool call(s) remaining before your hard limit. " +
-                    "Begin wrapping up your response now. Do not perform any further file inspections, web searches, or tool calls. " +
-                    "Synthesize your findings and provide your final answer now."
+                val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance)
                 allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)
             }
 
             calls.zip(allResults).forEach { (call, result) ->
-                emit(AgentRunEvent.ToolFinished(call, result))
+                emit(AgentRunEvent.ToolResult(call, result))
             }
-            exchanges += AgentToolExchange(calls, allResults)
         }
     }
 
@@ -232,30 +158,9 @@ class AgentRunner(
         return result.copy(content = ToolResultContent.Text("$existing\n\n$FINAL_RESPONSE_INSTRUCTION"))
     }
 
-    private suspend fun executeBounded(
-        call: ProviderEvent.ToolCall,
-        tool: AgentTool?
-    ): AgentToolResult {
-        if (tool == null) {
-            return AgentToolResult(
-                callId = call.callId,
-                content = ToolResultContent.Text("Tool '${call.name}' is not assigned to this profile."),
-                isError = true
-            )
-        }
-
+    private suspend fun executeTool(tool: AgentTool, call: ProviderEvent.ToolCall): AgentToolResult {
         return try {
-            val result = if (limits.toolTimeoutMillis < Long.MAX_VALUE) {
-                withTimeoutOrNull(limits.toolTimeoutMillis) {
-                    tool.execute(call.callId, call.arguments)
-                } ?: AgentToolResult(
-                    callId = call.callId,
-                    content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
-                    isError = true
-                )
-            } else {
-                tool.execute(call.callId, call.arguments)
-            }
+            val result = tool.execute(call.arguments)
             result.copy(content = boundContent(result.content))
         } catch (error: CancellationException) {
             throw error

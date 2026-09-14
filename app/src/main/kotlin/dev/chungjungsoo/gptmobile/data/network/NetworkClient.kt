@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngineFactory
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.cio.CIOEngineConfig
+import io.ktor.client.engine.cio.endpoint
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -27,6 +30,22 @@ class NetworkClient @Inject constructor(
         HttpClient(httpEngine) {
             expectSuccess = false
 
+            // Optimize CIO engine with TCP keep-alive and connection limits when CIO is used
+            if (httpEngine == CIO) {
+                engine {
+                    (this as? CIOEngineConfig)?.apply {
+                        maxConnectionsCount = 1000
+                        endpoint {
+                            maxConnectionsPerRoute = 100
+                            pipelineMaxSize = 20
+                            keepAliveTime = 60_000L
+                            connectTimeout = 30_000L
+                            connectAttempts = 3
+                        }
+                    }
+                }
+            }
+
             install(ContentNegotiation) {
                 json(json)
             }
@@ -36,7 +55,7 @@ class NetworkClient @Inject constructor(
             install(HttpTimeout) {
                 requestTimeoutMillis = 180_000L
                 connectTimeoutMillis = 30_000L
-                socketTimeoutMillis = 60_000L
+                socketTimeoutMillis = 90_000L
             }
 
             install(Logging) {

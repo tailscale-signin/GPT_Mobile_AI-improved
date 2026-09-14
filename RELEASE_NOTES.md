@@ -1,28 +1,28 @@
-# Release Notes - v0.9.3.0
+# Release Notes - v0.9.3.1
 
-Welcome to **GPT Mobile AI (Improved)** (v0.9.3.0)!
+Welcome to **GPT Mobile AI (Improved)** (v0.9.3.1)!
 
-This release delivers real-time Diagnostics HUD telemetry, debug mode configuration, thinking block visual refinement, and compilation stabilization.
+This release resolves conversation dropouts, unexpected cancellations, and premature timeouts during long AI generations and multi-step tool executions.
 
 ---
 
-### Key Highlights & Features
+### Key Highlights & Resiliency Improvements
 
-#### 1. Diagnostics HUD & Debug Mode
-- **Debug Mode Setting**: Added setting switch to toggle Debug Mode across the app, persisted seamlessly via AndroidX DataStore (`SettingDataSource` and `SettingRepository`).
-- **Real-Time Telemetry**: Chat bubbles now optionally display a Diagnostics HUD for assistant responses, tracking generation latency, Time To First Token (TTFT), token counts, speed (tokens/second), and thermal state.
-- **Strict Interface Parity**: Fully implemented and tested across all production repositories and test fakes (`FakeSettingDataSource`, `BackupFakeSettingDataSource`, `PlatformSettingViewModelTest`).
+#### 1. Infinite Streaming Timeout Cap with Adaptive Socket Watchdog
+- Replaced the fixed 180s total request timeout cap on streaming connections with `HttpTimeoutConfig.INFINITE_TIMEOUT_MS`.
+- Long generations, deep reasoning chains (e.g., DeepSeek-R1, o1/o3-mini), and multi-step tool workflows are never killed prematurely by a hard request clock as long as tokens/chunks are arriving.
+- Active streaming connections are governed by a responsive socket inactivity timeout to detect and terminate severed TCP links cleanly.
 
-#### 2. Thinking Block UI Polish
-- **Optimized Contrast**: Reduced `ThinkingBlock` container background alpha from `0.5f` to `0.25f` to improve legibility and provide an elegant blend with Material 3 dynamic color palettes.
+#### 2. Ktor Engine Keep-Alive & Connection Pooling Hardening
+- Hardened Ktor CIO engine configurations with a 60-second connection `keepAliveTime`, 30s connection timeout, 100 max connections per route, and 3 connection attempts.
+- Eliminates silent TCP connection drops from intermediate cellular carriers, Cloudflare proxies, and reverse proxy gateways while an LLM is thinking (TTFT).
 
-#### 3. Core Capabilities Retained from v0.9.2.4
-- **Voice Session Coordinator**: Full-duplex hands-free conversation state machine with instant interruption handling.
-- **On-Device Document RAG Engine**: Zero-cloud document indexing, chunking, and retrieval (BM25 keyword and cosine similarity vector search).
-- **Multi-Step Agent Workflow Visualization**: Interactive `AgentPlanCard` with sub-task progress tracking.
-- **Resilient Streaming Client**: Exponential backoff retry with jitter for high network stability.
-- **Incremental Streaming Diff Parser**: Prevents recomposition overhead during high-speed token generation.
-- **Sandboxed Artifact Previewing**: Secure interactive HTML/SVG artifact previewing in isolated WebViews.
+#### 3. Per-Tool Execution Timeout Safeguard
+- Added a 45-second execution timeout watchdog (`toolTimeoutMillis = 45_000L`) to `agentRunnerForPlatform`.
+- If an MCP tool or local function call stalls or hangs indefinitely, the conversation engine recovers gracefully with a descriptive error message instead of locking the entire agent loop and freezing the UI.
+
+#### 4. Version Bump to v0.9.3.1
+- Version code incremented to `41`, version name updated to `0.9.3.1`.
 
 ---
 

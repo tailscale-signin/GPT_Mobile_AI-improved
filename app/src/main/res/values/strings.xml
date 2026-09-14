@@ -467,13 +467,13 @@
 
     <!-- Ollama Advanced Settings -->
     <string name="ollama_advanced_options">Ollama Advanced Options</string>
-    <string name="ollama_advanced_options_description">Configure GPU layers, context window, batch size, threads, sampling, and stop sequences</string>
+    <string name="ollama_advanced_options_description">Configure GPU layers, context window, batch size, threads, sampling, and high-performance options</string>
     <string name="ollama_advanced_settings">Ollama Advanced Options</string>
-    <string name="ollama_advanced_settings_description">Configure GPU layers, context window, batch size, threads, sampling, and stop sequences</string>
+    <string name="ollama_advanced_settings_description">Configure GPU layers, context window, batch size, threads, sampling, and high-performance options</string>
     <string name="ollama_num_gpu">num_gpu</string>
     <string name="ollama_num_gpu_hint">Number of layers to offload to GPU (e.g. 999 for all layers)</string>
     <string name="ollama_num_ctx">num_ctx</string>
-    <string name="ollama_num_ctx_hint">Context window size in tokens (e.g. 8192)</string>
+    <string name="ollama_num_ctx_hint">Context window size in tokens (default: 4096)</string>
     <string name="ollama_num_batch">num_batch</string>
     <string name="ollama_num_batch_hint">Number of batches for prompt processing (e.g. 512)</string>
     <string name="ollama_num_thread">num_thread</string>
@@ -485,6 +485,16 @@
     <string name="ollama_stop">stop (Comma-separated)</string>
     <string name="ollama_stop_hint">e.g. ```end, delimiter, You</string>
     <string name="ollama_stop_tokens">stop (Comma-separated)</string>
+    <string name="ollama_flash_attention">flash_attention</string>
+    <string name="ollama_flash_attention_desc">Enable Flash Attention (default: true)</string>
+    <string name="ollama_kv_cache_type">kv_cache_type</string>
+    <string name="ollama_kv_cache_type_hint">Quantization type for K/V cache, e.g. q8_0 or f16 (default: q8_0)</string>
+    <string name="ollama_keep_alive">keep_alive</string>
+    <string name="ollama_keep_alive_hint">Duration models stay in memory, e.g. 30m or 5m (default: 30m)</string>
+    <string name="ollama_num_parallel">num_parallel</string>
+    <string name="ollama_num_parallel_hint">Maximum number of parallel requests (default: 2)</string>
+    <string name="ollama_gpu_overhead">gpu_overhead</string>
+    <string name="ollama_gpu_overhead_hint">Reserve VRAM per GPU in bytes, e.g. 1073741824 for 1GB</string>
 
     <!-- Improvements: Labels, Batch Mode, Completion Notification -->
     <string name="platform_labels">Labels</string>

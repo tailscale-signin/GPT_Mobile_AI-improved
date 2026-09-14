@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
+import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -60,6 +61,14 @@ class GPTMobileApp :
     }
 
     override fun onCreate() {
+        // Configure Qualcomm QNN / FastRPC environment variables (ADSP_LIBRARY_PATH & LD_LIBRARY_PATH)
+        // at the earliest opportunity BEFORE any native library is loaded or dlopened.
+        runCatching {
+            QnnEnvironment.initialize(this)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed initializing QNN environment in Application.onCreate: ${error.message}")
+        }
+
         SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
         registerActivityLifecycleCallbacks(AppForegroundTracker)

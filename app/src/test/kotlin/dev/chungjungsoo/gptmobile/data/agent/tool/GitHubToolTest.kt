@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -36,17 +37,21 @@ class GitHubToolTest {
     @Test
     fun `missing action returns error result`() = runTest {
         val tool = GitHubTool()
-        val result = tool.execute(buildJsonObject {})
+        val result = tool.execute("call-1", buildJsonObject {})
         assertTrue(result.isError)
-        assertTrue(result.content.first().text.contains("Missing required parameter: 'action'"))
+        assertEquals("call-1", result.callId)
+        val text = (result.content as ToolResultContent.Text).text
+        assertTrue(text.contains("Missing required parameter: 'action'"))
     }
 
     @Test
     fun `unknown action returns error result`() = runTest {
         val tool = GitHubTool()
-        val result = tool.execute(buildJsonObject { put("action", "unknown_action") })
+        val result = tool.execute("call-1", buildJsonObject { put("action", "unknown_action") })
         assertTrue(result.isError)
-        assertTrue(result.content.first().text.contains("Unknown action"))
+        assertEquals("call-1", result.callId)
+        val text = (result.content as ToolResultContent.Text).text
+        assertTrue(text.contains("Unknown action"))
     }
 
     @Test
@@ -76,6 +81,7 @@ class GitHubToolTest {
         val tool = GitHubTool(httpClient = client)
 
         val result = tool.execute(
+            "call-search",
             buildJsonObject {
                 put("action", "search_repositories")
                 put("query", "GPT_Mobile")
@@ -83,9 +89,11 @@ class GitHubToolTest {
         )
 
         assertFalse(result.isError)
-        val json = Json.parseToJsonElement(result.content.first().text).jsonObject
+        assertEquals("call-search", result.callId)
+        val text = (result.content as ToolResultContent.Text).text
+        val json = Json.parseToJsonElement(text).jsonObject
         assertTrue(json.containsKey("items"))
-        assertTrue(result.content.first().text.contains("tailscale-signin/GPT_Mobile_AI-improved"))
+        assertTrue(text.contains("tailscale-signin/GPT_Mobile_AI-improved"))
     }
 
     @Test
@@ -111,6 +119,7 @@ class GitHubToolTest {
         val tool = GitHubTool(httpClient = client)
 
         val result = tool.execute(
+            "call-file",
             buildJsonObject {
                 put("action", "get_file_contents")
                 put("owner", "owner")
@@ -120,7 +129,9 @@ class GitHubToolTest {
         )
 
         assertFalse(result.isError)
-        assertEquals("Hello from GitHub agent tool test!", result.content.first().text)
+        assertEquals("call-file", result.callId)
+        val text = (result.content as ToolResultContent.Text).text
+        assertEquals("Hello from GitHub agent tool test!", text)
     }
 
     @Test
@@ -147,6 +158,7 @@ class GitHubToolTest {
         val tool = GitHubTool(httpClient = client)
 
         val result = tool.execute(
+            "call-issue",
             buildJsonObject {
                 put("action", "get_issue")
                 put("owner", "owner")
@@ -156,7 +168,9 @@ class GitHubToolTest {
         )
 
         assertFalse(result.isError)
-        val json = Json.parseToJsonElement(result.content.first().text).jsonObject
+        assertEquals("call-issue", result.callId)
+        val text = (result.content as ToolResultContent.Text).text
+        val json = Json.parseToJsonElement(text).jsonObject
         assertEquals("Bug in tool execution", json["title"]?.toString()?.replace("\"", ""))
         assertEquals("open", json["state"]?.toString()?.replace("\"", ""))
         assertEquals("octocat", json["user"]?.toString()?.replace("\"", ""))

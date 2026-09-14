@@ -90,10 +90,10 @@ class AgentRunner(
                     finalResponseRequested = true
                     emit(AgentRunEvent.Notice(FINAL_RESPONSE_NOTICE, persistent = false))
                 }
-            } else if (executionToolCallLimit < Int.MAX_VALUE && !wrapUpNoticeEmitted) {
+            } else if (executionToolCallLimit < Int.MAX_VALUE && limits.maxToolCalls > 2 && !wrapUpNoticeEmitted) {
                 val wrapUpThreshold = (limits.maxToolCalls / 5).coerceAtLeast(1)
                 val remainingAllowance = executionToolCallLimit - toolCallCount
-                if (remainingAllowance <= wrapUpThreshold) {
+                if (remainingAllowance in 1..wrapUpThreshold) {
                     wrapUpNoticeEmitted = true
                     emit(AgentRunEvent.Notice("Approaching tool limit ($remainingAllowance remaining). Wrapping up.", persistent = false))
                 }
@@ -194,7 +194,7 @@ class AgentRunner(
             val mustFinalize = executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit
             val wrapUpThreshold = (limits.maxToolCalls / 5).coerceAtLeast(1)
             val remainingAllowance = if (executionToolCallLimit == Int.MAX_VALUE) Int.MAX_VALUE else (executionToolCallLimit - toolCallCount)
-            val shouldInjectWrapUp = executionToolCallLimit < Int.MAX_VALUE && remainingAllowance in 1..wrapUpThreshold
+            val shouldInjectWrapUp = executionToolCallLimit < Int.MAX_VALUE && limits.maxToolCalls > 2 && remainingAllowance in 1..wrapUpThreshold
 
             if (mustFinalize && allResults.isNotEmpty()) {
                 allResults[allResults.lastIndex] = appendFinalResponseInstruction(allResults.last())
@@ -259,50 +259,36 @@ class AgentRunner(
             result.copy(content = boundContent(result.content))
         } catch (error: CancellationException) {
             throw error
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
             AgentToolResult(
                 callId = call.callId,
-                content = ToolResultContent.Text(error.message ?: "Tool '${call.name}' failed."),
+                content = ToolResultContent.Text(error.message ?: "Tool '${call.name}' failed without a message."),
                 isError = true
-            ).let { it.copy(content = boundContent(it.content)) }
+            )
         }
     }
 
     private fun boundContent(content: ToolResultContent): ToolResultContent {
         if (limits.maxToolOutputBytes == Int.MAX_VALUE) return content
-        val encoded = when (content) {
+        val raw = when (content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> Json.encodeToString(content.value)
             is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
         }
-        if (encoded.toByteArray(StandardCharsets.UTF_8).size <= limits.maxToolOutputBytes) return content
-        return ToolResultContent.Text(truncateUtf8(encoded, limits.maxToolOutputBytes))
+        val bytes = raw.toByteArray(StandardCharsets.UTF_8)
+        if (bytes.size <= limits.maxToolOutputBytes) return content
+        val truncated = String(bytes.copyOf(limits.maxToolOutputBytes), StandardCharsets.UTF_8)
+        return ToolResultContent.Text(truncated)
     }
 
-    private fun truncateUtf8(value: String, maxBytes: Int): String {
-        val result = StringBuilder()
-        var index = 0
-        var bytes = 0
-        while (index < value.length) {
-            val codePoint = value.codePointAt(index)
-            val chunk = String(Character.toChars(codePoint))
-            val chunkBytes = chunk.toByteArray(StandardCharsets.UTF_8).size
-            if (bytes + chunkBytes > maxBytes) break
-            result.append(chunk)
-            bytes += chunkBytes
-            index += Character.charCount(codePoint)
-        }
-        return result.toString()
-    }
+    private fun failed(message: String): AgentRunEvent =
+        AgentRunEvent.Provider(ProviderEvent.Failed(message))
 
-    private fun failed(message: String) = AgentRunEvent.Provider(ProviderEvent.Failed(message))
-
-    private companion object {
-        const val TOOLS_UNAVAILABLE_MESSAGE = "Tools unavailable for this model."
-        const val FINAL_RESPONSE_NOTICE = "Tool-call limit is approaching; generating a final response."
-        const val FINAL_RESPONSE_INSTRUCTION =
-            "Tool-call allowance is exhausted. Do not request more tools in this response. " +
-                "Finish with a concise summary of what was completed and what remains. " +
-                "If more tool work is required, ask the user to reply exactly \"continue\" so a new response can continue with a fresh tool-call allowance."
+    companion object {
+        const val TOOLS_UNAVAILABLE_MESSAGE: String = "Tools unavailable for this model."
+        const val FINAL_RESPONSE_INSTRUCTION: String =
+            "Execution allowance exhausted. Do not make any more tool calls. Synthesize your final answer now."
+        const val FINAL_RESPONSE_NOTICE: String =
+            "Execution allowance reached. Requesting final response; reply \"continue\" to resume."
     }
 }

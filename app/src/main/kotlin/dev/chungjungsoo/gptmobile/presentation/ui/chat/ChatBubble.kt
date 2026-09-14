@@ -519,34 +519,42 @@ internal fun DetailsButton(
             .clickable(
                 enabled = isEnabled,
                 role = Role.Button,
-                onClickLabel = if (isVisible) expandedDesc else collapsedDesc,
                 onClick = onClick
             )
-            .semantics(mergeDescendants = true) {
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .semantics {
                 role = Role.Button
-                contentDescription = if (isEnabled) {
-                    if (isVisible) expandedDesc else collapsedDesc
-                } else {
+                stateDescription = if (!isEnabled) {
                     unavailableDesc
+                } else if (isVisible) {
+                    expandedDesc
+                } else {
+                    collapsedDesc
                 }
-                stateDescription = if (isVisible) expandedDesc else collapsedDesc
-            }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            },
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = stringResource(R.string.tool_trace_details),
-            style = MaterialTheme.typography.labelSmall,
-            color = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline
-        )
         Icon(
             imageVector = Icons.Rounded.KeyboardArrowDown,
             contentDescription = null,
-            tint = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
             modifier = Modifier
                 .size(16.dp)
-                .rotate(rotation)
+                .rotate(rotation),
+            tint = if (isEnabled) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+            }
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = stringResource(R.string.details),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isEnabled) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+            }
         )
     }
 }
@@ -558,28 +566,88 @@ private fun AssistantProcessContent(
     isLoading: Boolean,
     contentIdentity: Any
 ) {
-    var previousCompletedThoughts by remember(contentIdentity) { mutableStateOf("") }
-
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        timeline.forEach { item ->
+    val events = remember(toolEvents) { toolEvents.associateBy(ToolEvent::sequence) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        timeline.forEachIndexed { index, item ->
             when (item.type) {
-                AssistantTimelineItemType.THINKING -> {
+                AssistantTimelineItemType.THINKING -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
+                ) {
                     ThinkingBlock(
+                        modifier = Modifier.fillMaxWidth(),
                         thoughts = item.content,
-                        isLoading = isLoading,
-                        previousCompletedThoughts = previousCompletedThoughts,
-                        onCompletedThinkingRecorded = { previousCompletedThoughts = it }
+                        contentIdentity = "$contentIdentity:thinking:$index",
+                        isLoading = isLoading && index == timeline.lastIndex
                     )
                 }
-
-                AssistantTimelineItemType.TOOL_CALL -> {
-                    val matchingEvent = toolEvents.firstOrNull { it.callId == item.callId }
-                    matchingEvent?.let { ToolTraceBlock(it) }
+                AssistantTimelineItemType.TEXT -> {
+                    val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
+                    if (parsed.thinking.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
+                        ) {
+                            ThinkingBlock(
+                                modifier = Modifier.fillMaxWidth(),
+                                thoughts = parsed.thinking,
+                                contentIdentity = "$contentIdentity:parsed-thinking:$index",
+                                isLoading = isLoading && parsed.isThinking && index == timeline.lastIndex
+                            )
+                        }
+                    }
                 }
-
+                AssistantTimelineItemType.TOOL -> item.toolSequence?.let(events::get)?.let { event ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
+                    ) {
+                        ToolTraceBlock(
+                            events = listOf(event),
+                            modifier = Modifier.fillMaxWidth(),
+                            contentIdentity = "$contentIdentity:tool:${event.sequence}"
+                        )
+                    }
+                }
                 AssistantTimelineItemType.NOTICE,
-                AssistantTimelineItemType.TEXT -> Unit
+                AssistantTimelineItemType.LEGACY_ORDER -> Unit
             }
+        }
+    }
+}
+
+@Composable
+private fun AssistantAnswerContent(
+    timeline: List<AssistantTimelineItem>,
+    isLoading: Boolean,
+    contentIdentity: Any
+) {
+    val textItems = remember(timeline) {
+        timeline.mapIndexedNotNull { index, item ->
+            if (item.type == AssistantTimelineItemType.TEXT) {
+                index to item
+            } else {
+                null
+            }
+        }
+    }
+    textItems.forEach { (index, item) ->
+        val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
+        val isLastTextItem = index == textItems.lastOrNull()?.first
+        val display = parsed.response + if (isLoading && isLastTextItem) "●" else ""
+        if (display.isNotBlank() || (isLoading && isLastTextItem)) {
+            ChatMarkdown(
+                content = display,
+                contentIdentity = "$contentIdentity:text:$index",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
     }
 }
@@ -592,48 +660,47 @@ private fun LegacyAssistantProcessContent(
     contentIdentity: Any,
     showOrderNotice: Boolean
 ) {
-    var previousCompletedThoughts by remember(contentIdentity) { mutableStateOf("") }
-
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
         if (showOrderNotice) {
             Text(
-                text = stringResource(R.string.details_order_unavailable),
+                text = stringResource(R.string.legacy_assistant_order_unavailable),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.padding(bottom = 8.dp)
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp, bottom = 4.dp)
             )
         }
-        if (thoughts.isNotBlank() || isLoading) {
-            ThinkingBlock(
-                thoughts = thoughts,
-                isLoading = isLoading,
-                previousCompletedThoughts = previousCompletedThoughts,
-                onCompletedThinkingRecorded = { previousCompletedThoughts = it }
-            )
+        if (thoughts.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
+            ) {
+                ThinkingBlock(
+                    modifier = Modifier.fillMaxWidth(),
+                    thoughts = thoughts,
+                    contentIdentity = contentIdentity,
+                    isLoading = isLoading
+                )
+            }
         }
-        toolEvents.forEach { toolEvent ->
-            ToolTraceBlock(toolEvent)
+        if (toolEvents.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
+            ) {
+                ToolTraceBlock(
+                    events = toolEvents,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentIdentity = contentIdentity
+                )
+            }
         }
     }
-}
-
-@Composable
-private fun AssistantAnswerContent(
-    timeline: List<AssistantTimelineItem>,
-    isLoading: Boolean,
-    contentIdentity: Any
-) {
-    val textItems = remember(timeline) {
-        timeline.filter { it.type == AssistantTimelineItemType.TEXT }
-    }
-    val combinedText = remember(textItems) {
-        textItems.joinToString(separator = "\n\n") { it.content }
-    }
-
-    ChatMarkdown(
-        content = combinedText,
-        modifier = Modifier.padding(16.dp)
-    )
 }
 
 @Composable
@@ -644,36 +711,58 @@ private fun LegacyAssistantAnswerContent(
     isLoading: Boolean,
     contentIdentity: Any
 ) {
-    val cleanText = remember(text) {
-        ThinkingParser.stripThinking(text).trimStart()
+    val parsed = remember(text) {
+        if (thoughts.isBlank() && text.contains("<think", ignoreCase = true)) {
+            ThinkingParser.extractThinking(text)
+        } else {
+            null
+        }
     }
-
-    ChatMarkdown(
-        content = cleanText,
-        modifier = Modifier.padding(16.dp)
-    )
+    val response = parsed?.response ?: text
+    val display = response + if (isLoading) "●" else ""
+    if (display.isNotBlank() || isLoading) {
+        Card(shape = RoundedCornerShape(32.dp), colors = cardColor) {
+            Column {
+                ChatMarkdown(
+                    content = display,
+                    contentIdentity = contentIdentity,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+    }
 }
 
-private fun hasAssistantProcessDetails(
-    timeline: List<AssistantTimelineItem>,
-    fallbackThoughts: String,
-    hasToolEvents: Boolean
-): Boolean {
-    val hasTimelineProcess = timeline.any { item ->
-        item.type == AssistantTimelineItemType.THINKING || item.type == AssistantTimelineItemType.TOOL_CALL
+@Composable
+fun GPTMobileIcon(loading: Boolean) {
+    Box(
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .size(40.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(40.dp),
+                color = Color(0xFF00E5FF),
+                strokeWidth = 2.5.dp,
+                trackColor = Color.Transparent
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF00BCD4)),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_gpt_mobile_no_padding),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp)
+            )
+        }
     }
-    return hasTimelineProcess || fallbackThoughts.isNotBlank() || hasToolEvents
-}
-
-private fun hasUnavailableAssistantOrder(
-    timeline: List<AssistantTimelineItem>,
-    fallbackText: String,
-    fallbackThoughts: String,
-    hasToolEvents: Boolean
-): Boolean {
-    if (timeline.isNotEmpty()) return false
-    val hasProcess = fallbackThoughts.isNotBlank() || hasToolEvents
-    return hasProcess && fallbackText.isNotBlank()
 }
 
 @Composable

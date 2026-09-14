@@ -6,17 +6,26 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnecti
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.dto.Platform
+import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
+import io.mockk.mockk
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -33,7 +42,10 @@ class AgentToolResolverTest {
 
         val resolved = resolver.resolve("profile-1")
 
-        assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolved.map { it.modelToolName })
+        assertEquals(
+            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            resolved.map { it.modelToolName }
+        )
         assertEquals(null, resolved[0].connectionUid)
         assertEquals(null, resolved[0].connectionName)
         assertEquals(null, resolved[1].connectionUid)
@@ -42,7 +54,9 @@ class AgentToolResolverTest {
         assertEquals(null, resolved[2].connectionName)
         assertEquals(null, resolved[3].connectionUid)
         assertEquals(null, resolved[3].connectionName)
-        assertEquals(WebSearchProvider.AUTO, resolved[3].tool.webSearchConfig().provider)
+        assertEquals(null, resolved[4].connectionUid)
+        assertEquals(null, resolved[4].connectionName)
+        assertEquals(WebSearchProvider.AUTO, resolved[4].tool.webSearchConfig().provider)
     }
 
     @Test
@@ -79,7 +93,10 @@ class AgentToolResolverTest {
 
         val resolved = resolver.resolve("profile-1")
 
-        assertEquals(listOf("calculate_expression", "current_date", "device_location", "read_url", "web_search"), resolved.map { it.tool.definition.name })
+        assertEquals(
+            listOf("calculate_expression", "current_date", "device_location", "read_file_slice", "read_url", "web_search"),
+            resolved.map { it.tool.definition.name }
+        )
         assertEquals(null, resolved.single { it.modelToolName == "device_location" }.connectionUid)
         assertEquals(WebSearchProvider.AUTO, resolved.single { it.modelToolName == "web_search" }.tool.webSearchConfig().provider)
     }
@@ -195,7 +212,10 @@ class AgentToolResolverTest {
         dao.bind(null, binding("profile-1", "missing", "custom_missing"))
         dao.bind(connection("search-1", ToolConnectionType.FIRECRAWL, secretRef = "secret-1"), binding("profile-1", "search-1", "unknown_tool"))
 
-        assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolver.resolve("profile-1").map { it.modelToolName })
+        assertEquals(
+            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            resolver.resolve("profile-1").map { it.modelToolName }
+        )
     }
 
     @Test
@@ -207,11 +227,13 @@ class AgentToolResolverTest {
             val networkClient = NetworkClient(CIO)
             val manager = McpClientManager(networkClient())
             val resolver = AgentToolResolver(
-                repository,
-                vault,
-                networkClient,
-                manager,
-                McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+                toolConnectionRepository = repository,
+                settingRepository = ResolverFakeSettingRepository(),
+                secretVault = vault,
+                networkClient = networkClient,
+                mcpClientManager = manager,
+                mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -244,11 +266,13 @@ class AgentToolResolverTest {
             val networkClient = NetworkClient(CIO)
             val manager = McpClientManager(networkClient())
             val resolver = AgentToolResolver(
-                repository,
-                vault,
-                networkClient,
-                manager,
-                McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+                toolConnectionRepository = repository,
+                settingRepository = ResolverFakeSettingRepository(),
+                secretVault = vault,
+                networkClient = networkClient,
+                mcpClientManager = manager,
+                mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -291,7 +315,10 @@ class AgentToolResolverTest {
 
         val resolved = resolver.resolve("profile-1")
 
-        assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolved.map { it.modelToolName })
+        assertEquals(
+            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            resolved.map { it.modelToolName }
+        )
     }
 
     @Test
@@ -313,11 +340,13 @@ class AgentToolResolverTest {
             val networkClient = NetworkClient(CIO)
             val manager = McpClientManager(networkClient())
             val resolver = AgentToolResolver(
-                repository,
-                vault,
-                networkClient,
-                manager,
-                McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+                toolConnectionRepository = repository,
+                settingRepository = ResolverFakeSettingRepository(),
+                secretVault = vault,
+                networkClient = networkClient,
+                mcpClientManager = manager,
+                mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -355,11 +384,13 @@ class AgentToolResolverTest {
             val networkClient = NetworkClient(CIO)
             val manager = McpClientManager(networkClient())
             val resolver = AgentToolResolver(
-                repository,
-                vault,
-                networkClient,
-                manager,
-                McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+                toolConnectionRepository = repository,
+                settingRepository = ResolverFakeSettingRepository(),
+                secretVault = vault,
+                networkClient = networkClient,
+                mcpClientManager = manager,
+                mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
             )
             dao.bind(
                 connection("mcp-bad", ToolConnectionType.MCP, endpointUrl = "not-a-url", authType = ToolConnectionAuthType.NONE),
@@ -372,7 +403,10 @@ class AgentToolResolverTest {
 
             val resolved = resolver.resolve("profile-1")
 
-            assertEquals(listOf("calculate_expression", "current_date", "mcp__mcp-good__echo", "read_url", "web_search"), resolved.map { it.modelToolName })
+            assertEquals(
+                listOf("calculate_expression", "current_date", "mcp__mcp-good__echo", "read_file_slice", "read_url", "web_search"),
+                resolved.map { it.modelToolName }
+            )
             manager.closeAll()
             networkClient().close()
         }
@@ -394,7 +428,10 @@ class AgentToolResolverTest {
 
         val resolved = resolver.resolve("profile-1")
 
-        assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolved.map { it.modelToolName })
+        assertEquals(
+            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            resolved.map { it.modelToolName }
+        )
         assertEquals("search-a", resolved.single { it.modelToolName == "web_search" }.connectionUid)
         assertEquals(WebSearchProvider.FIRECRAWL, resolved.single { it.modelToolName == "web_search" }.tool.webSearchConfig().provider)
     }
@@ -409,14 +446,14 @@ class AgentToolResolverTest {
             tools = mapOf("read_url" to false, "web_search" to false)
         )
         val resolvedWithDisabled = resolver.resolve("profile-1", chatToolConfig = disabledConfig)
-        assertEquals(listOf("calculate_expression", "current_date"), resolvedWithDisabled.map { it.modelToolName })
+        assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), resolvedWithDisabled.map { it.modelToolName })
 
         // When read_url is explicitly enabled and web_search is disabled
         val enabledConfig = ChatMcpToolConfig(
             tools = mapOf("read_url" to true, "web_search" to false)
         )
         val resolvedWithEnabled = resolver.resolve("profile-1", chatToolConfig = enabledConfig)
-        assertEquals(listOf("calculate_expression", "current_date", "read_url"), resolvedWithEnabled.map { it.modelToolName })
+        assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url"), resolvedWithEnabled.map { it.modelToolName })
     }
 
     @Test
@@ -428,11 +465,13 @@ class AgentToolResolverTest {
             val networkClient = NetworkClient(CIO)
             val manager = McpClientManager(networkClient())
             val resolver = AgentToolResolver(
-                repository,
-                vault,
-                networkClient,
-                manager,
-                McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+                toolConnectionRepository = repository,
+                settingRepository = ResolverFakeSettingRepository(),
+                secretVault = vault,
+                networkClient = networkClient,
+                mcpClientManager = manager,
+                mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -448,22 +487,22 @@ class AgentToolResolverTest {
             // Filter out by exact candidate ID "mcp-1:echo"
             val config1 = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to false))
             val resolved1 = resolver.resolve("profile-1", chatToolConfig = config1)
-            assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolved1.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"), resolved1.map { it.modelToolName })
 
             // Filter out by modelToolName "mcp__mcp-1__echo"
             val config2 = ChatMcpToolConfig(tools = mapOf("mcp__mcp-1__echo" to false))
             val resolved2 = resolver.resolve("profile-1", chatToolConfig = config2)
-            assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolved2.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"), resolved2.map { it.modelToolName })
 
             // Filter out by entire connection uid "mcp-1"
             val config3 = ChatMcpToolConfig(tools = mapOf("mcp-1" to false))
             val resolved3 = resolver.resolve("profile-1", chatToolConfig = config3)
-            assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolved3.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"), resolved3.map { it.modelToolName })
 
             // Allowed when tool is enabled
             val configEnabled = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to true))
             val resolvedEnabled = resolver.resolve("profile-1", chatToolConfig = configEnabled)
-            assertEquals(listOf("calculate_expression", "current_date", "mcp__mcp-1__echo", "read_url", "web_search"), resolvedEnabled.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "mcp__mcp-1__echo", "read_file_slice", "read_url", "web_search"), resolvedEnabled.map { it.modelToolName })
 
             manager.closeAll()
             networkClient().close()
@@ -478,11 +517,13 @@ class AgentToolResolverTest {
         val networkClient = NetworkClient(CIO)
         val manager = McpClientManager(networkClient())
         return AgentToolResolver(
-            repository,
-            vault,
-            networkClient,
-            manager,
-            McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
+            toolConnectionRepository = repository,
+            settingRepository = ResolverFakeSettingRepository(),
+            secretVault = vault,
+            networkClient = networkClient,
+            mcpClientManager = manager,
+            mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
+            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
         )
     }
 
@@ -523,6 +564,35 @@ class AgentToolResolverTest {
         field.isAccessible = true
         return field.get(this) as WebSearchProviderConfig
     }
+}
+
+private class ResolverFakeSettingRepository : SettingRepository {
+    override suspend fun fetchPlatforms(): List<Platform> = emptyList()
+    override suspend fun fetchPlatformV2s(): List<PlatformV2> = emptyList()
+    override fun observePlatformV2s(): Flow<List<PlatformV2>> = flowOf(emptyList())
+    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(null)
+    override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
+    override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
+    override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) = Unit
+    override suspend fun getDebugMode(): Boolean = false
+    override suspend fun updateDebugMode(enabled: Boolean) = Unit
+    override fun observeDebugMode(): Flow<Boolean> = flowOf(false)
+    override suspend fun migrateToPlatformV2() = Unit
+    override suspend fun migrateSecrets(): List<SecretMigrationError> = emptyList()
+    override suspend fun updatePlatforms(platforms: List<Platform>) = Unit
+    override suspend fun updateThemes(themeSetting: ThemeSetting) = Unit
+    override suspend fun getFavoriteGroups(): List<String> = emptyList()
+    override suspend fun saveFavoriteGroups(groups: List<String>) = Unit
+    override fun observeFavoriteGroups(): Flow<List<String>> = flowOf(emptyList())
+    override suspend fun getFavoriteMessageGroups(): Map<Int, String> = emptyMap()
+    override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) = Unit
+    override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> = flowOf(emptyMap())
+    override suspend fun addPlatformV2(platform: PlatformV2) = Unit
+    override suspend fun updatePlatformV2(platform: PlatformV2) = Unit
+    override suspend fun deletePlatformV2(platform: PlatformV2) = Unit
+    override suspend fun getPlatformV2ById(id: Int): PlatformV2? = null
+    override suspend fun exportConfigurationJson(): String = "{}"
+    override suspend fun importConfigurationJson(json: String): Result<Int> = Result.success(0)
 }
 
 private class ResolverFakeSecretVault(

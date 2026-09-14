@@ -91,6 +91,7 @@ class AgentToolResolver @Inject constructor(
 
         if (!disableRemote) {
             resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
+            resolved += GitHubTool().resolved(null, null, BuiltInAgentTool.GITHUB)
             resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
         }
 
@@ -99,7 +100,7 @@ class AgentToolResolver @Inject constructor(
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
             .forEach { binding ->
-                val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL)
+                val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
                 val isLocalBinding = !isRemoteBinding
                 if ((isRemoteBinding && !disableRemote) || (isLocalBinding && !disableLocal)) {
                     resolveBinding(binding)?.let { customResolvedTool ->
@@ -168,7 +169,25 @@ class AgentToolResolver @Inject constructor(
             null
         }
 
+        BuiltInAgentTool.GITHUB -> resolveGitHub(binding.connection)
+
         else -> null
+    }
+
+    private suspend fun resolveGitHub(connection: ToolConnection?): ResolvedAgentTool {
+        val actualConnection = connection
+        val token = actualConnection?.secretRef?.let { secretRef ->
+            secretVault.read(secretRef)?.let { bytes ->
+                try {
+                    String(bytes, StandardCharsets.UTF_8).trim()
+                } finally {
+                    bytes.fill(0)
+                }
+            }
+        }.orEmpty()
+
+        val tool = GitHubTool(apiToken = token)
+        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB)
     }
 
     private suspend fun resolveWebSearch(connection: ToolConnection?): ResolvedAgentTool? {

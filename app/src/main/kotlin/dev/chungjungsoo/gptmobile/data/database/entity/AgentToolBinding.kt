@@ -48,4 +48,5 @@ object BuiltInAgentTool {
     const val READ_URL = "read_url"
     const val DEVICE_LOCATION = "device_location"
     const val READ_FILE_SLICE = "read_file_slice"
+    const val GITHUB = "github"
 }

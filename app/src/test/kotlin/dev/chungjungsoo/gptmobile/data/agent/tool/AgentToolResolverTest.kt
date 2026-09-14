@@ -37,13 +37,13 @@ import org.junit.Test
 
 class AgentToolResolverTest {
     @Test
-    fun `zero bindings resolves current date, calculate expression, read url, and web search tools`() = runBlocking {
+    fun `zero bindings resolves current date, calculate expression, github, read url, and web search tools`() = runBlocking {
         val resolver = resolver()
 
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
             resolved.map { it.modelToolName }
         )
         assertEquals(null, resolved[0].connectionUid)
@@ -56,7 +56,9 @@ class AgentToolResolverTest {
         assertEquals(null, resolved[3].connectionName)
         assertEquals(null, resolved[4].connectionUid)
         assertEquals(null, resolved[4].connectionName)
-        assertEquals(WebSearchProvider.AUTO, resolved[4].tool.webSearchConfig().provider)
+        assertEquals(null, resolved[5].connectionUid)
+        assertEquals(null, resolved[5].connectionName)
+        assertEquals(WebSearchProvider.AUTO, resolved[5].tool.webSearchConfig().provider)
     }
 
     @Test
@@ -94,7 +96,7 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "device_location", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search"),
             resolved.map { it.tool.definition.name }
         )
         assertEquals(null, resolved.single { it.modelToolName == "device_location" }.connectionUid)
@@ -213,7 +215,7 @@ class AgentToolResolverTest {
         dao.bind(connection("search-1", ToolConnectionType.FIRECRAWL, secretRef = "secret-1"), binding("profile-1", "search-1", "unknown_tool"))
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
             resolver.resolve("profile-1").map { it.modelToolName }
         )
     }
@@ -316,7 +318,7 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
             resolved.map { it.modelToolName }
         )
     }
@@ -404,7 +406,7 @@ class AgentToolResolverTest {
             val resolved = resolver.resolve("profile-1")
 
             assertEquals(
-                listOf("calculate_expression", "current_date", "mcp__mcp-good__echo", "read_file_slice", "read_url", "web_search"),
+                listOf("calculate_expression", "current_date", "github", "mcp__mcp-good__echo", "read_file_slice", "read_url", "web_search"),
                 resolved.map { it.modelToolName }
             )
             manager.closeAll()
@@ -429,7 +431,7 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
             resolved.map { it.modelToolName }
         )
         assertEquals("search-a", resolved.single { it.modelToolName == "web_search" }.connectionUid)
@@ -441,16 +443,16 @@ class AgentToolResolverTest {
         val dao = ResolverFakeToolConnectionDao()
         val resolver = resolver(dao)
 
-        // When read_url and web_search are disabled in ChatMcpToolConfig
+        // When read_url, github, and web_search are disabled in ChatMcpToolConfig
         val disabledConfig = ChatMcpToolConfig(
-            tools = mapOf("read_url" to false, "web_search" to false)
+            tools = mapOf("read_url" to false, "github" to false, "web_search" to false)
         )
         val resolvedWithDisabled = resolver.resolve("profile-1", chatToolConfig = disabledConfig)
         assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), resolvedWithDisabled.map { it.modelToolName })
 
-        // When read_url is explicitly enabled and web_search is disabled
+        // When read_url is explicitly enabled and web_search and github are disabled
         val enabledConfig = ChatMcpToolConfig(
-            tools = mapOf("read_url" to true, "web_search" to false)
+            tools = mapOf("read_url" to true, "github" to false, "web_search" to false)
         )
         val resolvedWithEnabled = resolver.resolve("profile-1", chatToolConfig = enabledConfig)
         assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url"), resolvedWithEnabled.map { it.modelToolName })
@@ -487,22 +489,22 @@ class AgentToolResolverTest {
             // Filter out by exact candidate ID "mcp-1:echo"
             val config1 = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to false))
             val resolved1 = resolver.resolve("profile-1", chatToolConfig = config1)
-            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"), resolved1.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved1.map { it.modelToolName })
 
             // Filter out by modelToolName "mcp__mcp-1__echo"
             val config2 = ChatMcpToolConfig(tools = mapOf("mcp__mcp-1__echo" to false))
             val resolved2 = resolver.resolve("profile-1", chatToolConfig = config2)
-            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"), resolved2.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved2.map { it.modelToolName })
 
             // Filter out by entire connection uid "mcp-1"
             val config3 = ChatMcpToolConfig(tools = mapOf("mcp-1" to false))
             val resolved3 = resolver.resolve("profile-1", chatToolConfig = config3)
-            assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"), resolved3.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved3.map { it.modelToolName })
 
             // Allowed when tool is enabled
             val configEnabled = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to true))
             val resolvedEnabled = resolver.resolve("profile-1", chatToolConfig = configEnabled)
-            assertEquals(listOf("calculate_expression", "current_date", "mcp__mcp-1__echo", "read_file_slice", "read_url", "web_search"), resolvedEnabled.map { it.modelToolName })
+            assertEquals(listOf("calculate_expression", "current_date", "github", "mcp__mcp-1__echo", "read_file_slice", "read_url", "web_search"), resolvedEnabled.map { it.modelToolName })
 
             manager.closeAll()
             networkClient().close()

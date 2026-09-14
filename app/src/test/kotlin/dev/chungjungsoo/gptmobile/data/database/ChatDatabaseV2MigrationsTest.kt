@@ -104,6 +104,12 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(17, ChatDatabaseV2Migrations.MIGRATION_17_18.startVersion)
         assertEquals(18, ChatDatabaseV2Migrations.MIGRATION_17_18.endVersion)
+
+        assertEquals(18, ChatDatabaseV2Migrations.MIGRATION_18_19.startVersion)
+        assertEquals(19, ChatDatabaseV2Migrations.MIGRATION_18_19.endVersion)
+
+        assertEquals(19, ChatDatabaseV2Migrations.MIGRATION_19_20.startVersion)
+        assertEquals(20, ChatDatabaseV2Migrations.MIGRATION_19_20.endVersion)
     }
 
     @Test

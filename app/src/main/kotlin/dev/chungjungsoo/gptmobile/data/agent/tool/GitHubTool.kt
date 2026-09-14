@@ -19,7 +19,6 @@ import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -140,29 +139,29 @@ class GitHubTool(
         }
     )
 
-    override suspend fun execute(arguments: JsonObject): AgentToolResult {
+    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val action = arguments["action"]?.jsonPrimitive?.content?.trim()
-            ?: return errorResult("Missing required parameter: 'action'.")
+            ?: return errorResult(callId, "Missing required parameter: 'action'.")
 
         return try {
             when (action) {
-                "search_repositories" -> handleSearchRepositories(arguments)
-                "search_issues" -> handleSearchIssues(arguments)
-                "get_file_contents" -> handleGetFileContents(arguments)
-                "get_issue" -> handleGetIssue(arguments)
-                else -> errorResult("Unknown action: '$action'. Supported actions: search_repositories, search_issues, get_file_contents, get_issue.")
+                "search_repositories" -> handleSearchRepositories(callId, arguments)
+                "search_issues" -> handleSearchIssues(callId, arguments)
+                "get_file_contents" -> handleGetFileContents(callId, arguments)
+                "get_issue" -> handleGetIssue(callId, arguments)
+                else -> errorResult(callId, "Unknown action: '$action'. Supported actions: search_repositories, search_issues, get_file_contents, get_issue.")
             }
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
-            errorResult("GitHub request failed: ${throwable.localizedMessage ?: throwable.message ?: "Unknown error"}")
+            errorResult(callId, "GitHub request failed: ${throwable.localizedMessage ?: throwable.message ?: "Unknown error"}")
         }
     }
 
-    private suspend fun handleSearchRepositories(arguments: JsonObject): AgentToolResult {
+    private suspend fun handleSearchRepositories(callId: String, arguments: JsonObject): AgentToolResult {
         val query = arguments["query"]?.jsonPrimitive?.content?.trim()
         if (query.isNullOrEmpty()) {
-            return errorResult("Parameter 'query' is required for action 'search_repositories'.")
+            return errorResult(callId, "Parameter 'query' is required for action 'search_repositories'.")
         }
         val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
         val url = "$BASE_URL/search/repositories?q=$encodedQuery&per_page=10"
@@ -170,7 +169,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult("GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -195,13 +194,13 @@ class GitHubTool(
                 }
             )
         }
-        return successResult(summary.toString())
+        return successResult(callId, summary.toString())
     }
 
-    private suspend fun handleSearchIssues(arguments: JsonObject): AgentToolResult {
+    private suspend fun handleSearchIssues(callId: String, arguments: JsonObject): AgentToolResult {
         val query = arguments["query"]?.jsonPrimitive?.content?.trim()
         if (query.isNullOrEmpty()) {
-            return errorResult("Parameter 'query' is required for action 'search_issues'.")
+            return errorResult(callId, "Parameter 'query' is required for action 'search_issues'.")
         }
         val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
         val url = "$BASE_URL/search/issues?q=$encodedQuery&per_page=10"
@@ -209,7 +208,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult("GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -234,17 +233,17 @@ class GitHubTool(
                 }
             )
         }
-        return successResult(summary.toString())
+        return successResult(callId, summary.toString())
     }
 
-    private suspend fun handleGetFileContents(arguments: JsonObject): AgentToolResult {
+    private suspend fun handleGetFileContents(callId: String, arguments: JsonObject): AgentToolResult {
         val owner = arguments["owner"]?.jsonPrimitive?.content?.trim()
         val repo = arguments["repo"]?.jsonPrimitive?.content?.trim()
         val path = arguments["path"]?.jsonPrimitive?.content?.trim()
         val ref = arguments["ref"]?.jsonPrimitive?.content?.trim()
 
         if (owner.isNullOrEmpty() || repo.isNullOrEmpty() || path.isNullOrEmpty()) {
-            return errorResult("Parameters 'owner', 'repo', and 'path' are required for action 'get_file_contents'.")
+            return errorResult(callId, "Parameters 'owner', 'repo', and 'path' are required for action 'get_file_contents'.")
         }
 
         val cleanPath = path.removePrefix("/")
@@ -254,7 +253,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult("GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -272,16 +271,16 @@ class GitHubTool(
         }
 
         val truncated = truncate(decodedContent, MAX_OUTPUT_CHARS)
-        return successResult(truncated)
+        return successResult(callId, truncated)
     }
 
-    private suspend fun handleGetIssue(arguments: JsonObject): AgentToolResult {
+    private suspend fun handleGetIssue(callId: String, arguments: JsonObject): AgentToolResult {
         val owner = arguments["owner"]?.jsonPrimitive?.content?.trim()
         val repo = arguments["repo"]?.jsonPrimitive?.content?.trim()
         val issueNumber = arguments["issue_number"]?.jsonPrimitive?.intOrNull
 
         if (owner.isNullOrEmpty() || repo.isNullOrEmpty() || issueNumber == null) {
-            return errorResult("Parameters 'owner', 'repo', and 'issue_number' are required for action 'get_issue'.")
+            return errorResult(callId, "Parameters 'owner', 'repo', and 'issue_number' are required for action 'get_issue'.")
         }
 
         val url = "$BASE_URL/repos/$owner/$repo/issues/$issueNumber"
@@ -289,7 +288,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult("GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -302,7 +301,7 @@ class GitHubTool(
             put("body", JsonPrimitive(truncate(json["body"]?.jsonPrimitive?.content ?: "", 4000)))
             put("html_url", json["html_url"] ?: JsonPrimitive(""))
         }
-        return successResult(summary.toString())
+        return successResult(callId, summary.toString())
     }
 
     private suspend fun getGitHubApi(url: String): HttpResponse {
@@ -319,9 +318,17 @@ class GitHubTool(
         return if (text.length <= maxLength) text else text.take(maxLength) + "\n...[truncated]"
     }
 
-    private fun successResult(text: String): AgentToolResult =
-        AgentToolResult(listOf(ToolResultContent(type = "text", text = text)))
+    private fun successResult(callId: String, text: String): AgentToolResult =
+        AgentToolResult(
+            callId = callId,
+            content = ToolResultContent.Text(text),
+            isError = false
+        )
 
-    private fun errorResult(errorMessage: String): AgentToolResult =
-        AgentToolResult(listOf(ToolResultContent(type = "text", text = errorMessage)), isError = true)
+    private fun errorResult(callId: String, errorMessage: String): AgentToolResult =
+        AgentToolResult(
+            callId = callId,
+            content = ToolResultContent.Text(errorMessage),
+            isError = true
+        )
 }

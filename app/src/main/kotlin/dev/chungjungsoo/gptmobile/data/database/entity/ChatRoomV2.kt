@@ -36,7 +36,13 @@ data class ChatRoomV2(
     val isFavorite: Boolean = false,
 
     @ColumnInfo(name = "is_archived", defaultValue = "0")
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+
+    @ColumnInfo(name = "draft_text")
+    val draftText: String? = null,
+
+    @ColumnInfo(name = "draft_updated_at")
+    val draftUpdatedAt: Long? = null
 ) : Parcelable
 
 class StringListConverter {

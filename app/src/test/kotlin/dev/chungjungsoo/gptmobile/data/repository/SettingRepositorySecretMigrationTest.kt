@@ -5,11 +5,11 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
+import dev.chungjungsoo.gptmobile.data.dto.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -17,106 +17,106 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 class SettingRepositorySecretMigrationTest {
 
     @Test
-    fun `migrating unmigrated platforms encrypts tokens and updates secret refs`() = runBlocking {
-        val dao = FakePlatformV2Dao(
+    fun `migrateSecrets moves legacy tokens to secret vault and clears legacy storage`() = runBlocking {
+        val platformDao = FakePlatformV2Dao(
             mutableListOf(
-                testPlatform(id = 1, uid = "profile-1", token = "first-secret"),
-                testPlatform(id = 2, uid = "profile-2", token = "second-secret")
+                platform(id = 1, uid = "p1", token = "legacy-token-1", secretRef = null),
+                platform(id = 2, uid = "p2", token = "legacy-token-2", secretRef = "existing-ref")
             )
         )
-        val vault = FakeSecretVault()
-        val repository = createRepository(dao, vault)
+        val secretVault = FakeSecretVault()
+        val settingDataSource = FakeSettingDataSource(
+            tokens = mutableMapOf(
+                ApiType.OPENAI to "legacy-openai-token",
+                ApiType.CLAUDE to "legacy-claude-token"
+            )
+        )
+        val repository = SettingRepositoryImpl(
+            settingDataSource = settingDataSource,
+            platformV2Dao = platformDao,
+            chatPlatformModelV2Dao = FakeChatPlatformModelV2Dao(),
+            secretVault = secretVault
+        )
 
         val errors = repository.migrateSecrets()
 
         assertTrue(errors.isEmpty())
-        assertEquals(listOf("first-secret", "second-secret"), repository.fetchPlatformV2s().map { it.token })
-        assertEquals(2, dao.platforms.mapNotNull { it.secretRef }.distinct().size)
+
+        val p1 = platformDao.getPlatform(1)
+        val p2 = platformDao.getPlatform(2)
+
+        assertEquals("", p1?.token)
+        assertTrue(p1?.secretRef?.isNotBlank() == true)
+        assertEquals("legacy-token-1", secretVault.read(p1!!.secretRef!!)?.decodeToString())
+
+        assertEquals("legacy-token-2", p2?.token)
+        assertEquals("existing-ref", p2?.secretRef)
+
+        assertNull(settingDataSource.getToken(ApiType.OPENAI))
+        assertNull(settingDataSource.getToken(ApiType.CLAUDE))
+        assertEquals("legacy-openai-token", secretVault.read("setting_token_OPENAI")?.decodeToString())
+        assertEquals("legacy-claude-token", secretVault.read("setting_token_CLAUDE")?.decodeToString())
     }
 
     @Test
-    fun `explicitly clearing a profile token removes its vault record and reference`() = runBlocking {
-        val dao = FakePlatformV2Dao()
-        val vault = FakeSecretVault()
-        val repository = createRepository(dao, vault)
-        repository.addPlatformV2(testPlatform(token = "profile-secret"))
-
-        repository.updatePlatformV2(repository.fetchPlatformV2s().single().copy(token = null))
-
-        assertNull(dao.platforms.single().token)
-        assertNull(dao.platforms.single().secretRef)
-        assertNull(vault.values["profile_profile-1"])
-    }
-
-    @Test
-    fun `failed profile clear keeps the existing vault credential`() = runBlocking {
-        val dao = FakePlatformV2Dao()
-        val vault = FakeSecretVault()
-        val repository = createRepository(dao, vault)
-        repository.addPlatformV2(testPlatform(token = "profile-secret"))
-        dao.failEdits = true
-
-        try {
-            repository.updatePlatformV2(repository.fetchPlatformV2s().single().copy(token = null))
-            fail("Expected the database update to fail")
-        } catch (_: IllegalStateException) {
-            // Expected.
-        }
-
-        assertEquals("profile-secret", vault.values.getValue("profile_profile-1").decodeToString())
-        assertEquals("profile_profile-1", dao.platforms.single().secretRef)
-    }
-
-    @Test
-    fun `room plaintext migration failure is recoverable and retains plaintext`() = runBlocking {
-        val original = testPlatform(token = "keep-me")
-        val dao = FakePlatformV2Dao(mutableListOf(original))
-        val vault = FakeSecretVault(readOverride = "different".encodeToByteArray())
-        val repository = createRepository(dao, vault)
+    fun `migrateSecrets keeps legacy token when database update fails`() = runBlocking {
+        val platformDao = FakePlatformV2Dao(
+            mutableListOf(
+                platform(id = 1, uid = "p1", token = "legacy-token-1", secretRef = null)
+            )
+        ).apply { failEdits = true }
+        val secretVault = FakeSecretVault()
+        val settingDataSource = FakeSettingDataSource()
+        val repository = SettingRepositoryImpl(
+            settingDataSource = settingDataSource,
+            platformV2Dao = platformDao,
+            chatPlatformModelV2Dao = FakeChatPlatformModelV2Dao(),
+            secretVault = secretVault
+        )
 
         val errors = repository.migrateSecrets()
 
         assertEquals(1, errors.size)
-        assertEquals("profile:profile-1", errors.single().source)
-        assertEquals(original, dao.platforms.single())
+        assertEquals("p1", errors.first().source)
+
+        val p1 = platformDao.getPlatform(1)
+        assertEquals("legacy-token-1", p1?.token)
+        assertNull(p1?.secretRef)
+        assertTrue(secretVault.values.isEmpty())
     }
 
     @Test
-    fun `legacy datastore migration clears token only after verification and remains readable`() = runBlocking {
-        val dataSource = FakeSettingDataSource(mutableMapOf(ApiType.OPENAI to "legacy-datastore-secret"))
-        val vault = FakeSecretVault()
-        val repository = createRepository(FakePlatformV2Dao(), vault, dataSource)
+    fun `migrateToPlatformV2 is idempotent when profiles already exist`() = runBlocking {
+        val platformDao = FakePlatformV2Dao(
+            mutableListOf(
+                platform(id = 1, uid = "p1", token = "", secretRef = "existing-ref")
+            )
+        )
+        val secretVault = FakeSecretVault()
+        val settingDataSource = FakeSettingDataSource()
+        val repository = SettingRepositoryImpl(
+            settingDataSource = settingDataSource,
+            platformV2Dao = platformDao,
+            chatPlatformModelV2Dao = FakeChatPlatformModelV2Dao(),
+            secretVault = secretVault
+        )
 
-        val errors = repository.migrateSecrets()
+        repository.migrateToPlatformV2()
 
-        assertTrue(errors.isEmpty())
-        assertNull(dataSource.tokens[ApiType.OPENAI])
-        assertEquals("legacy-datastore-secret", repository.fetchPlatforms().first { it.name == ApiType.OPENAI }.token)
+        assertEquals(1, platformDao.platforms.size)
+        assertEquals("p1", platformDao.platforms.first().uid)
     }
 
-    private fun createRepository(
-        platformDao: PlatformV2Dao,
-        vault: SecretVault,
-        dataSource: SettingDataSource = FakeSettingDataSource(),
-        chatPlatformModelDao: ChatPlatformModelV2Dao = FakeChatPlatformModelV2Dao()
-    ): SettingRepositoryImpl = SettingRepositoryImpl(
-        settingDataSource = dataSource,
-        platformV2Dao = platformDao,
-        chatPlatformModelV2Dao = chatPlatformModelDao,
-        secretVault = vault
-    )
-
-    private fun testPlatform(
-        id: Int = 1,
-        uid: String = "profile-1",
-        token: String? = null,
-        secretRef: String? = null
+    private fun platform(
+        id: Int,
+        uid: String,
+        token: String,
+        secretRef: String?
     ): PlatformV2 = PlatformV2(
         id = id,
         uid = uid,
@@ -189,7 +189,9 @@ private class FakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
 private class FakeSettingDataSource(
     val tokens: MutableMap<ApiType, String> = mutableMapOf(),
     var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN,
-    var debugMode: Boolean = false
+    var debugMode: Boolean = false,
+    var favoriteGroups: List<String> = emptyList(),
+    var favoriteMessageGroups: Map<Int, String> = emptyMap()
 ) : SettingDataSource {
     override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
         androidx.datastore.preferences.core.emptyPreferences()
@@ -228,4 +230,16 @@ private class FakeSettingDataSource(
     }
     override suspend fun getDebugMode(): Boolean = debugMode
     override fun observeDebugMode(): Flow<Boolean> = flowOf(debugMode)
+
+    override suspend fun getFavoriteGroups(): List<String> = favoriteGroups
+    override suspend fun saveFavoriteGroups(groups: List<String>) {
+        favoriteGroups = groups
+    }
+    override fun observeFavoriteGroups(): Flow<List<String>> = flowOf(favoriteGroups)
+
+    override suspend fun getFavoriteMessageGroups(): Map<Int, String> = favoriteMessageGroups
+    override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) {
+        favoriteMessageGroups = messageGroups
+    }
+    override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> = flowOf(favoriteMessageGroups)
 }

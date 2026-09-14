@@ -336,7 +336,7 @@ class ChatViewModel @Inject constructor(
 
     private fun loadAvailableChatTools() {
         viewModelScope.launch {
-            val connections toolConnectionRepository.getAllConnections()
+            val connections = toolConnectionRepository.getAllConnections()
             _availableChatTools.update { ChatToolUtils.buildAvailableChatTools(connections) }
         }
     }

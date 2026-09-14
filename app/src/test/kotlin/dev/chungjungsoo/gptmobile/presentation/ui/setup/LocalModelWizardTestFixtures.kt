@@ -53,6 +53,19 @@ internal fun wizardStoredModel(
     status = status
 )
 
+internal fun defaultWizardCatalog() = FakeModelCatalogRepository(
+    listOf(
+        wizardCatalogEntry("ready-model", displayName = "Ready"),
+        wizardCatalogEntry("pending-model", displayName = "Pending", sizeInBytes = 5_000_000L, minRamGb = 8),
+        wizardCatalogEntry(
+            "gated-model",
+            displayName = "Gated",
+            isGated = true,
+            downloadUrl = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/model.litertlm?download=true"
+        )
+    )
+)
+
 internal class FakeLocalDownloadGuards(
     var metered: Boolean = false,
     var lowRamEntryIds: Set<String> = emptySet()
@@ -129,6 +142,18 @@ internal class RecordingSettingRepository : SettingRepository {
 
     override suspend fun updateThemes(themeSetting: ThemeSetting) = Unit
 
+    override suspend fun getFavoriteGroups(): List<String> = emptyList()
+
+    override suspend fun saveFavoriteGroups(groups: List<String>) = Unit
+
+    override fun observeFavoriteGroups(): Flow<List<String>> = flowOf(emptyList())
+
+    override suspend fun getFavoriteMessageGroups(): Map<Int, String> = emptyMap()
+
+    override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) = Unit
+
+    override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> = flowOf(emptyMap())
+
     override suspend fun addPlatformV2(platform: PlatformV2) {
         addedPlatforms += platform
     }
@@ -154,19 +179,6 @@ internal fun wizardGatedCoordinator(
     prober = prober,
     isOAuthConfigured = { oauthConfigured },
     ioDispatcher = Dispatchers.Unconfined
-)
-
-internal fun defaultWizardCatalog() = FakeModelCatalogRepository(
-    listOf(
-        wizardCatalogEntry("ready-model", displayName = "Ready"),
-        wizardCatalogEntry("pending-model", displayName = "Pending", sizeInBytes = 5_000_000L, minRamGb = 8),
-        wizardCatalogEntry(
-            "gated-model",
-            displayName = "Gated",
-            isGated = true,
-            downloadUrl = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/model.litertlm?download=true"
-        )
-    )
 )
 
 internal fun setupViewModel(

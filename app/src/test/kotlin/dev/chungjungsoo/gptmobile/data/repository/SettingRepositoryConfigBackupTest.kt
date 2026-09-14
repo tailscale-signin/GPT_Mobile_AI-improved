@@ -5,11 +5,11 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
+import dev.chungjungsoo.gptmobile.data.dto.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -21,10 +21,10 @@ import org.junit.Test
 class SettingRepositoryConfigBackupTest {
 
     @Test
-    fun `export and import configuration round trip preserves platforms`() = runBlocking {
+    fun `export and import restores platforms and themes`() = runBlocking {
         val initialPlatform = PlatformV2(
             id = 1,
-            uid = "p1",
+            uid = "remote-1",
             name = "OpenAI Production",
             compatibleType = ClientType.OPENAI,
             apiUrl = "https://api.openai.com/v1/",
@@ -165,7 +165,9 @@ private class BackupFakeSettingDataSource(
     var dynamicTheme: DynamicTheme? = null,
     var themeMode: ThemeMode? = null,
     var localRuntimeBackend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN,
-    var debugMode: Boolean = false
+    var debugMode: Boolean = false,
+    var favoriteGroups: List<String> = emptyList(),
+    var favoriteMessageGroups: Map<Int, String> = emptyMap()
 ) : SettingDataSource {
     override suspend fun getPreferencesSnapshot(): androidx.datastore.preferences.core.Preferences =
         androidx.datastore.preferences.core.emptyPreferences()
@@ -208,4 +210,16 @@ private class BackupFakeSettingDataSource(
     override suspend fun getTopP(apiType: ApiType): Float? = null
     override suspend fun getSystemPrompt(apiType: ApiType): String? = null
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend = localRuntimeBackend
+
+    override suspend fun getFavoriteGroups(): List<String> = favoriteGroups
+    override suspend fun saveFavoriteGroups(groups: List<String>) {
+        favoriteGroups = groups
+    }
+    override fun observeFavoriteGroups(): Flow<List<String>> = flowOf(favoriteGroups)
+
+    override suspend fun getFavoriteMessageGroups(): Map<Int, String> = favoriteMessageGroups
+    override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) {
+        favoriteMessageGroups = messageGroups
+    }
+    override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> = flowOf(favoriteMessageGroups)
 }

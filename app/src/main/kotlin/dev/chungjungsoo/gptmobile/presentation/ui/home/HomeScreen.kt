@@ -1,14 +1,14 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
-import android.content.ClipData
 import android.content.res.Configuration
-import android.widget.Toast
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,59 +21,48 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -81,8 +70,10 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -92,44 +83,32 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
-import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.domain.model.SortType
-import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
-import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
-import dev.chungjungsoo.gptmobile.util.getPlatformName
+import dev.chungjungsoo.gptmobile.presentation.common.formatDisplayTime
+import dev.chungjungsoo.gptmobile.presentation.ui.component.ChatItem
+import dev.chungjungsoo.gptmobile.presentation.ui.component.CustomScrollbar
+import dev.chungjungsoo.gptmobile.presentation.ui.component.PlatformCheckBoxItem
+import dev.chungjungsoo.gptmobile.presentation.ui.theme.GPTMobileTheme
 import kotlinx.coroutines.launch
 
 enum class PlatformSortOrder {
@@ -139,351 +118,343 @@ enum class PlatformSortOrder {
     ENABLED_FIRST
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    modifier: Modifier = Modifier,
-    homeViewModel: HomeViewModel = hiltViewModel(),
-    settingOnClick: () -> Unit = {},
-    onExistingChatClick: (chatRoom: ChatRoomV2, targetMessageId: Int?) -> Unit = { _, _ -> },
-    navigateToNewChat: (enabledPlatforms: List<String>) -> Unit = {}
+    homeViewModel: HomeViewModel,
+    onChatRoomClick: (Int) -> Unit,
+    onSettingClick: () -> Unit
 ) {
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val chatList by homeViewModel.chatList.collectAsState()
+    val platforms by homeViewModel.platforms.collectAsState()
+    val chatListState by homeViewModel.chatListState.collectAsState()
     val listState = rememberLazyListState()
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val currentTab by homeViewModel.currentTab.collectAsStateWithLifecycle()
-    val chatListState by homeViewModel.chatListState.collectAsStateWithLifecycle()
-    val showSelectModelDialog by homeViewModel.showSelectModelDialog.collectAsStateWithLifecycle()
-    val showDeleteWarningDialog by homeViewModel.showDeleteWarningDialog.collectAsStateWithLifecycle()
-    val platformState by homeViewModel.platformState.collectAsStateWithLifecycle()
-    val activeChatIds by homeViewModel.activeChatIds.collectAsStateWithLifecycle()
-    val archivedChats by homeViewModel.archivedChats.collectAsStateWithLifecycle()
-    val searchQuery by homeViewModel.searchQuery.collectAsStateWithLifecycle()
-    val favoriteMessages by homeViewModel.favoriteMessages.collectAsStateWithLifecycle()
-    val favoriteGroups by homeViewModel.favoriteGroups.collectAsStateWithLifecycle()
-    val selectedFavoriteGroup by homeViewModel.selectedFavoriteGroup.collectAsStateWithLifecycle()
-    val messageGroups by homeViewModel.messageGroups.collectAsStateWithLifecycle()
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val selectedChatCount = chatListState.selectedChats.count { it }
-    val selectedChat = chatListState.chats.filterIndexed { index, _ -> chatListState.selectedChats.getOrElse(index) { false } }.singleOrNull()
-    val duplicatedChatMessage = stringResource(R.string.duplicated_chat)
-    val deletedChatsMessage = stringResource(R.string.deleted_chats, selectedChatCount)
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showArchived by remember { mutableStateOf(false) }
 
-    var selectedDetailMessage by remember { mutableStateOf<MessageV2?>(null) }
-    var showAddGroupDialog by remember { mutableStateOf(false) }
-
-    LaunchedEffect(lifecycleState) {
-        if (lifecycleState == Lifecycle.State.RESUMED && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-            homeViewModel.fetchChats()
-            homeViewModel.fetchPlatformStatus()
-        }
+    // Count archived chats
+    val archivedCount = remember(chatList) {
+        chatList.count { it.isArchived }
     }
 
+    val duplicatedMessage = stringResource(R.string.duplicated_chat)
+    val deletedMessage = stringResource(R.string.deleted_chats, chatListState.selectedChats.count { it })
+    val chatArchivedMessage = stringResource(R.string.chat_archived)
+    val chatUnarchivedMessage = stringResource(R.string.chat_unarchived)
+
     Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             HomeTopBar(
                 chatListState = chatListState,
                 scrollBehavior = scrollBehavior,
-                selectedChatCount = selectedChatCount,
-                canDuplicate = selectedChat != null && !activeChatIds.contains(selectedChat.id),
+                selectedChatCount = chatListState.selectedChats.count { it },
+                canDuplicate = chatListState.selectedChats.count { it } == 1,
                 onCloseSelectionMode = homeViewModel::disableSelectionMode,
                 onDuplicateClick = {
                     homeViewModel.duplicateSelectedChat()
-                    Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
-                },
-                onDeleteClick = homeViewModel::openDeleteWarningDialog,
-                onSettingClick = settingOnClick,
-                onSearchToggle = {
-                    if (chatListState.isSearchMode) {
-                        homeViewModel.disableSearchMode()
-                    } else {
-                        homeViewModel.enableSearchMode()
+                    homeViewModel.disableSelectionMode()
+                    scope.launch {
+                        snackbarHostState.showSnackbar(duplicatedMessage)
                     }
                 },
+                onDeleteClick = homeViewModel::openDeleteWarningDialog,
+                onSettingClick = onSettingClick,
+                onSearchToggle = homeViewModel::toggleSearchMode,
                 onSearchQueryChanged = homeViewModel::updateSearchQuery,
-                searchQuery = searchQuery
+                searchQuery = chatListState.searchQuery
             )
         },
         floatingActionButton = {
-            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                NewChatButton(expanded = listState.isScrollingUp(), onClick = {
-                    val enabledApiTypes = platformState.filter { it.enabled }.map { it.uid }
-                    if (enabledApiTypes.size == 1) {
-                        // Navigate to new chat directly if only one platform is enabled
-                        navigateToNewChat(enabledApiTypes)
-                    } else {
-                        homeViewModel.openSelectModelDialog()
-                    }
-                })
-            }
-        },
-        bottomBar = {
-            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                ArchivedConversationsBar(
-                    archivedChats = archivedChats,
-                    onUnarchiveChat = { room ->
-                        homeViewModel.unarchiveChat(room)
-                        Toast.makeText(context, R.string.chat_unarchived, Toast.LENGTH_SHORT).show()
-                    },
-                    onDeleteChat = { room ->
-                        homeViewModel.deleteArchivedChat(room)
-                    },
-                    onChatClick = { room ->
-                        onExistingChatClick(room, null)
+            AnimatedVisibility(
+                visible = !chatListState.isSelectionMode,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut()
+            ) {
+                NewChatButton(
+                    expanded = listState.isScrollingUp(),
+                    onClick = {
+                        val enabledPlatforms = platforms.filter { it.enabled }
+                        if (enabledPlatforms.size == 1) {
+                            homeViewModel.onSelectPlatforms(
+                                enabledPlatforms.map { it.uid },
+                                onChatRoomClick
+                            )
+                        } else {
+                            homeViewModel.openPlatformSelectDialog()
+                        }
                     }
                 )
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
-        Column(modifier = Modifier.padding(innerPadding)) {
-            if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                PrimaryTabRow(
-                    selectedTabIndex = currentTab.ordinal,
-                    containerColor = MaterialTheme.colorScheme.background
-                ) {
-                    Tab(
-                        selected = currentTab == HomeTab.CHATS,
-                        onClick = { homeViewModel.selectTab(HomeTab.CHATS) },
-                        text = { Text(stringResource(R.string.chats)) },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Outlined.ChatBubbleOutline,
-                                contentDescription = stringResource(R.string.chats)
-                            )
-                        }
-                    )
-                    Tab(
-                        selected = currentTab == HomeTab.FAVORITES,
-                        onClick = { homeViewModel.selectTab(HomeTab.FAVORITES) },
-                        text = { Text(stringResource(R.string.favorites)) },
-                        icon = {
-                            Icon(
-                                imageVector = if (currentTab == HomeTab.FAVORITES) Icons.Filled.Star else Icons.Outlined.Star,
-                                contentDescription = stringResource(R.string.favorites)
-                            )
-                        }
-                    )
-                }
+        Box(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+        ) {
+            val displayedChats = remember(chatList, showArchived) {
+                chatList.filter { it.isArchived == showArchived }
             }
 
-            when (currentTab) {
-                HomeTab.CHATS -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth(),
-                        state = listState
-                    ) {
-                        if (!chatListState.isSearchMode) {
-                            item(key = "home-chats-title", contentType = "header") {
-                                ChatsTitle(scrollBehavior)
-                            }
-                        }
-                        if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
-                            item(key = "home-chats-empty", contentType = "empty-notice") {
-                                Text(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(32.dp),
-                                    text = stringResource(R.string.no_search_results),
-                                    textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (displayedChats.isEmpty() && !showArchived) {
+                EmptyStateView()
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    item {
+                        ChatsTitle(scrollBehavior = scrollBehavior)
+                    }
+
+                    // Archived toggle chip
+                    if (archivedCount > 0 || showArchived) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                FilterChip(
+                                    selected = showArchived,
+                                    onClick = { showArchived = !showArchived },
+                                    label = {
+                                        Text(
+                                            if (showArchived) {
+                                                stringResource(R.string.chats)
+                                            } else {
+                                                stringResource(R.string.archived_chats_count, archivedCount)
+                                            }
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = if (showArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 )
                             }
                         }
-                        itemsIndexed(
-                            items = chatListState.chats,
-                            key = { _, it -> it.id },
-                            contentType = { _, _ -> "chat-room-item" }
-                        ) { idx, chatRoom ->
-                            val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
-                            val isGenerating = activeChatIds.contains(chatRoom.id)
-                            ListItem(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        onLongClick = {
-                                            if (!chatListState.isSearchMode) {
-                                                homeViewModel.enableSelectionMode()
-                                                homeViewModel.selectChat(idx)
-                                            }
-                                        },
-                                        onClick = {
-                                            if (chatListState.isSelectionMode) {
-                                                homeViewModel.selectChat(idx)
-                                            } else {
-                                                onExistingChatClick(chatRoom, null)
+                    }
+
+                    itemsIndexed(
+                        items = displayedChats,
+                        key = { _, item -> item.id }
+                    ) { index, chatRoom ->
+                        val originalIndex = chatList.indexOf(chatRoom)
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                when (value) {
+                                    SwipeToDismissBoxValue.EndToStart -> {
+                                        // Swipe left: Archive/Unarchive
+                                        val newArchived = !chatRoom.isArchived
+                                        homeViewModel.archiveChatRoom(chatRoom.id, newArchived)
+                                        scope.launch {
+                                            val result = snackbarHostState.showSnackbar(
+                                                message = if (newArchived) chatArchivedMessage else chatUnarchivedMessage,
+                                                actionLabel = "Undo",
+                                                duration = SnackbarDuration.Short
+                                            )
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                homeViewModel.archiveChatRoom(chatRoom.id, !newArchived)
                                             }
                                         }
-                                    )
-                                    .padding(start = 8.dp, end = 8.dp)
-                                    .animateItem(),
-                                headlineContent = { Text(text = chatRoom.title) },
-                                leadingContent = {
-                                    if (chatListState.isSelectionMode) {
-                                        Checkbox(
-                                            checked = chatListState.selectedChats[idx],
-                                            onCheckedChange = { homeViewModel.selectChat(idx) }
-                                        )
-                                    } else if (isGenerating) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.5.dp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    } else {
-                                        Icon(
-                                            ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
-                                            contentDescription = stringResource(R.string.chat_icon)
-                                        )
+                                        true
                                     }
-                                },
-                                supportingContent = {
-                                    if (!chatRoom.draftText.isNullOrBlank()) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0x33FFC107),
-                                                border = BorderStroke(1.dp, Color(0xFFFFC107).copy(alpha = 0.6f))
-                                            ) {
-                                                Text(
-                                                    text = "DRAFT",
-                                                    style = MaterialTheme.typography.labelSmall.copy(
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontStyle = FontStyle.Italic,
-                                                        letterSpacing = 0.5.sp
-                                                    ),
-                                                    color = Color(0xFFFFB300),
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                            Text(
-                                                text = chatRoom.draftText,
-                                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                    SwipeToDismissBoxValue.StartToEnd -> {
+                                        // Swipe right: Delete
+                                        homeViewModel.deleteChatRoom(chatRoom)
+                                        scope.launch {
+                                            val result = snackbarHostState.showSnackbar(
+                                                message = "Chat deleted",
+                                                actionLabel = "Undo",
+                                                duration = SnackbarDuration.Short
                                             )
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                homeViewModel.restoreChatRoom(chatRoom)
+                                            }
                                         }
-                                    } else {
-                                        Text(
-                                            text = stringResource(R.string.using_certain_platform, usingPlatform),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                        )
+                                        true
                                     }
-                                },
-                                trailingContent = {
-                                    if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                                        IconButton(
-                                            onClick = {
-                                                homeViewModel.archiveChat(chatRoom)
-                                                Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
+                                    SwipeToDismissBoxValue.Settled -> false
+                                }
+                            }
+                        )
+
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                val direction = dismissState.dismissDirection
+                                val color = when (direction) {
+                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.secondaryContainer
+                                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.errorContainer
+                                    SwipeToDismissBoxValue.Settled -> Color.Transparent
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                                    contentAlignment = when (direction) {
+                                        SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                                        else -> Alignment.CenterStart
+                                    }
+                                ) {
+                                    Card(
+                                        modifier = Modifier.fillMaxSize(),
+                                        colors = CardDefaults.cardColors(containerColor = color),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(horizontal = 20.dp),
+                                            contentAlignment = when (direction) {
+                                                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                                                else -> Alignment.CenterStart
                                             }
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Archive,
-                                                contentDescription = stringResource(R.string.archive_chat),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                            )
+                                            when (direction) {
+                                                SwipeToDismissBoxValue.EndToStart -> {
+                                                    Icon(
+                                                        imageVector = if (chatRoom.isArchived) {
+                                                            Icons.Default.Unarchive
+                                                        } else {
+                                                            Icons.Default.Archive
+                                                        },
+                                                        contentDescription = stringResource(
+                                                            if (chatRoom.isArchived) R.string.unarchive_chat else R.string.archive_chat
+                                                        ),
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
+                                                }
+                                                SwipeToDismissBoxValue.StartToEnd -> {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = stringResource(R.string.delete),
+                                                        tint = MaterialTheme.colorScheme.onErrorContainer
+                                                    )
+                                                }
+                                                SwipeToDismissBoxValue.Settled -> {}
+                                            }
                                         }
                                     }
                                 }
-                            )
-                        }
+                            },
+                            content = {
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                                ) {
+                                    ChatItem(
+                                        title = chatRoom.title,
+                                        subtitle = if (!chatRoom.draftText.isNullOrBlank()) {
+                                            "Draft: ${chatRoom.draftText}"
+                                        } else {
+                                            chatRoom.preview ?: ""
+                                        },
+                                        time = formatDisplayTime(chatRoom.updatedAt),
+                                        selected = chatListState.selectedChats.getOrElse(originalIndex) { false },
+                                        isSelectionMode = chatListState.isSelectionMode,
+                                        onChatRoomClick = {
+                                            if (chatListState.isSelectionMode) {
+                                                homeViewModel.toggleChatSelection(originalIndex)
+                                            } else {
+                                                onChatRoomClick(chatRoom.id)
+                                            }
+                                        },
+                                        onChatRoomLongClick = {
+                                            if (!chatListState.isSelectionMode) {
+                                                homeViewModel.enableSelectionMode(originalIndex)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(88.dp))
                     }
                 }
+            }
 
-                HomeTab.FAVORITES -> {
-                    FavoritesList(
-                        favorites = favoriteMessages,
-                        favoriteGroups = favoriteGroups,
-                        selectedGroup = selectedFavoriteGroup,
-                        messageGroups = messageGroups,
-                        platformState = platformState,
-                        onSelectGroup = homeViewModel::selectFavoriteGroup,
-                        onAddGroupClick = { showAddGroupDialog = true },
-                        onFavoriteClick = { message ->
-                            selectedDetailMessage = message
-                        },
-                        onToggleFavorite = { message ->
-                            homeViewModel.toggleFavorite(message.id, !message.isFavorite)
+            CustomScrollbar(
+                state = listState,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 4.dp)
+            )
+
+            AnimatedVisibility(
+                visible = chatListState.isSelectionMode,
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it }),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                SelectionBottomBar(
+                    selectedCount = chatListState.selectedChats.count { it },
+                    totalCount = chatList.size,
+                    canDuplicate = chatListState.selectedChats.count { it } == 1,
+                    onSelectAll = homeViewModel::selectAllChats,
+                    onDeselectAll = homeViewModel::deselectAllChats,
+                    onDuplicate = {
+                        homeViewModel.duplicateSelectedChat()
+                        homeViewModel.disableSelectionMode()
+                        scope.launch {
+                            snackbarHostState.showSnackbar(duplicatedMessage)
                         }
-                    )
-                }
+                    },
+                    onDelete = homeViewModel::openDeleteWarningDialog
+                )
             }
         }
 
-        if (showAddGroupDialog) {
-            AddFavoriteGroupDialog(
-                onDismissRequest = { showAddGroupDialog = false },
-                onAddGroup = { newGroupName ->
-                    homeViewModel.addFavoriteGroup(newGroupName)
-                    showAddGroupDialog = false
-                }
-            )
-        }
+        if (chatListState.isPlatformSelectDialogOpen) {
+            val initialSelection = remember(platforms) {
+                platforms.map { it.isFavorite }
+            }
+            var selectedPlatforms by remember {
+                mutableStateOf(
+                    if (initialSelection.any { it }) initialSelection else platforms.map { false }
+                )
+            }
 
-        selectedDetailMessage?.let { detailMessage ->
-            val platformName = detailMessage.platformType?.let { platformState.getPlatformName(it) }
-                ?: stringResource(R.string.unknown)
-            val currentGroup = messageGroups[detailMessage.id]
-            FavoriteDetailDialog(
-                message = detailMessage,
-                platformName = platformName,
-                favoriteGroups = favoriteGroups,
-                currentGroup = currentGroup,
-                onDismiss = { selectedDetailMessage = null },
-                onAssignGroup = { group ->
-                    homeViewModel.assignFavoriteMessageGroup(detailMessage.id, group)
-                },
-                onViewInChat = {
-                    homeViewModel.getChatRoom(detailMessage.chatId) { targetChat ->
-                        selectedDetailMessage = null
-                        if (targetChat != null) {
-                            onExistingChatClick(targetChat, detailMessage.id)
-                        }
-                    }
-                },
-                onUnfavorite = {
-                    homeViewModel.toggleFavorite(detailMessage.id, false)
-                    selectedDetailMessage = null
-                }
-            )
-        }
-
-        if (showSelectModelDialog) {
             SelectPlatformDialog(
-                platformState,
-                selectedPlatforms = chatListState.selectedPlatforms,
-                onDismissRequest = { homeViewModel.closeSelectModelDialog() },
-                onConfirmation = {
-                    navigateToNewChat(it)
-                    homeViewModel.closeSelectModelDialog()
+                platforms = platforms,
+                selectedPlatforms = selectedPlatforms,
+                onDismissRequest = homeViewModel::closePlatformSelectDialog,
+                onConfirmation = { platformUids ->
+                    homeViewModel.closePlatformSelectDialog()
+                    homeViewModel.onSelectPlatforms(platformUids, onChatRoomClick)
                 },
-                onPlatformSelect = { homeViewModel.updatePlatformCheckedState(it) },
-                onTogglePlatformFavorite = { platformId ->
-                    val target = platformState.find { it.id == platformId }
-                    if (target != null) {
-                        homeViewModel.togglePlatformFavorite(platformId, !target.isFavorite)
+                onPlatformSelect = { idx ->
+                    selectedPlatforms = selectedPlatforms.toMutableList().also {
+                        it[idx] = !it[idx]
                     }
+                },
+                onTogglePlatformFavorite = { platformId ->
+                    homeViewModel.togglePlatformFavorite(platformId)
                 }
             )
         }
 
-        if (showDeleteWarningDialog) {
+        if (chatListState.isDeleteWarningDialogOpen) {
             DeleteWarningDialog(
                 onDismissRequest = homeViewModel::closeDeleteWarningDialog,
                 onConfirm = {
                     homeViewModel.deleteSelectedChats()
-                    Toast.makeText(context, deletedChatsMessage, Toast.LENGTH_SHORT).show()
                     homeViewModel.closeDeleteWarningDialog()
+                    homeViewModel.disableSelectionMode()
+                    scope.launch {
+                        snackbarHostState.showSnackbar(deletedMessage)
+                    }
                 }
             )
         }
@@ -491,299 +462,96 @@ fun HomeScreen(
 }
 
 @Composable
-fun FavoritesList(
-    favorites: List<MessageV2>,
-    favoriteGroups: List<String>,
-    selectedGroup: String,
-    messageGroups: Map<Int, String>,
-    platformState: List<PlatformV2>,
-    onSelectGroup: (String) -> Unit,
-    onAddGroupClick: () -> Unit,
-    onFavoriteClick: (MessageV2) -> Unit,
-    onToggleFavorite: (MessageV2) -> Unit
+fun EmptyStateView() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.ic_gpt_mobile_monochrome_foreground),
+            contentDescription = null,
+            modifier = Modifier.size(96.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.no_chats),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.no_chats_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
+    }
+}
+
+@Composable
+fun SelectionBottomBar(
+    selectedCount: Int,
+    totalCount: Int,
+    canDuplicate: Boolean,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            favoriteGroups.forEach { group ->
-                FilterChip(
-                    selected = selectedGroup == group,
-                    onClick = { onSelectGroup(group) },
-                    label = { Text(group) }
-                )
-            }
-            IconButton(onClick = onAddGroupClick) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = stringResource(R.string.add_group)
-                )
-            }
-        }
-
-        if (favorites.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = stringResource(R.string.no_favorites_yet),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(favorites, key = { it.id }) { message ->
-                    val platformName = message.platformType?.let { platformState.getPlatformName(it) }
-                        ?: stringResource(R.string.unknown)
-                    val assignedGroup = messageGroups[message.id]
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onFavoriteClick(message) },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = platformName,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                if (assignedGroup != null) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.primaryContainer
-                                    ) {
-                                        Text(
-                                            text = assignedGroup,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = message.content,
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = {
+                        if (selectedCount == totalCount) onDeselectAll() else onSelectAll()
                     }
+                ) {
+                    Text(
+                        if (selectedCount == totalCount) {
+                            "Deselect All"
+                        } else {
+                            "Select All"
+                        }
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (canDuplicate) {
+                    IconButton(onClick = onDuplicate) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = stringResource(R.string.duplicate)
+                        )
+                    }
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = stringResource(R.string.delete),
+                        tint = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         }
     }
 }
 
-@Composable
-fun AddFavoriteGroupDialog(
-    onDismissRequest: () -> Unit,
-    onAddGroup: (String) -> Unit
-) {
-    var text by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        title = { Text(stringResource(R.string.add_group)) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text(stringResource(R.string.group_name)) },
-                singleLine = true
-            )
-        },
-        confirmButton = {
-            TextButton(
-                enabled = text.isNotBlank(),
-                onClick = { onAddGroup(text.trim()) }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-fun FavoriteDetailDialog(
-    message: MessageV2,
-    platformName: String,
-    favoriteGroups: List<String>,
-    currentGroup: String?,
-    onDismiss: () -> Unit,
-    onAssignGroup: (String?) -> Unit,
-    onViewInChat: () -> Unit,
-    onUnfavorite: () -> Unit
-) {
-    var showGroupDropdown by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding(),
-            color = MaterialTheme.colorScheme.background
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Top Action Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close))
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(
-                                text = platformName,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Copy Button
-                        IconButton(onClick = {
-                            scope.launch {
-                                clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(message.content, message.content)))
-                                Toast.makeText(context, R.string.copy_text, Toast.LENGTH_SHORT).show()
-                            }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Outlined.ContentCopy,
-                                contentDescription = stringResource(R.string.copy_text),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        // Group Selector
-                        Box {
-                            IconButton(onClick = { showGroupDropdown = true }) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Folder,
-                                    contentDescription = stringResource(R.string.group_name),
-                                    tint = if (currentGroup != null) Color.Cyan else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showGroupDropdown,
-                                onDismissRequest = { showGroupDropdown = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.none_group)) },
-                                    leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                                    onClick = {
-                                        onAssignGroup(null)
-                                        showGroupDropdown = false
-                                    }
-                                )
-                                favoriteGroups.filter { it != HomeViewModel.GROUP_ALL }.forEach { group ->
-                                    DropdownMenuItem(
-                                        text = { Text(group) },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.Folder,
-                                                contentDescription = null,
-                                                tint = if (currentGroup == group) Color.Cyan else MaterialTheme.colorScheme.primary
-                                            )
-                                        },
-                                        onClick = {
-                                            onAssignGroup(group)
-                                            showGroupDropdown = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        // View in Chat
-                        IconButton(onClick = onViewInChat) {
-                            Icon(
-                                imageVector = Icons.Outlined.ChatBubbleOutline,
-                                contentDescription = stringResource(R.string.view_in_chat),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        // Delete / Unfavorite
-                        IconButton(onClick = onUnfavorite) {
-                            Icon(
-                                imageVector = Icons.Outlined.Delete,
-                                contentDescription = stringResource(R.string.delete),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
-
-                HorizontalDivider()
-
-                // Content area with SelectionContainer for text selection and copying
-                SelectionContainer(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(20.dp)
-                    ) {
-                        ChatMarkdown(content = message.content)
-                    }
-                }
-            }
-        }
-    }
-}
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SelectPlatformDialog(
     platforms: List<PlatformV2>,
@@ -799,7 +567,7 @@ fun SelectPlatformDialog(
     var sortOrder by remember { mutableStateOf(PlatformSortOrder.DEFAULT) }
 
     val allLabels = remember(platforms) {
-        platforms.flatMap { it.labels.split(",") }
+        platforms.flatMap { it.labels?.split(",") ?: emptyList() }
             .map { it.trim().substringBefore("#") }
             .filter { it.isNotBlank() }
             .distinct()
@@ -810,8 +578,11 @@ fun SelectPlatformDialog(
     val indexedPlatforms = remember(platforms, sortOrder, selectedLabelFilter) {
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
             .filter { (_, platform) ->
-                if (selectedLabelFilter == null) true
-                else platform.labels.split(",").map { it.trim().substringBefore("#") }.contains(selectedLabelFilter)
+                if (selectedLabelFilter == null) {
+                    true
+                } else {
+                    platform.labels?.split(",")?.map { it.trim().substringBefore("#") }?.contains(selectedLabelFilter) == true
+                }
             }
         when (sortOrder) {
             PlatformSortOrder.DEFAULT -> list

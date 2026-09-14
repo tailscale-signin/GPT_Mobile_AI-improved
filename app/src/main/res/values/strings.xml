@@ -496,5 +496,7 @@
     <string name="batch_mode_description">Asynchronous batch API processing for high throughput</string>
     <string name="batch_api_url">Batch Endpoint URL</string>
     <string name="batch_api_url_description">Custom endpoint for batch API requests</string>
+    <string name="batch_endpoint_url">Batch Endpoint URL</string>
     <string name="agent_completion_platform_title">%1$s has finished</string>
+    <string name="platform_finished_notification_title">%1$s has finished</string>
 </resources>

@@ -104,8 +104,8 @@ extensions.configure<ApplicationExtension> {
             excludes += "META-INF/io.netty.versions.properties"
         }
         jniLibs {
-            // Keep native libraries uncompressed in APK to allow direct page mapping into memory
-            useLegacyPackaging = false
+            // Extract native libraries to nativeLibraryDir on installation so Qualcomm FastRPC cDSP can load libQnnHtpV79Skel.so directly from the filesystem
+            useLegacyPackaging = true
             // Keep pre-stripped native libraries without triggering stripping warnings
             keepDebugSymbols += setOf(
                 "**/libLiteRt.so",

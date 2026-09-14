@@ -1,21 +1,29 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.lifecycle.SavedStateHandle
+import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
+import dev.chungjungsoo.gptmobile.data.agent.tool.DeviceLocationTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.catalog.SocVariant
+import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
-import dev.chungjungsoo.gptmobile.data.localmodel.LocalAccelerators
+import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
+import dev.chungjungsoo.gptmobile.data.localruntime.MAX_HIGH_RAM_CONTEXT_TOKENS
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
@@ -23,14 +31,8 @@ import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
-import dev.chungjungsoo.gptmobile.domain.model.AcceleratorUnavailableReason
-import dev.chungjungsoo.gptmobile.domain.model.MAX_HIGH_RAM_CONTEXT_TOKENS
-import dev.chungjungsoo.gptmobile.domain.tools.AgentToolResolver
-import dev.chungjungsoo.gptmobile.domain.tools.McpClientManager
-import dev.chungjungsoo.gptmobile.domain.tools.McpOAuthClient
-import dev.chungjungsoo.gptmobile.domain.tools.McpOAuthCoordinator
-import dev.chungjungsoo.gptmobile.domain.tools.NetworkClient
 import io.ktor.client.engine.cio.CIO
+import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -53,7 +55,7 @@ class PlatformSettingViewModelTest {
         val settings = FakeSettingRepository(platform)
         val viewModel = testViewModel(settings = settings, platformUid = platform.uid)
 
-        assertFalse(viewModel.isLocalPlatform.value)
+        assertEquals(ClientType.OPENAI, viewModel.platformState.value?.compatibleType)
     }
 
     @Test
@@ -62,13 +64,13 @@ class PlatformSettingViewModelTest {
         val settings = FakeSettingRepository(platform)
         val viewModel = testViewModel(settings = settings, platformUid = platform.uid)
 
-        assertEquals(true, viewModel.isLocalPlatform.value)
-        assertEquals("gemma3-1b-it", viewModel.selectedModel.value)
-        assertEquals(1.0f, viewModel.temperature.value)
-        assertEquals(0.95f, viewModel.topP.value)
-        assertEquals(64, viewModel.topK.value)
-        assertEquals(1024, viewModel.maxTokens.value)
-        assertEquals(LocalAccelerators.GPU, viewModel.selectedAccelerator.value)
+        assertEquals(ClientType.LITERT_LM, viewModel.platformState.value?.compatibleType)
+        assertEquals("gemma3-1b-it", viewModel.platformState.value?.model)
+        assertEquals(1.0f, viewModel.platformState.value?.temperature)
+        assertEquals(0.95f, viewModel.platformState.value?.topP)
+        assertEquals(64, viewModel.platformState.value?.topK)
+        assertEquals(1024, viewModel.platformState.value?.maxTokens)
+        assertEquals(LocalAccelerators.GPU, viewModel.platformState.value?.accelerator)
     }
 
     @Test
@@ -76,7 +78,7 @@ class PlatformSettingViewModelTest {
         val settings = FakeSettingRepository(localPlatform())
         val viewModel = testViewModel(settings = settings)
 
-        viewModel.setTemperature(0.7f)
+        viewModel.updateTemperature(0.7f)
 
         assertEquals(0.7f, settings.updatedPlatforms.single().temperature)
     }
@@ -86,7 +88,7 @@ class PlatformSettingViewModelTest {
         val settings = FakeSettingRepository(localPlatform())
         val viewModel = testViewModel(settings = settings)
 
-        viewModel.setTopP(0.85f)
+        viewModel.updateTopP(0.85f)
 
         assertEquals(0.85f, settings.updatedPlatforms.single().topP)
     }
@@ -96,7 +98,7 @@ class PlatformSettingViewModelTest {
         val settings = FakeSettingRepository(localPlatform())
         val viewModel = testViewModel(settings = settings)
 
-        viewModel.setTopK(72)
+        viewModel.updateTopK(72)
 
         assertEquals(72, settings.updatedPlatforms.single().topK)
     }
@@ -106,7 +108,7 @@ class PlatformSettingViewModelTest {
         val settings = FakeSettingRepository(localPlatform())
         val viewModel = testViewModel(settings = settings)
 
-        viewModel.setMaxTokens(2048)
+        viewModel.updateMaxTokens(2048)
 
         assertEquals(2048, settings.updatedPlatforms.single().maxTokens)
     }
@@ -116,9 +118,9 @@ class PlatformSettingViewModelTest {
         val settings = FakeSettingRepository(localPlatform(maxTokens = 2048))
         val viewModel = testViewModel(settings = settings, deviceRamGb = 12)
 
-        viewModel.setMaxTokens(4096)
+        viewModel.updateMaxTokens(4096)
 
-        assertEquals(MAX_HIGH_RAM_CONTEXT_TOKENS, viewModel.maxAllowedContextTokens)
+        assertEquals(MAX_HIGH_RAM_CONTEXT_TOKENS, viewModel.maxTokensCap())
         assertEquals(4096, settings.updatedPlatforms.single().maxTokens)
     }
 
@@ -131,7 +133,11 @@ class PlatformSettingViewModelTest {
             catalog = FakeModelCatalogRepository(listOf(entry))
         )
 
-        assertEquals(LocalAccelerators.CPU, viewModel.selectedAccelerator.value)
+        val options = viewModel.acceleratorOptions.value
+        val cpuOption = options.firstOrNull { it.accelerator == LocalAccelerators.CPU }
+        val gpuOption = options.firstOrNull { it.accelerator == LocalAccelerators.GPU }
+        assertEquals(true, cpuOption?.enabled)
+        assertEquals(false, gpuOption?.enabled)
     }
 
     @Test
@@ -144,9 +150,9 @@ class PlatformSettingViewModelTest {
             deviceSocModel = "Tensor G4"
         )
 
-        val item = viewModel.acceleratorItems.value.first { it.accelerator == LocalAccelerators.NPU }
-        assertFalse(item.isSupported)
-        assertEquals(AcceleratorUnavailableReason.MODEL_INCOMPATIBLE, item.unavailableReason)
+        val item = viewModel.acceleratorOptions.value.first { it.accelerator == LocalAccelerators.NPU }
+        assertFalse(item.enabled)
+        assertEquals(AcceleratorUnavailableReason.MODEL_HAS_NO_BUILD, item.unavailableReason)
     }
 
     private fun testViewModel(
@@ -156,21 +162,30 @@ class PlatformSettingViewModelTest {
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
         catalog: ModelCatalogRepository = FakeModelCatalogRepository(),
         deviceSocModel: String = "Tensor G4",
-        deviceRamGb: Int = 8,
+        deviceRamGb: Long = 8L,
         platformUid: String = "profile-1"
     ): PlatformSettingViewModel {
-        val networkClient = NetworkClient(CIO.create())
+        val networkClient = NetworkClient(CIO)
         val connectionRepository = ToolConnectionRepository(dao, vault)
-        val oauthClient = McpOAuthClient(networkClient)
-        val oauthCoordinator = McpOAuthCoordinator(connectionRepository, oauthClient)
-        val mcpManager = McpClientManager(connectionRepository, networkClient, oauthCoordinator)
-        val toolResolver = AgentToolResolver(connectionRepository, mcpManager)
+        val oauthClient = McpOAuthClient(networkClient())
+        val mcpManager = McpClientManager(networkClient())
+        val oauthCoordinator = McpOAuthCoordinator(oauthClient, connectionRepository, vault, mcpManager)
+        val toolResolver = AgentToolResolver(
+            toolConnectionRepository = connectionRepository,
+            settingRepository = settings,
+            secretVault = vault,
+            networkClient = networkClient,
+            mcpClientManager = mcpManager,
+            mcpOAuthCoordinator = oauthCoordinator,
+            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+        )
 
         return PlatformSettingViewModel(
             settingRepository = settings,
-            modelCatalogRepository = catalog,
-            toolConnectionRepository = connectionRepository,
+            toolConnectionDao = dao,
+            secretVault = vault,
             agentToolResolver = toolResolver,
+            modelCatalogRepository = catalog,
             localModelRepository = localModelRepository,
             deviceSocModel = deviceSocModel,
             deviceRamGb = deviceRamGb,

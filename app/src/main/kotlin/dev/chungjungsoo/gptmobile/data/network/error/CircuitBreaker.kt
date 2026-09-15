@@ -56,7 +56,7 @@ class CircuitBreaker(
      * Executes the given [block] protected by the circuit breaker.
      * Throws [CircuitBreakerOpenException] immediately if OPEN.
      */
-    inline fun <T> execute(block: () -> T): T {
+    fun <T> execute(block: () -> T): T {
         checkCooldownTransition()
 
         val current = state.get()

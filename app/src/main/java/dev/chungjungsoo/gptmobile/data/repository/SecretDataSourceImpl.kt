@@ -37,15 +37,13 @@ class SecretDataSourceImpl(
         }
     }
 
-    override fun getAllSecrets(): Flow<Map<String, String>> {
+    override suspend fun getAllSecrets(): Map<String, String> {
+        return dataStore.data.first()
+    }
+
+    override fun observeSecret(key: String): Flow<String?> {
         return dataStore.data.map { preferences ->
-            preferences.filterKeys { key ->
-                key is StringPreferencesKey
-            }.mapKeys { (key, _) ->
-                key as StringPreferencesKey
-            }.mapValues { (_, value) ->
-                value as String
-            }
+            preferences[stringPreferencesKey(key)]
         }
     }
 }

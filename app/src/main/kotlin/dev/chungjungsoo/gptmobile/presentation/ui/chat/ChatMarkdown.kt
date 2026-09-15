@@ -58,6 +58,7 @@ import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.model.markdownInlineContent
 import com.mikepenz.markdown.model.rememberMarkdownState
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.ui.component.SandboxedArtifactView
 import dev.snipme.highlights.Highlights
 import dev.snipme.highlights.model.BoldHighlight
 import dev.snipme.highlights.model.ColorHighlight
@@ -144,35 +145,55 @@ fun ChatMarkdown(
         markdownComponents(
             codeBlock = {
                 MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, language, style ->
-                    CodeBlockWithCopy(
-                        code = code,
-                        language = language,
-                        onCopyCode = copyCodeToClipboard
-                    ) {
-                        HighlightedCodeContent(
+                    val cleanLang = language?.trim()?.lowercase()
+                    val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
+                    if (isHtmlOrSvg) {
+                        SandboxedArtifactView(
+                            title = cleanLang.uppercase(),
+                            content = code,
+                            isHtmlOrSvg = true
+                        )
+                    } else {
+                        CodeBlockWithCopy(
                             code = code,
                             language = language,
-                            style = style,
-                            highlightsBuilder = highlightsBuilder,
-                            isDarkTheme = isDarkTheme
-                        )
+                            onCopyCode = copyCodeToClipboard
+                        ) {
+                            HighlightedCodeContent(
+                                code = code,
+                                language = language,
+                                style = style,
+                                highlightsBuilder = highlightsBuilder,
+                                isDarkTheme = isDarkTheme
+                            )
+                        }
                     }
                 }
             },
             codeFence = {
                 MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
-                    CodeBlockWithCopy(
-                        code = code,
-                        language = language,
-                        onCopyCode = copyCodeToClipboard
-                    ) {
-                        HighlightedCodeContent(
+                    val cleanLang = language?.trim()?.lowercase()
+                    val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
+                    if (isHtmlOrSvg) {
+                        SandboxedArtifactView(
+                            title = cleanLang.uppercase(),
+                            content = code,
+                            isHtmlOrSvg = true
+                        )
+                    } else {
+                        CodeBlockWithCopy(
                             code = code,
                             language = language,
-                            style = style,
-                            highlightsBuilder = highlightsBuilder,
-                            isDarkTheme = isDarkTheme
-                        )
+                            onCopyCode = copyCodeToClipboard
+                        ) {
+                            HighlightedCodeContent(
+                                code = code,
+                                language = language,
+                                style = style,
+                                highlightsBuilder = highlightsBuilder,
+                                isDarkTheme = isDarkTheme
+                            )
+                        }
                     }
                 }
             },

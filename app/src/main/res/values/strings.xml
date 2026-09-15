@@ -507,4 +507,16 @@
     <string name="batch_api_url">Batch Endpoint URL</string>
     <string name="batch_api_url_description">Custom endpoint for batch API requests</string>
     <string name="agent_completion_platform_title">%1$s has finished</string>
+
+    <!-- OpenRouter Credits Box -->
+    <string name="openrouter_credits">OpenRouter Credits</string>
+    <string name="openrouter_remaining_credits">Remaining</string>
+    <string name="openrouter_used_credits">Used</string>
+    <string name="openrouter_credits_available">Available</string>
+    <string name="openrouter_credits_low">Low credits</string>
+    <string name="openrouter_credits_empty">No credits</string>
+    <string name="openrouter_fetching_credits">Fetching OpenRouter credits…</string>
+    <string name="openrouter_usage_summary">%1$s%% used of %2$s</string>
+    <string name="openrouter_updated_at">Updated: %1$s</string>
+    <string name="tap_to_retry">Tap to retry</string>
 </resources>

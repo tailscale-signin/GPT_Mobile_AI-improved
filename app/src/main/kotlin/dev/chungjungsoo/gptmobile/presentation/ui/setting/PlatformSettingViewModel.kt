@@ -14,17 +14,13 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
-import dev.chungjungsoo.gptmobile.data.localmodel.SocVariantResolver
 import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorOption
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
-import dev.chungjungsoo.gptmobile.data.localruntime.MAX_HIGH_RAM_CONTEXT_TOKENS
 import dev.chungjungsoo.gptmobile.data.localruntime.localSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
-import dev.chungjungsoo.gptmobile.data.repository.OpenRouterCreditsRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -32,9 +28,6 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import dev.chungjungsoo.gptmobile.di.DeviceRamGb
 import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -58,7 +51,6 @@ class PlatformSettingViewModel @Inject constructor(
     private val agentToolResolver: AgentToolResolver,
     private val modelCatalogRepository: ModelCatalogRepository,
     private val localModelRepository: LocalModelRepository,
-    private val openRouterCreditsRepository: OpenRouterCreditsRepository,
     @param:DeviceSocModel private val deviceSocModel: String,
     @param:DeviceRamGb private val deviceRamGb: Long = 8L,
     savedStateHandle: SavedStateHandle
@@ -108,55 +100,9 @@ class PlatformSettingViewModel @Inject constructor(
     val toolBindingState: StateFlow<ToolBindingState> = _toolBindingState.asStateFlow()
     private var mcpDiscoveryJob: Job? = null
 
-    private val _openRouterCreditsUiState = MutableStateFlow<OpenRouterCreditsUiState>(OpenRouterCreditsUiState.Idle)
-    val openRouterCreditsUiState: StateFlow<OpenRouterCreditsUiState> = _openRouterCreditsUiState.asStateFlow()
-    private var creditsFetchJob: Job? = null
-
     init {
         loadToolBindings()
         loadCatalog()
-        observePlatformForCredits()
-    }
-
-    private fun observePlatformForCredits() {
-        viewModelScope.launch {
-            platformState.collect { platform ->
-                if (platform?.compatibleType == ClientType.OPENROUTER && !platform.token.isNullOrBlank()) {
-                    if (_openRouterCreditsUiState.value is OpenRouterCreditsUiState.Idle) {
-                        fetchOpenRouterCredits(forceRefresh = false)
-                    }
-                } else if (platform?.compatibleType != ClientType.OPENROUTER) {
-                    _openRouterCreditsUiState.value = OpenRouterCreditsUiState.Idle
-                }
-            }
-        }
-    }
-
-    fun fetchOpenRouterCredits(forceRefresh: Boolean = false) {
-        val platform = platformState.value ?: return
-        if (platform.compatibleType != ClientType.OPENROUTER) return
-        val apiKey = platform.token?.trim().orEmpty()
-        if (apiKey.isBlank()) {
-            _openRouterCreditsUiState.value = OpenRouterCreditsUiState.Error("OpenRouter API key is not configured.")
-            return
-        }
-
-        creditsFetchJob?.cancel()
-        creditsFetchJob = viewModelScope.launch {
-            _openRouterCreditsUiState.value = OpenRouterCreditsUiState.Loading
-            val result = openRouterCreditsRepository.fetchCredits(apiKey, forceRefresh = forceRefresh)
-            result.onSuccess { credits ->
-                val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                _openRouterCreditsUiState.value = OpenRouterCreditsUiState.Success(
-                    credits = credits,
-                    lastUpdatedTime = timeFormat.format(Date())
-                )
-            }.onFailure { error ->
-                _openRouterCreditsUiState.value = OpenRouterCreditsUiState.Error(
-                    error.localizedMessage ?: "Failed to fetch OpenRouter credits."
-                )
-            }
-        }
     }
 
     private fun loadCatalog() {
@@ -213,6 +159,14 @@ class PlatformSettingViewModel @Inject constructor(
         _userMessage.value = null
     }
 
+    fun consumeUserMessage() {
+        _userMessage.value = null
+    }
+
+    fun clearToolError() {
+        _toolBindingState.update { it.copy(errorMessage = null) }
+    }
+
     fun toggleStream() {
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(stream = !platform.stream))
@@ -240,10 +194,11 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun maxTokensCap(): Int = resolvedEngineMaxTokens(
-        backend = platformState.value?.accelerator,
-        deviceRamGb = deviceRamGb,
+        requestedMaxTokens = platformState.value?.maxTokens ?: DEFAULT_MAX_TOKENS_CAP,
+        accelerator = platformState.value?.accelerator.orEmpty(),
+        entry = _catalogEntries.value.firstOrNull { it.id == platformState.value?.model },
         deviceSocModel = deviceSocModel,
-        fallbackCap = DEFAULT_MAX_TOKENS_CAP
+        deviceRamGb = deviceRamGb
     )
 
     fun updatePlatform(platform: PlatformV2) {
@@ -268,30 +223,31 @@ class PlatformSettingViewModel @Inject constructor(
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(token = token))
         closeApiTokenDialog()
-        if (platform.compatibleType == ClientType.OPENROUTER) {
-            fetchOpenRouterCredits(forceRefresh = true)
-        }
     }
 
     fun updateApiModel(model: String) {
         val platform = platformState.value ?: return
         if (platform.compatibleType == ClientType.LITERT_LM) {
-            val defaults = localSamplingDefaults(
-                catalog = _catalogEntries.value,
-                catalogEntryId = model,
-                currentAccelerator = platform.accelerator,
-                deviceSocModel = deviceSocModel
-            )
-            updatePlatform(
-                platform.copy(
-                    model = model,
-                    accelerator = defaults.accelerator,
-                    temperature = defaults.temperature,
-                    topP = defaults.topP,
-                    topK = defaults.topK,
-                    maxTokens = defaults.maxTokens
+            val entry = _catalogEntries.value.firstOrNull { it.id == model }
+            if (entry != null) {
+                val defaults = localSamplingDefaults(
+                    entry = entry,
+                    deviceSocModel = deviceSocModel,
+                    deviceRamGb = deviceRamGb
                 )
-            )
+                updatePlatform(
+                    platform.copy(
+                        model = model,
+                        accelerator = defaults.accelerator,
+                        temperature = defaults.temperature,
+                        topP = defaults.topP,
+                        topK = defaults.topK,
+                        maxTokens = defaults.maxTokens
+                    )
+                )
+            } else {
+                updatePlatform(platform.copy(model = model))
+            }
         } else {
             updatePlatform(platform.copy(model = model))
         }
@@ -325,7 +281,7 @@ class PlatformSettingViewModel @Inject constructor(
 
     fun updateAccelerator(accelerator: String?) {
         val platform = platformState.value ?: return
-        val allowed = acceleratorOptions.value.map { it.value }.toSet()
+        val allowed = acceleratorOptions.value.map { it.accelerator }.toSet()
         val normalized = accelerator?.takeIf { it in allowed }
         updatePlatform(platform.copy(accelerator = normalized))
         closeAcceleratorDialog()
@@ -514,7 +470,11 @@ class PlatformSettingViewModel @Inject constructor(
     fun selectSearchBackend(connectionUid: String?) {
         viewModelScope.launch {
             runCatching {
-                toolConnectionRepository.setProfileSearchConnection(platformUid, connectionUid)
+                if (connectionUid != null) {
+                    toolConnectionRepository.replaceWebSearchBinding(platformUid, connectionUid)
+                } else {
+                    toolConnectionRepository.removeWebSearchBinding(platformUid)
+                }
                 _toolBindingState.update {
                     it.copy(
                         selectedSearchConnectionUid = connectionUid,
@@ -529,7 +489,7 @@ class PlatformSettingViewModel @Inject constructor(
     fun toggleReadUrl(enabled: Boolean) {
         viewModelScope.launch {
             runCatching {
-                toolConnectionRepository.setProfileReadUrlEnabled(platformUid, enabled)
+                toolConnectionRepository.setReadUrlBinding(platformUid, enabled)
                 _toolBindingState.update { it.copy(readUrlEnabled = enabled, errorMessage = null) }
             }.onFailure(::showToolError)
         }
@@ -553,7 +513,7 @@ class PlatformSettingViewModel @Inject constructor(
                     connections.map { connection ->
                         async {
                             runCatching {
-                                val tools = agentToolResolver.discoverTools(connection)
+                                val tools = agentToolResolver.discoverMcpTools(connection)
                                 tools.map { tool ->
                                     McpToolOption(
                                         connectionUid = connection.connectionUid,
@@ -597,6 +557,19 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
+    fun toggleMcpTool(connectionUid: String, toolName: String) {
+        _toolBindingState.update { state ->
+            val updated = state.pendingMcpTools.toMutableSet()
+            val item = ToolBindingSelection(connectionUid, toolName)
+            if (item in updated) {
+                updated.remove(item)
+            } else {
+                updated.add(item)
+            }
+            state.copy(pendingMcpTools = updated)
+        }
+    }
+
     fun togglePendingMcpTool(connectionUid: String, toolName: String, enabled: Boolean) {
         _toolBindingState.update { state ->
             val updated = state.pendingMcpTools.toMutableSet()
@@ -610,11 +583,15 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
+    fun saveMcpTools() {
+        saveMcpToolSelections()
+    }
+
     fun saveMcpToolSelections() {
         val selections = _toolBindingState.value.pendingMcpTools
         viewModelScope.launch {
             runCatching {
-                toolConnectionRepository.setProfileMcpToolBindings(platformUid, selections)
+                toolConnectionRepository.replaceMcpToolBindings(platformUid, selections.toList())
             }
                 .onSuccess {
                     _toolBindingState.update {

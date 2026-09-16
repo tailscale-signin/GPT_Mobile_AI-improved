@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.conversation.Conversation
 import dev.chungjungsoo.gptmobile.data.conversation.Message
 import dev.chungjungsoo.gptmobile.data.conversation.MessageDao
 import dev.chungjungsoo.gptmobile.data.conversation.ConversationDao
+import dev.chungjungsoo.gptmobile.util.debugging.DebugUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,13 +61,13 @@ class DefaultOllamaAutoContinueService(
                 
                 if (isDebugMode) {
                     debugInfo = "Auto-continue enabled for conversation $conversationId: $enabled"
-                    println("[DEBUG] Ollama auto-continue: $debugInfo")
+                    DebugUtils.logDebug(debugInfo)
                 }
             }
         } catch (e: Exception) {
             if (isDebugMode) {
                 debugInfo = "Error enabling auto-continue: ${e.message}"
-                println("[DEBUG] Ollama auto-continue error: $debugInfo")
+                DebugUtils.logError("Ollama auto-continue error", e)
             }
         }
     }
@@ -76,7 +77,7 @@ class DefaultOllamaAutoContinueService(
             if (!conversation.isAutoContinueEnabled) {
                 if (isDebugMode) {
                     debugInfo = "Auto-continue disabled for conversation ${conversation.id}"
-                    println("[DEBUG] Ollama auto-continue: $debugInfo")
+                    DebugUtils.logDebug(debugInfo)
                 }
                 return false
             }
@@ -86,7 +87,7 @@ class DefaultOllamaAutoContinueService(
             if (toolCallCount >= conversation.maxToolCalls) {
                 if (isDebugMode) {
                     debugInfo = "Max tool calls reached: $toolCallCount >= ${conversation.maxToolCalls}"
-                    println("[DEBUG] Ollama auto-continue: $debugInfo")
+                    DebugUtils.logDebug(debugInfo)
                 }
                 return true
             }
@@ -96,7 +97,7 @@ class DefaultOllamaAutoContinueService(
             if (totalTokens >= conversation.maxContextLength) {
                 if (isDebugMode) {
                     debugInfo = "Max context length reached: $totalTokens >= ${conversation.maxContextLength}"
-                    println("[DEBUG] Ollama auto-continue: $debugInfo")
+                    DebugUtils.logDebug(debugInfo)
                 }
                 return true
             }
@@ -106,20 +107,20 @@ class DefaultOllamaAutoContinueService(
             if (lastMessage != null && lastMessage.content.contains("continue", ignoreCase = true)) {
                 if (isDebugMode) {
                     debugInfo = "Last message indicates continuation needed"
-                    println("[DEBUG] Ollama auto-continue: $debugInfo")
+                    DebugUtils.logDebug(debugInfo)
                 }
                 return true
             }
 
             if (isDebugMode) {
                 debugInfo = "No auto-continue conditions met"
-                println("[DEBUG] Ollama auto-continue: $debugInfo")
+                DebugUtils.logDebug(debugInfo)
             }
             return false
         } catch (e: Exception) {
             if (isDebugMode) {
                 debugInfo = "Error checking auto-continue: ${e.message}"
-                println("[DEBUG] Ollama auto-continue error: $debugInfo")
+                DebugUtils.logError("Ollama auto-continue error", e)
             }
             return false
         }
@@ -129,14 +130,14 @@ class DefaultOllamaAutoContinueService(
         try {
             if (isDebugMode) {
                 debugInfo = "Starting auto-continue for conversation $conversationId"
-                println("[DEBUG] Ollama auto-continue: $debugInfo")
+                DebugUtils.logDebug(debugInfo)
             }
 
             val conversation = conversationDao.getConversationById(conversationId)
             if (conversation == null) {
                 if (isDebugMode) {
                     debugInfo = "Conversation not found: $conversationId"
-                    println("[DEBUG] Ollama auto-continue error: $debugInfo")
+                    DebugUtils.logDebug(debugInfo)
                 }
                 return false
             }
@@ -154,14 +155,14 @@ class DefaultOllamaAutoContinueService(
             
             if (isDebugMode) {
                 debugInfo = "Auto-continue completed for conversation $conversationId"
-                println("[DEBUG] Ollama auto-continue: $debugInfo")
+                DebugUtils.logDebug(debugInfo)
             }
             
             return true
         } catch (e: Exception) {
             if (isDebugMode) {
                 debugInfo = "Error during auto-continue: ${e.message}"
-                println("[DEBUG] Ollama auto-continue error: $debugInfo")
+                DebugUtils.logError("Ollama auto-continue error", e)
             }
             return false
         }
@@ -174,7 +175,7 @@ class DefaultOllamaAutoContinueService(
     override fun setDebugMode(enabled: Boolean) {
         isDebugMode = enabled
         if (isDebugMode) {
-            println("[DEBUG] Ollama auto-continue debug mode enabled")
+            DebugUtils.logDebug("Ollama auto-continue debug mode enabled")
         }
     }
 }

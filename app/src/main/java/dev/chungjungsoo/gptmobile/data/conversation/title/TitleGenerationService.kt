@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.conversation.title
 
 import dev.chungjungsoo.gptmobile.data.conversation.Message
+import dev.chungjungsoo.gptmobile.util.debugging.DebugUtils
 import kotlinx.serialization.Serializable
 
 /**
@@ -49,26 +50,29 @@ class DefaultTitleGenerationService : TitleGenerationService {
 
     override fun generateTitle(messages: List<Message>): String {
         try {
-            if (messages.isEmpty()) {
-                return "New Conversation"
-            }
+            val (result, executionTime) = DebugUtils.measureExecutionTime {
+                if (messages.isEmpty()) {
+                    return@measureExecutionTime "New Conversation"
+                }
 
-            // Simple approach: use first few messages to generate title
-            val content = messages.take(3).joinToString(" ") { it.content }
-            
-            // Generate a concise title (3-6 words)
-            val title = generateConciseTitle(content)
+                // Simple approach: use first few messages to generate title
+                val content = messages.take(3).joinToString(" ") { it.content }
+                
+                // Generate a concise title (3-6 words)
+                val title = generateConciseTitle(content)
+                title
+            }
             
             if (isDebugMode) {
-                debugInfo = "Generated title: $title from ${messages.size} messages"
-                println("[DEBUG] Title generation: $debugInfo")
+                debugInfo = "Generated title: $result from ${messages.size} messages"
+                DebugUtils.logDebug("Title generation completed: ${DebugUtils.formatTitleGenerationInfo(result, result.split(" ").size, executionTime)}")
             }
             
-            return title
+            return result
         } catch (e: Exception) {
             if (isDebugMode) {
                 debugInfo = "Error generating title: ${e.message}"
-                println("[DEBUG] Title generation error: $debugInfo")
+                DebugUtils.logError("Title generation error", e)
             }
             return "New Conversation"
         }
@@ -104,7 +108,7 @@ class DefaultTitleGenerationService : TitleGenerationService {
     override fun setDebugMode(enabled: Boolean) {
         isDebugMode = enabled
         if (isDebugMode) {
-            println("[DEBUG] Title generation debug mode enabled")
+            DebugUtils.logDebug("Title generation debug mode enabled")
         }
     }
 
@@ -134,7 +138,7 @@ class DefaultTitleGenerationServiceFactory : TitleGenerationServiceFactory {
     override fun setDebugMode(enabled: Boolean) {
         isDebugMode = enabled
         if (isDebugMode) {
-            println("[DEBUG] Title generation factory debug mode enabled")
+            DebugUtils.logDebug("Title generation factory debug mode enabled")
         }
     }
 }

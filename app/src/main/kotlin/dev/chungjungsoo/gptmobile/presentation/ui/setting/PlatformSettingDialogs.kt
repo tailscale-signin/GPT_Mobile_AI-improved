@@ -1320,6 +1320,12 @@ private fun OllamaAdvancedSettingsDialog(
     var gpuOverheadText by remember {
         mutableStateOf((initialParsed.gpuOverhead ?: OllamaOptions.DEFAULT_GPU_OVERHEAD).toString())
     }
+    var autoContinueEnabled by remember {
+        mutableStateOf(initialParsed.autoContinue ?: OllamaOptions.DEFAULT_AUTO_CONTINUE)
+    }
+    var maxAutoContinuesText by remember {
+        mutableStateOf((initialParsed.maxAutoContinues ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES).toString())
+    }
 
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -1343,6 +1349,40 @@ private fun OllamaAdvancedSettingsDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = stringResource(R.string.ollama_auto_continue),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = stringResource(R.string.ollama_auto_continue_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = autoContinueEnabled,
+                        onCheckedChange = { autoContinueEnabled = it }
+                    )
+                }
+
+                if (autoContinueEnabled) {
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = maxAutoContinuesText,
+                        onValueChange = { maxAutoContinuesText = it },
+                        label = { Text(stringResource(R.string.ollama_max_auto_continues)) },
+                        placeholder = { Text(stringResource(R.string.ollama_max_auto_continues_hint)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                        singleLine = true
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1521,7 +1561,10 @@ private fun OllamaAdvancedSettingsDialog(
                         kvCacheType = kvCacheTypeText.trim().takeIf { it.isNotEmpty() } ?: OllamaOptions.DEFAULT_KV_CACHE_TYPE,
                         keepAlive = keepAliveText.trim().takeIf { it.isNotEmpty() } ?: OllamaOptions.DEFAULT_KEEP_ALIVE,
                         numParallel = numParallelText.toIntOrNull() ?: OllamaOptions.DEFAULT_NUM_PARALLEL,
-                        gpuOverhead = gpuOverheadText.toLongOrNull() ?: OllamaOptions.DEFAULT_GPU_OVERHEAD
+                        gpuOverhead = gpuOverheadText.toLongOrNull() ?: OllamaOptions.DEFAULT_GPU_OVERHEAD,
+                        autoContinue = autoContinueEnabled,
+                        maxAutoContinues = maxAutoContinuesText.toIntOrNull() ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES,
+                        autoContinueTokenThreshold = initialParsed.autoContinueTokenThreshold ?: OllamaOptions.DEFAULT_AUTO_CONTINUE_TOKEN_THRESHOLD
                     )
                     val resultJson = jsonSerializer.encodeToString(options)
                     onConfirmRequest(resultJson)

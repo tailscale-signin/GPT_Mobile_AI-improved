@@ -213,6 +213,7 @@ class ChatViewModel @Inject constructor(
     val isLoaded = _isLoaded.asStateFlow()
 
     private var pendingQuestionText: String? = null
+    private var hasTriggeredAiTitle = false
 
     init {
         fetchChatRoom()
@@ -466,9 +467,9 @@ class ChatViewModel @Inject constructor(
     fun updateChatTitle(title: String) {
         // Should be only used for changing chat title after the chatroom is created.
         if (_chatRoom.value.id > 0) {
-            _chatRoom.update { it.copy(title = title) }
+            _chatRoom.update { it.copy(title = title, isTitleCustomized = true) }
             viewModelScope.launch {
-                chatRepository.updateChatTitle(_chatRoom.value, title)
+                chatRepository.updateChatTitle(_chatRoom.value, title, isCustomized = true)
             }
         }
     }
@@ -1194,7 +1195,44 @@ class ChatViewModel @Inject constructor(
                         )
                     }
                     syncLoadingStates(runsById)
+                    checkAndGenerateAiTitle(runsById)
                 }
+        }
+    }
+
+    private fun checkAndGenerateAiTitle(runsById: Map<String, AgentRun>) {
+        if (hasTriggeredAiTitle) return
+        val room = _chatRoom.value
+        if (room.id <= 0 || room.isTitleCustomized) return
+
+        val grouped = _groupedMessages.value
+        // Only trigger on the first turn
+        if (grouped.userMessages.size != 1 || grouped.assistantMessages.isEmpty()) return
+
+        val userMessage = grouped.userMessages.firstOrNull()?.content?.takeIf { it.isNotBlank() } ?: return
+        val firstAssistantMessages = grouped.assistantMessages.firstOrNull().orEmpty()
+        val assistantMessage = firstAssistantMessages.firstOrNull { it.effectiveContent().isNotBlank() }?.effectiveContent() ?: return
+
+        // Ensure active runs for this turn are finished
+        val activeRunIds = agentRunCoordinator.activeRuns.value.keys
+        val anyActive = firstAssistantMessages.any { msg ->
+            val runId = msg.currentRunId
+            runId != null && (runId in activeRunIds || runsById[runId]?.status == AgentRunStatus.RUNNING || runsById[runId]?.status == AgentRunStatus.QUEUED)
+        }
+        if (anyActive) return
+
+        hasTriggeredAiTitle = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val platform = _platformsInApp.value.firstOrNull { it.uid in enabledPlatformsInChat && it.enabled }
+                ?: _platformsInApp.value.firstOrNull()
+                ?: return@launch
+
+            val aiTitle = chatRepository.generateAiTitle(userMessage, assistantMessage, platform)
+            if (!aiTitle.isNullOrBlank()) {
+                val cleaned = aiTitle.replace('\n', ' ').take(50)
+                _chatRoom.update { it.copy(title = cleaned) }
+                chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = false)
+            }
         }
     }
 

@@ -84,7 +84,7 @@ fun FancyOpenRouterCreditsCard(
         colors = listOf(
             Color(0xFF6366F1).copy(alpha = 0.92f), // Indigo
             Color(0xFF8B5CF6).copy(alpha = 0.88f), // Purple
-            Color(0xFF06B6D4).copy(alpha = 0.85f)  // Cyan
+            Color(0xFF06B6D4).copy(alpha = 0.85f) // Cyan
         ),
         start = androidx.compose.ui.geometry.Offset(gradientShift * 150f, 0f),
         end = androidx.compose.ui.geometry.Offset(800f, 400f)
@@ -385,11 +385,9 @@ fun FancyOpenRouterCreditsCard(
 }
 
 @Composable
-private fun rememberCurrencyFormat(): NumberFormat {
-    return androidx.compose.runtime.remember {
-        NumberFormat.getCurrencyInstance(Locale.US).apply {
-            minimumFractionDigits = 2
-            maximumFractionDigits = 4
-        }
+private fun rememberCurrencyFormat(): NumberFormat = androidx.compose.runtime.remember {
+    NumberFormat.getCurrencyInstance(Locale.US).apply {
+        minimumFractionDigits = 2
+        maximumFractionDigits = 4
     }
 }

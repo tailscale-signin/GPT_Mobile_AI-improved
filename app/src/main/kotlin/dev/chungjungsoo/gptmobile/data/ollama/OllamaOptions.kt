@@ -70,7 +70,19 @@ data class OllamaOptions(
 
     @SerialName("gpu_overhead")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val gpuOverhead: Long? = DEFAULT_GPU_OVERHEAD
+    val gpuOverhead: Long? = DEFAULT_GPU_OVERHEAD,
+
+    @SerialName("auto_continue")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val autoContinue: Boolean? = DEFAULT_AUTO_CONTINUE,
+
+    @SerialName("max_auto_continues")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val maxAutoContinues: Int? = DEFAULT_MAX_AUTO_CONTINUES,
+
+    @SerialName("auto_continue_token_threshold")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val autoContinueTokenThreshold: Int? = DEFAULT_AUTO_CONTINUE_TOKEN_THRESHOLD
 ) {
     companion object {
         const val DEFAULT_NUM_GPU = 999
@@ -88,6 +100,9 @@ data class OllamaOptions(
         const val DEFAULT_KEEP_ALIVE = "30m"
         const val DEFAULT_NUM_PARALLEL = 2
         const val DEFAULT_GPU_OVERHEAD = 1073741824L
+        const val DEFAULT_AUTO_CONTINUE = false
+        const val DEFAULT_MAX_AUTO_CONTINUES = 3
+        const val DEFAULT_AUTO_CONTINUE_TOKEN_THRESHOLD = 100
 
         fun createDefault(): OllamaOptions = OllamaOptions(
             numGpu = DEFAULT_NUM_GPU,
@@ -104,7 +119,10 @@ data class OllamaOptions(
             kvCacheType = DEFAULT_KV_CACHE_TYPE,
             keepAlive = DEFAULT_KEEP_ALIVE,
             numParallel = DEFAULT_NUM_PARALLEL,
-            gpuOverhead = DEFAULT_GPU_OVERHEAD
+            gpuOverhead = DEFAULT_GPU_OVERHEAD,
+            autoContinue = DEFAULT_AUTO_CONTINUE,
+            maxAutoContinues = DEFAULT_MAX_AUTO_CONTINUES,
+            autoContinueTokenThreshold = DEFAULT_AUTO_CONTINUE_TOKEN_THRESHOLD
         )
     }
 }

@@ -8,6 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
+import dev.chungjungsoo.gptmobile.data.conversation.ConversationTitleSummarizer
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
@@ -33,6 +34,18 @@ object ChatRepositoryModule {
 
     @Provides
     @Singleton
+    fun provideConversationTitleSummarizer(
+        openAIAPI: OpenAIAPI,
+        groqAPI: GroqAPI,
+        googleAPI: GoogleAPI
+    ): ConversationTitleSummarizer = ConversationTitleSummarizer(
+        openAIAPI = openAIAPI,
+        groqAPI = groqAPI,
+        googleAPI = googleAPI
+    )
+
+    @Provides
+    @Singleton
     fun provideChatRepository(
         @ApplicationContext context: Context,
         chatRoomV2Dao: ChatRoomV2Dao,
@@ -52,7 +65,8 @@ object ChatRepositoryModule {
         localRuntime: LocalRuntime,
         localModelRepository: LocalModelRepository,
         modelCatalogRepository: ModelCatalogRepository,
-        @DeviceSocModel deviceSocModel: String
+        @DeviceSocModel deviceSocModel: String,
+        titleSummarizer: ConversationTitleSummarizer
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -72,6 +86,7 @@ object ChatRepositoryModule {
         localRuntime = localRuntime,
         localModelRepository = localModelRepository,
         modelCatalogRepository = modelCatalogRepository,
-        deviceSocModel = deviceSocModel
+        deviceSocModel = deviceSocModel,
+        titleSummarizer = titleSummarizer
     )
 }

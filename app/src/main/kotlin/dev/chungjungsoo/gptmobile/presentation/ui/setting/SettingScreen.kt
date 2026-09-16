@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,12 +57,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
@@ -304,6 +310,131 @@ fun SettingScreen(
                                 checked = debugMode,
                                 onCheckedChange = { settingViewModel.updateDebugMode(it) }
                             )
+                        }
+
+                        // Debug Mode Hardware Diagnostics & Developer Tools Panel
+                        if (debugMode) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Text(
+                                text = "Hardware Diagnostics & Diagnostics HUD",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Active hardware telemetry sampled directly from system sensors & NPU drivers:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            val diagSnapshot = remember {
+                                DiagnosticsTelemetryProvider.getSnapshot(
+                                    context = context,
+                                    backendName = localRuntimeBackend.displayName,
+                                    accelerator = if (localRuntimeBackend == LocalRuntimeBackend.QUALCOMM_QNN) "Qualcomm Hexagon HTP" else "LiteRT OpenCL GPU"
+                                )
+                            }
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("SoC Identifier:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            text = diagSnapshot.socModel,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("System RAM:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            text = "${diagSnapshot.availableRamMb} MB free / ${diagSnapshot.totalRamGb} GB total",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Thermal State:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            text = diagSnapshot.thermalStatus,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Hexagon NPU Status:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            text = if (diagSnapshot.qnnReady) "HTP Skel Loaded (Ready)" else "CPU/GPU Fallback Mode",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (diagSnapshot.qnnReady) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val report = DiagnosticsTelemetryProvider.formatDiagnosticsText(diagSnapshot, null)
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Hardware Diagnostics", report))
+                                        Toast.makeText(context, "Diagnostics report copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Text("Copy Report", style = MaterialTheme.typography.labelMedium)
+                                }
+
+                                OutlinedButton(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        val status = if (diagSnapshot.qnnReady) {
+                                            "Qualcomm QNN HTP v73/v75/v79 libraries found in native library path."
+                                        } else {
+                                            "No Qualcomm HTP skeleton found. Ensure device is Snapdragon and native libs are bundled."
+                                        }
+                                        Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                                    }
+                                ) {
+                                    Text("Probe NPU", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
                         }
                     }
                 }

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4.3] - 2026-09-16
+
+### Added & Improved
+- **OpenRouter Credits & Balance Card Integration**:
+  - Fully integrated `FancyOpenRouterCreditsCard` into `PlatformSettingScreen`.
+  - Added reactive credit retrieval and caching in `PlatformSettingViewModel`.
+  - Polished error states for network and authentication failure modes.
+- **Local Runtime & Hardware Acceleration**:
+  - Restored `LocalAccelerators` and `LocalModelValidator` classes.
+  - Verified Qualcomm QNN NPU runtime stability alongside OpenCL GPU and CPU fallback pathways.
+- **UI & Presentation Polish**:
+  - Refined layout, touch targets, and spacing in `HomeTopBar`.
+- **Version Bump**:
+  - Bumped version to `0.9.4.3` (versionCode `46`).
+
 ## [0.9.4.2-pre] - 2026-09-16
 
 ### Added & Improved

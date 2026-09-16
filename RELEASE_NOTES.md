@@ -1,32 +1,31 @@
-# Release Notes - v0.9.4.1
+# Release Notes - v0.9.4.3
 
-Welcome to **GPT Mobile AI (Improved)** v0.9.4.1!
+Welcome to **GPT Mobile AI (Improved)** v0.9.4.3!
 
-This release introduces high-performance Ollama server and generation controls, fixes and closes open repository issues, and delivers build optimization and version bumps.
+This release introduces native integration of the real-time **FancyOpenRouterCreditsCard** directly in the Platform Settings dashboard, cleans up and refines local accelerator runtime components, and provides overall stability and performance enhancements.
 
 ---
 
 ### Key Highlights & Improvements
 
-#### 1. ⚡ High-Performance Ollama Advanced Options & Defaults
-- **Flash Attention**: Enabled by default (`flash_attention = true`) for accelerated attention computations.
-- **KV Cache Quantization**: Configured default `kv_cache_type` to `"q8_0"` to reduce VRAM consumption by ~50% while preserving inference accuracy.
-- **Parallel Requests**: Configured default `num_parallel` to `2` for concurrent request handling.
-- **Keep-Alive Duration**: Updated default `keep_alive` to `"30m"` to keep active models warm in VRAM.
-- **Context Length**: Standardized default `num_ctx` to `4096` tokens for balanced memory and context.
-- **GPU Overhead Reservation**: Configured default `gpu_overhead` to 1GB (`1073741824L`) to reserve memory headroom for GPU system operations.
-- **Settings UI Controls**: Extended the Ollama Advanced Options dialog with interactive toggles and inputs for Flash Attention, KV Cache Type, Keep Alive, Num Parallel, and GPU Overhead.
+#### 1. 💳 Fancy OpenRouter Credits Card Integration
+- Integrated `FancyOpenRouterCreditsCard` into `PlatformSettingScreen`, presenting users with real-time balance tracking, credit limits, usage percentages, and responsive reload controls.
+- Asynchronous fetching and caching in `PlatformSettingViewModel` with graceful error recovery when network connectivity or token validity fluctuates.
 
-#### 2. 🗄️ Database Migrations & Agent Tooling Architecture
-- Consolidated authoritative `ChatDatabaseV2Migrations.ALL_MIGRATIONS` registry.
-- Pure-domain `ToolBudgetPolicy` agent safety and ceiling validation engine.
-- Material 3 `@Immutable` `ChatAlphaTokens` UI surface standardization.
+#### 2. ⚡ Local Runtime & Acceleration Polish
+- Restored `LocalAccelerators` and `LocalModelValidator` definitions.
+- Unified acceleration detection supporting Qualcomm QNN NPU, OpenCL GPU, and multi-threaded CPU acceleration.
+- Validated on-device LiteRT-LM runtime execution pipelines.
 
-#### 3. 📦 Build & Packaging Details
-- Version code incremented to `44`, version name set to `0.9.4.1`.
+#### 3. 🎨 UI & Navigation Cleanups
+- Refined `HomeTopBar` spacing, layout consistency, and touch targets across modern Android devices.
+- Upgraded and validated documentation across RAG architecture, sandboxed visual artifacts, and full-duplex voice sessions.
+
+#### 4. 📦 Build & Packaging Details
+- Version code incremented to `46`, version name set to `0.9.4.3`.
 - Target SDK 36 (Android 16), Min SDK 31 (Android 12).
-- Supported ABIs: `arm64-v8a`, `x86_64`.
-- Release build with R8 minification, resource shrinking, and deterministic key signing.
+- Supported 64-bit ABIs: `arm64-v8a`, `x86_64`.
+- Optimized with R8 minification, resource shrinking, and deterministic keystore signing.
 
 ---
 

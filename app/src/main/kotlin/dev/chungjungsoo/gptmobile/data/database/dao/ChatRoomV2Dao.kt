@@ -41,6 +41,9 @@ interface ChatRoomV2Dao {
     @Query("UPDATE chats_v2 SET draft_text = :draftText, draft_updated_at = :timestamp WHERE chat_id = :chatId")
     suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
 
+    @Query("UPDATE chats_v2 SET title = :title, is_title_customized = :isCustomized, updated_at = :updatedAt WHERE chat_id = :chatId")
+    suspend fun updateTitle(chatId: Int, title: String, isCustomized: Boolean, updatedAt: Long = System.currentTimeMillis() / 1000)
+
     @Delete
     suspend fun deleteChatRooms(vararg chatRooms: ChatRoomV2)
 }

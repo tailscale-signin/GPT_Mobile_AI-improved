@@ -74,6 +74,12 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_20_21 = object : Migration(20, 21) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `chats_v2` ADD COLUMN `is_title_customized` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -84,6 +90,7 @@ object ChatDatabaseV2Migrations {
         MIGRATION_16_17,
         MIGRATION_17_18,
         MIGRATION_18_19,
-        MIGRATION_19_20
+        MIGRATION_19_20,
+        MIGRATION_20_21
     )
 }

@@ -198,6 +198,14 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun toggleChatPin(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            val newPinned = !chatRoom.isFavorite
+            chatRepository.setChatFavorite(chatRoom.id, newPinned)
+            fetchChats()
+        }
+    }
+
     fun togglePlatformFavorite(platformId: Int, isFavorite: Boolean) {
         viewModelScope.launch {
             managePlatformsUseCase.toggleFavoritePlatform(platformId, isFavorite)
@@ -254,6 +262,16 @@ class HomeViewModel @Inject constructor(
     fun closeSelectModelDialog() {
         _showSelectModelDialog.update { false }
         _chatListState.update { it.copy(selectedPlatforms = List(it.selectedPlatforms.size) { false }) }
+    }
+
+    fun deleteChat(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            agentRunCoordinator.withChatGate(chatRoom.id) {
+                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
+                chatRepository.deleteChatsV2(listOf(chatRoom))
+            }
+            fetchChats()
+        }
     }
 
     fun deleteSelectedChats() {

@@ -519,4 +519,5 @@
     <string name="openrouter_usage_summary">%1$s%% used of %2$s</string>
     <string name="openrouter_updated_at">Updated: %1$s</string>
     <string name="tap_to_retry">Tap to retry</string>
+    <string name="refresh">Refresh</string>
 </resources>

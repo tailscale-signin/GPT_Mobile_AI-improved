@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import dev.chungjungsoo.gptmobile.data.repository.OpenRouterCreditsRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -28,6 +29,9 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import dev.chungjungsoo.gptmobile.di.DeviceRamGb
 import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -53,6 +57,7 @@ class PlatformSettingViewModel @Inject constructor(
     private val localModelRepository: LocalModelRepository,
     @param:DeviceSocModel private val deviceSocModel: String,
     @param:DeviceRamGb private val deviceRamGb: Long = 8L,
+    private val openRouterCreditsRepository: OpenRouterCreditsRepository = OpenRouterCreditsRepository(),
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
@@ -100,14 +105,59 @@ class PlatformSettingViewModel @Inject constructor(
     val toolBindingState: StateFlow<ToolBindingState> = _toolBindingState.asStateFlow()
     private var mcpDiscoveryJob: Job? = null
 
+    private val _openRouterCreditsState = MutableStateFlow<OpenRouterCreditsUiState>(OpenRouterCreditsUiState.Idle)
+    val openRouterCreditsState: StateFlow<OpenRouterCreditsUiState> = _openRouterCreditsState.asStateFlow()
+
     init {
         loadToolBindings()
         loadCatalog()
+        observeOpenRouterCredits()
     }
 
     private fun loadCatalog() {
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getVisibleEntries()
+        }
+    }
+
+    private fun observeOpenRouterCredits() {
+        viewModelScope.launch {
+            platformState.collect { platform ->
+                if (platform?.compatibleType == ClientType.OPENROUTER && !platform.token.isNullOrBlank()) {
+                    if (_openRouterCreditsState.value is OpenRouterCreditsUiState.Idle) {
+                        refreshOpenRouterCredits(forceRefresh = false)
+                    }
+                } else if (platform?.compatibleType != ClientType.OPENROUTER) {
+                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
+                }
+            }
+        }
+    }
+
+    fun refreshOpenRouterCredits(forceRefresh: Boolean = false) {
+        val platform = platformState.value ?: return
+        if (platform.compatibleType != ClientType.OPENROUTER) return
+        val token = platform.token?.trim().orEmpty()
+        if (token.isBlank()) {
+            _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
+            return
+        }
+
+        viewModelScope.launch {
+            _openRouterCreditsState.value = OpenRouterCreditsUiState.Loading
+            openRouterCreditsRepository.fetchCredits(token, forceRefresh = forceRefresh)
+                .onSuccess { data ->
+                    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Success(
+                        credits = data,
+                        lastUpdatedTime = timeFormat.format(Date())
+                    )
+                }
+                .onFailure { error ->
+                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Error(
+                        message = error.message ?: "Failed to fetch OpenRouter credits"
+                    )
+                }
         }
     }
 

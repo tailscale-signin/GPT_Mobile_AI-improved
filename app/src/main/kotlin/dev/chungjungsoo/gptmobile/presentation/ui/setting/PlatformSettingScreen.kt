@@ -116,6 +116,7 @@ fun PlatformSettingScreen(
     val downloadedLocalModels by settingViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val acceleratorOptions by settingViewModel.acceleratorOptions.collectAsStateWithLifecycle()
     val userMessage by settingViewModel.userMessage.collectAsStateWithLifecycle()
+    val openRouterCreditsState by settingViewModel.openRouterCreditsState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var openMcpToolsAfterPermission by remember { mutableStateOf(false) }
     var showBatchUrlDialog by remember { mutableStateOf(false) }
@@ -217,6 +218,14 @@ fun PlatformSettingScreen(
                         }
                     )
                 }
+
+                if (platformData.compatibleType == ClientType.OPENROUTER && !platformData.token.isNullOrBlank()) {
+                    FancyOpenRouterCreditsCard(
+                        uiState = openRouterCreditsState,
+                        onRefresh = { settingViewModel.refreshOpenRouterCredits(forceRefresh = true) }
+                    )
+                }
+
                 val modelDescription = downloadedLocalModels
                     .firstOrNull { it.catalogEntryId == platformData.model }
                     ?.displayName ?: platformData.model

@@ -470,6 +470,10 @@
     <string name="ollama_advanced_options_description">Configure GPU layers, context window, batch size, threads, sampling, and high-performance options</string>
     <string name="ollama_advanced_settings">Ollama Advanced Options</string>
     <string name="ollama_advanced_settings_description">Configure GPU layers, context window, batch size, threads, sampling, and high-performance options</string>
+    <string name="ollama_auto_continue">Auto-Continue Generation</string>
+    <string name="ollama_auto_continue_desc">Automatically continue responses when token limits or length stops are reached</string>
+    <string name="ollama_max_auto_continues">Max Auto Continues</string>
+    <string name="ollama_max_auto_continues_hint">Maximum number of continuation turns (default: 3)</string>
     <string name="ollama_num_gpu">num_gpu</string>
     <string name="ollama_num_gpu_hint">Number of layers to offload to GPU (e.g. 999 for all layers)</string>
     <string name="ollama_num_ctx">num_ctx</string>

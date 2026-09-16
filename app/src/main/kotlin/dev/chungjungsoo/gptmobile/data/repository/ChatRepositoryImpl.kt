@@ -272,12 +272,16 @@ class ChatRepositoryImpl(
         return updatedMessages
     }
 
-    override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
+    override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRoomsWithFavorites()
 
     override suspend fun fetchArchivedChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getArchivedChatRooms()
 
     override suspend fun setChatArchived(chatId: Int, isArchived: Boolean) {
         chatRoomV2Dao.updateArchived(chatId, isArchived)
+    }
+
+    override suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean) {
+        chatRoomV2Dao.updateFavorite(chatId, isFavorite)
     }
 
     override suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?) {
@@ -286,7 +290,7 @@ class ChatRepositoryImpl(
 
     override suspend fun searchChatsV2(query: String): List<ChatRoomV2> {
         if (query.isBlank()) {
-            return chatRoomV2Dao.getChatRooms()
+            return chatRoomV2Dao.getChatRoomsWithFavorites()
         }
 
         // Search by title and message content concurrently on I/O dispatcher
@@ -307,7 +311,7 @@ class ChatRepositoryImpl(
             }
         }
 
-        // Combine results and remove duplicates, maintaining order by updatedAt
+        // Combine results and remove duplicates, maintaining order by isFavorite DESC, updatedAt DESC
         val titleMatchIds = HashSet<Int>(titleMatches.size)
         val combined = ArrayList<ChatRoomV2>(titleMatches.size + messageMatches.size)
         for (room in titleMatches) {
@@ -319,7 +323,7 @@ class ChatRepositoryImpl(
                 combined.add(room)
             }
         }
-        combined.sortByDescending { it.updatedAt }
+        combined.sortWith(compareByDescending<ChatRoomV2> { it.isFavorite }.thenByDescending { it.updatedAt })
         return combined
     }
 

@@ -1,5 +1,7 @@
 package com.example.gpt_mobile_ai.nn
 
+import com.example.gpt_mobile_ai.diagnostic.DebugUtils
+
 /**
  * Interface for local runtime implementations (QNN, LiteRT, etc.)
  */
@@ -28,4 +30,13 @@ interface LocalRuntime {
      * Get performance metrics for this runtime
      */
     fun getPerformanceMetrics(): Map<String, Any>
+    
+    /**
+     * Debug method to log runtime information
+     */
+    fun logRuntimeInfo() {
+        DebugUtils.logQnnDebugInfo("Runtime: ${this.javaClass.simpleName}")
+        DebugUtils.logQnnDebugInfo("Available: ${isAvailable()}")
+        DebugUtils.logQnnDebugInfo("Metrics: ${getPerformanceMetrics()}")
+    }
 }

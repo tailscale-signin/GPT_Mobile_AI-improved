@@ -50,6 +50,7 @@ class LocalRuntimeRouter(
                 try {
                     qnnRuntime.loadEngine(spec)
                     activeLoadedRuntime = qnnRuntime
+                    Log.i(TAG, "Successfully loaded engine using QUALCOMM_QNN backend")
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (qnnError: Exception) {
@@ -58,6 +59,11 @@ class LocalRuntimeRouter(
                         "Failed to load engine using QUALCOMM_QNN backend, falling back to LITERT_LM",
                         qnnError
                     )
+                    // Verify QNN library status for diagnostics before falling back
+                    val qnnContext = (qnnRuntime as? LocalRuntimeQnnImpl)?.context
+                    if (qnnContext != null && QnnEnvironment.verifyQnnLibraries(qnnContext)) {
+                        Log.w(TAG, "QNN environment is available but engine failed to load, falling back to LiteRT")
+                    }
                     liteRtRuntime.loadEngine(spec)
                     activeLoadedRuntime = liteRtRuntime
                 }

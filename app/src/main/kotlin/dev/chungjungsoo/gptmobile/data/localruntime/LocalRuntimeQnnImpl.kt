@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
  * passing the native dispatch library directory to LiteRT-LM's Qualcomm backend.
  */
 class LocalRuntimeQnnImpl(
-    private val context: Context,
+    val context: Context,
     private val fallbackLiteRtRuntime: LocalRuntimeImpl = LocalRuntimeImpl(context)
 ) : LocalRuntime {
 
@@ -25,6 +25,7 @@ class LocalRuntimeQnnImpl(
 
     private var isQnnNativeAvailable = false
     private var loadedSpec: LocalEngineSpec? = null
+    private var qnnInitializationAttempts = 0
 
     init {
         // Ensure QNN environment (ADSP_LIBRARY_PATH and LD_LIBRARY_PATH) is set up FIRST
@@ -41,7 +42,7 @@ class LocalRuntimeQnnImpl(
             }
             ready
         } catch (t: Throwable) {
-            Log.i(TAG, "Qualcomm QNN probe: ${t.message}; using fallback integration.")
+            Log.e(TAG, "Qualcomm QNN probe failed: ${t.message}", t)
             false
         }
     }
@@ -50,6 +51,7 @@ class LocalRuntimeQnnImpl(
         Class.forName("com.qualcomm.qti.QnnDelegate")
         true
     } catch (t: Throwable) {
+        Log.d(TAG, "QnnDelegate class not found: ${t.message}")
         false
     }
 
@@ -105,8 +107,17 @@ class LocalRuntimeQnnImpl(
                 spec.copy(accelerator = targetAccelerator)
             }
 
-            fallbackLiteRtRuntime.loadEngine(engineConfig)
-            loadedSpec = spec
+            try {
+                fallbackLiteRtRuntime.loadEngine(engineConfig)
+                loadedSpec = spec
+                Log.i(TAG, "Successfully loaded engine with QNN backend")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load engine with QNN backend, falling back to LiteRT", e)
+                // Fallback to LiteRT implementation
+                fallbackLiteRtRuntime.loadEngine(spec)
+                loadedSpec = spec
+                throw e // Re-throw to indicate fallback occurred
+            }
         }
     }
 

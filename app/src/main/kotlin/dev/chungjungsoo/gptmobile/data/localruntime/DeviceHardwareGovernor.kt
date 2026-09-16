@@ -155,4 +155,19 @@ object DeviceHardwareGovernor {
             false
         }
     }
+    
+    /**
+     * Enhanced hardware state inspection with additional diagnostics for QNN performance
+     */
+    fun inspectHardwareStateForQnn(context: Context): DeviceHardwareState {
+        val baseState = inspectHardwareState(context)
+        
+        // Additional QNN-specific diagnostics
+        val qnnReady = QnnEnvironment.isEnvironmentConfigured()
+        Log.d(TAG, "QNN environment configured: $qnnReady")
+        
+        return baseState.copy(
+            // Add any QNN-specific state if needed
+        )
+    }
 }

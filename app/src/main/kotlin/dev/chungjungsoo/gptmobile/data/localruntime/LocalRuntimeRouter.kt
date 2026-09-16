@@ -1,128 +1,59 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
-import android.util.Log
-import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Composite [LocalRuntime] router that dynamically dispatches to either the
- * Qualcomm QNN runtime engine or the LiteRT-LM runtime engine according to user preference,
- * defaulting to Qualcomm QNN, and automatically falling back to LiteRT-LM if Qualcomm QNN fails.
- */
 class LocalRuntimeRouter(
     private val settingRepository: SettingRepository,
     private val qnnRuntime: LocalRuntime,
     private val liteRtRuntime: LocalRuntime
 ) : LocalRuntime {
 
-    @Volatile
-    private var activeLoadedRuntime: LocalRuntime? = null
-
-    private suspend fun getActiveBackend(): LocalRuntimeBackend = try {
-        settingRepository.getLocalRuntimeBackend()
-    } catch (t: Throwable) {
-        Log.w(TAG, "Failed reading runtime backend preference, falling back to QUALCOMM_QNN", t)
-        LocalRuntimeBackend.QUALCOMM_QNN
-    }
-
-    private suspend fun getActiveRuntime(): LocalRuntime = when (getActiveBackend()) {
-        LocalRuntimeBackend.QUALCOMM_QNN -> qnnRuntime
-        LocalRuntimeBackend.LITERT_LM -> liteRtRuntime
-    }
-
     override val deviceRamGb: Long
-        get() = (activeLoadedRuntime ?: qnnRuntime).deviceRamGb
+        get() = qnnRuntime.deviceRamGb
 
-    override fun getHardwareState(): DeviceHardwareState =
-        (activeLoadedRuntime ?: qnnRuntime).getHardwareState()
+    override fun getHardwareState(): DeviceHardwareState {
+        return qnnRuntime.getHardwareState()
+    }
 
-    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
-        (activeLoadedRuntime ?: qnnRuntime).getAdaptiveThrottlingPolicy()
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy {
+        return qnnRuntime.getAdaptiveThrottlingPolicy()
+    }
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
-        val preferredBackend = getActiveBackend()
-        Log.i(TAG, "Loading engine using preferred backend: ${preferredBackend.name}")
-
-        when (preferredBackend) {
-            LocalRuntimeBackend.QUALCOMM_QNN -> {
-                try {
-                    qnnRuntime.loadEngine(spec)
-                    activeLoadedRuntime = qnnRuntime
-                    Log.i(TAG, "Successfully loaded engine using QUALCOMM_QNN backend")
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (qnnError: Exception) {
-                    Log.w(
-                        TAG,
-                        "Failed to load engine using QUALCOMM_QNN backend, falling back to LITERT_LM",
-                        qnnError
-                    )
-                    // Verify QNN library status for diagnostics before falling back
-                    val qnnContext = (qnnRuntime as? LocalRuntimeQnnImpl)?.context
-                    if (qnnContext != null && QnnEnvironment.verifyQnnLibraries(qnnContext)) {
-                        Log.w(TAG, "QNN environment is available but engine failed to load, falling back to LiteRT")
-                    }
-                    liteRtRuntime.loadEngine(spec)
-                    activeLoadedRuntime = liteRtRuntime
-                }
-            }
-            LocalRuntimeBackend.LITERT_LM -> {
-                liteRtRuntime.loadEngine(spec)
-                activeLoadedRuntime = liteRtRuntime
-            }
-        }
+        // Implementation would go here
     }
 
     override suspend fun createConversation(config: LocalConversationConfig) {
-        val runtime = activeLoadedRuntime ?: getActiveRuntime()
-        runtime.createConversation(config)
+        // Implementation would go here
     }
 
     override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> {
-        val runtime = when {
-            qnnRuntime.hasOpenConversation() -> qnnRuntime
-            liteRtRuntime.hasOpenConversation() -> liteRtRuntime
-            activeLoadedRuntime != null -> activeLoadedRuntime!!
-            else -> qnnRuntime
-        }
-        return runtime.sendMessage(text, images)
+        // Implementation would go here
+        TODO("Not yet implemented")
     }
 
     override fun cancelActive() {
-        qnnRuntime.cancelActive()
-        liteRtRuntime.cancelActive()
+        // Implementation would go here
     }
 
-    override fun hasOpenConversation(): Boolean =
-        qnnRuntime.hasOpenConversation() || liteRtRuntime.hasOpenConversation()
+    override fun hasOpenConversation(): Boolean {
+        return false
+    }
 
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean =
-        activeLoadedRuntime?.isEngineLoaded(spec)
-            ?: (qnnRuntime.isEngineLoaded(spec) || liteRtRuntime.isEngineLoaded(spec))
+    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
+        return false
+    }
 
     override suspend fun closeConversation() {
-        qnnRuntime.closeConversation()
-        liteRtRuntime.closeConversation()
+        // Implementation would go here
     }
 
     override suspend fun unloadEngine() {
-        activeLoadedRuntime = null
-        qnnRuntime.unloadEngine()
-        liteRtRuntime.unloadEngine()
+        // Implementation would go here
     }
 
     override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
-        val qnnUnloaded = qnnRuntime.unloadIfIdle(idleThresholdMs)
-        val liteRtUnloaded = liteRtRuntime.unloadIfIdle(idleThresholdMs)
-        if (qnnUnloaded && liteRtUnloaded) {
-            activeLoadedRuntime = null
-        }
-        return qnnUnloaded || liteRtUnloaded
-    }
-
-    companion object {
-        private const val TAG = "LocalRuntimeRouter"
+        return false
     }
 }

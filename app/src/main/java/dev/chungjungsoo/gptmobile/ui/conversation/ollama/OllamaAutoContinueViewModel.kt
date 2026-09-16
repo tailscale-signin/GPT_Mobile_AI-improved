@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
  * - Debug mode integration
  * - UI state management
  */
+
 class OllamaAutoContinueViewModel(
     private val autoContinueService: OllamaAutoContinueService,
     private val conversationDao: ConversationDao,

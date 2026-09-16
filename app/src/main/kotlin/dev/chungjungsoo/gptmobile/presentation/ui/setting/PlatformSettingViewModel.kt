@@ -206,9 +206,27 @@ class PlatformSettingViewModel @Inject constructor(
         updatePlatform(platform.copy(enabled = enabling))
     }
 
+    fun clearUserMessage() {
+        _userMessage.value = null
+    }
+
+    fun consumeUserMessage() {
+        _userMessage.value = null
+    }
+
+    fun clearToolError() {
+        _toolBindingState.update { it.copy(errorMessage = null) }
+    }
+
+    fun toggleStream() {
+        val platform = platformState.value ?: return
+        updatePlatform(platform.copy(stream = !platform.stream))
+    }
+
     fun toggleReasoning() {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(reasoning = !platform.reasoning))
+        val updated = platform.copy(reasoning = !platform.reasoning)
+        updatePlatform(updated)
     }
 
     fun toggleDisableAllTools() {
@@ -307,48 +325,56 @@ class PlatformSettingViewModel @Inject constructor(
 
     fun updateMaxTokens(maxTokens: Int?) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(maxTokens = maxTokens))
+        val clamped = maxTokens?.coerceIn(MIN_MAX_TOKENS, maxTokensCap())
+        updatePlatform(platform.copy(maxTokens = clamped))
         closeMaxTokensDialog()
     }
 
-    fun updateAccelerator(accelerator: String) {
+    fun updateAccelerator(accelerator: String?) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(accelerator = accelerator))
+        val allowed = acceleratorOptions.value.map { it.accelerator }.toSet()
+        val normalized = accelerator?.takeIf { it in allowed }
+        updatePlatform(platform.copy(accelerator = normalized))
         closeAcceleratorDialog()
     }
 
-    fun updateSystemPrompt(systemPrompt: String) {
+    fun updateSystemPrompt(prompt: String?) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(systemPrompt = systemPrompt))
+        updatePlatform(platform.copy(systemPrompt = prompt?.takeIf { it.isNotBlank() }))
         closeSystemPromptDialog()
     }
 
-    fun updateTimeout(timeout: Int?) {
+    fun updateTimeout(timeout: Int) {
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(timeout = timeout))
         closeTimeoutDialog()
     }
 
-    fun updateGeminiSafety(harassment: String, hateSpeech: String, sexuallyExplicit: String, dangerousContent: String) {
+    fun updateGeminiSafetySettings(
+        harassment: String,
+        hateSpeech: String,
+        sexuallyExplicit: String,
+        dangerousContent: String
+    ) {
         val platform = platformState.value ?: return
         updatePlatform(
             platform.copy(
-                geminiSafetyHarassment = harassment,
-                geminiSafetyHateSpeech = hateSpeech,
-                geminiSafetySexuallyExplicit = sexuallyExplicit,
-                geminiSafetyDangerousContent = dangerousContent
+                harassmentSafetyThreshold = harassment,
+                hateSpeechSafetyThreshold = hateSpeech,
+                sexuallyExplicitSafetyThreshold = sexuallyExplicit,
+                dangerousContentSafetyThreshold = dangerousContent
             )
         )
         closeGeminiSafetyDialog()
     }
 
-    fun updateOpenRouterSettings(routing: String?) {
+    fun updateOpenRouterRouting(routingJson: String?) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(openRouterRouting = routing))
+        updatePlatform(platform.copy(openRouterRouting = routingJson))
         closeOpenRouterSettingsDialog()
     }
 
-    fun updateOllamaAdvancedOptions(optionsJson: String?) {
+    fun updateOllamaOptions(optionsJson: String?) {
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(ollamaOptions = optionsJson))
         closeOllamaAdvancedDialog()
@@ -359,13 +385,11 @@ class PlatformSettingViewModel @Inject constructor(
         viewModelScope.launch {
             settingRepository.deletePlatformV2(platform)
             _isDeleted.value = true
+            closeDeleteDialog()
         }
     }
 
-    fun consumeUserMessage() {
-        _userMessage.value = null
-    }
-
+    // Dialog state management
     fun openPlatformNameDialog() {
         _dialogState.update { it.copy(isPlatformNameDialogOpen = true) }
     }
@@ -535,35 +559,33 @@ class PlatformSettingViewModel @Inject constructor(
         mcpDiscoveryJob?.cancel()
         mcpDiscoveryJob = viewModelScope.launch {
             try {
-                val availableTools = coroutineScope {
-                    currentState.mcpConnections.map { connection ->
+                val connections = currentState.mcpConnections
+                val options = coroutineScope {
+                    connections.map { connection ->
                         async {
-                            try {
-                                agentToolResolver.listRemoteTools(connection).map { tool ->
+                            runCatching {
+                                val tools = agentToolResolver.discoverMcpTools(connection)
+                                tools.map { tool ->
                                     McpToolOption(
                                         connectionUid = connection.connectionUid,
                                         connectionName = connection.name,
                                         toolName = tool.name,
-                                        modelToolName = namespaceMcpToolName(connection.alias, tool.name),
+                                        modelToolName = namespaceMcpToolName(connection.name, tool.name),
                                         description = tool.description
                                     )
                                 }
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                emptyList()
-                            }
+                            }.getOrDefault(emptyList())
                         }
-                    }.awaitAll().flatten()
+                    }.awaitAll().flatten().sortedWith(compareBy({ it.connectionName }, { it.toolName }))
                 }
                 _toolBindingState.update {
                     it.copy(
-                        mcpToolOptions = availableTools,
+                        mcpToolOptions = options,
                         isMcpToolsLoading = false
                     )
                 }
-            } catch (e: CancellationException) {
-                throw e
+            } catch (ce: CancellationException) {
+                throw ce
             } catch (e: Exception) {
                 _toolBindingState.update {
                     it.copy(
@@ -580,17 +602,32 @@ class PlatformSettingViewModel @Inject constructor(
         _toolBindingState.update {
             it.copy(
                 isMcpToolsDialogOpen = false,
-                pendingMcpTools = emptySet(),
-                errorMessage = null
+                isMcpToolsLoading = false,
+                pendingMcpTools = emptySet()
             )
         }
     }
 
-    fun togglePendingMcpTool(connectionUid: String, toolName: String) {
-        val item = ToolBindingSelection(connectionUid, toolName)
+    fun toggleMcpTool(connectionUid: String, toolName: String) {
         _toolBindingState.update { state ->
             val updated = state.pendingMcpTools.toMutableSet()
-            if (!updated.add(item)) {
+            val item = ToolBindingSelection(connectionUid, toolName)
+            if (item in updated) {
+                updated.remove(item)
+            } else {
+                updated.add(item)
+            }
+            state.copy(pendingMcpTools = updated)
+        }
+    }
+
+    fun togglePendingMcpTool(connectionUid: String, toolName: String, enabled: Boolean) {
+        _toolBindingState.update { state ->
+            val updated = state.pendingMcpTools.toMutableSet()
+            val item = ToolBindingSelection(connectionUid, toolName)
+            if (enabled) {
+                updated.add(item)
+            } else {
                 updated.remove(item)
             }
             state.copy(pendingMcpTools = updated)

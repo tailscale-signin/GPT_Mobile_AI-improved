@@ -257,4 +257,19 @@ object QnnEnvironment {
             hardware.contains("qualcomm", ignoreCase = true) ||
             board.contains("qcom", ignoreCase = true)
     }
+    
+    /**
+     * Verifies that QNN libraries are properly loaded and available for use
+     */
+    fun verifyQnnLibraries(context: Context): Boolean {
+        try {
+            val probe = getProbeStatus(context)
+            val librariesAvailable = probe.isReady && probe.skelFileExists
+            Log.d(TAG, "QNN libraries verification: ${if (librariesAvailable) "PASSED" else "FAILED"}")
+            return librariesAvailable
+        } catch (e: Exception) {
+            Log.e(TAG, "Error verifying QNN libraries: ${e.message}", e)
+            return false
+        }
+    }
 }

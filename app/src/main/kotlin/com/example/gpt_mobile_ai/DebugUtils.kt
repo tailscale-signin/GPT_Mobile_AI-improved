@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import java.util.concurrent.atomic.AtomicBoolean
+import android.os.Build
 
 /**
  * Utility class for debugging and logging in the GPT Mobile AI application

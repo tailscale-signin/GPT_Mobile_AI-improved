@@ -19,8 +19,10 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.localSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCreditsData
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import dev.chungjungsoo.gptmobile.data.repository.OpenRouterCreditsRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -28,6 +30,9 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import dev.chungjungsoo.gptmobile.di.DeviceRamGb
 import dev.chungjungsoo.gptmobile.di.DeviceSocModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -53,6 +58,7 @@ class PlatformSettingViewModel @Inject constructor(
     private val localModelRepository: LocalModelRepository,
     @param:DeviceSocModel private val deviceSocModel: String,
     @param:DeviceRamGb private val deviceRamGb: Long = 8L,
+    private val openRouterCreditsRepository: OpenRouterCreditsRepository = OpenRouterCreditsRepository(),
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
@@ -100,14 +106,59 @@ class PlatformSettingViewModel @Inject constructor(
     val toolBindingState: StateFlow<ToolBindingState> = _toolBindingState.asStateFlow()
     private var mcpDiscoveryJob: Job? = null
 
+    private val _openRouterCreditsState = MutableStateFlow<OpenRouterCreditsUiState>(OpenRouterCreditsUiState.Idle)
+    val openRouterCreditsState: StateFlow<OpenRouterCreditsUiState> = _openRouterCreditsState.asStateFlow()
+
     init {
         loadToolBindings()
         loadCatalog()
+        observeOpenRouterCredits()
     }
 
     private fun loadCatalog() {
         viewModelScope.launch {
             _catalogEntries.value = modelCatalogRepository.getVisibleEntries()
+        }
+    }
+
+    private fun observeOpenRouterCredits() {
+        viewModelScope.launch {
+            platformState.collect { platform ->
+                if (platform?.compatibleType == ClientType.OPENROUTER && !platform.token.isNullOrBlank()) {
+                    if (_openRouterCreditsState.value is OpenRouterCreditsUiState.Idle) {
+                        refreshOpenRouterCredits(forceRefresh = false)
+                    }
+                } else if (platform?.compatibleType != ClientType.OPENROUTER) {
+                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
+                }
+            }
+        }
+    }
+
+    fun refreshOpenRouterCredits(forceRefresh: Boolean = false) {
+        val platform = platformState.value ?: return
+        if (platform.compatibleType != ClientType.OPENROUTER) return
+        val token = platform.token?.trim().orEmpty()
+        if (token.isBlank()) {
+            _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
+            return
+        }
+
+        viewModelScope.launch {
+            _openRouterCreditsState.value = OpenRouterCreditsUiState.Loading
+            openRouterCreditsRepository.fetchCredits(token, forceRefresh = forceRefresh)
+                .onSuccess { data ->
+                    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Success(
+                        credits = data,
+                        lastUpdatedTime = timeFormat.format(Date())
+                    )
+                }
+                .onFailure { error ->
+                    _openRouterCreditsState.value = OpenRouterCreditsUiState.Error(
+                        message = error.message ?: "Failed to fetch OpenRouter credits"
+                    )
+                }
         }
     }
 
@@ -155,27 +206,9 @@ class PlatformSettingViewModel @Inject constructor(
         updatePlatform(platform.copy(enabled = enabling))
     }
 
-    fun clearUserMessage() {
-        _userMessage.value = null
-    }
-
-    fun consumeUserMessage() {
-        _userMessage.value = null
-    }
-
-    fun clearToolError() {
-        _toolBindingState.update { it.copy(errorMessage = null) }
-    }
-
-    fun toggleStream() {
-        val platform = platformState.value ?: return
-        updatePlatform(platform.copy(stream = !platform.stream))
-    }
-
     fun toggleReasoning() {
         val platform = platformState.value ?: return
-        val updated = platform.copy(reasoning = !platform.reasoning)
-        updatePlatform(updated)
+        updatePlatform(platform.copy(reasoning = !platform.reasoning))
     }
 
     fun toggleDisableAllTools() {
@@ -274,56 +307,48 @@ class PlatformSettingViewModel @Inject constructor(
 
     fun updateMaxTokens(maxTokens: Int?) {
         val platform = platformState.value ?: return
-        val clamped = maxTokens?.coerceIn(MIN_MAX_TOKENS, maxTokensCap())
-        updatePlatform(platform.copy(maxTokens = clamped))
+        updatePlatform(platform.copy(maxTokens = maxTokens))
         closeMaxTokensDialog()
     }
 
-    fun updateAccelerator(accelerator: String?) {
+    fun updateAccelerator(accelerator: String) {
         val platform = platformState.value ?: return
-        val allowed = acceleratorOptions.value.map { it.accelerator }.toSet()
-        val normalized = accelerator?.takeIf { it in allowed }
-        updatePlatform(platform.copy(accelerator = normalized))
+        updatePlatform(platform.copy(accelerator = accelerator))
         closeAcceleratorDialog()
     }
 
-    fun updateSystemPrompt(prompt: String?) {
+    fun updateSystemPrompt(systemPrompt: String) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(systemPrompt = prompt?.takeIf { it.isNotBlank() }))
+        updatePlatform(platform.copy(systemPrompt = systemPrompt))
         closeSystemPromptDialog()
     }
 
-    fun updateTimeout(timeout: Int) {
+    fun updateTimeout(timeout: Int?) {
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(timeout = timeout))
         closeTimeoutDialog()
     }
 
-    fun updateGeminiSafetySettings(
-        harassment: String,
-        hateSpeech: String,
-        sexuallyExplicit: String,
-        dangerousContent: String
-    ) {
+    fun updateGeminiSafety(harassment: String, hateSpeech: String, sexuallyExplicit: String, dangerousContent: String) {
         val platform = platformState.value ?: return
         updatePlatform(
             platform.copy(
-                harassmentSafetyThreshold = harassment,
-                hateSpeechSafetyThreshold = hateSpeech,
-                sexuallyExplicitSafetyThreshold = sexuallyExplicit,
-                dangerousContentSafetyThreshold = dangerousContent
+                geminiSafetyHarassment = harassment,
+                geminiSafetyHateSpeech = hateSpeech,
+                geminiSafetySexuallyExplicit = sexuallyExplicit,
+                geminiSafetyDangerousContent = dangerousContent
             )
         )
         closeGeminiSafetyDialog()
     }
 
-    fun updateOpenRouterRouting(routingJson: String?) {
+    fun updateOpenRouterSettings(routing: String?) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(openRouterRouting = routingJson))
+        updatePlatform(platform.copy(openRouterRouting = routing))
         closeOpenRouterSettingsDialog()
     }
 
-    fun updateOllamaOptions(optionsJson: String?) {
+    fun updateOllamaAdvancedOptions(optionsJson: String?) {
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(ollamaOptions = optionsJson))
         closeOllamaAdvancedDialog()
@@ -334,11 +359,13 @@ class PlatformSettingViewModel @Inject constructor(
         viewModelScope.launch {
             settingRepository.deletePlatformV2(platform)
             _isDeleted.value = true
-            closeDeleteDialog()
         }
     }
 
-    // Dialog state management
+    fun consumeUserMessage() {
+        _userMessage.value = null
+    }
+
     fun openPlatformNameDialog() {
         _dialogState.update { it.copy(isPlatformNameDialogOpen = true) }
     }
@@ -508,33 +535,35 @@ class PlatformSettingViewModel @Inject constructor(
         mcpDiscoveryJob?.cancel()
         mcpDiscoveryJob = viewModelScope.launch {
             try {
-                val connections = currentState.mcpConnections
-                val options = coroutineScope {
-                    connections.map { connection ->
+                val availableTools = coroutineScope {
+                    currentState.mcpConnections.map { connection ->
                         async {
-                            runCatching {
-                                val tools = agentToolResolver.discoverMcpTools(connection)
-                                tools.map { tool ->
+                            try {
+                                agentToolResolver.listRemoteTools(connection).map { tool ->
                                     McpToolOption(
                                         connectionUid = connection.connectionUid,
                                         connectionName = connection.name,
                                         toolName = tool.name,
-                                        modelToolName = namespaceMcpToolName(connection.name, tool.name),
+                                        modelToolName = namespaceMcpToolName(connection.alias, tool.name),
                                         description = tool.description
                                     )
                                 }
-                            }.getOrDefault(emptyList())
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                emptyList()
+                            }
                         }
-                    }.awaitAll().flatten().sortedWith(compareBy({ it.connectionName }, { it.toolName }))
+                    }.awaitAll().flatten()
                 }
                 _toolBindingState.update {
                     it.copy(
-                        mcpToolOptions = options,
+                        mcpToolOptions = availableTools,
                         isMcpToolsLoading = false
                     )
                 }
-            } catch (ce: CancellationException) {
-                throw ce
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _toolBindingState.update {
                     it.copy(
@@ -551,32 +580,17 @@ class PlatformSettingViewModel @Inject constructor(
         _toolBindingState.update {
             it.copy(
                 isMcpToolsDialogOpen = false,
-                isMcpToolsLoading = false,
-                pendingMcpTools = emptySet()
+                pendingMcpTools = emptySet(),
+                errorMessage = null
             )
         }
     }
 
-    fun toggleMcpTool(connectionUid: String, toolName: String) {
+    fun togglePendingMcpTool(connectionUid: String, toolName: String) {
+        val item = ToolBindingSelection(connectionUid, toolName)
         _toolBindingState.update { state ->
             val updated = state.pendingMcpTools.toMutableSet()
-            val item = ToolBindingSelection(connectionUid, toolName)
-            if (item in updated) {
-                updated.remove(item)
-            } else {
-                updated.add(item)
-            }
-            state.copy(pendingMcpTools = updated)
-        }
-    }
-
-    fun togglePendingMcpTool(connectionUid: String, toolName: String, enabled: Boolean) {
-        _toolBindingState.update { state ->
-            val updated = state.pendingMcpTools.toMutableSet()
-            val item = ToolBindingSelection(connectionUid, toolName)
-            if (enabled) {
-                updated.add(item)
-            } else {
+            if (!updated.add(item)) {
                 updated.remove(item)
             }
             state.copy(pendingMcpTools = updated)

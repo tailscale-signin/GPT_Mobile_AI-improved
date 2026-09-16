@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4.2-pre] - 2026-09-14
+
+### Added & Improved
+- **Version Bump & Pre-Release Pipeline**:
+  - Incremented `versionCode` to `45` and `versionName` to `0.9.4.2-pre`.
+  - Added automated pre-release GitHub Actions workflow producing verifiable APK and AAB build bundles.
+- **UI & Settings Polish**:
+  - Streamlined `HomeTopBar` navigation and settings icons.
+  - Enhanced search bar behavior and model picker dropdowns.
+- **Comprehensive Feature Documentation**:
+  - Detailed documentation covering Sandboxed HTML/SVG Artifacts, Document RAG, Full-Duplex Voice Sessions, and Qualcomm QNN NPU setup.
+
+## [0.9.4.1] - 2026-09-14
+
+### Added & Improved
+- **OpenRouter Real-Time Balance Tracker**:
+  - Added animated OpenRouter credit balance card in platform settings with dynamic currency formatting.
+  - Implemented `OpenRouterBalanceRepository` with local caching, automatic background refresh, and offline resilience.
+  - Added visual error state handling and manual reload button.
+
+## [0.9.4.0] - 2026-09-13
+
+### Added & Improved
+- **Qualcomm QNN NPU Hardware Acceleration**:
+  - Added dynamic Qualcomm Hexagon NPU library verification (`libQnnHtp.so`) and hardware capability probe.
+  - Implemented automatic fallback gracefully degrading from NPU to GPU or CPU if QNN binary symbols are absent.
+  - Added NPU hardware diagnostics tile in Debug Settings displaying active accelerator runtime details.
+
 ## [0.9.3.0] - 2026-09-13
 
 ### Added & Improved

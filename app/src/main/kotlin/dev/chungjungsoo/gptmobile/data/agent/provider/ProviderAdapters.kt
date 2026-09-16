@@ -192,7 +192,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                val messages = (initialMessages + exchanges.flatMap { it.toChatMessages() }).toMutableList()
+                val baseMessages = initialMessages + exchanges.flatMap { it.toChatMessages() }
                 val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                     ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
                 }
@@ -255,7 +255,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     var canRotate = false
 
                     if (platform.compatibleType == ClientType.GROQ) {
-                        val request = createGroqChatCompletionRequest(messages, platform).copy(tools = requestTools)
+                        val request = createGroqChatCompletionRequest(baseMessages, platform).copy(tools = requestTools)
                         val assembler = ChatCompletionsEventAssembler()
                         val reasoningParser = GroqReasoningParser()
 
@@ -379,7 +379,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         null
                     }
 
-                    var currentRequestMessages = messages.toList()
+                    var currentRequestMessages = baseMessages
 
                     while (true) {
                         val request = ChatCompletionRequest(
@@ -430,9 +430,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             hasReceivedTokens = true
                                             choice.finishReason?.let { lastFinishReason = it }
                                             assembler.accept(
-                                                content = choice.delta?.content ?: choice.message?.content,
-                                                reasoning = choice.delta?.reasoning ?: choice.message?.reasoning,
-                                                toolCalls = choice.delta?.toolCalls ?: choice.message?.toolCalls,
+                                                content = choice.delta.content,
+                                                reasoning = choice.delta.reasoning,
+                                                toolCalls = choice.delta.toolCalls,
                                                 finishReason = choice.finishReason
                                             ).forEach { emit(it) }
                                         }
@@ -483,7 +483,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     emit(ProviderEvent.Notice("Auto-continuing response ($autoContinueCount/$maxAutoContinues)..."))
                                     currentRequestMessages = currentRequestMessages + ChatMessage(
                                         role = OpenAIRole.USER,
-                                        content = OpenAITextContent("continue")
+                                        content = listOf(OpenAITextContent("continue"))
                                     )
                                     continue
                                 }
@@ -515,9 +515,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     assembler.accept(
-                                        content = choice.delta?.content ?: choice.message?.content,
-                                        reasoning = choice.delta?.reasoning ?: choice.message?.reasoning,
-                                        toolCalls = choice.delta?.toolCalls ?: choice.message?.toolCalls,
+                                        content = choice.delta.content,
+                                        reasoning = choice.delta.reasoning,
+                                        toolCalls = choice.delta.toolCalls,
                                         finishReason = choice.finishReason
                                     ).forEach { emit(it) }
                                 }
@@ -815,24 +815,27 @@ class GeminiAdapter @Inject constructor(
                     generationConfig = GenerationConfig(
                         temperature = platform.temperature,
                         topP = platform.topP,
-                        topK = platform.topK,
-                        thinkingConfig = if (platform.reasoning) GoogleThinkingConfig(thinkingBudget = 8_192) else null
+                        thinkingConfig = if (platform.reasoning) GoogleThinkingConfig(includeThoughts = true) else null
                     ),
-                    safetySettings = platform.googleSafetySettings(),
                     systemInstruction = platform.systemPrompt?.takeIf { it.isNotBlank() }?.let { prompt ->
                         Content(parts = listOf(Part.text(prompt)))
                     },
-                    tools = tools.takeIf { it.isNotEmpty() }?.let { defs ->
+                    safetySettings = platform.googleSafetySettings(),
+                    tools = tools.takeIf { it.isNotEmpty() }?.let { definitions ->
                         listOf(
                             GoogleTool(
-                                functionDeclarations = defs.map { def ->
-                                    FunctionDeclaration(def.name, def.description, geminiToolParameters(def.inputSchema))
+                                definitions.map { definition ->
+                                    FunctionDeclaration(
+                                        definition.name,
+                                        definition.description,
+                                        geminiToolParameters(definition.inputSchema)
+                                    )
                                 }
                             )
                         )
                     },
                     toolConfig = tools.takeIf { it.isNotEmpty() }?.let {
-                        GoogleToolConfig(functionCallingConfig = GoogleFunctionCallingConfig(mode = "AUTO"))
+                        GoogleToolConfig(GoogleFunctionCallingConfig(mode = "AUTO"))
                     }
                 )
 
@@ -843,17 +846,32 @@ class GeminiAdapter @Inject constructor(
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
-                    val assembler = GeminiEventAssembler()
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey)
                     var roundFailed = false
                     var canRotate = false
 
                     try {
-                        api.streamGenerateContent(request, platform.timeout, ProviderRequestConfig(platform.apiUrl, activeKey)).collect { chunk ->
-                            assembler.accept(chunk).forEach { mapped ->
-                                when (mapped) {
-                                    ProviderEvent.Completed -> Unit
+                        api.streamGenerateContent(request, platform.model, platform.timeout, config).collect { response ->
+                            val parts = response.candidates.orEmpty().flatMap { it.content?.parts.orEmpty() }
+                            if (parts.isNotEmpty()) {
+                                modelPartsByRound[exchanges.size] = modelPartsByRound[exchanges.size].orEmpty() + parts
+                            }
+                            val safetyError = when {
+                                response.promptFeedback?.blockReason != null ->
+                                    "Gemini safety settings blocked the prompt: ${response.promptFeedback.blockReason}"
 
-                                    is ProviderEvent.Failed -> {
+                                response.candidates.orEmpty().any { it.finishReason == "SAFETY" } ->
+                                    "Gemini safety settings blocked the response."
+
+                                else -> null
+                            }
+                            if (safetyError != null) {
+                                roundFailed = true
+                                lastFailedMessage = safetyError
+                                emit(ProviderEvent.Failed(safetyError))
+                            } else {
+                                GeminiEventMapper.accept(response).forEach { mapped ->
+                                    if (mapped is ProviderEvent.Failed) {
                                         roundFailed = true
                                         lastFailedMessage = mapped.message
                                         if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
@@ -861,9 +879,9 @@ class GeminiAdapter @Inject constructor(
                                         } else {
                                             emit(mapped)
                                         }
+                                    } else {
+                                        emit(mapped)
                                     }
-
-                                    else -> emit(mapped)
                                 }
                             }
                         }
@@ -880,7 +898,6 @@ class GeminiAdapter @Inject constructor(
                     }
 
                     if (!roundFailed) {
-                        assembler.replayParts().takeIf { it.isNotEmpty() }?.let { modelPartsByRound[exchanges.size] = it }
                         emit(ProviderEvent.Completed)
                         return@flow
                     } else if (canRotate && attempt < attempts - 1) {
@@ -895,71 +912,65 @@ class GeminiAdapter @Inject constructor(
     }
 }
 
-private fun AgentToolExchange.toChatMessages(): List<ChatMessage> {
-    val assistantCalls = calls.map { call ->
-        ChatToolCall(
-            id = call.id,
-            function = ChatFunction(call.name, call.arguments.toString())
-        )
-    }
-    return listOf(
-        ChatMessage(
-            role = OpenAIRole.ASSISTANT,
-            content = OpenAITextContent(""),
-            toolCalls = assistantCalls
-        )
-    ) + results.map { result ->
-        ChatMessage(
-            role = OpenAIRole.TOOL,
-            toolCallId = result.callId,
-            content = OpenAITextContent(result.modelText())
-        )
-    }
+private fun AgentToolExchange.toChatMessages(): List<ChatMessage> = listOf(
+    ChatMessage(
+        role = OpenAIRole.ASSISTANT,
+        toolCalls = calls.map { call ->
+            ChatToolCall(call.callId, ChatFunction(call.name, call.arguments.toString()))
+        }
+    )
+) + results.map { result ->
+    ChatMessage(
+        role = OpenAIRole.TOOL,
+        content = listOf(OpenAITextContent(result.modelText())),
+        toolCallId = result.callId
+    )
 }
 
-private fun AgentToolExchange.toAnthropicMessages(assistantContent: List<MessageContent>?): List<InputMessage> {
-    val assistant = InputMessage(
-        role = MessageRole.ASSISTANT,
-        content = assistantContent.orEmpty() + calls.map { call ->
-            ToolUseContent(
-                id = call.id,
-                name = call.name,
-                input = call.arguments
-            )
-        }
-    )
-    val userResults = InputMessage(
-        role = MessageRole.USER,
-        content = results.map { result ->
-            AnthropicToolResultContent(
-                toolUseId = result.callId,
-                content = result.modelText(),
-                isError = result.isError
-            )
-        }
-    )
-    return listOf(assistant, userResults)
+private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): ProviderEvent? = when (this) {
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk)
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Thinking -> ProviderEvent.ThinkingDelta(thinkingChunk)
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Notice -> null
+    is dev.chungjungsoo.gptmobile.data.dto.ApiState.Error -> ProviderEvent.Failed(message)
+    else -> null
 }
+
+private fun AgentToolExchange.toAnthropicMessages(assistantContent: List<MessageContent>?): List<InputMessage> = listOf(
+    InputMessage(
+        MessageRole.ASSISTANT,
+        assistantContent ?: calls.map { call -> ToolUseContent(call.callId, call.name, call.arguments) }
+    ),
+    InputMessage(
+        MessageRole.USER,
+        results.map { result ->
+            AnthropicToolResultContent(result.callId, result.modelText(), result.isError)
+        }
+    )
+)
 
 private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Content> {
-    val model = Content(
-        role = GoogleRole.MODEL,
-        parts = modelParts.orEmpty() + calls.map { call ->
-            Part(functionCall = FunctionCall(name = call.name, args = call.arguments))
-        }
-    )
-    val user = Content(
-        role = GoogleRole.USER,
-        parts = results.map { result ->
-            Part(
-                functionResponse = FunctionResponse(
-                    name = result.name,
-                    response = result.modelJson()
+    val callsById = calls.associateBy { it.callId }
+    val originalCalls = modelParts.orEmpty().mapNotNull { it.functionCall }
+    return listOf(
+        Content(
+            GoogleRole.MODEL,
+            modelParts ?: calls.map { call -> Part(functionCall = FunctionCall(call.callId, call.name, call.arguments)) }
+        ),
+        Content(
+            GoogleRole.USER,
+            results.mapNotNull { result ->
+                val call = callsById[result.callId] ?: return@mapNotNull null
+                val providerCallId = if (modelParts == null) result.callId else originalCalls.getOrNull(calls.indexOf(call))?.id
+                Part(
+                    functionResponse = FunctionResponse(
+                        id = providerCallId,
+                        name = call.name,
+                        response = result.modelJson()
+                    )
                 )
-            )
-        }
+            }
+        )
     )
-    return listOf(model, user)
 }
 
 private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): String = when (val value = content) {

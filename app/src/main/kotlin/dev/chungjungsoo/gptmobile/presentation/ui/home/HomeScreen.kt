@@ -41,12 +41,14 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.rounded.Close
@@ -301,101 +303,132 @@ fun HomeScreen(
                         ) { idx, chatRoom ->
                             val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
                             val isGenerating = activeChatIds.contains(chatRoom.id)
-                            ListItem(
+                            val swipeEnabled = !chatListState.isSelectionMode && !chatListState.isSearchMode
+
+                            SwipeableConversationItem(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .combinedClickable(
-                                        onLongClick = {
-                                            if (!chatListState.isSearchMode) {
-                                                homeViewModel.enableSelectionMode()
-                                                homeViewModel.selectChat(idx)
-                                            }
-                                        },
-                                        onClick = {
-                                            if (chatListState.isSelectionMode) {
-                                                homeViewModel.selectChat(idx)
-                                            } else {
-                                                onExistingChatClick(chatRoom, null)
-                                            }
-                                        }
-                                    )
-                                    .padding(start = 8.dp, end = 8.dp)
                                     .animateItem(),
-                                headlineContent = { Text(text = chatRoom.title) },
-                                leadingContent = {
+                                isPinned = chatRoom.isFavorite,
+                                enabled = swipeEnabled,
+                                onSwipeLeftDelete = {
+                                    homeViewModel.deleteChat(chatRoom)
+                                    Toast.makeText(context, R.string.delete, Toast.LENGTH_SHORT).show()
+                                },
+                                onSwipeRightArchive = {
+                                    homeViewModel.archiveChat(chatRoom)
+                                    Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
+                                },
+                                onPressDownPin = {
                                     if (chatListState.isSelectionMode) {
-                                        Checkbox(
-                                            checked = chatListState.selectedChats[idx],
-                                            onCheckedChange = { homeViewModel.selectChat(idx) }
-                                        )
-                                    } else if (isGenerating) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.5.dp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
+                                        homeViewModel.selectChat(idx)
                                     } else {
-                                        Icon(
-                                            ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
-                                            contentDescription = stringResource(R.string.chat_icon)
-                                        )
+                                        homeViewModel.toggleChatPin(chatRoom)
                                     }
                                 },
-                                supportingContent = {
-                                    if (!chatRoom.draftText.isNullOrBlank()) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0x33FFC107),
-                                                border = BorderStroke(1.dp, Color(0xFFFFC107).copy(alpha = 0.6f))
-                                            ) {
-                                                Text(
-                                                    text = "DRAFT",
-                                                    style = MaterialTheme.typography.labelSmall.copy(
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontStyle = FontStyle.Italic,
-                                                        letterSpacing = 0.5.sp
-                                                    ),
-                                                    color = Color(0xFFFFB300),
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                            Text(
-                                                text = chatRoom.draftText,
-                                                style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
+                                onClick = {
+                                    if (chatListState.isSelectionMode) {
+                                        homeViewModel.selectChat(idx)
                                     } else {
-                                        Text(
-                                            text = stringResource(R.string.using_certain_platform, usingPlatform),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                        )
-                                    }
-                                },
-                                trailingContent = {
-                                    if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                                        IconButton(
-                                            onClick = {
-                                                homeViewModel.archiveChat(chatRoom)
-                                                Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Archive,
-                                                contentDescription = stringResource(R.string.archive_chat),
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                            )
-                                        }
+                                        onExistingChatClick(chatRoom, null)
                                     }
                                 }
-                            )
+                            ) {
+                                ListItem(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .combinedClickable(
+                                            onLongClick = {
+                                                if (!chatListState.isSearchMode && !chatListState.isSelectionMode) {
+                                                    homeViewModel.enableSelectionMode()
+                                                    homeViewModel.selectChat(idx)
+                                                }
+                                            },
+                                            onClick = {
+                                                if (chatListState.isSelectionMode) {
+                                                    homeViewModel.selectChat(idx)
+                                                } else {
+                                                    onExistingChatClick(chatRoom, null)
+                                                }
+                                            }
+                                        )
+                                        .padding(start = 8.dp, end = 8.dp),
+                                    headlineContent = { Text(text = chatRoom.title) },
+                                    leadingContent = {
+                                        if (chatListState.isSelectionMode) {
+                                            Checkbox(
+                                                checked = chatListState.selectedChats[idx],
+                                                onCheckedChange = { homeViewModel.selectChat(idx) }
+                                            )
+                                        } else if (isGenerating) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                                strokeWidth = 2.5.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        } else {
+                                            Icon(
+                                                ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
+                                                contentDescription = stringResource(R.string.chat_icon)
+                                            )
+                                        }
+                                    },
+                                    supportingContent = {
+                                        if (!chatRoom.draftText.isNullOrBlank()) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0x33FFC107),
+                                                    border = BorderStroke(1.dp, Color(0xFFFFC107).copy(alpha = 0.6f))
+                                                ) {
+                                                    Text(
+                                                        text = "DRAFT",
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontStyle = FontStyle.Italic,
+                                                            letterSpacing = 0.5.sp
+                                                        ),
+                                                        color = Color(0xFFFFB300),
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = chatRoom.draftText,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        } else {
+                                            Text(
+                                                text = stringResource(R.string.using_certain_platform, usingPlatform),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                            )
+                                        }
+                                    },
+                                    trailingContent = {
+                                        if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                                            IconButton(
+                                                onClick = {
+                                                    homeViewModel.archiveChat(chatRoom)
+                                                    Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Archive,
+                                                    contentDescription = stringResource(R.string.archive_chat),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }

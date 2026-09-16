@@ -1,39 +1,81 @@
 package dev.chungjungsoo.gptmobile.util
 
 import android.util.Log
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
+/**
+ * Enhanced debugging utilities with timestamped logging
+ */
 object DebugUtils {
     private const val TAG = "GPTMobileDebug"
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
-    fun logDebug(message: String) {
-        Log.d(TAG, "${dateFormat.format(Date())} - $message")
+    /**
+     * Logs a message with timestamp
+     */
+    fun log(message: String, level: LogLevel = LogLevel.INFO) {
+        val timestamp = System.currentTimeMillis()
+        val formattedMessage = "[${formatTimestamp(timestamp)}] $message"
+        when (level) {
+            LogLevel.DEBUG -> Log.d(TAG, formattedMessage)
+            LogLevel.INFO -> Log.i(TAG, formattedMessage)
+            LogLevel.WARN -> Log.w(TAG, formattedMessage)
+            LogLevel.ERROR -> Log.e(TAG, formattedMessage)
+        }
     }
 
-    fun logError(message: String, throwable: Throwable? = null) {
-        Log.e(TAG, "${dateFormat.format(Date())} - $message", throwable)
+    /**
+     * Measures execution time of a block
+     */
+    suspend fun <T> measureExecutionTime(block: suspend () -> T): Pair<T, Long> {
+        val startTime = System.nanoTime()
+        val result = withContext(Dispatchers.Default) { block() }
+        val endTime = System.nanoTime()
+        val duration = (endTime - startTime) / 1_000_000 // Convert to milliseconds
+        return Pair(result, duration)
     }
 
-    fun logInfo(message: String) {
-        Log.i(TAG, "${dateFormat.format(Date())} - $message")
+    /**
+     * Composable function to log execution time of a composable block
+     */
+    @Composable
+    fun <T> measureComposableExecutionTime(
+        block: @Composable () -> T
+    ): T {
+        val startTime = System.nanoTime()
+        val result = block()
+        val endTime = System.nanoTime()
+        val duration = (endTime - startTime) / 1_000_000 // Convert to milliseconds
+        Log.d(TAG, "Composable execution time: ${duration}ms")
+        return result
     }
 
-    fun logWarning(message: String) {
-        Log.w(TAG, "${dateFormat.format(Date())} - $message")
+    /**
+     * Format timestamp for logging
+     */
+    private fun formatTimestamp(timestamp: Long): String {
+        return java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.getDefault())
+            .format(java.util.Date(timestamp))
     }
 
-    fun measureExecutionTime(block: () -> Unit): Long {
-        val startTime = System.currentTimeMillis()
-        block()
-        val endTime = System.currentTimeMillis()
-        return endTime - startTime
+    enum class LogLevel {
+        DEBUG, INFO, WARN, ERROR
     }
+}
 
-    fun logExecutionTime(message: String, block: () -> Unit) {
-        val executionTime = measureExecutionTime(block)
-        logInfo("$message took $executionTime ms")
+/**
+ * Composable function to log a message with timestamp
+ */
+@Composable
+fun DebugLog(message: String, level: DebugUtils.LogLevel = DebugUtils.LogLevel.INFO) {
+    val context = LocalContext.current
+    LaunchedEffect(message) {
+        DebugUtils.log(message, level)
     }
 }

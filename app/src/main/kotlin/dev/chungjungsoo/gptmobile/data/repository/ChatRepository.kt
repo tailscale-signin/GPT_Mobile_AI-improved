@@ -45,7 +45,8 @@ interface ChatRepository {
     suspend fun updateAgentMessage(message: MessageV2)
     suspend fun interruptActiveAgentRuns(completedAt: Long): Int
     fun generateDefaultChatTitle(messages: List<MessageV2>): String?
-    suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String)
+    suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean = false)
+    suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2): String?
     suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2
     suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2
     suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>)

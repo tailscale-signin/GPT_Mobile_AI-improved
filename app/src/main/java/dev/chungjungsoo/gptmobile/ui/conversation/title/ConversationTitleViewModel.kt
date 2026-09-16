@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.conversation.Message
 import dev.chungjungsoo.gptmobile.data.conversation.MessageDao
 import dev.chungjungsoo.gptmobile.data.conversation.TitleGenerationService
 import dev.chungjungsoo.gptmobile.data.conversation.TitleGenerationServiceFactory
+import dev.chungjungsoo.gptmobile.util.debugging.DebugUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -53,7 +54,7 @@ class ConversationTitleViewModel(
             if (conversation != null) {
                 _conversationTitle.value = conversation.title
                 _isTitleCustomized.value = conversation.isTitleCustomized
-                Log.d("ConversationTitleViewModel", "Initialized conversation: ${conversation.title}")
+                DebugUtils.logDebug("Initialized conversation: ${conversation.title}")
             }
         }
     }
@@ -69,10 +70,10 @@ class ConversationTitleViewModel(
                     conversationDao.updateConversation(conversation)
                     _conversationTitle.value = newTitle
                     _isTitleCustomized.value = true
-                    Log.d("ConversationTitleViewModel", "Title updated to: $newTitle")
+                    DebugUtils.logDebug("Title updated to: $newTitle")
                 }
             } catch (e: Exception) {
-                Log.e("ConversationTitleViewModel", "Error updating title: ${e.message}", e)
+                DebugUtils.logError("Error updating title", e)
                 _debugInfo.value = "Error updating title: ${e.message}"
             }
         }
@@ -82,12 +83,14 @@ class ConversationTitleViewModel(
         viewModelScope.launch {
             try {
                 _isTitleGenerationInProgress.value = true
-                Log.d("ConversationTitleViewModel", "Starting title generation for conversation: $conversationId")
+                DebugUtils.logDebug("Starting title generation for conversation: $conversationId")
 
                 val conversation = conversationDao.getConversationById(conversationId)
                 if (conversation != null && !conversation.isTitleCustomized) {
                     val messages = messageDao.getMessagesByConversationId(conversationId)
-                    val title = titleGenerationService.generateTitle(messages)
+                    val (title, executionTime) = DebugUtils.measureExecutionTime {
+                        titleGenerationService.generateTitle(messages)
+                    }
                     
                     conversation.title = title
                     conversation.updatedAt = java.util.Date()
@@ -98,10 +101,10 @@ class ConversationTitleViewModel(
                     titleDao.insertTitle(titleHistory)
                     
                     _conversationTitle.value = title
-                    Log.d("ConversationTitleViewModel", "Generated title: $title")
+                    DebugUtils.logDebug("Generated title: $title in ${executionTime}ms")
                 }
             } catch (e: Exception) {
-                Log.e("ConversationTitleViewModel", "Error generating title: ${e.message}", e)
+                DebugUtils.logError("Error generating title", e)
                 _debugInfo.value = "Error generating title: ${e.message}"
             } finally {
                 _isTitleGenerationInProgress.value = false
@@ -120,7 +123,7 @@ class ConversationTitleViewModel(
 
     fun setDebugInfo(info: String) {
         _debugInfo.value = info
-        Log.d("ConversationTitleViewModel", "Debug info set: $info")
+        DebugUtils.logDebug("Debug info set: $info")
     }
 
     fun isTitleGenerationInProgress(): Boolean {

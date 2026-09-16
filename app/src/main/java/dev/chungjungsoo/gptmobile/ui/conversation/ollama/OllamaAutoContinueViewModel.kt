@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.conversation.Message
 import dev.chungjungsoo.gptmobile.data.conversation.MessageDao
 import dev.chungjungsoo.gptmobile.data.conversation.ConversationDao
 import dev.chungjungsoo.gptmobile.data.conversation.ollama.OllamaAutoContinueService
+import dev.chungjungsoo.gptmobile.util.debugging.DebugUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -44,13 +45,13 @@ class OllamaAutoContinueViewModel(
                 if (autoContinueService.isDebugModeEnabled()) {
                     val info = "Auto-continue enabled for conversation $conversationId: $enabled"
                     _debugInfo.value = info
-                    println("[DEBUG] Ollama auto-continue ViewModel: $info")
+                    DebugUtils.logDebug(info)
                 }
             } catch (e: Exception) {
                 if (autoContinueService.isDebugModeEnabled()) {
                     val error = "Error enabling auto-continue: ${e.message}"
                     _debugInfo.value = error
-                    println("[DEBUG] Ollama auto-continue ViewModel error: $error")
+                    DebugUtils.logError("Ollama auto-continue ViewModel error", e)
                 }
             }
         }
@@ -61,14 +62,19 @@ class OllamaAutoContinueViewModel(
             try {
                 val conversation = conversationDao.getConversationById(conversationId)
                 if (conversation != null) {
-                    val shouldContinue = autoContinueService.shouldAutoContinue(conversation, messages)
+                    val (shouldContinue, executionTime) = DebugUtils.measureExecutionTime {
+                        autoContinueService.shouldAutoContinue(conversation, messages)
+                    }
                     
                     if (shouldContinue) {
-                        val success = autoContinueService.autoContinueConversation(conversationId, messages)
+                        val (success, continueExecutionTime) = DebugUtils.measureExecutionTime {
+                            autoContinueService.autoContinueConversation(conversationId, messages)
+                        }
+                        
                         if (autoContinueService.isDebugModeEnabled()) {
-                            val info = "Auto-continue triggered for conversation $conversationId: $success"
+                            val info = "Auto-continue triggered for conversation $conversationId: $success in ${continueExecutionTime}ms"
                             _debugInfo.value = info
-                            println("[DEBUG] Ollama auto-continue ViewModel: $info")
+                            DebugUtils.logDebug(info)
                         }
                     }
                 }
@@ -76,7 +82,7 @@ class OllamaAutoContinueViewModel(
                 if (autoContinueService.isDebugModeEnabled()) {
                     val error = "Error checking auto-continue: ${e.message}"
                     _debugInfo.value = error
-                    println("[DEBUG] Ollama auto-continue ViewModel error: $error")
+                    DebugUtils.logError("Ollama auto-continue ViewModel error", e)
                 }
             }
         }
@@ -85,7 +91,7 @@ class OllamaAutoContinueViewModel(
     fun setDebugMode(enabled: Boolean) {
         autoContinueService.setDebugMode(enabled)
         if (autoContinueService.isDebugModeEnabled()) {
-            println("[DEBUG] Ollama auto-continue ViewModel debug mode enabled")
+            DebugUtils.logDebug("Ollama auto-continue ViewModel debug mode enabled")
         }
     }
 

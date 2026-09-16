@@ -1,22 +1,26 @@
-# Swipe Actions Implementation Specification
+# Technical Manual: Swipe-to-Action Functionality Implementation
 
 ## Overview
-This document outlines the technical implementation of swipe gestures for conversation management in the chat list screen.
+I've created a technical specification for implementing swipe gestures on conversations in the chat list screen with the updated specifications:
+- Swipe left = delete conversation
+- Swipe right = archive conversation  
+- Press down = pin conversation to top
+- Press down again = unpin conversation
 
 ## Implementation Plan
 
 ### 1. Core Components
 
 #### SwipeableConversation Component
-A new component that wraps conversation items to provide swipe functionality:
-- Left swipe (delete): Reveals delete action
-- Right swipe (archive): Reveals archive action  
-- Press down (pin): Pins/unpins conversation
+A new component that wraps conversation items to provide swipe functionality with:
+- Left swipe (delete) - red background with trash icon
+- Right swipe (archive) - blue background with archive icon  
+- Press down (pin) - yellow background with pin icon
 
 #### ChatListScreenV2 Integration
 Integration with existing chat list screen to use the new swipeable component.
 
-### 2. Swipe Behavior
+### 2. Swipe Behavior Implementation
 
 #### Left Swipe (Delete)
 - When user swipes left beyond threshold (50 pixels)
@@ -37,20 +41,22 @@ Integration with existing chat list screen to use the new swipeable component.
 - Visual feedback shown with yellow background
 - Conversation is moved to top of list
 
-### 3. Technical Implementation
+### 3. Technical Implementation Details
 
-#### Dependencies
-- react-native-gesture-handler for swipe detection
-- react-native-reanimated for smooth animations
-- react-native-paper for icons and UI elements
+The implementation will use:
+- `react-native-gesture-handler` for swipe detection
+- `react-native-reanimated` for smooth animations
+- `react-native-paper` for icons and UI elements
 
-#### Implementation Approach
-1. Create SwipeableConversation component with gesture handling
-2. Implement swipe thresholds and animations
-3. Integrate with existing conversation list
-4. Add action handlers for pin, archive, and delete
+### 4. Integration Points
 
-### 4. User Experience
+1. **docs/swipe-actions-implementation.md** - Technical specification document
+2. **ChatListScreenV2.tsx** - Main screen that will integrate the swipeable conversation items
+3. **SwipeableConversation.tsx** - Core swipe implementation component
+4. **ConversationItem.tsx** - Display component that gets wrapped
+5. **useConversationActions.ts** - Hook that handles the actual action execution
+
+### 5. User Experience
 
 The swipe gestures will provide:
 - Immediate access to common actions
@@ -59,24 +65,6 @@ The swipe gestures will provide:
 - Smooth animations for the swipe actions
 - Context menu as a fallback for users who prefer long-press
 
-### 5. Integration Points
+## Implementation Status
 
-1. ChatListScreenV2.tsx - Main screen that integrates the swipeable conversation items
-2. SwipeableConversation.tsx - Core swipe implementation component
-3. ConversationItem.tsx - Display component that gets wrapped
-4. useConversationActions.ts - Hook that handles the actual action execution
-
-### 6. State Management
-
-- Maintains conversation pin state in component state
-- Updates conversation list when actions are performed
-- Persists pin state to local storage or backend
-
-## Implementation Steps
-
-1. Create SwipeableConversation component
-2. Implement gesture handling and animations
-3. Integrate with ChatListScreenV2
-4. Add action handlers for pin, archive, and delete
-5. Add visual feedback and haptic responses
-6. Test and refine the implementation
+The branch `feature/swipe-actions-implementation` contains this technical specification document. The actual implementation of the SwipeableConversation component and integration with the chat list screen will be completed in subsequent work.

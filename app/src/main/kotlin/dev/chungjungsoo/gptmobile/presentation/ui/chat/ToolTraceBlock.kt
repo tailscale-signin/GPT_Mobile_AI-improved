@@ -325,13 +325,13 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
     val noMatchingToolCalls = stringResource(R.string.no_matching_tool_calls)
     val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
 
-    // Make the tool call chat bubble 2x more transparent (0.07f instead of 0.14f)
+    // Make the tool call chat bubble more opaque for better visibility (0.15f)
     Column(
         modifier = modifier
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.07f))
+            .background(Color.Black.copy(alpha = 0.15f))
             .semantics { contentDescription = traceBlockDescription },
     ) {
         Row(

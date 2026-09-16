@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
  * passing the native dispatch library directory to LiteRT-LM's Qualcomm backend.
  */
 class LocalRuntimeQnnImpl(
-    private val context: Context,
+    val context: Context,
     private val fallbackLiteRtRuntime: LocalRuntimeImpl = LocalRuntimeImpl(context)
 ) : LocalRuntime {
 

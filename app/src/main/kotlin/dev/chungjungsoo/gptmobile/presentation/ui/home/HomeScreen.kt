@@ -1056,7 +1056,7 @@ fun HomeTopBar(
         )
     } else {
         TopAppBar(
-            title = { Text(stringResource(R.string.app_name)) },
+            title = { },
             actions = {
                 IconButton(onClick = onSearchToggle) {
                     Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.search))

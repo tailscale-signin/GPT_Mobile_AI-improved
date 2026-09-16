@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4.2-pre] - 2026-09-16
+
+### Added & Improved
+- **UI Cleanups & Presentation Polish**:
+  - `HomeTopBar`: Cleaned up navigation bar layout and action item spacing.
+  - Comprehensive documentation updates covering RAG architecture, Sandboxed Artifact rendering, and full-duplex Voice Session lifecycle.
+- **CI / CD Pipeline Resilience**:
+  - Automated pre-release generation and build artifact uploads for pre-release tags.
+- **Version Bump**:
+  - Bumped version code to `45` (`0.9.4.2-pre`).
+
+## [0.9.4.1] - 2026-09-15
+
+### Added & Improved
+- **OpenRouter Account Balance & Credits Widget**:
+  - Real-time balance and usage queries with animated UI card on Platform Settings.
+  - Cached balance repository to avoid unnecessary network queries and rate-limit hits.
+  - Graceful handling of network timeouts, credential errors, and invalid API keys.
+
+## [0.9.4.0] - 2026-09-14
+
+### Added & Improved
+- **Qualcomm QNN NPU Hardware Acceleration**:
+  - Runtime verification and detection for Qualcomm Neural Processing Unit (`QNN`) libraries.
+  - Hardware diagnostics probe view under Debug Mode displaying SoC architecture and NPU acceleration availability.
+  - Automatic fallback hierarchy: QNN (NPU) → OpenCL (GPU) → Multi-threaded CPU.
+
 ## [0.9.3.0] - 2026-09-13
 
 ### Added & Improved

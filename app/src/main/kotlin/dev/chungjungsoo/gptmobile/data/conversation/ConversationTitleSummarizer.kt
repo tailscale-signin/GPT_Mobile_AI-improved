@@ -121,17 +121,15 @@ class ConversationTitleSummarizer(
     private fun buildPrompt(userMessage: String, assistantMessage: String): String =
         "User: ${userMessage.take(300)}\nAssistant: ${assistantMessage.take(300)}"
 
-    private fun cleanTitle(raw: String): String {
-        return raw.lineSequence().firstOrNull().orEmpty()
-            .trim()
-            .removeSurrounding("\"")
-            .removeSurrounding("“", "”")
-            .removeSurrounding("'")
-            .removePrefix("Title:")
-            .removePrefix("title:")
-            .trim()
-            .take(50)
-    }
+    private fun cleanTitle(raw: String): String = raw.lineSequence().firstOrNull().orEmpty()
+        .trim()
+        .removeSurrounding("\"")
+        .removeSurrounding("“", "”")
+        .removeSurrounding("'")
+        .removePrefix("Title:")
+        .removePrefix("title:")
+        .trim()
+        .take(50)
 
     companion object {
         private const val TIMEOUT_MS = 10_000L

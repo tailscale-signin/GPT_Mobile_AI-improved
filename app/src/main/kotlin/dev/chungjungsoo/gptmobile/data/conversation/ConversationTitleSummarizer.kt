@@ -1,15 +1,21 @@
 package dev.chungjungsoo.gptmobile.data.conversation
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.dto.google.common.Content
+import dev.chungjungsoo.gptmobile.data.dto.google.common.Part
+import dev.chungjungsoo.gptmobile.data.dto.google.common.Role as GoogleRole
+import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerateContentRequest
+import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerationConfig
+import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role
+import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.Message
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.StringContent
+import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
-import dev.chungjungsoo.gptmobile.data.network.anthropicProviderConfig
 import dev.chungjungsoo.gptmobile.data.network.geminiProviderConfig
 import dev.chungjungsoo.gptmobile.data.network.groqProviderConfig
 import dev.chungjungsoo.gptmobile.data.network.openAICompatibleProviderConfig
@@ -48,8 +54,8 @@ class ConversationTitleSummarizer(
         val request = ChatCompletionRequest(
             model = platform.model,
             messages = listOf(
-                Message(role = "system", content = StringContent(SYSTEM_INSTRUCTION)),
-                Message(role = "user", content = StringContent(prompt))
+                ChatMessage(role = Role.SYSTEM, content = listOf(TextContent(SYSTEM_INSTRUCTION))),
+                ChatMessage(role = Role.USER, content = listOf(TextContent(prompt)))
             ),
             temperature = 0.3f,
             maxCompletionTokens = 30
@@ -68,11 +74,11 @@ class ConversationTitleSummarizer(
         platform: PlatformV2,
         config: ProviderRequestConfig
     ): String? {
-        val request = ChatCompletionRequest(
+        val request = GroqChatCompletionRequest(
             model = platform.model,
             messages = listOf(
-                Message(role = "system", content = StringContent(SYSTEM_INSTRUCTION)),
-                Message(role = "user", content = StringContent(prompt))
+                ChatMessage(role = Role.SYSTEM, content = listOf(TextContent(SYSTEM_INSTRUCTION))),
+                ChatMessage(role = Role.USER, content = listOf(TextContent(prompt)))
             ),
             temperature = 0.3f,
             maxCompletionTokens = 30
@@ -91,20 +97,20 @@ class ConversationTitleSummarizer(
         platform: PlatformV2,
         config: ProviderRequestConfig
     ): String? {
-        val request = dev.chungjungsoo.gptmobile.data.dto.google.GeminiRequest(
+        val request = GenerateContentRequest(
             contents = listOf(
-                dev.chungjungsoo.gptmobile.data.dto.google.Content(
-                    role = "user",
-                    parts = listOf(dev.chungjungsoo.gptmobile.data.dto.google.Part.TextPart(text = "$SYSTEM_INSTRUCTION\n\n$prompt"))
+                Content(
+                    role = GoogleRole.USER,
+                    parts = listOf(Part.text("$SYSTEM_INSTRUCTION\n\n$prompt"))
                 )
             ),
-            generationConfig = dev.chungjungsoo.gptmobile.data.dto.google.GenerationConfig(
+            generationConfig = GenerationConfig(
                 temperature = 0.3f,
                 maxOutputTokens = 30
             )
         )
         val sb = StringBuilder()
-        googleAPI.streamChatCompletion(platform.model, request, timeoutSeconds = 15, config = config)
+        googleAPI.streamGenerateContent(request, model = platform.model, timeoutSeconds = 15, config = config)
             .catch { }
             .collect { response ->
                 response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.let { sb.append(it) }

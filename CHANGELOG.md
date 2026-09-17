@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4.5] - 2026-09-17
+
+### Added & Improved
+- **Conversation Pinning & Swipe-to-Dismiss Gestures**:
+  - `SwipeableChatRow` with spring-physics swipe gestures: swipe right to archive, swipe left to delete/pin.
+  - Threshold haptic feedback and 1-second long-press interaction to pin/unpin conversations with elevation spot glow.
+  - Added conversation sorting by favorite/pinned status, draft indicators, and pinned badges.
+- **Android Runtime Services & Assist Integration**:
+  - Added `GptTileService` for Quick Settings tile control.
+  - Added `VoiceInteractionService` and `VoiceInteractionSessionService` for system assistant invocation.
+  - Added `VoiceAssistantActivity` handling `android.intent.action.ASSIST`.
+  - Added vector drawable `ic_gpt_mobile`.
+- **UI Contrast & Polish**:
+  - Increased `ToolTraceBlock` opacity to `0.15f` for improved dark-theme visibility and contrast.
+- **Version Bump**:
+  - Bumped version to `0.9.4.5` (versionCode `49`).
+
+## [0.9.4.4] - 2026-09-17
+
+### Added & Improved
+- **Ollama Auto-Continue for Truncated Generations**:
+  - Native auto-continuation when Ollama responses truncate due to length limits.
+- **Local Runtime & Hardware Acceleration**:
+  - Qualcomm QNN NPU detection, OpenCL GPU, and multi-threaded CPU fallback optimizations.
+- **Version Bump**:
+  - Bumped version to `0.9.4.4` (versionCode `48`).
+
 ## [0.9.4.3] - 2026-09-16
 
 ### Added & Improved

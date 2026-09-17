@@ -192,7 +192,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
-                val messages = initialMessages + exchanges.flatMap { it.toChatMessages() }
+                val baseMessages = initialMessages + exchanges.flatMap { it.toChatMessages() }
                 val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                     ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
                 }
@@ -239,6 +239,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                     null
                 }
 
+                val maxAutoContinues = parsedOllamaOptions?.maxAutoContinues ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES
+                val isAutoContinueEnabled = parsedOllamaOptions?.autoContinue == true
+                var autoContinueCount = 0
+
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
@@ -251,7 +255,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     var canRotate = false
 
                     if (platform.compatibleType == ClientType.GROQ) {
-                        val request = createGroqChatCompletionRequest(messages, platform).copy(tools = requestTools)
+                        val request = createGroqChatCompletionRequest(baseMessages, platform).copy(tools = requestTools)
                         val assembler = ChatCompletionsEventAssembler()
                         val reasoningParser = GroqReasoningParser()
 
@@ -375,155 +379,170 @@ class OpenAICompatibleAdapter @Inject constructor(
                         null
                     }
 
-                    val request = ChatCompletionRequest(
-                        model = platform.model,
-                        messages = messages,
-                        stream = effectiveStream,
-                        temperature = effectiveTemperature,
-                        topP = effectiveTopP,
-                        topK = effectiveTopK,
-                        maxTokens = effectiveMaxTokens,
-                        frequencyPenalty = effectiveFrequencyPenalty,
-                        presencePenalty = effectivePresencePenalty,
-                        repetitionPenalty = effectiveRepetitionPenalty,
-                        seed = effectiveSeed,
-                        stop = effectiveStop,
-                        tools = requestTools,
-                        provider = parsedRouting,
-                        reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null,
-                        options = parsedOllamaOptions
-                    )
-                    val assembler = ChatCompletionsEventAssembler()
+                    var currentRequestMessages = baseMessages
 
-                    if (isOllama) {
-                        // Ollama platform timeout resilience:
-                        // Never fail because of timeout. Continue retrying over and over for up to 5 minutes.
-                        // If still nothing after 5 minutes, wrap up and emit an incomplete AI response.
-                        val maxRetryDurationMs = 5 * 60 * 1000L
-                        val startTime = System.currentTimeMillis()
-                        var hasReceivedTokens = false
-                        var ollamaSucceeded = false
-                        var emulatorFallbackTried = false
-                        var currentConfig = config
+                    while (true) {
+                        val request = ChatCompletionRequest(
+                            model = platform.model,
+                            messages = currentRequestMessages,
+                            stream = effectiveStream,
+                            temperature = effectiveTemperature,
+                            topP = effectiveTopP,
+                            topK = effectiveTopK,
+                            maxTokens = effectiveMaxTokens,
+                            frequencyPenalty = effectiveFrequencyPenalty,
+                            presencePenalty = effectivePresencePenalty,
+                            repetitionPenalty = effectiveRepetitionPenalty,
+                            seed = effectiveSeed,
+                            stop = effectiveStop,
+                            tools = requestTools,
+                            provider = parsedRouting,
+                            reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null,
+                            options = parsedOllamaOptions
+                        )
+                        val assembler = ChatCompletionsEventAssembler()
+                        var lastFinishReason: String? = null
 
-                        while (System.currentTimeMillis() - startTime < maxRetryDurationMs) {
-                            var chunkError: String? = null
-                            var caughtThrowable: Throwable? = null
+                        if (isOllama) {
+                            // Ollama platform timeout resilience:
+                            // Never fail because of timeout. Continue retrying over and over for up to 5 minutes.
+                            // If still nothing after 5 minutes, wrap up and emit an incomplete AI response.
+                            val maxRetryDurationMs = 5 * 60 * 1000L
+                            val startTime = System.currentTimeMillis()
+                            var hasReceivedTokens = false
+                            var ollamaSucceeded = false
+                            var emulatorFallbackTried = false
+                            var currentConfig = config
 
-                            // For Ollama streaming during the resilience loop, provide an extended per-chunk timeout (180s)
-                            // if the platform timeout is configured lower (e.g. 0 or 30s), so prompt evaluation on larger models has room.
-                            val effectiveOllamaTimeout = maxOf(platform.timeout, 180)
+                            while (System.currentTimeMillis() - startTime < maxRetryDurationMs) {
+                                var chunkError: String? = null
+                                var caughtThrowable: Throwable? = null
 
-                            try {
-                                openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig).collect { chunk ->
-                                    chunk.error?.let { err ->
-                                        chunkError = err.message
-                                    } ?: chunk.choices.orEmpty().forEach { choice ->
-                                        hasReceivedTokens = true
-                                        assembler.accept(
-                                            content = choice.delta.content,
-                                            reasoning = choice.delta.reasoning,
-                                            toolCalls = choice.delta.toolCalls,
-                                            finishReason = choice.finishReason
-                                        ).forEach { emit(it) }
+                                // For Ollama streaming during the resilience loop, provide an extended per-chunk timeout (180s)
+                                // if the platform timeout is configured lower (e.g. 0 or 30s), so prompt evaluation on larger models has room.
+                                val effectiveOllamaTimeout = maxOf(platform.timeout, 180)
+
+                                try {
+                                    openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig).collect { chunk ->
+                                        chunk.error?.let { err ->
+                                            chunkError = err.message
+                                        } ?: chunk.choices.orEmpty().forEach { choice ->
+                                            hasReceivedTokens = true
+                                            choice.finishReason?.let { lastFinishReason = it }
+                                            assembler.accept(
+                                                content = choice.delta.content,
+                                                reasoning = choice.delta.reasoning,
+                                                toolCalls = choice.delta.toolCalls,
+                                                finishReason = choice.finishReason
+                                            ).forEach { emit(it) }
+                                        }
                                     }
+                                } catch (t: Throwable) {
+                                    if (t is CancellationException) throw t
+                                    caughtThrowable = t
                                 }
-                            } catch (t: Throwable) {
-                                if (t is CancellationException) throw t
-                                caughtThrowable = t
+
+                                val rawError = chunkError ?: caughtThrowable?.message
+                                val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
+
+                                if (chunkError == null && caughtThrowable == null) {
+                                    ollamaSucceeded = true
+                                    break
+                                } else if (isTimeoutOrConnection) {
+                                    // If connecting to localhost or 127.0.0.1 fails immediately, try switching to 10.0.2.2 for Android emulator
+                                    if (!emulatorFallbackTried && isLocalLoopbackUrl(currentConfig.apiUrl)) {
+                                        val fallbackUrl = rewriteLoopbackForEmulator(currentConfig.apiUrl)
+                                        if (fallbackUrl != currentConfig.apiUrl) {
+                                            emulatorFallbackTried = true
+                                            currentConfig = currentConfig.copy(apiUrl = fallbackUrl)
+                                            emit(ProviderEvent.Notice("Ollama localhost connection failed. Retrying with emulator alias ($fallbackUrl)..."))
+                                            delay(1000L)
+                                            continue
+                                        }
+                                    }
+
+                                    val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
+                                    val remainingMs = maxRetryDurationMs - (System.currentTimeMillis() - startTime)
+                                    if (remainingMs > 0) {
+                                        emit(ProviderEvent.Notice("Ollama response timed out. Retrying (elapsed: ${elapsedSeconds}s)..."))
+                                        delay(minOf(2000L, remainingMs))
+                                        continue
+                                    } else {
+                                        break
+                                    }
+                                } else {
+                                    // Non-timeout error (e.g. invalid model, bad JSON, unauthorized)
+                                    emit(ProviderEvent.Failed(rawError ?: "Ollama request failed"))
+                                    return@flow
+                                }
                             }
 
-                            val rawError = chunkError ?: caughtThrowable?.message
-                            val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
-
-                            if (chunkError == null && caughtThrowable == null) {
-                                ollamaSucceeded = true
-                                break
-                            } else if (isTimeoutOrConnection) {
-                                // If connecting to localhost or 127.0.0.1 fails immediately, try switching to 10.0.2.2 for Android emulator
-                                if (!emulatorFallbackTried && isLocalLoopbackUrl(currentConfig.apiUrl)) {
-                                    val fallbackUrl = rewriteLoopbackForEmulator(currentConfig.apiUrl)
-                                    if (fallbackUrl != currentConfig.apiUrl) {
-                                        emulatorFallbackTried = true
-                                        currentConfig = currentConfig.copy(apiUrl = fallbackUrl)
-                                        emit(ProviderEvent.Notice("Ollama localhost connection failed. Retrying with emulator alias ($fallbackUrl)..."))
-                                        delay(1000L)
-                                        continue
-                                    }
-                                }
-
-                                val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
-                                val remainingMs = maxRetryDurationMs - (System.currentTimeMillis() - startTime)
-                                if (remainingMs > 0) {
-                                    emit(ProviderEvent.Notice("Ollama response timed out. Retrying (elapsed: ${elapsedSeconds}s)..."))
-                                    delay(minOf(2000L, remainingMs))
+                            if (ollamaSucceeded) {
+                                if (isAutoContinueEnabled && lastFinishReason == "length" && autoContinueCount < maxAutoContinues) {
+                                    autoContinueCount++
+                                    emit(ProviderEvent.Notice("Auto-continuing response ($autoContinueCount/$maxAutoContinues)..."))
+                                    currentRequestMessages = currentRequestMessages + ChatMessage(
+                                        role = OpenAIRole.USER,
+                                        content = listOf(OpenAITextContent("continue"))
+                                    )
                                     continue
-                                } else {
-                                    break
                                 }
+                                emit(ProviderEvent.Completed)
+                                return@flow
                             } else {
-                                // Non-timeout error (e.g. invalid model, bad JSON, unauthorized)
-                                emit(ProviderEvent.Failed(rawError ?: "Ollama request failed"))
+                                // 5 minutes elapsed with timeouts / network glitches:
+                                // Cleanly wrap up with incomplete response notice and completed event
+                                val wrapUpNotice = if (hasReceivedTokens) {
+                                    "\n\n[Response incomplete: Ollama server timed out after 5 minutes]"
+                                } else {
+                                    "[Response incomplete: Ollama server timed out after 5 minutes with no response]"
+                                }
+                                emit(ProviderEvent.TextDelta(wrapUpNotice))
+                                emit(ProviderEvent.Completed)
                                 return@flow
                             }
                         }
 
-                        if (ollamaSucceeded) {
-                            emit(ProviderEvent.Completed)
-                            return@flow
-                        } else {
-                            // 5 minutes elapsed with timeouts / network glitches:
-                            // Cleanly wrap up with incomplete response notice and completed event
-                            val wrapUpNotice = if (hasReceivedTokens) {
-                                "\n\n[Response incomplete: Ollama server timed out after 5 minutes]"
-                            } else {
-                                "[Response incomplete: Ollama server timed out after 5 minutes with no response]"
-                            }
-                            emit(ProviderEvent.TextDelta(wrapUpNotice))
-                            emit(ProviderEvent.Completed)
-                            return@flow
-                        }
-                    }
-
-                    try {
-                        openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
-                            chunk.error?.let { error ->
-                                roundFailed = true
-                                lastFailedMessage = error.message
-                                if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
-                                    canRotate = true
-                                } else {
-                                    emit(ProviderEvent.Failed(error.message))
+                        try {
+                            openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                chunk.error?.let { error ->
+                                    roundFailed = true
+                                    lastFailedMessage = error.message
+                                    if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)) {
+                                        canRotate = true
+                                    } else {
+                                        emit(ProviderEvent.Failed(error.message))
+                                    }
+                                } ?: chunk.choices.orEmpty().forEach { choice ->
+                                    assembler.accept(
+                                        content = choice.delta.content,
+                                        reasoning = choice.delta.reasoning,
+                                        toolCalls = choice.delta.toolCalls,
+                                        finishReason = choice.finishReason
+                                    ).forEach { emit(it) }
                                 }
-                            } ?: chunk.choices.orEmpty().forEach { choice ->
-                                assembler.accept(
-                                    content = choice.delta.content,
-                                    reasoning = choice.delta.reasoning,
-                                    toolCalls = choice.delta.toolCalls,
-                                    finishReason = choice.finishReason
-                                ).forEach { emit(it) }
+                            }
+                        } catch (t: Throwable) {
+                            if (t is CancellationException) throw t
+                            roundFailed = true
+                            lastFailedMessage = t.message
+                            if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                                canRotate = true
+                            } else {
+                                emit(ProviderEvent.Failed(t.message ?: "OpenAI-compatible stream request failed"))
+                                return@flow
                             }
                         }
-                    } catch (t: Throwable) {
-                        if (t is CancellationException) throw t
-                        roundFailed = true
-                        lastFailedMessage = t.message
-                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
-                            canRotate = true
+
+                        if (!roundFailed) {
+                            emit(ProviderEvent.Completed)
+                            return@flow
+                        } else if (canRotate && attempt < attempts - 1) {
+                            break
                         } else {
-                            emit(ProviderEvent.Failed(t.message ?: "OpenAI-compatible stream request failed"))
+                            if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
                             return@flow
                         }
-                    }
-
-                    if (!roundFailed) {
-                        emit(ProviderEvent.Completed)
-                        return@flow
-                    } else if (canRotate && attempt < attempts - 1) {
-                        continue
-                    } else {
-                        if (lastFailedMessage != null && canRotate) emit(ProviderEvent.Failed(lastFailedMessage!!))
-                        return@flow
                     }
                 }
             }

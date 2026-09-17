@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 import android.content.Context
 import android.util.Log
 import java.io.FileNotFoundException
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -25,7 +26,6 @@ class LocalRuntimeQnnImpl(
 
     private var isQnnNativeAvailable = false
     private var loadedSpec: LocalEngineSpec? = null
-    private var qnnInitializationAttempts = 0
 
     init {
         // Ensure QNN environment (ADSP_LIBRARY_PATH and LD_LIBRARY_PATH) is set up FIRST
@@ -111,12 +111,11 @@ class LocalRuntimeQnnImpl(
                 fallbackLiteRtRuntime.loadEngine(engineConfig)
                 loadedSpec = spec
                 Log.i(TAG, "Successfully loaded engine with QNN backend")
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to load engine with QNN backend, falling back to LiteRT", e)
-                // Fallback to LiteRT implementation
-                fallbackLiteRtRuntime.loadEngine(spec)
-                loadedSpec = spec
-                throw e // Re-throw to indicate fallback occurred
+                Log.e(TAG, "Failed to load engine with QNN backend", e)
+                throw e
             }
         }
     }

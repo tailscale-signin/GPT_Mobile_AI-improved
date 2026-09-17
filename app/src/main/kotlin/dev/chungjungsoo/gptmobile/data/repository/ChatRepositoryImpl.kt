@@ -280,6 +280,10 @@ class ChatRepositoryImpl(
         chatRoomV2Dao.updateArchived(chatId, isArchived)
     }
 
+    override suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean) {
+        chatRoomV2Dao.updateFavorite(chatId, isFavorite)
+    }
+
     override suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?) {
         chatRoomV2Dao.updateDraft(chatId, draftText, timestamp)
     }

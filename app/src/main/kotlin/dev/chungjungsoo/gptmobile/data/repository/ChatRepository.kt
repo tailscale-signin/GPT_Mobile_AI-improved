@@ -31,6 +31,7 @@ interface ChatRepository {
     suspend fun fetchChatListV2(): List<ChatRoomV2>
     suspend fun fetchArchivedChatListV2(): List<ChatRoomV2>
     suspend fun setChatArchived(chatId: Int, isArchived: Boolean)
+    suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean)
     suspend fun searchChatsV2(query: String): List<ChatRoomV2>
     suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4.6] - 2026-09-17
+
+### Added & Improved
+- **Core Application, Service, & Database Performance**:
+  - Added Room composite database indices (`index_chats_v2_archived_favorite_updated` and `index_chats_v2_archived_updated`) to `ChatRoomV2`.
+  - Parallelized initial platform loading via coroutine `async` in `MainViewModel.kt`.
+  - Benchmarked startup latency and recovery initialization in `GPTMobileApp.kt`.
+  - Added click debouncing to `GptTileService` and OAuth authorization launches in `MainActivity.kt`.
+  - Batched foreground notification updates in `AgentRunForegroundService.kt`.
+- **CI / CD Release Stability**:
+  - Corrected `gh release edit` invocation arguments in `release-build.yml`.
+  - Supplied complete default fallback values in `missing_build_resources.xml` for all localized strings.
+- **Version Bump**:
+  - Bumped version to `0.9.4.6` (versionCode `50`).
+
 ## [0.9.4.5] - 2026-09-17
 
 ### Added & Improved

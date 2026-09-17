@@ -277,14 +277,14 @@ jobs:
             git push origin "$TAG_NAME" 2>/dev/null || true
           fi
 
-          EXISTING_RELEASE=$(gh api repos/:owner/:repo/releases --jq ".[] | select(.tag_name==\"$TAG_NAME\") | .id" 2>/dev/null | head -n 1 || true)
+          EXISTING_RELEASE=$(gh release view "$TAG_NAME" --json id --jq '.id' 2>/dev/null || true)
           if [ -z "$EXISTING_RELEASE" ]; then
-            EXISTING_RELEASE=$(gh api repos/:owner/:repo/releases --jq ".[] | select(.name==\"$RELEASE_TITLE\") | .id" 2>/dev/null | head -n 1 || true)
+            EXISTING_RELEASE=$(gh api "repos/${{ github.repository }}/releases" --jq ".[] | select(.tag_name==\"$TAG_NAME\" or .name==\"$RELEASE_TITLE\") | .id" 2>/dev/null | head -n 1 || true)
           fi
 
           if [ -n "$EXISTING_RELEASE" ]; then
             echo "Found existing release (id: $EXISTING_RELEASE), updating and uploading assets..."
-            gh release edit "$EXISTING_RELEASE" "${FLAGS[@]}" --tag "$TAG_NAME" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY"
+            gh release edit "$EXISTING_RELEASE" "${FLAGS[@]}" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY" || true
             gh release upload "$EXISTING_RELEASE" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
             echo "Creating fresh GitHub Release $TAG_NAME..."

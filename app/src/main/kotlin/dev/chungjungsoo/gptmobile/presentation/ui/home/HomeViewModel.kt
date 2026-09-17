@@ -48,56 +48,22 @@ class HomeViewModel @Inject constructor(
         val DEFAULT_GROUPS = listOf(GROUP_ALL, "Starred", "Work", "Personal")
     }
 
-    data class ChatListState(
-        val chats: List<ChatRoomV2> = listOf(),
-        val isSelectionMode: Boolean = false,
-        val isSearchMode: Boolean = false,
-        val selectedPlatforms: List<Boolean> = listOf(),
-        val selectedChats: List<Boolean> = listOf()
-    )
+    private fun sortChats(chats: List<ChatRoomV2>): List<ChatRoomV2> =
+        chats.sortedWith(compareByDescending<ChatRoomV2> { it.isFavorite }.thenByDescending { it.updatedAt })
 
-    private val _currentTab = MutableStateFlow(HomeTab.CHATS)
-    val currentTab = _currentTab.asStateFlow()
+    data class ChatListState(
+        val chats: List<ChatRoomV2> = emptyList(),
+        val selectedChats: List<Boolean> = emptyList(),
+        val selectedPlatforms: List<Boolean> = emptyList(),
+        val isSelectionMode: Boolean = false,
+        val isSearchMode: Boolean = false
+    )
 
     private val _chatListState = MutableStateFlow(ChatListState())
     val chatListState: StateFlow<ChatListState> = _chatListState.asStateFlow()
 
-    private val _platformState = MutableStateFlow(listOf<PlatformV2>())
-    val platformState = _platformState.asStateFlow()
-
-    private val _archivedChats = MutableStateFlow<List<ChatRoomV2>>(emptyList())
-    val archivedChats = _archivedChats.asStateFlow()
-
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery = _searchQuery.asStateFlow()
-
-    private val _favoriteSearchQuery = MutableStateFlow("")
-    val favoriteSearchQuery = _favoriteSearchQuery.asStateFlow()
-
-    private val rawFavoriteMessagesState = MutableStateFlow<List<MessageV2>>(emptyList())
-
-    private val _favoriteGroups = MutableStateFlow<List<String>>(DEFAULT_GROUPS)
-    val favoriteGroups = _favoriteGroups.asStateFlow()
-
-    private val _selectedFavoriteGroup = MutableStateFlow(GROUP_ALL)
-    val selectedFavoriteGroup = _selectedFavoriteGroup.asStateFlow()
-
-    private val _messageGroups = MutableStateFlow<Map<Int, String>>(emptyMap())
-    val messageGroups = _messageGroups.asStateFlow()
-
-    val favoriteMessages: StateFlow<List<MessageV2>> = combine(
-        rawFavoriteMessagesState,
-        _selectedFavoriteGroup,
-        _messageGroups
-    ) { rawFavorites, selectedGroup, msgGroups ->
-        if (selectedGroup == GROUP_ALL) {
-            rawFavorites
-        } else {
-            rawFavorites.filter { message ->
-                msgGroups[message.id] == selectedGroup
-            }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _platformState = MutableStateFlow<List<PlatformV2>>(emptyList())
+    val platformState: StateFlow<List<PlatformV2>> = _platformState.asStateFlow()
 
     private val _showSelectModelDialog = MutableStateFlow(false)
     val showSelectModelDialog: StateFlow<Boolean> = _showSelectModelDialog.asStateFlow()
@@ -105,77 +71,88 @@ class HomeViewModel @Inject constructor(
     private val _showDeleteWarningDialog = MutableStateFlow(false)
     val showDeleteWarningDialog: StateFlow<Boolean> = _showDeleteWarningDialog.asStateFlow()
 
-    private val _activeChatIds = MutableStateFlow<Set<Int>>(emptySet())
-    val activeChatIds = _activeChatIds.asStateFlow()
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _favoriteSearchQuery = MutableStateFlow("")
+    val favoriteSearchQuery: StateFlow<String> = _favoriteSearchQuery.asStateFlow()
+
+    private val _selectedHomeTab = MutableStateFlow(HomeTab.CHATS)
+    val selectedHomeTab: StateFlow<HomeTab> = _selectedHomeTab.asStateFlow()
+
+    private val _favoriteGroups = MutableStateFlow(DEFAULT_GROUPS)
+    val favoriteGroups: StateFlow<List<String>> = _favoriteGroups.asStateFlow()
+
+    private val _selectedFavoriteGroup = MutableStateFlow(GROUP_ALL)
+    val selectedFavoriteGroup: StateFlow<String> = _selectedFavoriteGroup.asStateFlow()
+
+    private val _messageGroups = MutableStateFlow<Map<Int, String>>(emptyMap())
+    val messageGroups: StateFlow<Map<Int, String>> = _messageGroups.asStateFlow()
+
+    private val _archivedChats = MutableStateFlow<List<ChatRoomV2>>(emptyList())
+    val archivedChats: StateFlow<List<ChatRoomV2>> = _archivedChats.asStateFlow()
+
+    val favoriteMessages: StateFlow<List<MessageV2>> = combine(
+        _favoriteSearchQuery.debounce(SEARCH_DEBOUNCE_MS).distinctUntilChanged().flatMapLatest { query ->
+            chatRepository.searchFavoriteAssistantMessages(query)
+        },
+        _selectedFavoriteGroup,
+        _messageGroups
+    ) { messages, group, groupsMap ->
+        when (group) {
+            GROUP_ALL -> messages
+            else -> messages.filter { groupsMap[it.id] == group }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
 
     init {
-        // Set up debounced search for chats
         _searchQuery
             .debounce(SEARCH_DEBOUNCE_MS)
             .distinctUntilChanged()
-            .onEach { query -> searchChats(query) }
-            .launchIn(viewModelScope)
-
-        // Set up debounced search / observation for favorite messages
-        _favoriteSearchQuery
-            .debounce(SEARCH_DEBOUNCE_MS)
-            .distinctUntilChanged()
-            .flatMapLatest { query ->
-                if (query.isBlank()) {
-                    chatRepository.observeFavoriteAssistantMessages()
-                } else {
-                    chatRepository.searchFavoriteAssistantMessages(query)
+            .onEach { query ->
+                if (_chatListState.value.isSearchMode) {
+                    searchChats(query)
                 }
             }
-            .onEach { favorites -> rawFavoriteMessagesState.update { favorites } }
             .launchIn(viewModelScope)
 
-        // Observe persisted favorite groups and message-to-group mappings
-        settingRepository.observeFavoriteGroups()
-            .onEach { savedGroups ->
-                val merged = if (savedGroups.isEmpty()) {
-                    DEFAULT_GROUPS
-                } else {
-                    (DEFAULT_GROUPS + savedGroups).distinct()
-                }
-                _favoriteGroups.update { merged }
-            }
-            .launchIn(viewModelScope)
-
-        settingRepository.observeFavoriteMessageGroups()
-            .onEach { savedMappings ->
-                _messageGroups.update { savedMappings }
-            }
-            .launchIn(viewModelScope)
-
-        agentRunCoordinator.activeRuns
-            .onEach { runs -> _activeChatIds.update { runs.values.mapTo(mutableSetOf()) { it.chatId } } }
-            .launchIn(viewModelScope)
-
-        fetchArchivedChats()
+        loadFavoriteSettings()
     }
 
-    fun selectTab(tab: HomeTab) {
-        _currentTab.update { tab }
-        disableSelectionMode()
+    private fun loadFavoriteSettings() {
+        viewModelScope.launch {
+            settingRepository.fetchFavoriteGroups().collect { savedGroups ->
+                val combined = (DEFAULT_GROUPS + savedGroups).distinct()
+                _favoriteGroups.update { combined }
+            }
+        }
+        viewModelScope.launch {
+            settingRepository.fetchFavoriteMessageGroups().collect { savedMessageGroups ->
+                _messageGroups.update { savedMessageGroups }
+            }
+        }
     }
 
-    fun updateFavoriteSearchQuery(query: String) {
-        _favoriteSearchQuery.update { query }
+    fun selectHomeTab(tab: HomeTab) {
+        _selectedHomeTab.update { tab }
     }
 
     fun selectFavoriteGroup(group: String) {
         _selectedFavoriteGroup.update { group }
     }
 
-    fun addFavoriteGroup(newGroup: String) {
-        val trimmed = newGroup.trim()
-        if (trimmed.isNotEmpty() && !_favoriteGroups.value.contains(trimmed)) {
+    fun addFavoriteGroup(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isNotBlank() && trimmed !in _favoriteGroups.value) {
             val updated = _favoriteGroups.value + trimmed
             _favoriteGroups.update { updated }
-            _selectedFavoriteGroup.update { trimmed }
             viewModelScope.launch {
-                settingRepository.saveFavoriteGroups(updated.filter { it !in DEFAULT_GROUPS })
+                val customOnly = updated.filter { it !in DEFAULT_GROUPS }
+                settingRepository.saveFavoriteGroups(customOnly)
             }
         }
     }
@@ -195,6 +172,13 @@ class HomeViewModel @Inject constructor(
     fun toggleFavorite(messageId: Int, isFavorite: Boolean) {
         viewModelScope.launch {
             chatRepository.setMessageFavorite(messageId, isFavorite)
+        }
+    }
+
+    fun toggleChatFavorite(chatId: Int, isFavorite: Boolean) {
+        viewModelScope.launch {
+            chatRepository.setChatFavorite(chatId, isFavorite)
+            fetchChats()
         }
     }
 
@@ -227,11 +211,12 @@ class HomeViewModel @Inject constructor(
 
     private fun searchChats(query: String) {
         viewModelScope.launch {
-            val chats = chatRepository.searchChatsV2(query)
+            val rawChats = chatRepository.searchChatsV2(query)
+            val sorted = sortChats(rawChats)
             _chatListState.update {
                 it.copy(
-                    chats = chats,
-                    selectedChats = List(chats.size) { false }
+                    chats = sorted,
+                    selectedChats = List(sorted.size) { false }
                 )
             }
         }
@@ -267,8 +252,19 @@ class HomeViewModel @Inject constructor(
                 chatRepository.deleteChatsV2(selectedChats)
                 chatRepository.fetchChatListV2()
             }
-            _chatListState.update { it.copy(chats = chats) }
+            val sorted = sortChats(chats)
+            _chatListState.update { it.copy(chats = sorted) }
             disableSelectionMode()
+        }
+    }
+
+    fun deleteChat(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            agentRunCoordinator.withChatGate(chatRoom.id) {
+                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
+                chatRepository.deleteChatsV2(listOf(chatRoom))
+            }
+            fetchChats()
         }
     }
 
@@ -316,7 +312,8 @@ class HomeViewModel @Inject constructor(
                 chatRepository.duplicateChatV2(selectedChat)
                 chatRepository.fetchChatListV2()
             } ?: return@launch
-            _chatListState.update { it.copy(chats = chats) }
+            val sorted = sortChats(chats)
+            _chatListState.update { it.copy(chats = sorted) }
             disableSelectionMode()
         }
     }
@@ -347,12 +344,13 @@ class HomeViewModel @Inject constructor(
 
     fun fetchChats() {
         viewModelScope.launch {
-            val chats = chatRepository.fetchChatListV2()
+            val rawChats = chatRepository.fetchChatListV2()
+            val sorted = sortChats(rawChats)
 
             _chatListState.update {
                 it.copy(
-                    chats = chats,
-                    selectedChats = List(chats.size) { false },
+                    chats = sorted,
+                    selectedChats = List(sorted.size) { false },
                     isSelectionMode = false
                 )
             }

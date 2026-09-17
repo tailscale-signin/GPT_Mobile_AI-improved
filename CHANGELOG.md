@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.4.6-pre] - 2026-09-17
+## [0.9.4.6] - 2026-09-17
 
 ### Added & Improved
 - **Core Performance & ViewModel Optimizations**:
@@ -16,8 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Qualcomm QNN HTP & NPU Acceleration**:
   - Fixed operator precedence in `QnnEnvironment.kt` probe environment readiness verification.
   - Resolved double-handling and redundant engine allocation in `LocalRuntimeQnnImpl.kt` fallback path.
+- **Conversation Pinning & Gesture Integration**:
+  - Production verification of swipe-to-dismiss, archive gestures, and 1-second conversation hold-to-pin.
+  - Integrated Circuit Breaker user error classification across `ChatRepository` and `AgentRunner`.
 - **Build & Packaging Details**:
-  - Bumped version code to `50` (`0.9.4.6-pre`).
+  - Bumped version to `0.9.4.6` (versionCode `51`).
 
 ## [0.9.4.5] - 2026-09-17
 

@@ -4,6 +4,11 @@
 
 This document outlines proposed UI enhancements for the GPT_Mobile_AI-improved application to improve user experience and visual design.
 
+## Branch Information
+
+This branch (`uiupgrade`) is created for UI improvements and will NOT be merged. 
+The purpose is to document and plan UI enhancements for the v0.9.4.5 release.
+
 ## UI Design Improvements
 
 ### 1. Conversation List UI Enhancements
@@ -64,3 +69,8 @@ This document outlines proposed UI enhancements for the GPT_Mobile_AI-improved a
 3. Improve information hierarchy in conversation lists and settings
 4. Add better accessibility support
 5. Standardize UI components across different screens
+
+## Implementation Status
+
+This branch is for documentation and planning purposes only. 
+No actual code changes will be made to this branch.

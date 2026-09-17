@@ -117,6 +117,7 @@ fun PlatformSettingScreen(
     val acceleratorOptions by settingViewModel.acceleratorOptions.collectAsStateWithLifecycle()
     val userMessage by settingViewModel.userMessage.collectAsStateWithLifecycle()
     val openRouterCreditsState by settingViewModel.openRouterCreditsState.collectAsStateWithLifecycle()
+    val ollamaServerState by settingViewModel.ollamaServerState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var openMcpToolsAfterPermission by remember { mutableStateOf(false) }
     var showBatchUrlDialog by remember { mutableStateOf(false) }
@@ -163,6 +164,7 @@ fun PlatformSettingScreen(
                     .verticalScroll(scrollState)
             ) {
                 val isLocalPlatform = platformData.compatibleType == ClientType.LITERT_LM
+                val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
                 PreferenceSwitchWithContainer(
                     title = stringResource(if (isLocalPlatform) R.string.enable_platform else R.string.enable),
                     isChecked = platformData.enabled
@@ -216,6 +218,16 @@ fun PlatformSettingScreen(
                                 contentDescription = stringResource(R.string.api_key)
                             )
                         }
+                    )
+                }
+
+                if (isOllamaPlatform) {
+                    OllamaServerCard(
+                        serverUrl = platformData.apiUrl.orEmpty(),
+                        uiState = ollamaServerState,
+                        currentModel = platformData.model,
+                        onTestConnection = settingViewModel::checkOllamaServer,
+                        onSelectModel = settingViewModel::updateApiModel
                     )
                 }
 

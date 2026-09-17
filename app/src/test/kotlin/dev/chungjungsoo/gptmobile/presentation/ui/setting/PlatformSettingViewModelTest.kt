@@ -27,6 +27,8 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import dev.chungjungsoo.gptmobile.data.repository.OllamaServerRepository
+import dev.chungjungsoo.gptmobile.data.repository.OpenRouterCreditsRepository
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -163,6 +165,8 @@ class PlatformSettingViewModelTest {
         catalog: ModelCatalogRepository = FakeModelCatalogRepository(),
         deviceSocModel: String = "Tensor G4",
         deviceRamGb: Long = 8L,
+        openRouterCreditsRepository: OpenRouterCreditsRepository = OpenRouterCreditsRepository(),
+        ollamaServerRepository: OllamaServerRepository = OllamaServerRepository(),
         platformUid: String = "profile-1"
     ): PlatformSettingViewModel {
         val networkClient = NetworkClient(CIO)
@@ -189,6 +193,8 @@ class PlatformSettingViewModelTest {
             localModelRepository = localModelRepository,
             deviceSocModel = deviceSocModel,
             deviceRamGb = deviceRamGb,
+            openRouterCreditsRepository = openRouterCreditsRepository,
+            ollamaServerRepository = ollamaServerRepository,
             savedStateHandle = SavedStateHandle(mapOf("platformUid" to platformUid))
         )
     }

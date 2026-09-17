@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import javax.inject.Inject
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,8 +34,10 @@ class MainViewModel @Inject constructor(private val settingRepository: SettingRe
     init {
         viewModelScope.launch {
             StartupRecoveryGate.await()
-            val platforms = settingRepository.fetchPlatforms()
-            val platformV2s = settingRepository.fetchPlatformV2s()
+            val platformsDeferred = async { settingRepository.fetchPlatforms() }
+            val platformV2sDeferred = async { settingRepository.fetchPlatformV2s() }
+            val platforms = platformsDeferred.await()
+            val platformV2s = platformV2sDeferred.await()
 
             when {
                 (platforms.all { it.enabled.not() } && platforms.all { it.token == null }) &&

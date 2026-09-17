@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -51,6 +52,8 @@ class AgentRunForegroundService : Service() {
     private var isForeground = false
     private var lastActiveProfileUid: String? = null
     private var lastActiveChatId: Int? = null
+    private var lastNotificationUpdateTime = 0L
+    private var lastNotificationText: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -140,7 +143,18 @@ class AgentRunForegroundService : Service() {
     }
 
     private fun updateNotification(activeRuns: List<ActiveAgentRun>) {
-        val notification = buildNotification(activeRuns)
+        val contentText = resolveNotificationContentText(this, activeRuns)
+        val now = SystemClock.uptimeMillis()
+
+        // Batch notifications: suppress identical text within throttle window to save battery
+        if (isForeground && contentText == lastNotificationText && (now - lastNotificationUpdateTime < NOTIFICATION_THROTTLE_MS)) {
+            return
+        }
+
+        lastNotificationText = contentText
+        lastNotificationUpdateTime = now
+
+        val notification = buildNotification(contentText)
         if (!isForeground) {
             ServiceCompat.startForeground(
                 this,
@@ -151,13 +165,11 @@ class AgentRunForegroundService : Service() {
             isForeground = true
         } else {
             val manager = getSystemService(NotificationManager::class.java)
-            manager.notify(NOTIFICATION_ID, notification)
+            manager?.notify(NOTIFICATION_ID, notification)
         }
     }
 
-    private fun buildNotification(activeRuns: List<ActiveAgentRun>): Notification {
-        val contentText = resolveNotificationContentText(this, activeRuns)
-
+    private fun buildNotification(contentText: String): Notification {
         val openApp = buildOpenAppPendingIntent(1, lastActiveChatId)
 
         val cancelIntent = Intent(this, AgentRunForegroundService::class.java).apply {
@@ -194,7 +206,7 @@ class AgentRunForegroundService : Service() {
                 getString(R.string.agent_completion_notification_title)
             }
             val manager = getSystemService(NotificationManager::class.java)
-            manager.notify(NOTIFICATION_ID, buildCompletionNotification(title, lastActiveChatId))
+            manager?.notify(NOTIFICATION_ID, buildCompletionNotification(title, lastActiveChatId))
         }
     }
 
@@ -252,14 +264,14 @@ class AgentRunForegroundService : Service() {
 
     private fun createNotificationChannel() {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
+        manager?.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.agent_notification_channel),
                 NotificationManager.IMPORTANCE_LOW
             )
         )
-        manager.createNotificationChannel(
+        manager?.createNotificationChannel(
             NotificationChannel(
                 COMPLETION_CHANNEL_ID,
                 getString(R.string.agent_completion_notification_title),
@@ -278,6 +290,7 @@ class AgentRunForegroundService : Service() {
         private const val ACTION_CANCEL_ALL = "dev.chungjungsoo.gptmobile.action.CANCEL_AGENT_RUNS"
         private const val WAKELOCK_TAG = "dev.chungjungsoo.gptmobile:agent_execution_wakelock"
         private const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L // 1 hour max safeguard
+        private const val NOTIFICATION_THROTTLE_MS = 500L // Throttle notification updates
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.database.entity
 import android.os.Parcelable
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import kotlinx.parcelize.Parcelize
@@ -10,7 +11,13 @@ import kotlinx.serialization.Serializable
 
 @Parcelize
 @Serializable
-@Entity(tableName = "chats_v2")
+@Entity(
+    tableName = "chats_v2",
+    indices = [
+        Index(name = "index_chats_v2_archived_favorite_updated", value = ["is_archived", "is_favorite", "updated_at"]),
+        Index(name = "index_chats_v2_archived_updated", value = ["is_archived", "updated_at"])
+    ]
+)
 data class ChatRoomV2(
     /**
      Now, enabled platforms are stored as list of strings.

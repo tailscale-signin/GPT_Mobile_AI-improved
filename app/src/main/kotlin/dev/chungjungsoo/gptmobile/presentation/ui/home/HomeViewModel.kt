@@ -108,6 +108,13 @@ class HomeViewModel @Inject constructor(
     private val _activeChatIds = MutableStateFlow<Set<Int>>(emptySet())
     val activeChatIds = _activeChatIds.asStateFlow()
 
+    private fun sortChats(chats: List<ChatRoomV2>, activeIds: Set<Int> = _activeChatIds.value): List<ChatRoomV2> =
+        chats.sortedWith(
+            compareByDescending<ChatRoomV2> { activeIds.contains(it.id) }
+                .thenByDescending { it.isFavorite }
+                .thenByDescending { it.updatedAt }
+        )
+
     init {
         // Set up debounced search for chats
         _searchQuery
@@ -149,7 +156,17 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
 
         agentRunCoordinator.activeRuns
-            .onEach { runs -> _activeChatIds.update { runs.values.mapTo(mutableSetOf()) { it.chatId } } }
+            .onEach { runs ->
+                val newActiveIds = runs.values.mapTo(mutableSetOf()) { it.chatId }
+                _activeChatIds.update { newActiveIds }
+                _chatListState.update { current ->
+                    if (!current.isSelectionMode) {
+                        current.copy(chats = sortChats(current.chats, newActiveIds))
+                    } else {
+                        current
+                    }
+                }
+            }
             .launchIn(viewModelScope)
 
         fetchArchivedChats()
@@ -198,6 +215,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun toggleChatFavorite(chatId: Int, isFavorite: Boolean) {
+        viewModelScope.launch {
+            chatRepository.setChatFavorite(chatId, isFavorite)
+            fetchChats()
+        }
+    }
+
     fun togglePlatformFavorite(platformId: Int, isFavorite: Boolean) {
         viewModelScope.launch {
             managePlatformsUseCase.toggleFavoritePlatform(platformId, isFavorite)
@@ -227,11 +251,12 @@ class HomeViewModel @Inject constructor(
 
     private fun searchChats(query: String) {
         viewModelScope.launch {
-            val chats = chatRepository.searchChatsV2(query)
+            val rawChats = chatRepository.searchChatsV2(query)
+            val sorted = sortChats(rawChats)
             _chatListState.update {
                 it.copy(
-                    chats = chats,
-                    selectedChats = List(chats.size) { false }
+                    chats = sorted,
+                    selectedChats = List(sorted.size) { false }
                 )
             }
         }
@@ -267,8 +292,19 @@ class HomeViewModel @Inject constructor(
                 chatRepository.deleteChatsV2(selectedChats)
                 chatRepository.fetchChatListV2()
             }
-            _chatListState.update { it.copy(chats = chats) }
+            val sorted = sortChats(chats)
+            _chatListState.update { it.copy(chats = sorted) }
             disableSelectionMode()
+        }
+    }
+
+    fun deleteChat(chatRoom: ChatRoomV2) {
+        viewModelScope.launch {
+            agentRunCoordinator.withChatGate(chatRoom.id) {
+                agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
+                chatRepository.deleteChatsV2(listOf(chatRoom))
+            }
+            fetchChats()
         }
     }
 
@@ -316,7 +352,8 @@ class HomeViewModel @Inject constructor(
                 chatRepository.duplicateChatV2(selectedChat)
                 chatRepository.fetchChatListV2()
             } ?: return@launch
-            _chatListState.update { it.copy(chats = chats) }
+            val sorted = sortChats(chats)
+            _chatListState.update { it.copy(chats = sorted) }
             disableSelectionMode()
         }
     }
@@ -347,12 +384,13 @@ class HomeViewModel @Inject constructor(
 
     fun fetchChats() {
         viewModelScope.launch {
-            val chats = chatRepository.fetchChatListV2()
+            val rawChats = chatRepository.fetchChatListV2()
+            val sorted = sortChats(rawChats)
 
             _chatListState.update {
                 it.copy(
-                    chats = chats,
-                    selectedChats = List(chats.size) { false },
+                    chats = sorted,
+                    selectedChats = List(sorted.size) { false },
                     isSelectionMode = false
                 )
             }

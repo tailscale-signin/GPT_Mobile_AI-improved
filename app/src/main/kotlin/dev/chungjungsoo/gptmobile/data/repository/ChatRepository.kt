@@ -26,6 +26,7 @@ interface ChatRepository {
     fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>>
     fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>>
     suspend fun setMessageFavorite(messageId: Int, isFavorite: Boolean)
+    suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean)
     fun observeAgentRuns(chatId: Int): Flow<List<AgentRun>>
     fun observeToolEvents(chatId: Int): Flow<List<ToolEvent>>
     suspend fun fetchChatListV2(): List<ChatRoomV2>

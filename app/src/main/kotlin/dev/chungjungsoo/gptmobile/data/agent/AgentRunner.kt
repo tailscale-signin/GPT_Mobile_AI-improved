@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -140,7 +141,8 @@ class AgentRunner(
                 emit(failed(error.message ?: "Tools are unavailable for this model."))
                 return
             } catch (error: Throwable) {
-                emit(failed(error.message ?: "Provider request failed."))
+                val classified = ErrorClassification.classify(error)
+                emit(failed(classified.userMessage))
                 return
             }
 

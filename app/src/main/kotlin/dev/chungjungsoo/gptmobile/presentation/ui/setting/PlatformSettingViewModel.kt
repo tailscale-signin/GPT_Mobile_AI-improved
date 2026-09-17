@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
+import dev.chungjungsoo.gptmobile.data.repository.OllamaServerRepository
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterCreditsRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection
@@ -58,6 +59,7 @@ class PlatformSettingViewModel @Inject constructor(
     @param:DeviceSocModel private val deviceSocModel: String,
     @param:DeviceRamGb private val deviceRamGb: Long = 8L,
     private val openRouterCreditsRepository: OpenRouterCreditsRepository = OpenRouterCreditsRepository(),
+    private val ollamaServerRepository: OllamaServerRepository = OllamaServerRepository(),
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
@@ -108,10 +110,14 @@ class PlatformSettingViewModel @Inject constructor(
     private val _openRouterCreditsState = MutableStateFlow<OpenRouterCreditsUiState>(OpenRouterCreditsUiState.Idle)
     val openRouterCreditsState: StateFlow<OpenRouterCreditsUiState> = _openRouterCreditsState.asStateFlow()
 
+    private val _ollamaServerState = MutableStateFlow<OllamaServerUiState>(OllamaServerUiState.Idle)
+    val ollamaServerState: StateFlow<OllamaServerUiState> = _ollamaServerState.asStateFlow()
+
     init {
         loadToolBindings()
         loadCatalog()
         observeOpenRouterCredits()
+        observeOllamaServer()
     }
 
     private fun loadCatalog() {
@@ -130,6 +136,48 @@ class PlatformSettingViewModel @Inject constructor(
                 } else if (platform?.compatibleType != ClientType.OPENROUTER) {
                     _openRouterCreditsState.value = OpenRouterCreditsUiState.Idle
                 }
+            }
+        }
+    }
+
+    private fun observeOllamaServer() {
+        viewModelScope.launch {
+            platformState.collect { platform ->
+                if (platform?.compatibleType == ClientType.OLLAMA && !platform.apiUrl.isNullOrBlank()) {
+                    if (_ollamaServerState.value is OllamaServerUiState.Idle) {
+                        checkOllamaServer()
+                    }
+                } else if (platform?.compatibleType != ClientType.OLLAMA) {
+                    _ollamaServerState.value = OllamaServerUiState.Idle
+                }
+            }
+        }
+    }
+
+    fun checkOllamaServer() {
+        val platform = platformState.value ?: return
+        if (platform.compatibleType != ClientType.OLLAMA) return
+        val url = platform.apiUrl?.trim().orEmpty()
+        if (url.isBlank()) {
+            _ollamaServerState.value = OllamaServerUiState.Idle
+            return
+        }
+
+        viewModelScope.launch {
+            _ollamaServerState.value = OllamaServerUiState.Checking
+            val healthResult = ollamaServerRepository.checkHealth(url)
+            healthResult.onSuccess { health ->
+                val modelsResult = ollamaServerRepository.fetchModels(url)
+                val models = modelsResult.getOrDefault(emptyList())
+                _ollamaServerState.value = OllamaServerUiState.Connected(
+                    version = health.version,
+                    latencyMs = health.latencyMs,
+                    models = models
+                )
+            }.onFailure { error ->
+                _ollamaServerState.value = OllamaServerUiState.Error(
+                    message = error.message ?: "Failed to connect to Ollama server"
+                )
             }
         }
     }
@@ -267,6 +315,9 @@ class PlatformSettingViewModel @Inject constructor(
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(apiUrl = url))
         closeApiUrlDialog()
+        if (platform.compatibleType == ClientType.OLLAMA) {
+            checkOllamaServer()
+        }
     }
 
     fun updateApiToken(token: String) {

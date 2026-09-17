@@ -50,6 +50,7 @@ import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.compose.elements.MarkdownParagraph
+import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.MarkdownAnnotator
@@ -195,6 +196,20 @@ fun ChatMarkdown(
                             )
                         }
                     }
+                }
+            },
+            table = { model ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 4.dp)
+                ) {
+                    MarkdownTable(
+                        content = model.content,
+                        node = model.node,
+                        style = model.typography.table
+                    )
                 }
             },
             paragraph = { model ->

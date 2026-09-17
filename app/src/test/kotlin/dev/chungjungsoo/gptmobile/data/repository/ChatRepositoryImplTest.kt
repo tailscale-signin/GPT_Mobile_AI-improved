@@ -53,6 +53,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
+import dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import io.mockk.mockk
@@ -574,6 +575,36 @@ class ChatRepositoryImplTest {
         assertTrue(event.result.orEmpty().contains("missing credential"))
     }
 
+    @Test
+    fun `complete chat propagates circuit breaker error as classified user message`() = runBlocking {
+        val failingOpenAIAPI = object : OpenAIAPI by RecordingOpenAIAPI() {
+            override fun streamChatCompletion(
+                request: ChatCompletionRequest,
+                timeoutSeconds: Int,
+                config: ProviderRequestConfig
+            ): Flow<ChatCompletionChunk> = kotlinx.coroutines.flow.flow {
+                throw CircuitBreakerOpenException(5000L, "OpenAI")
+            }
+        }
+        val repository = createRepository(openAIAPI = failingOpenAIAPI)
+
+        val states = repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = customPlatform(),
+            runId = "test-cb"
+        ).toList()
+
+        assertEquals(
+            listOf(
+                ApiState.Loading,
+                ApiState.Error("Service temporarily unavailable due to high error rates. Please wait a moment before trying again."),
+                ApiState.Done
+            ),
+            states
+        )
+    }
+
     private fun createRepository(
         groqAPI: GroqAPI = FakeGroqAPI(emptyFlow()),
         openAIAPI: OpenAIAPI = RecordingOpenAIAPI(),
@@ -585,8 +616,6 @@ class ChatRepositoryImplTest {
         modelCatalogRepository: ModelCatalogRepository = FakeModelCatalogRepository()
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = ContextWrapper(null),
-        chatRoomDao = proxy(),
-        messageDao = proxy(),
         chatRoomV2Dao = proxy(),
         messageV2Dao = proxy(),
         chatPlatformModelV2Dao = proxy(),

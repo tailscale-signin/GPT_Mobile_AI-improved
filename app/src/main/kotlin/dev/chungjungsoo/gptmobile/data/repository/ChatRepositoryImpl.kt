@@ -44,6 +44,7 @@ import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
+import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import kotlinx.coroutines.Dispatchers
@@ -212,7 +213,8 @@ class ChatRepositoryImpl(
             }
         }
     }.catch { error ->
-        emit(ApiState.Error(error.message ?: "Failed to complete chat"))
+        val classified = ErrorClassification.classify(error)
+        emit(ApiState.Error(classified.userMessage))
     }.onCompletion {
         emit(ApiState.Done)
     }

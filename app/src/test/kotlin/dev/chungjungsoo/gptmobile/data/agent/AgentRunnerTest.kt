@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
@@ -124,6 +125,25 @@ class AgentRunnerTest {
         assertEquals(1, providerCalls.get())
         assertEquals(
             listOf(AgentRunEvent.Provider(ProviderEvent.Failed("provider failed"))),
+            events
+        )
+    }
+
+    @Test
+    fun `circuit breaker exception in provider stream emits classified error`() = runBlocking {
+        val providerCalls = AtomicInteger()
+        val session = session { _, _ ->
+            providerCalls.incrementAndGet()
+            flow {
+                throw CircuitBreakerOpenException(3000L, "test-provider")
+            }
+        }
+
+        val events = AgentRunner().run(session, emptyList()).toList()
+
+        assertEquals(1, providerCalls.get())
+        assertEquals(
+            listOf(AgentRunEvent.Provider(ProviderEvent.Failed("Service temporarily unavailable due to high error rates. Please wait a moment before trying again."))),
             events
         )
     }

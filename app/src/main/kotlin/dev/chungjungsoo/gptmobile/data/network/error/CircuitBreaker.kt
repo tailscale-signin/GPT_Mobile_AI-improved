@@ -6,16 +6,14 @@ import java.util.concurrent.atomic.AtomicReference
 
 class CircuitBreakerOpenException(
     val cooldownRemainingMs: Long,
-    message: String = "Circuit breaker is OPEN. Cooldown remaining: ${cooldownRemainingMs}ms"
-) : RuntimeException(message)
-
-/**
- * Circuit breaker states according to docs/adr/002-circuit-breaker-implementation.md.
- */
-enum class CircuitState {
-    CLOSED,
-    OPEN,
-    HALF_OPEN
+    val circuitBreakerName: String = "default",
+    message: String = "Circuit breaker '$circuitBreakerName' is OPEN. Cooldown remaining: ${cooldownRemainingMs}ms"
+) : RuntimeException(message) {
+    constructor(circuitBreakerName: String, cooldownRemainingMs: Long) : this(
+        cooldownRemainingMs = cooldownRemainingMs,
+        circuitBreakerName = circuitBreakerName,
+        message = "Circuit breaker '$circuitBreakerName' is OPEN. Cooldown remaining: ${cooldownRemainingMs}ms"
+    )
 }
 
 /**
@@ -31,21 +29,51 @@ class CircuitBreaker(
     private val halfOpenSuccessThreshold: Int = 2,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) {
-    private val state = AtomicReference(CircuitState.CLOSED)
+    enum class State {
+        CLOSED,
+        OPEN,
+        HALF_OPEN
+    }
+
+    data class Config(
+        val failureThreshold: Int = 5,
+        val resetTimeoutMs: Long = 30_000L,
+        val halfOpenSuccessThreshold: Int = 2
+    )
+
+    constructor(
+        name: String = "default",
+        config: Config,
+        timeProvider: () -> Long = { System.currentTimeMillis() }
+    ) : this(
+        name = name,
+        failureThreshold = config.failureThreshold,
+        cooldownMs = config.resetTimeoutMs,
+        halfOpenSuccessThreshold = config.halfOpenSuccessThreshold,
+        timeProvider = timeProvider
+    )
+
+    private val stateRef = AtomicReference(State.CLOSED)
     private val consecutiveFailures = AtomicInteger(0)
     private val halfOpenSuccesses = AtomicInteger(0)
     private val lastOpenedTimestamp = AtomicLong(0L)
 
-    fun currentState(): CircuitState {
+    val state: State
+        get() = currentState()
+
+    val failureCount: Int
+        get() = consecutiveFailures.get()
+
+    fun currentState(): State {
         checkCooldownTransition()
-        return state.get()
+        return stateRef.get()
     }
 
     private fun checkCooldownTransition() {
-        if (state.get() == CircuitState.OPEN) {
+        if (stateRef.get() == State.OPEN) {
             val elapsed = timeProvider() - lastOpenedTimestamp.get()
             if (elapsed >= cooldownMs) {
-                if (state.compareAndSet(CircuitState.OPEN, CircuitState.HALF_OPEN)) {
+                if (stateRef.compareAndSet(State.OPEN, State.HALF_OPEN)) {
                     halfOpenSuccesses.set(0)
                 }
             }
@@ -59,10 +87,10 @@ class CircuitBreaker(
     fun <T> execute(block: () -> T): T {
         checkCooldownTransition()
 
-        val current = state.get()
-        if (current == CircuitState.OPEN) {
+        val current = stateRef.get()
+        if (current == State.OPEN) {
             val remaining = (cooldownMs - (timeProvider() - lastOpenedTimestamp.get())).coerceAtLeast(0L)
-            throw CircuitBreakerOpenException(remaining)
+            throw CircuitBreakerOpenException(remaining, name)
         }
 
         return try {
@@ -81,10 +109,10 @@ class CircuitBreaker(
     suspend fun <T> executeSuspend(block: suspend () -> T): T {
         checkCooldownTransition()
 
-        val current = state.get()
-        if (current == CircuitState.OPEN) {
+        val current = stateRef.get()
+        if (current == State.OPEN) {
             val remaining = (cooldownMs - (timeProvider() - lastOpenedTimestamp.get())).coerceAtLeast(0L)
-            throw CircuitBreakerOpenException(remaining)
+            throw CircuitBreakerOpenException(remaining, name)
         }
 
         return try {
@@ -98,18 +126,18 @@ class CircuitBreaker(
     }
 
     fun onSuccess() {
-        when (state.get()) {
-            CircuitState.HALF_OPEN -> {
+        when (stateRef.get()) {
+            State.HALF_OPEN -> {
                 if (halfOpenSuccesses.incrementAndGet() >= halfOpenSuccessThreshold) {
-                    state.set(CircuitState.CLOSED)
+                    stateRef.set(State.CLOSED)
                     consecutiveFailures.set(0)
                     halfOpenSuccesses.set(0)
                 }
             }
-            CircuitState.CLOSED -> {
+            State.CLOSED -> {
                 consecutiveFailures.set(0)
             }
-            CircuitState.OPEN -> {
+            State.OPEN -> {
                 // Was open, transition to half-open success
             }
         }
@@ -119,29 +147,29 @@ class CircuitBreaker(
         // Do not count client cancellations towards breaker failures
         if (throwable is kotlinx.coroutines.CancellationException) return
 
-        when (state.get()) {
-            CircuitState.HALF_OPEN -> {
+        when (stateRef.get()) {
+            State.HALF_OPEN -> {
                 tripToOpen()
             }
-            CircuitState.CLOSED -> {
+            State.CLOSED -> {
                 if (consecutiveFailures.incrementAndGet() >= failureThreshold) {
                     tripToOpen()
                 }
             }
-            CircuitState.OPEN -> {
+            State.OPEN -> {
                 lastOpenedTimestamp.set(timeProvider())
             }
         }
     }
 
     private fun tripToOpen() {
-        state.set(CircuitState.OPEN)
+        stateRef.set(State.OPEN)
         lastOpenedTimestamp.set(timeProvider())
         halfOpenSuccesses.set(0)
     }
 
     fun reset() {
-        state.set(CircuitState.CLOSED)
+        stateRef.set(State.CLOSED)
         consecutiveFailures.set(0)
         halfOpenSuccesses.set(0)
         lastOpenedTimestamp.set(0L)

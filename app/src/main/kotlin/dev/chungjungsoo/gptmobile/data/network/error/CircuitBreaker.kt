@@ -6,8 +6,14 @@ import java.util.concurrent.atomic.AtomicReference
 
 class CircuitBreakerOpenException(
     val cooldownRemainingMs: Long,
-    message: String = "Circuit breaker is OPEN. Cooldown remaining: ${cooldownRemainingMs}ms"
-) : RuntimeException(message)
+    val circuitBreakerName: String = "default",
+    message: String = "Circuit breaker '$circuitBreakerName' is OPEN. Cooldown remaining: ${cooldownRemainingMs}ms"
+) : RuntimeException(message) {
+    constructor(circuitBreakerName: String, cooldownRemainingMs: Long) : this(
+        cooldownRemainingMs = cooldownRemainingMs,
+        circuitBreakerName = circuitBreakerName
+    )
+}
 
 /**
  * Circuit breaker states according to docs/adr/002-circuit-breaker-implementation.md.
@@ -31,10 +37,36 @@ class CircuitBreaker(
     private val halfOpenSuccessThreshold: Int = 2,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) {
+    data class Config(
+        val failureThreshold: Int = 5,
+        val resetTimeoutMs: Long = 30_000L,
+        val halfOpenSuccessThreshold: Int = 2
+    )
+
+    typealias State = CircuitState
+
+    constructor(
+        name: String = "default",
+        config: Config,
+        timeProvider: () -> Long = { System.currentTimeMillis() }
+    ) : this(
+        name = name,
+        failureThreshold = config.failureThreshold,
+        cooldownMs = config.resetTimeoutMs,
+        halfOpenSuccessThreshold = config.halfOpenSuccessThreshold,
+        timeProvider = timeProvider
+    )
+
     private val state = AtomicReference(CircuitState.CLOSED)
     private val consecutiveFailures = AtomicInteger(0)
     private val halfOpenSuccesses = AtomicInteger(0)
     private val lastOpenedTimestamp = AtomicLong(0L)
+
+    val state: CircuitState
+        get() = currentState()
+
+    val failureCount: Int
+        get() = consecutiveFailures.get()
 
     fun currentState(): CircuitState {
         checkCooldownTransition()
@@ -62,7 +94,7 @@ class CircuitBreaker(
         val current = state.get()
         if (current == CircuitState.OPEN) {
             val remaining = (cooldownMs - (timeProvider() - lastOpenedTimestamp.get())).coerceAtLeast(0L)
-            throw CircuitBreakerOpenException(remaining)
+            throw CircuitBreakerOpenException(remaining, name)
         }
 
         return try {
@@ -84,7 +116,7 @@ class CircuitBreaker(
         val current = state.get()
         if (current == CircuitState.OPEN) {
             val remaining = (cooldownMs - (timeProvider() - lastOpenedTimestamp.get())).coerceAtLeast(0L)
-            throw CircuitBreakerOpenException(remaining)
+            throw CircuitBreakerOpenException(remaining, name)
         }
 
         return try {

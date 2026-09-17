@@ -138,6 +138,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsB
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -559,18 +560,19 @@ private fun ChatListItem(
             detectTapGestures(
                 onTap = { onItemClick() },
                 onLongPress = {
-                    // Start 1-second long-press timer for pin toggle; if cancelled earlier, standard long-press
                     onItemLongClick()
                 },
                 onPress = {
-                    val job = launch {
-                        delay(1000L)
-                        onOneSecondHold()
-                    }
-                    try {
-                        tryAwaitRelease()
-                    } finally {
-                        job.cancel()
+                    coroutineScope {
+                        val job = launch {
+                            delay(1000L)
+                            onOneSecondHold()
+                        }
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            job.cancel()
+                        }
                     }
                 }
             )
@@ -586,8 +588,7 @@ private fun ChatListItem(
         modifier = Modifier
             .fillMaxWidth()
             .then(clickModifier)
-            .padding(start = 8.dp, end = 8.dp)
-            .animateItem(),
+            .padding(start = 8.dp, end = 8.dp),
         headlineContent = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

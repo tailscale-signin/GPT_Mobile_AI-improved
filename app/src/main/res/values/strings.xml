@@ -397,6 +397,11 @@
     <string name="duplicate">Duplicate</string>
     <string name="chats_selected">%1$d selected</string>
     <string name="chat_icon">Chat</string>
+    <string name="pinned_chat">Pinned</string>
+    <string name="chat_pinned">Chat pinned to top</string>
+    <string name="chat_unpinned">Chat unpinned</string>
+    <string name="delete_chat_dialog_title">Delete Chat?</string>
+    <string name="delete_chat_dialog_message">Are you sure you want to delete \"%1$s\"? This cannot be undone.</string>
     <string name="using_certain_platform">Using: %1$s</string>
     <string name="select_platform">Select Platform</string>
     <string name="select_platform_description">Choose platforms to include in this conversation</string>

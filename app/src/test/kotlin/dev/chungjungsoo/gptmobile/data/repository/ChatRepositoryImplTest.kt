@@ -53,6 +53,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
+import dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import io.mockk.mockk
@@ -63,6 +64,7 @@ import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -423,6 +425,48 @@ class ChatRepositoryImplTest {
             listOf(
                 ApiState.Loading,
                 ApiState.Error("Gemini safety settings blocked the response."),
+                ApiState.Done
+            ),
+            states
+        )
+    }
+
+    @Test
+    fun `circuit breaker open exception emits classified actionable user message`() = runBlocking {
+        val openAIAPI = object : OpenAIAPI {
+            override fun streamChatCompletion(
+                request: ChatCompletionRequest,
+                timeoutSeconds: Int,
+                config: ProviderRequestConfig
+            ): Flow<ChatCompletionChunk> = flow {
+                throw CircuitBreakerOpenException(cooldownRemainingMs = 25_000L)
+            }
+
+            override fun streamResponses(
+                request: ResponsesRequest,
+                timeoutSeconds: Int,
+                config: ProviderRequestConfig
+            ): Flow<ResponsesStreamEvent> = emptyFlow()
+
+            override suspend fun uploadFile(filePath: String, fileName: String, mimeType: String, config: ProviderRequestConfig): UploadedProviderFile =
+                UploadedProviderFile("f", mimeType)
+
+            override suspend fun isFileAvailable(fileId: String, config: ProviderRequestConfig): Boolean = false
+        }
+
+        val repository = createRepository(openAIAPI = openAIAPI)
+
+        val states = repository.completeChat(
+            userMessages = listOf(MessageV2(content = "Hello", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = customPlatform(),
+            runId = "breaker-run"
+        ).toList()
+
+        assertEquals(
+            listOf(
+                ApiState.Loading,
+                ApiState.Error("Service temporarily unavailable due to high error rates. Please wait a moment before trying again."),
                 ApiState.Done
             ),
             states

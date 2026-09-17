@@ -37,6 +37,9 @@ class OllamaOptionsTest {
         assertEquals("30m", options.keepAlive)
         assertEquals(2, options.numParallel)
         assertEquals(1073741824L, options.gpuOverhead)
+        assertEquals(false, options.autoContinue)
+        assertEquals(3, options.maxAutoContinues)
+        assertEquals(100, options.autoContinueTokenThreshold)
     }
 
     @Test

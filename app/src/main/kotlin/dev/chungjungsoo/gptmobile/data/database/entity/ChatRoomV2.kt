@@ -42,7 +42,10 @@ data class ChatRoomV2(
     val draftText: String? = null,
 
     @ColumnInfo(name = "draft_updated_at")
-    val draftUpdatedAt: Long? = null
+    val draftUpdatedAt: Long? = null,
+
+    @ColumnInfo(name = "is_title_customized", defaultValue = "0")
+    val isTitleCustomized: Boolean = false
 ) : Parcelable
 
 class StringListConverter {

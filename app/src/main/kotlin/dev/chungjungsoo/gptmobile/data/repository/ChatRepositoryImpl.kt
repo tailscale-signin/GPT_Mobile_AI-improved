@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
+import dev.chungjungsoo.gptmobile.data.conversation.ConversationTitleSummarizer
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
@@ -75,7 +76,8 @@ class ChatRepositoryImpl(
     private val localRuntime: LocalRuntime,
     private val localModelRepository: LocalModelRepository,
     private val modelCatalogRepository: ModelCatalogRepository,
-    private val deviceSocModel: String
+    private val deviceSocModel: String,
+    private val titleSummarizer: ConversationTitleSummarizer? = null
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
@@ -399,9 +401,20 @@ class ChatRepositoryImpl(
 
     override fun generateDefaultChatTitle(messages: List<MessageV2>): String? = messages.sortedBy { it.createdAt }.firstOrNull { it.platformType == null }?.content?.replace('\n', ' ')?.take(50)
 
-    override suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String) {
-        chatRoomV2Dao.editChatRoom(chatRoom.copy(title = title.replace('\n', ' ').take(50)))
+    override suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean) {
+        val cleanedTitle = title.replace('\n', ' ').take(50)
+        chatRoomV2Dao.updateTitle(
+            chatId = chatRoom.id,
+            title = cleanedTitle,
+            isCustomized = isCustomized
+        )
     }
+
+    override suspend fun generateAiTitle(
+        userMessage: String,
+        assistantMessage: String,
+        platform: PlatformV2
+    ): String? = titleSummarizer?.summarize(userMessage, assistantMessage, platform)
 
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {
         if (chatRoom.id == 0) {
@@ -415,7 +428,7 @@ class ChatRepositoryImpl(
             )
 
             val savedChatRoom = chatRoom.copy(id = chatId.toInt())
-            updateChatTitle(savedChatRoom, updatedMessages[0].content)
+            updateChatTitle(savedChatRoom, updatedMessages[0].content, isCustomized = false)
 
             return savedChatRoom.copy(title = updatedMessages[0].content.replace('\n', ' ').take(50))
         }

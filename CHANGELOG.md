@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4.6-pre] - 2026-09-17
+
+### Added & Improved
+- **Core Performance & ViewModel Optimizations**:
+  - Application startup, activity lifecycle, and viewmodel dispatch optimizations merged from core refactoring.
+  - Reduced memory churn and background thread allocations during chat streaming.
+- **Qualcomm QNN HTP & NPU Acceleration**:
+  - Fixed operator precedence in `QnnEnvironment.kt` probe environment readiness verification.
+  - Resolved double-handling and redundant engine allocation in `LocalRuntimeQnnImpl.kt` fallback path.
+- **Build & Packaging Details**:
+  - Bumped version code to `50` (`0.9.4.6-pre`).
+
 ## [0.9.4.5] - 2026-09-17
 
 ### Added & Improved

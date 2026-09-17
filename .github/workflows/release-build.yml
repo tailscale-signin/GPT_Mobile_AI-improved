@@ -270,18 +270,22 @@ jobs:
             FLAGS+=(--latest)
           fi
 
-          # Robust tag existence & release check (including untagged drafts)
-          EXISTING_RELEASE_BY_TAG=$(gh release view "$TAG_NAME" --json tagName -q .tagName 2>/dev/null || true)
-          DRAFT_RELEASE_ID=$(gh api repos/:owner/:repo/releases --jq ".[] | select(.tag_name==\"$TAG_NAME\" or .name==\"$RELEASE_TITLE\") | .id" 2>/dev/null | head -n 1 || true)
+          # Tag creation & robust release handling
+          if ! git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Creating tag $TAG_NAME pointing to ${{ github.sha }}..."
+            git tag "$TAG_NAME" "${{ github.sha }}" 2>/dev/null || true
+            git push origin "$TAG_NAME" 2>/dev/null || true
+          fi
 
-          if [ -n "$EXISTING_RELEASE_BY_TAG" ]; then
-            echo "Release $TAG_NAME exists, editing and uploading assets..."
-            gh release edit "$TAG_NAME" "${FLAGS[@]}" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY"
-            gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
-          elif [ -n "$DRAFT_RELEASE_ID" ]; then
-            echo "Found untagged/draft release (id: $DRAFT_RELEASE_ID), updating, attaching tag $TAG_NAME, and uploading assets..."
-            gh release edit "$DRAFT_RELEASE_ID" "${FLAGS[@]}" --tag "$TAG_NAME" --target "${{ github.sha }}" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY"
-            gh release upload "$DRAFT_RELEASE_ID" "${ASSETS_TO_UPLOAD[@]}" --clobber
+          EXISTING_RELEASE=$(gh api repos/:owner/:repo/releases --jq ".[] | select(.tag_name==\"$TAG_NAME\") | .id" 2>/dev/null | head -n 1 || true)
+          if [ -z "$EXISTING_RELEASE" ]; then
+            EXISTING_RELEASE=$(gh api repos/:owner/:repo/releases --jq ".[] | select(.name==\"$RELEASE_TITLE\") | .id" 2>/dev/null | head -n 1 || true)
+          fi
+
+          if [ -n "$EXISTING_RELEASE" ]; then
+            echo "Found existing release (id: $EXISTING_RELEASE), updating and uploading assets..."
+            gh release edit "$EXISTING_RELEASE" "${FLAGS[@]}" --tag "$TAG_NAME" --target "${{ github.sha }}" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY"
+            gh release upload "$EXISTING_RELEASE" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
             echo "Creating fresh GitHub Release $TAG_NAME..."
             gh release create "$TAG_NAME" \

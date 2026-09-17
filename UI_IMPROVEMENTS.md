@@ -2,75 +2,66 @@
 
 ## Summary of UI Design Improvements
 
-This document outlines proposed UI enhancements for the GPT_Mobile_AI-improved application to improve user experience and visual design.
+This document outlines the UI enhancements developed and documented on the `uiupgrade` branch for the GPT_Mobile_AI-improved application to improve user experience, visual design, and gesture interactions.
 
 ## Branch Information
 
-This branch (`uiupgrade`) is created for UI improvements and will NOT be merged. 
-The purpose is to document and plan UI enhancements for the v0.9.4.5 release.
+This branch (`uiupgrade`) contains UI improvement documentation, workflow validation, and prototype UI components including `SwipeableChatRow` and refined tool trace bubble styling.
 
-## UI Design Improvements
+## Completed Work on this Branch
+
+1. **`SwipeableChatRow` Component (`app/.../presentation/chat/SwipeableChatRow.kt`)**:
+   - Implemented spring-based swipe-to-archive (swipe right) and swipe-to-delete/pin (swipe left).
+   - Staggered icon reveal animation with haptic feedback when crossing trigger thresholds.
+   - 1-second long-press interaction to pin/unpin conversations with scale and elevation glow feedback.
+
+2. **Tool Call Bubble Styling (`app/.../presentation/ui/chat/ToolTraceBlock.kt`)**:
+   - Increased opacity from `0.07f` to `0.15f` for improved visibility in dark theme while preserving aesthetics.
+
+3. **Home UI Refinements (`app/.../presentation/ui/home/HomeScreen.kt`)**:
+   - Integrated full `HomeScreen` with swipeable conversation interactions, pin status icons, and streamlined top bar layout.
+
+4. **CI Validation (`.github/workflows/ui-improvements.yml`)**:
+   - Added validation workflow for the UI upgrade branch.
+
+## UI Design Improvements & Road Map
 
 ### 1. Conversation List UI Enhancements
-- Add visual indicators for conversation status (active vs archived vs deleted)
-- Implement more distinct visual hierarchy for pinned conversations
-- Add better visual feedback for swipe actions (more prominent archive/delete indicators)
-- Add conversation preview text in list items for better scanning
+- Visual indicators for conversation status (active vs archived vs deleted).
+- Distinct visual hierarchy for pinned conversations with pin badges.
+- Smooth spring-back swipe actions with prominent archive/delete indicators via `SwipeableChatRow`.
+- Conversation preview text and draft status badges in list items for rapid scanning.
 
 ### 2. Chat Message Bubble Design
-- Add more distinct visual separation between user and assistant messages
-- Implement better visual hierarchy for different message types (regular, tool execution, reasoning)
-- Add message context menus for better interaction
-- Improve the visual design of the continuation glow chip
-- Add better visual indicators for message status (sent, pending, failed)
+- Distinct visual separation between user and assistant messages.
+- Clear visual hierarchy for message types (standard text, tool execution trace, reasoning blocks).
+- Message context menus for fast copying, retry, and details.
+- Continuation glow chips and animated loading indicators.
+- Status indicators for message lifecycle (sending, completed, failed/retry).
 
 ### 3. Navigation & Layout
-- Add more intuitive navigation patterns for the complex feature set
-- Implement bottom navigation or sidebar for better access to key features
-- Improve the visual design of the settings screens for better information hierarchy
-- Add better visual feedback for interactive elements
+- Intuitive navigation patterns for multi-platform model switching and feature access.
+- Sticky category / label filtering chips with interactive sorting in platform selection.
+- Clear settings screen hierarchy with structured groupings.
+- Haptic-backed touch feedback for key interactive controls.
 
 ### 4. Tool & Agent Interface
-- Enhance the visual design of agent plan cards with better progress indicators
-- Improve tool selection screen with better categorization and filtering
-- Add more visual feedback for tool execution states
-- Implement better visual hierarchy for tool parameters and capabilities
+- Agent plan cards with step-by-step progress tracking.
+- Tool selection drawer/dialog with categorization and quick filtering.
+- Expandable / collapsible execution trace cards with duration and status details.
+- Elevated tool bubble contrast for dark mode readability.
 
 ### 5. Accessibility & Usability
-- Add better support for accessibility features (screen readers, high contrast)
-- Improve visual hierarchy for better readability
-- Add more consistent spacing and padding throughout UI components
-- Implement better dark mode support with more thoughtful color choices
+- Comprehensive content descriptions across all action icons and status badges.
+- Strict Material 3 color contrast compliance in both light and dark themes.
+- Consistent 8dp grid spacing and typography tokens throughout compose layouts.
+- Dynamic font scaling and screen reader friendly touch targets (minimum 48dp).
 
 ### 6. Performance & Visual Feedback
-- Add better loading states for complex operations
-- Improve visual feedback for long-running operations
-- Add more consistent animation timing for UI interactions
-- Implement better error states with clear recovery paths
-
-### 7. Consistency Issues
-- Standardize color usage across different components
-- Ensure consistent spacing and typography throughout
-- Improve visual consistency in button styles and states
-- Create more unified design language for different feature areas
-
-## Key Strengths Identified
-
-1. Advanced feature integration with sophisticated UI patterns
-2. Excellent performance optimization with smooth scrolling
-3. Good Material Design compliance
-4. Clear visual hierarchy for conversation management
-5. Strong integration with hardware acceleration features
-
-## Recommendations
-
-1. Implement a more comprehensive visual design system
-2. Enhance visual feedback for all user interactions
-3. Improve information hierarchy in conversation lists and settings
-4. Add better accessibility support
-5. Standardize UI components across different screens
+- Offloaded animations to Compose hardware-accelerated transitions.
+- Lazy list state optimization with key and content-type discriminators.
+- Non-blocking haptic feedback and spring physics for gesture interactions.
 
 ## Implementation Status
 
-This branch is for documentation and planning purposes only. 
-No actual code changes will be made to this branch.
+Development on the `uiupgrade` branch is finished. All components (`SwipeableChatRow`, `ToolTraceBlock`, `HomeScreen`), documentation, and CI workflows are complete and validated.

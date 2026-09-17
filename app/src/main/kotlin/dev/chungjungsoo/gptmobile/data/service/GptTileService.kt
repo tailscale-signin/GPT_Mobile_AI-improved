@@ -3,11 +3,14 @@ package dev.chungjungsoo.gptmobile.data.service
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
 
 class GptTileService : TileService() {
+
+    private var lastClickTime = 0L
 
     override fun onStartListening() {
         super.onStartListening()
@@ -19,6 +22,12 @@ class GptTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastClickTime < CLICK_DEBOUNCE_MS) {
+            return
+        }
+        lastClickTime = now
+
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -34,5 +43,9 @@ class GptTileService : TileService() {
             @Suppress("DEPRECATION")
             startActivityAndCollapse(intent)
         }
+    }
+
+    companion object {
+        private const val CLICK_DEBOUNCE_MS = 600L
     }
 }

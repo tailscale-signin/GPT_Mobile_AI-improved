@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.hilt.work.HiltWorkerFactory
@@ -61,6 +62,8 @@ class GPTMobileApp :
     }
 
     override fun onCreate() {
+        val startupStartTime = SystemClock.elapsedRealtime()
+
         // Configure Qualcomm QNN / FastRPC environment variables (ADSP_LIBRARY_PATH & LD_LIBRARY_PATH)
         // at the earliest opportunity BEFORE any native library is loaded or dlopened.
         runCatching {
@@ -73,6 +76,7 @@ class GPTMobileApp :
         super.onCreate()
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
+            val gateStartTime = SystemClock.elapsedRealtime()
             val startup = startupDependencies()
             startup.pendingLocalPlatformActivator().start()
             secretMigrationErrors = runStartupMaintenance(
@@ -98,7 +102,10 @@ class GPTMobileApp :
             }
             startup.localModelRepository().reconcile()
             startup.localModelRepository().awaitActiveDownloadScheduling()
+            Log.i(TAG, "Startup maintenance completed in ${SystemClock.elapsedRealtime() - gateStartTime}ms")
         }
+
+        Log.i(TAG, "GPTMobileApp.onCreate completed in ${SystemClock.elapsedRealtime() - startupStartTime}ms")
     }
 
     override fun onTrimMemory(level: Int) {

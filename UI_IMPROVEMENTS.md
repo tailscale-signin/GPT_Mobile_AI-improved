@@ -2,66 +2,48 @@
 
 ## Summary of UI Design Improvements
 
-This document outlines the UI enhancements developed and documented on the `uiupgrade` branch for the GPT_Mobile_AI-improved application to improve user experience, visual design, and gesture interactions.
+This document outlines the UI enhancements developed and implemented on the `uiupgrade` branch for the GPT_Mobile_AI-improved application to improve user experience, visual design, gesture interactions, and accessibility.
 
 ## Branch Information
 
-This branch (`uiupgrade`) contains UI improvement documentation, workflow validation, and prototype UI components including `SwipeableChatRow` and refined tool trace bubble styling.
+This branch (`uiupgrade`) contains comprehensive UI enhancements across the application, adhering to Material 3 design and Compose best practices without impacting the primary release stream.
 
-## Completed Work on this Branch
+## Implemented Features in `uiupgrade`
 
-1. **`SwipeableChatRow` Component (`app/.../presentation/chat/SwipeableChatRow.kt`)**:
-   - Implemented spring-based swipe-to-archive (swipe right) and swipe-to-delete/pin (swipe left).
-   - Staggered icon reveal animation with haptic feedback when crossing trigger thresholds.
-   - 1-second long-press interaction to pin/unpin conversations with scale and elevation glow feedback.
+### 1. AgentPlanCard Enhancements (`app/src/main/kotlin/dev/chungjungsoo/gptmobile/ui/component/AgentPlanCard.kt`)
+- **Visual Color-Coded Progress Indicators**: Dynamic `LinearProgressIndicator` showing proportional step completion (green for all successful, error theme when failed steps exist, primary brand during progress).
+- **Enhanced Status Feedback**: Distinct icons, rotating execution spinners, and container background color feedback for all step execution states (`RUNNING`, `SUCCESS`, `FAILED`, `PENDING`, `SKIPPED`).
+- **Improved Expand/Collapse Transitions**: Smooth vertical expansion animations (`expandVertically` / `shrinkVertically`) with clear visual cues and rotation state toggles.
+- **Detailed Step Information**: Interactive per-step expansion displaying tool execution badges and monospace result snippets with custom borders.
+- **Accessibility**: Semantic content descriptions, state descriptions (`Expanded`/`Collapsed` with step counters), and button roles.
 
-2. **Tool Call Bubble Styling (`app/.../presentation/ui/chat/ToolTraceBlock.kt`)**:
-   - Increased opacity from `0.07f` to `0.15f` for improved visibility in dark theme while preserving aesthetics.
+### 2. Chat UI Improvements
+- **Message Bubble Design (`ChatBubble.kt`)**:
+  - Clear visual separation between user and assistant messages with distinct container colors and shapes.
+  - Enhanced visual hierarchy for message components including thinking/reasoning blocks, tool trace blocks, and diagnostics telemetry HUD.
+  - Continuation prompt chips with animated glow pulse effect (`SuggestionChip`) for multi-step responses.
+- **Conversation List & Gestures (`SwipeableChatRow.kt` & `HomeScreen.kt`)**:
+  - Gesture-driven swipe-to-archive (swipe right) and swipe-to-delete/pin (swipe left) with spring physics snapping.
+  - Haptic feedback trigger upon reaching action thresholds (80dp).
+  - 1-second long-press interaction to pin/unpin with animated scale and spot elevation glow.
+  - Conversation status indicators (pinned chat badges, draft badges, platform tags).
+  - Draft preview pills with bold italic draft badges and truncated preview text.
 
-3. **Home UI Refinements (`app/.../presentation/ui/home/HomeScreen.kt`)**:
-   - Integrated full `HomeScreen` with swipeable conversation interactions, pin status icons, and streamlined top bar layout.
+### 3. Tool Execution & Tracing (`ToolTraceBlock.kt`)
+- Increased tool call background opacity from `0.07f` to `0.15f` for improved contrast and readability in dark theme.
+- Expandable / collapsible execution trace groups with status icons and duration metadata.
 
-4. **CI Validation (`.github/workflows/ui-improvements.yml`)**:
-   - Added validation workflow for the UI upgrade branch.
+### 4. Accessibility Improvements
+- **Contrast Ratios**: Verified Material 3 color container contrast across primary, surfaceVariant, and error palettes in light and dark themes.
+- **Screen Reader Support**: Semantic content descriptions across all action icons, status indicators, and expandable card headers.
+- **Touch Target Sizing**: Adheres to minimum touch target sizing (48dp) for interactive elements and list action targets.
+- **Focus & State Feedback**: Proper semantics role declarations (`Role.Button`) and state descriptions.
 
-## UI Design Improvements & Road Map
-
-### 1. Conversation List UI Enhancements
-- Visual indicators for conversation status (active vs archived vs deleted).
-- Distinct visual hierarchy for pinned conversations with pin badges.
-- Smooth spring-back swipe actions with prominent archive/delete indicators via `SwipeableChatRow`.
-- Conversation preview text and draft status badges in list items for rapid scanning.
-
-### 2. Chat Message Bubble Design
-- Distinct visual separation between user and assistant messages.
-- Clear visual hierarchy for message types (standard text, tool execution trace, reasoning blocks).
-- Message context menus for fast copying, retry, and details.
-- Continuation glow chips and animated loading indicators.
-- Status indicators for message lifecycle (sending, completed, failed/retry).
-
-### 3. Navigation & Layout
-- Intuitive navigation patterns for multi-platform model switching and feature access.
-- Sticky category / label filtering chips with interactive sorting in platform selection.
-- Clear settings screen hierarchy with structured groupings.
-- Haptic-backed touch feedback for key interactive controls.
-
-### 4. Tool & Agent Interface
-- Agent plan cards with step-by-step progress tracking.
-- Tool selection drawer/dialog with categorization and quick filtering.
-- Expandable / collapsible execution trace cards with duration and status details.
-- Elevated tool bubble contrast for dark mode readability.
-
-### 5. Accessibility & Usability
-- Comprehensive content descriptions across all action icons and status badges.
-- Strict Material 3 color contrast compliance in both light and dark themes.
-- Consistent 8dp grid spacing and typography tokens throughout compose layouts.
-- Dynamic font scaling and screen reader friendly touch targets (minimum 48dp).
-
-### 6. Performance & Visual Feedback
-- Offloaded animations to Compose hardware-accelerated transitions.
-- Lazy list state optimization with key and content-type discriminators.
-- Non-blocking haptic feedback and spring physics for gesture interactions.
+### 5. Visual Consistency & Architecture
+- Standardized Material 3 color palettes and typography scale (`titleMedium`, `labelSmall`, monospace code snippets).
+- Predictable 8dp-aligned spacing across cards and list items.
+- CI validation workflow (`.github/workflows/ui-improvements.yml`) ensuring clean builds.
 
 ## Implementation Status
 
-Development on the `uiupgrade` branch is finished. All components (`SwipeableChatRow`, `ToolTraceBlock`, `HomeScreen`), documentation, and CI workflows are complete and validated.
+Development on the `uiupgrade` branch is complete. All features specified in the upgrade plan have been implemented, committed, and documented.

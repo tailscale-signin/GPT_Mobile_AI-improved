@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -39,6 +40,8 @@ class MainActivity : ComponentActivity() {
     private val toolConnectionsViewModel: ToolConnectionsViewModel by viewModels()
     private lateinit var authTabLauncher: ActivityResultLauncher<Intent>
     private var lastOAuthCallback: String? = null
+    private var lastOAuthLaunchUri: String? = null
+    private var lastOAuthLaunchTime: Long = 0L
 
     @Volatile
     private var keepSplashOnScreen = true
@@ -89,6 +92,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchOAuth(authorizationUri: String) {
+        val now = SystemClock.elapsedRealtime()
+        // Deduplicate rapid duplicate launches of identical OAuth authorization URIs within 1 second
+        if (authorizationUri == lastOAuthLaunchUri && (now - lastOAuthLaunchTime) < OAUTH_LAUNCH_DEBOUNCE_MS) {
+            return
+        }
+        lastOAuthLaunchUri = authorizationUri
+        lastOAuthLaunchTime = now
+
         val uri = Uri.parse(authorizationUri)
         try {
             AuthTabIntent.Builder().build().launch(authTabLauncher, uri, MCP_OAUTH_SCHEME)
@@ -133,5 +144,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    companion object {
+        private const val OAUTH_LAUNCH_DEBOUNCE_MS = 1000L
     }
 }

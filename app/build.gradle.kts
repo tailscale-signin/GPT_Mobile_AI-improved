@@ -23,8 +23,8 @@ extensions.configure<ApplicationExtension> {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31
         targetSdk = 36
-        versionCode = 49
-        versionName = "0.9.4.5"
+        versionCode = 50
+        versionName = "0.9.4.6-pre"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

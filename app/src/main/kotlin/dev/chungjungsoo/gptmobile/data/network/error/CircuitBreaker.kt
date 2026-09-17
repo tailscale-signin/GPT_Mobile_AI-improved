@@ -11,14 +11,10 @@ class CircuitBreakerOpenException(
 ) : RuntimeException(message) {
     constructor(circuitBreakerName: String, cooldownRemainingMs: Long) : this(
         cooldownRemainingMs = cooldownRemainingMs,
-        circuitBreakerName = circuitBreakerName
+        circuitBreakerName = circuitBreakerName,
+        message = "Circuit breaker '$circuitBreakerName' is OPEN. Cooldown remaining: ${cooldownRemainingMs}ms"
     )
 }
-
-/**
- * Circuit breaker states according to docs/adr/002-circuit-breaker-implementation.md.
- */
-typealias CircuitState = CircuitBreaker.State
 
 /**
  * Thread-safe Circuit Breaker implementing the state machine in ADR-002:

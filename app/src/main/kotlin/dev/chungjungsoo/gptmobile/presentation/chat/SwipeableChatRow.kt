@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.presentation.chat
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
@@ -17,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /**
  * SwipeableChatRow — A chat list row that supports:
@@ -50,6 +52,7 @@ fun SwipeableChatRow(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
     val swipeOffset = remember { Animatable(0f) }
     val maxSwipe = 200f
     val triggerThreshold = 80f  // 40% of maxSwipe
@@ -88,7 +91,7 @@ fun SwipeableChatRow(
                 .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
                 .scale(longPressScale)
                 .shadow(
-                    elevation = (8.dp * longPressGlow).toDp(),
+                    elevation = 8.dp * longPressGlow,
                     shape = RoundedCornerShape(16.dp),
                     spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f * longPressGlow)
                 )
@@ -111,7 +114,7 @@ fun SwipeableChatRow(
                             hasTriggeredHaptic = false
                             isLongPressing = false
                             // Spring animation back to target
-                            launch {
+                            coroutineScope.launch {
                                 swipeOffset.animateTo(
                                     targetValue = target,
                                     animationSpec = spring(
@@ -124,7 +127,7 @@ fun SwipeableChatRow(
                         onDragCancel = {
                             hasTriggeredHaptic = false
                             isLongPressing = false
-                            launch {
+                            coroutineScope.launch {
                                 swipeOffset.animateTo(
                                     targetValue = 0f,
                                     animationSpec = spring(
@@ -135,7 +138,7 @@ fun SwipeableChatRow(
                             }
                         },
                         onHorizontalDrag = { _, dragAmount ->
-                            launch {
+                            coroutineScope.launch {
                                 val newValue = (swipeOffset.value + dragAmount)
                                     .coerceIn(-maxSwipe, maxSwipe)
                                 swipeOffset.snapTo(newValue)

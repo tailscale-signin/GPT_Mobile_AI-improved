@@ -12,14 +12,11 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
-import dev.chungjungsoo.gptmobile.data.network.geminiProviderConfig
-import dev.chungjungsoo.gptmobile.data.network.groqProviderConfig
-import dev.chungjungsoo.gptmobile.data.network.openAICompatibleProviderConfig
-import dev.chungjungsoo.gptmobile.data.network.openAIProviderConfig
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withTimeoutOrNull
@@ -35,15 +32,33 @@ class ConversationTitleSummarizer(
         platform: PlatformV2
     ): String? = withTimeoutOrNull(TIMEOUT_MS) {
         val prompt = buildPrompt(userMessage, assistantMessage)
+        val config = buildProviderRequestConfig(platform)
         val title = when (platform.compatibleType) {
-            ClientType.OPENAI -> summarizeWithOpenAI(prompt, platform, openAIProviderConfig(platform))
-            ClientType.GROQ -> summarizeWithGroq(prompt, platform, groqProviderConfig(platform))
+            ClientType.OPENAI -> summarizeWithOpenAI(prompt, platform, config)
+            ClientType.GROQ -> summarizeWithGroq(prompt, platform, config)
             ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM ->
-                summarizeWithOpenAI(prompt, platform, openAICompatibleProviderConfig(platform))
-            ClientType.GOOGLE -> summarizeWithGemini(prompt, platform, geminiProviderConfig(platform))
+                summarizeWithOpenAI(prompt, platform, config)
+            ClientType.GOOGLE -> summarizeWithGemini(prompt, platform, config)
             else -> null
         }
         title?.let(::cleanTitle)?.takeIf { it.isNotBlank() }
+    }
+
+    private fun buildProviderRequestConfig(platform: PlatformV2): ProviderRequestConfig {
+        val activeKey = ApiCredentialRotator.parseKeys(platform.token).firstOrNull() ?: ""
+        val extraHeaders = if (platform.compatibleType == ClientType.OPENROUTER) {
+            mapOf(
+                "HTTP-Referer" to "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
+                "X-Title" to "GPT Mobile AI Improved"
+            )
+        } else {
+            emptyMap()
+        }
+        return ProviderRequestConfig(
+            apiUrl = platform.apiUrl,
+            token = activeKey,
+            extraHeaders = extraHeaders
+        )
     }
 
     private suspend fun summarizeWithOpenAI(
@@ -64,7 +79,7 @@ class ConversationTitleSummarizer(
         openAIAPI.streamChatCompletion(request, timeoutSeconds = 15, config = config)
             .catch { }
             .collect { chunk ->
-                chunk.choices.firstOrNull()?.delta?.content?.let { sb.append(it) }
+                chunk.choices?.firstOrNull()?.delta?.content?.let { sb.append(it) }
             }
         return sb.toString().trim()
     }
@@ -87,7 +102,7 @@ class ConversationTitleSummarizer(
         groqAPI.streamChatCompletion(request, timeoutSeconds = 15, config = config)
             .catch { }
             .collect { chunk ->
-                chunk.choices.firstOrNull()?.delta?.content?.let { sb.append(it) }
+                chunk.choices?.firstOrNull()?.delta?.content?.let { sb.append(it) }
             }
         return sb.toString().trim()
     }

@@ -226,8 +226,10 @@ object QnnEnvironment {
             Build.HARDWARE.orEmpty()
         }
 
-        val ready = skelFoundPath.isNotBlank() && File(dispatchDirFile, "libLiteRtDispatch_Qualcomm.so").exists() ||
+        val ready = skelFoundPath.isNotBlank() && (
+            File(dispatchDirFile, "libLiteRtDispatch_Qualcomm.so").exists() ||
             File(nativeDir, "libLiteRtDispatch_Qualcomm.so").exists()
+        )
 
         return QnnProbeStatus(
             isQualcommDevice = isQualcomm,

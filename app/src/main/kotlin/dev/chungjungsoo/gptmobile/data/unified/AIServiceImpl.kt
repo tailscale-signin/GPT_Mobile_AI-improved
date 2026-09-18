@@ -10,10 +10,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.mapNotNull
 
 @Singleton
 class AIServiceImpl @Inject constructor(
@@ -55,7 +52,7 @@ class AIServiceImpl @Inject constructor(
 
             flow.collect { state ->
                 when (state) {
-                    is ApiState.Success -> fullResponse.append(state.data)
+                    is ApiState.Success -> fullResponse.append(state.textChunk)
                     is ApiState.Error -> throw RuntimeException(state.message)
                     else -> Unit
                 }
@@ -94,7 +91,7 @@ class AIServiceImpl @Inject constructor(
             chatToolConfig = null
         ).collect { state ->
             when (state) {
-                is ApiState.Success -> emit(state.data)
+                is ApiState.Success -> emit(state.textChunk)
                 is ApiState.Error -> throw RuntimeException(state.message)
                 else -> Unit
             }

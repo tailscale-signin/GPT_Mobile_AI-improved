@@ -9,7 +9,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,6 +36,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.ollama.OllamaModelEntry
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +50,7 @@ fun ChatModelDialog(
     platformNames: Map<String, String>,
     platformClientTypes: Map<String, ClientType> = emptyMap(),
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
+    ollamaModelsByPlatform: Map<String, List<OllamaModelEntry>> = emptyMap(),
     onNavigateToLocalModels: () -> Unit = {},
     onDismissRequest: () -> Unit,
     onConfirmRequest: (Map<String, String>) -> Unit
@@ -55,6 +61,8 @@ fun ChatModelDialog(
     var models by rememberSaveable(platformOrder, initialModels) {
         mutableStateOf(platformOrder.associateWith { uid -> initialModels[uid].orEmpty() })
     }
+
+    var unifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -70,7 +78,12 @@ fun ChatModelDialog(
                 )
                 platformOrder.forEach { platformUid ->
                     val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
-                    if (platformClientTypes[platformUid] == ClientType.LITERT_LM) {
+                    val clientType = platformClientTypes[platformUid]
+                    val isLocal = clientType == ClientType.LITERT_LM
+                    val isOllama = clientType == ClientType.OLLAMA
+                    val platformOllamaModels = ollamaModelsByPlatform[platformUid].orEmpty()
+
+                    if (isLocal) {
                         Text(
                             text = stringResource(R.string.chat_model_for_platform, platformName),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -83,6 +96,29 @@ fun ChatModelDialog(
                             },
                             onNavigateToLocalModels = onNavigateToLocalModels,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                        )
+                    } else if (isOllama && platformOllamaModels.isNotEmpty()) {
+                        OutlinedTextField(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            value = models[platformUid].orEmpty(),
+                            onValueChange = { value ->
+                                models = models.toMutableMap().apply { put(platformUid, value) }
+                            },
+                            singleLine = true,
+                            label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
+                            trailingIcon = {
+                                IconButton(onClick = { unifiedPickerPlatformUid = platformUid }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Dns,
+                                        contentDescription = stringResource(R.string.browse_server_models_count, platformOllamaModels.size)
+                                    )
+                                }
+                            },
+                            supportingText = {
+                                Text(stringResource(R.string.browse_server_models_count, platformOllamaModels.size))
+                            }
                         )
                     } else {
                         OutlinedTextField(
@@ -123,6 +159,19 @@ fun ChatModelDialog(
             }
         }
     )
+
+    unifiedPickerPlatformUid?.let { pUid ->
+        UnifiedModelPickerDialog(
+            localModels = downloadedLocalModels,
+            ollamaModels = ollamaModelsByPlatform[pUid].orEmpty(),
+            selectedModel = models[pUid].orEmpty(),
+            onDismiss = { unifiedPickerPlatformUid = null },
+            onSelectModel = { selected ->
+                models = models.toMutableMap().apply { put(pUid, selected) }
+                unifiedPickerPlatformUid = null
+            }
+        )
+    }
 }
 
 @Composable

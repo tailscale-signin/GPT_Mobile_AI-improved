@@ -3,7 +3,6 @@ package com.example.gpt_mobile
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.TypeConverters
 import android.content.Context
 
 /**
@@ -15,7 +14,6 @@ import android.content.Context
     version = 1,
     exportSchema = true
 )
-@TypeConverters(DebugTypeConverters::class)
 abstract class DebugDatabase : RoomDatabase() {
     
     /**
@@ -44,11 +42,4 @@ abstract class DebugDatabase : RoomDatabase() {
             }
         }
     }
-}
-
-/**
- * Type converters for database operations
- */
-class DebugTypeConverters {
-    // Add any custom type converters here if needed
 }

@@ -335,6 +335,7 @@
     <string name="view_full_value">View full %1$s</string>
     <string name="tool_in_progress">Tool execution in progress</string>
     <string name="message_actions">Message actions</string>
+    <string name="quote_message">Quote / Reply</string>
 
     <!-- Tool Trace Strings -->
     <string name="tool_trace_expand_content_description">Expand tool trace</string>
@@ -537,4 +538,14 @@
     <string name="browse_server_models_count">Browse server models (%1$d)</string>
     <string name="select_server_model">Select Server Model</string>
     <string name="no_server_models_found">No models found on server</string>
+
+    <!-- Task 1 & Task 3: Unified Models and Message Queuing -->
+    <string name="queued_messages_title">Queued Messages (%1$d)</string>
+    <string name="local_on_device_models_header">On-Device Models (LiteRT / GGUF)</string>
+    <string name="ollama_server_models_header">Ollama Server Models</string>
+    <string name="model_badge_local">Local</string>
+    <string name="model_badge_ollama">Ollama</string>
+    <string name="no_unified_models_found">No local or Ollama models detected.</string>
+    <string name="download_models">Get Models</string>
+    <string name="unified_model_picker">Select Model</string>
 </resources>

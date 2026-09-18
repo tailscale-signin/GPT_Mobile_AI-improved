@@ -175,9 +175,7 @@ fun ChatModelDialog(
         val localOptions = downloadedLocalModels.map {
             UnifiedModelOption.Local(
                 id = it.catalogEntryId,
-                displayName = it.displayName,
-                parameterSize = it.parameterSize,
-                formattedSize = it.formattedSize
+                displayName = it.displayName
             )
         }
         val currentModel = models[platformUid].orEmpty()

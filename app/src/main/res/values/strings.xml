@@ -537,4 +537,15 @@
     <string name="browse_server_models_count">Browse server models (%1$d)</string>
     <string name="select_server_model">Select Server Model</string>
     <string name="no_server_models_found">No models found on server</string>
+
+    <!-- Message Queue & Quoting & Unified Model Picker -->
+    <string name="quote_message">Quote</string>
+    <string name="quoting_message">Replying to %1$s</string>
+    <string name="queued_message_chip">Queued: %1$s</string>
+    <string name="queued_messages_count">Queued (%1$d)</string>
+    <string name="unified_model_picker_title">Select Model</string>
+    <string name="unified_model_badge_local">Local / On-Device</string>
+    <string name="unified_model_badge_ollama">Ollama Server</string>
+    <string name="unified_models_empty">No local or Ollama models found</string>
+    <string name="clear_queue">Clear queue</string>
 </resources>

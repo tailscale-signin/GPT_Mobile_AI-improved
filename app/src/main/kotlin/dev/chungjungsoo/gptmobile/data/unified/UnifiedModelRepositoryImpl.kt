@@ -9,6 +9,8 @@ import dev.chungjungsoo.gptmobile.domain.unified.UnifiedModelRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 @Singleton
@@ -19,64 +21,73 @@ class UnifiedModelRepositoryImpl @Inject constructor(
 ) : UnifiedModelRepository {
 
     private var activeModelId: String? = null
+    private var cachedModels: List<UnifiedModel> = emptyList()
+    private val cacheMutex = Mutex()
 
     override suspend fun getAllModels(): List<UnifiedModel> = withContext(Dispatchers.IO) {
-        val platforms = platformV2Dao.getAll()
-        val result = mutableListOf<UnifiedModel>()
+        cacheMutex.withLock {
+            val platforms = platformV2Dao.getAll()
+            val result = mutableListOf<UnifiedModel>()
 
-        for (platform in platforms) {
-            val provider = UnifiedModelProvider.fromKey(platform.compatibleType.name)
-            val catalogModels = runCatching {
-                modelCatalogRepository.getCatalog(platform).models
-            }.getOrDefault(emptyList())
+            for (platform in platforms) {
+                val provider = UnifiedModelProvider.fromKey(platform.compatibleType.name)
+                val catalogModels = runCatching {
+                    modelCatalogRepository.getCatalog(platform).models
+                }.getOrDefault(emptyList())
 
-            if (catalogModels.isNotEmpty()) {
-                catalogModels.forEach { catModel ->
+                if (catalogModels.isNotEmpty()) {
+                    catalogModels.forEach { catModel ->
+                        result.add(
+                            UnifiedModel(
+                                id = "${platform.uid}::${catModel.id}",
+                                name = catModel.name.ifBlank { catModel.id },
+                                modelId = catModel.id,
+                                provider = provider,
+                                platformUid = platform.uid,
+                                description = catModel.description,
+                                contextWindow = catModel.contextWindow ?: 0,
+                                isDefault = platform.model == catModel.id,
+                                isActive = (activeModelId == null && platform.model == catModel.id) || activeModelId == "${platform.uid}::${catModel.id}"
+                            )
+                        )
+                    }
+                } else if (platform.model.isNotBlank()) {
                     result.add(
                         UnifiedModel(
-                            id = "${platform.uid}::${catModel.id}",
-                            name = catModel.name.ifBlank { catModel.id },
-                            modelId = catModel.id,
+                            id = "${platform.uid}::${platform.model}",
+                            name = platform.model,
+                            modelId = platform.model,
                             provider = provider,
                             platformUid = platform.uid,
-                            description = catModel.description,
-                            contextWindow = catModel.contextWindow ?: 0,
-                            isDefault = platform.model == catModel.id,
-                            isActive = (activeModelId == null && platform.model == catModel.id) || activeModelId == "${platform.uid}::${catModel.id}"
+                            description = "Default model for ${platform.name}",
+                            isDefault = true,
+                            isActive = (activeModelId == null) || activeModelId == "${platform.uid}::${platform.model}"
                         )
                     )
                 }
-            } else if (platform.model.isNotBlank()) {
-                result.add(
-                    UnifiedModel(
-                        id = "${platform.uid}::${platform.model}",
-                        name = platform.model,
-                        modelId = platform.model,
-                        provider = provider,
-                        platformUid = platform.uid,
-                        description = "Default model for ${platform.name}",
-                        isDefault = true,
-                        isActive = (activeModelId == null) || activeModelId == "${platform.uid}::${platform.model}"
-                    )
-                )
             }
+            cachedModels = result
+            result
         }
-        result
     }
 
     override suspend fun getModelById(id: String): UnifiedModel? {
-        return getAllModels().firstOrNull { it.id == id }
+        val models = cacheMutex.withLock { cachedModels }.ifEmpty { getAllModels() }
+        return models.firstOrNull { it.id == id }
     }
 
     override suspend fun getActiveModel(): UnifiedModel? {
-        val all = getAllModels()
+        val all = cacheMutex.withLock { cachedModels }.ifEmpty { getAllModels() }
         return all.firstOrNull { it.id == activeModelId }
             ?: all.firstOrNull { it.isDefault }
             ?: all.firstOrNull()
     }
 
     override suspend fun setActiveModel(modelId: String): Boolean {
-        activeModelId = modelId
+        cacheMutex.withLock {
+            activeModelId = modelId
+            cachedModels = cachedModels.map { it.copy(isActive = it.id == modelId) }
+        }
         return true
     }
 
@@ -88,7 +99,15 @@ class UnifiedModelRepositoryImpl @Inject constructor(
             val platform = platformV2Dao.getByUid(platformUid)
             if (platform != null) {
                 platformV2Dao.update(platform.copy(model = actualModelId))
-                activeModelId = modelId
+                cacheMutex.withLock {
+                    activeModelId = modelId
+                    cachedModels = cachedModels.map {
+                        it.copy(
+                            isDefault = it.id == modelId,
+                            isActive = it.id == modelId
+                        )
+                    }
+                }
                 return@withContext true
             }
         }
@@ -96,13 +115,15 @@ class UnifiedModelRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getModelsByProvider(provider: UnifiedModelProvider): List<UnifiedModel> {
-        return getAllModels().filter { it.provider.key == provider.key }
+        val all = cacheMutex.withLock { cachedModels }.ifEmpty { getAllModels() }
+        return all.filter { it.provider.key == provider.key }
     }
 
     override suspend fun filterModels(query: String): List<UnifiedModel> {
         val trimmed = query.trim().lowercase()
-        if (trimmed.isEmpty()) return getAllModels()
-        return getAllModels().filter {
+        val all = cacheMutex.withLock { cachedModels }.ifEmpty { getAllModels() }
+        if (trimmed.isEmpty()) return all
+        return all.filter {
             it.name.lowercase().contains(trimmed) ||
                 it.modelId.lowercase().contains(trimmed) ||
                 (it.description?.lowercase()?.contains(trimmed) == true) ||

@@ -6,7 +6,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -15,6 +14,7 @@ import kotlinx.coroutines.launch
 /**
  * Composable for the debug mode UI
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DebugModeUI(
     context: Context,

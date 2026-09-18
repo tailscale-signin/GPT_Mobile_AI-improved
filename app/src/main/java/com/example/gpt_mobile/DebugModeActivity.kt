@@ -1,8 +1,8 @@
 package com.example.gpt_mobile
 
 import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -11,15 +11,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.fragment.NavHostFragment
-import androidx.navigation.fragment.findNavController
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Activity for the debug mode UI
  */
-class DebugModeActivity : AppCompatActivity() {
+class DebugModeActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,9 +27,10 @@ class DebugModeActivity : AppCompatActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DebugModeScreen(
-    debugModeManager: DebugModeManager = DebugModeManager(this)
+    debugModeManager: DebugModeManager = DebugModeManager(LocalContext.current)
 ) {
     val isEnabled by debugModeManager.debugModeEnabled.collectAsState()
     val privacySettings by debugModeManager.privacySettings.collectAsState()

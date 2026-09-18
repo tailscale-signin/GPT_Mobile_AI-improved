@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flow
+import java.util.Locale
 
 /**
  * Provider for collecting and managing diagnostics telemetry
@@ -14,7 +15,7 @@ import kotlinx.coroutines.flow.flow
 object DiagnosticsTelemetryProvider {
     
     private var isEnabled = false
-    private val database: DebugDatabase by lazy { DebugDatabase.getDatabase(context) }
+    private val database: DebugDatabase by lazy { DebugDatabase.getDatabase(context ?: throw IllegalStateException("Context not initialized")) }
     
     /**
      * Get a snapshot of current hardware diagnostics
@@ -53,16 +54,16 @@ object DiagnosticsTelemetryProvider {
         sb.appendLine("RAM: ${snapshot.availableRamMb} MB (${snapshot.totalRamGb} GB)")
         sb.appendLine("Thermal Status: ${snapshot.thermalStatus}")
         sb.appendLine("NPU Ready: ${if (snapshot.qnnReady) "Yes" else "No"}")
-        sb.appendLine("Battery: ${snapshot.batteryLevel}% ${if (snapshot.batteryCharging) "(Charging)" else "(Not Charging")}")
+        sb.appendLine("Battery: ${snapshot.batteryLevel}% ${if (snapshot.batteryCharging) "(Charging)" else "(Not Charging)"}")
         sb.appendLine("Network: ${snapshot.networkType}")
         sb.appendLine("Timestamp: ${snapshot.timestamp}")
         
         tokenMetrics?.let {
             if (it.isNotEmpty()) {
                 sb.appendLine("\n=== Token Metrics ===")
-                val avgLatency = it.map { it.latencyMs }.average()
-                sb.appendLine("Average Latency: ${avgLatency.format(2)} ms")
-                sb.appendLine("Total Tokens: ${it.sumOf { it.tokenCount }}")
+                val avgLatency = it.map { metric -> metric.latencyMs }.average()
+                sb.appendLine("Average Latency: ${String.format(Locale.US, "%.2f", avgLatency)} ms")
+                sb.appendLine("Total Tokens: ${it.sumOf { metric -> metric.tokenCount }}")
             }
         }
         
@@ -88,7 +89,8 @@ object DiagnosticsTelemetryProvider {
         return flow {
             // In a real implementation, this would collect live telemetry data
             // For now, returning a mock value
-            emit(getSnapshot(context, "Test Backend", "Test Accelerator"))
+            val ctx = context ?: throw IllegalStateException("Context not initialized")
+            emit(getSnapshot(ctx, "Test Backend", "Test Accelerator"))
         }
     }
     
@@ -169,22 +171,6 @@ data class DiagnosticsSnapshot(
     val batteryCharging: Boolean,
     val networkType: String,
     val timestamp: Long
-)
-
-/**
- * Data class for token metrics
- */
-data class TokenMetrics(
-    val sessionId: String,
-    val turnId: Int,
-    val tokenIndex: Int,
-    val ttftMs: Double,
-    val itlMs: Double,
-    val throughputTps: Double,
-    val modelId: String,
-    val provider: String,
-    val latencyP95Ms: Double,
-    val latencyP99Ms: Double
 )
 
 /**

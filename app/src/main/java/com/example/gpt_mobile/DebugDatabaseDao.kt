@@ -171,14 +171,16 @@ data class ProviderLatencySummary(
  * Performance event with temperature data
  */
 data class PerformanceEventWithTemp(
-    val telemetryEvent: TelemetryEvent,
-    val hardwareDiagnostics: HardwareDiagnostics
+    @Embedded val telemetryEvent: TelemetryEvent,
+    val socName: String,
+    val temperatureCelsius: Float
 )
 
 /**
  * High latency token with temperature data
  */
 data class HighLatencyTokenWithTemp(
-    val tokenMetrics: TokenMetrics,
-    val hardwareDiagnostics: HardwareDiagnostics
+    @Embedded val tokenMetrics: TokenMetrics,
+    val socName: String,
+    val temperatureCelsius: Float
 )

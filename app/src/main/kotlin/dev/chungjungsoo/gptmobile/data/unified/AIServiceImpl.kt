@@ -50,9 +50,14 @@ class AIServiceImpl @Inject constructor(
                 chatToolConfig = null
             )
 
+            var isDone = false
             flow.collect { state ->
+                if (isDone) return@collect
                 when (state) {
                     is ApiState.Success -> fullResponse.append(state.textChunk)
+                    is ApiState.Done -> {
+                        isDone = true
+                    }
                     is ApiState.Error -> throw RuntimeException(state.message)
                     else -> Unit
                 }
@@ -83,6 +88,7 @@ class AIServiceImpl @Inject constructor(
         )
 
         val runId = UUID.randomUUID().toString()
+        var isDone = false
         chatRepository.completeChat(
             userMessages = listOf(userMsg),
             assistantMessages = emptyList(),
@@ -90,8 +96,12 @@ class AIServiceImpl @Inject constructor(
             runId = runId,
             chatToolConfig = null
         ).collect { state ->
+            if (isDone) return@collect
             when (state) {
                 is ApiState.Success -> emit(state.textChunk)
+                is ApiState.Done -> {
+                    isDone = true
+                }
                 is ApiState.Error -> throw RuntimeException(state.message)
                 else -> Unit
             }

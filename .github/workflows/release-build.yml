@@ -285,7 +285,7 @@ jobs:
           if [ -n "$EXISTING_RELEASE" ]; then
             echo "Found existing release (id: $EXISTING_RELEASE), updating and uploading assets..."
             gh release edit "$EXISTING_RELEASE" "${FLAGS[@]}" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY" || true
-            gh release upload "$EXISTING_RELEASE" "${ASSETS_TO_UPLOAD[@]}" --clobber
+            gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
             echo "Creating fresh GitHub Release $TAG_NAME..."
             gh release create "$TAG_NAME" \

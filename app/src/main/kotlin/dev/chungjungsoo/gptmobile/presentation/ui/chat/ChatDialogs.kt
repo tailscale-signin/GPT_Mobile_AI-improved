@@ -2,15 +2,28 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -20,11 +33,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import dev.chungjungsoo.gptmobile.R
@@ -45,6 +62,7 @@ fun ChatModelDialog(
     platformNames: Map<String, String>,
     platformClientTypes: Map<String, ClientType> = emptyMap(),
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
+    ollamaModels: List<UnifiedModelOption.Ollama> = emptyList(),
     onNavigateToLocalModels: () -> Unit = {},
     onDismissRequest: () -> Unit,
     onConfirmRequest: (Map<String, String>) -> Unit
@@ -55,6 +73,8 @@ fun ChatModelDialog(
     var models by rememberSaveable(platformOrder, initialModels) {
         mutableStateOf(platformOrder.associateWith { uid -> initialModels[uid].orEmpty() })
     }
+
+    var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -70,7 +90,9 @@ fun ChatModelDialog(
                 )
                 platformOrder.forEach { platformUid ->
                     val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
-                    if (platformClientTypes[platformUid] == ClientType.LITERT_LM) {
+                    val clientType = platformClientTypes[platformUid]
+
+                    if (clientType == ClientType.LITERT_LM) {
                         Text(
                             text = stringResource(R.string.chat_model_for_platform, platformName),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -83,6 +105,30 @@ fun ChatModelDialog(
                             },
                             onNavigateToLocalModels = onNavigateToLocalModels,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                        )
+                    } else if (clientType == ClientType.OLLAMA) {
+                        // Ollama platform: support both direct text entry and unified picker selection
+                        OutlinedTextField(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            value = models[platformUid].orEmpty(),
+                            onValueChange = { value ->
+                                models = models.toMutableMap().apply { put(platformUid, value) }
+                            },
+                            singleLine = true,
+                            label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
+                            trailingIcon = {
+                                IconButton(onClick = { activeUnifiedPickerPlatformUid = platformUid }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = stringResource(R.string.unified_model_picker)
+                                    )
+                                }
+                            },
+                            supportingText = {
+                                Text(stringResource(R.string.model_supporting))
+                            }
                         )
                     } else {
                         OutlinedTextField(
@@ -123,6 +169,32 @@ fun ChatModelDialog(
             }
         }
     )
+
+    // Show Unified Model Picker Dialog if active
+    activeUnifiedPickerPlatformUid?.let { platformUid ->
+        val localOptions = downloadedLocalModels.map {
+            UnifiedModelOption.Local(
+                id = it.catalogEntryId,
+                displayName = it.displayName,
+                parameterSize = it.parameterSize,
+                formattedSize = it.formattedSize
+            )
+        }
+        val currentModel = models[platformUid].orEmpty()
+        val platformName = platformNames[platformUid] ?: ""
+
+        UnifiedModelPickerDialog(
+            title = stringResource(R.string.chat_model_for_platform, platformName),
+            localModels = localOptions,
+            ollamaModels = ollamaModels,
+            selectedModelId = currentModel,
+            onModelSelected = { selected ->
+                models = models.toMutableMap().apply { put(platformUid, selected) }
+            },
+            onNavigateToLocalModels = onNavigateToLocalModels,
+            onDismissRequest = { activeUnifiedPickerPlatformUid = null }
+        )
+    }
 }
 
 @Composable

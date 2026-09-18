@@ -13,6 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.fragment.NavHostFragment
+import androidx.navigation.fragment.findNavController
 
 /**
  * Activity for the debug mode UI
@@ -23,14 +25,14 @@ class DebugModeActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         
         setContent {
-            DebugModeScreen()
+            DebugModeUI(context = this)
         }
     }
 }
 
 @Composable
 fun DebugModeScreen(
-    debugModeManager: DebugModeManager = viewModel()
+    debugModeManager: DebugModeManager = DebugModeManager(this)
 ) {
     val isEnabled by debugModeManager.debugModeEnabled.collectAsState()
     val privacySettings by debugModeManager.privacySettings.collectAsState()
@@ -42,7 +44,13 @@ fun DebugModeScreen(
                 actions = {
                     Switch(
                         checked = isEnabled,
-                        onCheckedChange = { debugModeManager.toggleDebugMode() }
+                        onCheckedChange = { 
+                            if (isEnabled) {
+                                debugModeManager.disableDebugMode()
+                            } else {
+                                debugModeManager.enableDebugMode()
+                            }
+                        }
                     )
                 }
             )
@@ -53,59 +61,15 @@ fun DebugModeScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Debug mode toggle
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = "Debug Mode Status",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    Text(
-                        text = if (isEnabled) "Enabled" else "Disabled",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-            
-            // Privacy settings
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = "Privacy Settings",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    // Add privacy settings UI components here
-                }
-            }
-            
-            // Telemetry data display
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = "Telemetry Data",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    // Add telemetry data display here
-                }
-            }
+            // Debug mode UI components would go here
+            Text(
+                text = "AETHERION Debug Mode",
+                style = MaterialTheme.typography.headlineSmall
+            )
+            Text(
+                text = "Debug mode is ${if (isEnabled) "enabled" else "disabled"}",
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }

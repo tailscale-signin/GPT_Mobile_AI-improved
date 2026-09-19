@@ -43,10 +43,6 @@ object ApiKeyValidator {
                 if (base.isNotEmpty()) "$base/models" else return@withContext ValidationResult.Success("Custom URL accepted")
             }
             ClientType.LITERT_LM -> return@withContext ValidationResult.Success("Local model does not require key validation")
-            ClientType.LLAMA -> {
-                val base = apiUrl.trim().trimEnd('/')
-                if (base.isNotEmpty()) "$base/models" else "https://api.llama.com/v1/models"
-            }
         }
 
         try {

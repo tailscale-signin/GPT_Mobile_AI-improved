@@ -17,7 +17,7 @@ import java.io.InputStream
 import java.io.OutputStream
 
 /**
- * Backup payload data structure representing user chats, settings, models, and tools.
+ * Backup payload data structure representing user chats, settings, models, tools, and favorites.
  */
 @Serializable
 data class UserBackupData(
@@ -28,10 +28,12 @@ data class UserBackupData(
     val platforms: List<PlatformV2> = emptyList(),
     val models: List<ChatPlatformModelV2> = emptyList(),
     val toolConnections: List<ToolConnection> = emptyList(),
-    val localModels: List<LocalModel> = emptyList()
+    val localModels: List<LocalModel> = emptyList(),
+    val favoriteGroups: List<String> = emptyList(),
+    val messageGroups: Map<Int, String> = emptyMap()
 ) {
     companion object {
-        const val BACKUP_VERSION = 1
+        const val BACKUP_VERSION = 2
     }
 }
 
@@ -44,6 +46,7 @@ data class BackupExportOptions(
     val includeTokens: Boolean = false,
     val includeModels: Boolean = true,
     val includeTools: Boolean = true,
+    val includeFavorites: Boolean = true,
     val passphrase: String? = null
 )
 

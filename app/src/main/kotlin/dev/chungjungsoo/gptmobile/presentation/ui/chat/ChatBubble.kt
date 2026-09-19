@@ -117,21 +117,6 @@ fun UserChatBubble(
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
 
     Column(horizontalAlignment = Alignment.End) {
-        if (hasDetails) {
-            Row(
-                modifier = Modifier
-                    .wrapContentWidth()
-                    .padding(bottom = 4.dp, end = 4.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                DetailsButton(
-                    isVisible = areDetailsVisible,
-                    isEnabled = true,
-                    onClick = onToggleDetails
-                )
-            }
-        }
         Card(
             modifier = modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
             shape = RoundedCornerShape(32.dp), colors = cardColor
@@ -150,6 +135,21 @@ fun UserChatBubble(
                         )
                     }
                 }
+            }
+        }
+        if (hasDetails) {
+            Row(
+                modifier = Modifier
+                    .wrapContentWidth()
+                    .padding(top = 4.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DetailsButton(
+                    isVisible = areDetailsVisible,
+                    isEnabled = true,
+                    onClick = onToggleDetails
+                )
             }
         }
         MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
@@ -256,53 +256,11 @@ fun OpponentChatBubble(
                         shape = RoundedCornerShape(32.dp)
                     )
             ) {
-                if (hasDetails) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, end = 12.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DetailsButton(
-                            isVisible = areDetailsVisible,
-                            isEnabled = true,
-                            onClick = { areDetailsVisible = !areDetailsVisible }
-                        )
-                    }
-                }
-
                 val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
                     hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
                 }
 
-                AnimatedContent(
-                    targetState = areDetailsVisible && hasDetails,
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
-                    },
-                    label = "assistantProcessDetails"
-                ) { isVisible ->
-                    if (isVisible) {
-                        if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
-                            AssistantProcessContent(
-                                timeline = contentTimeline,
-                                toolEvents = toolEvents,
-                                isLoading = showProcessStreamingIndicator,
-                                contentIdentity = contentIdentity
-                            )
-                        } else {
-                            LegacyAssistantProcessContent(
-                                thoughts = thoughts,
-                                toolEvents = toolEvents,
-                                isLoading = showProcessStreamingIndicator,
-                                contentIdentity = contentIdentity,
-                                showOrderNotice = hasUnavailableOrder
-                            )
-                        }
-                    }
-                }
-
+                // Response content (rendered first so details panel appears below during streaming)
                 if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
                     AssistantAnswerContent(
                         timeline = contentTimeline,
@@ -317,6 +275,50 @@ fun OpponentChatBubble(
                         isLoading = showAnswerStreamingIndicator,
                         contentIdentity = contentIdentity
                     )
+                }
+
+                // Details expandable content & toggle button placed below the response content
+                if (hasDetails) {
+                    AnimatedContent(
+                        targetState = areDetailsVisible && hasDetails,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
+                        },
+                        label = "assistantProcessDetails"
+                    ) { isVisible ->
+                        if (isVisible) {
+                            if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
+                                AssistantProcessContent(
+                                    timeline = contentTimeline,
+                                    toolEvents = toolEvents,
+                                    isLoading = showProcessStreamingIndicator,
+                                    contentIdentity = contentIdentity
+                                )
+                            } else {
+                                LegacyAssistantProcessContent(
+                                    thoughts = thoughts,
+                                    toolEvents = toolEvents,
+                                    isLoading = showProcessStreamingIndicator,
+                                    contentIdentity = contentIdentity,
+                                    showOrderNotice = hasUnavailableOrder
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 4.dp, end = 12.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        DetailsButton(
+                            isVisible = areDetailsVisible,
+                            isEnabled = true,
+                            onClick = { areDetailsVisible = !areDetailsVisible }
+                        )
+                    }
                 }
 
                 MessageFileThumbnailRow(

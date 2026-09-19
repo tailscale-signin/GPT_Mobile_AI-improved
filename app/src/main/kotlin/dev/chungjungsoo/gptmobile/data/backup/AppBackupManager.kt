@@ -12,9 +12,11 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.dto.ThemeBackupDto
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import javax.inject.Inject
@@ -28,6 +30,11 @@ data class BackupRestoreResult(
     val success: Boolean,
     val message: String,
     val count: Int = 0
+)
+
+data class BackupStatus(
+    val lastBackupEpochMs: Long? = null,
+    val backupCount: Int = 0
 )
 
 @Singleton
@@ -44,18 +51,47 @@ class AppBackupManager @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
 
-    suspend fun exportFavorites(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+    /**
+     * Exports favorites and their custom groups as an encrypted backup file.
+     */
+    suspend fun exportFavorites(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val allMessages = messageV2Dao.getMessageList()
-            val favoriteIds = allMessages.filter { it.isFavorite }.map { it.id }
-            val jsonString = json.encodeToString(favoriteIds)
+            val favoriteMessages = allMessages.filter { it.isFavorite }
+            val favoriteIds = favoriteMessages.map { it.id }
+            val favoriteGroups = settingRepository.getFavoriteGroups()
+            val messageGroups = settingRepository.getFavoriteMessageGroups()
+
+            val favoriteItemDtos = favoriteMessages.map { msg ->
+                FavoriteItemBackupDto(
+                    messageId = msg.id,
+                    chatRoomId = msg.chatRoomId,
+                    content = msg.content,
+                    role = msg.role,
+                    isFavorite = msg.isFavorite,
+                    createdAt = msg.createdAt,
+                    group = messageGroups[msg.id]
+                )
+            }
+
+            val payload = FavoritesBackupPayload(
+                version = 1,
+                exportedAt = System.currentTimeMillis(),
+                favoriteIds = favoriteIds,
+                favoriteGroups = favoriteGroups,
+                messageGroups = messageGroups,
+                favoriteMessages = favoriteItemDtos
+            )
+
             context.contentResolver.openOutputStream(uri)?.use { outStream ->
-                outStream.write(jsonString.encodeToByteArray())
+                AppBackupCrypto.encryptFavorites(payload, outStream, passphrase)
             } ?: throw IllegalStateException("Could not open destination file for writing.")
+
+            recordBackupMetadata()
 
             BackupRestoreResult(
                 success = true,
-                message = "Favorites exported successfully.",
+                message = "Encrypted favorites exported successfully.",
                 count = favoriteIds.size
             )
         }.getOrElse { error ->
@@ -66,15 +102,31 @@ class AppBackupManager @Inject constructor(
         }
     }
 
-    suspend fun importFavorites(uri: Uri): BackupRestoreResult = withContext(Dispatchers.IO) {
+    /**
+     * Imports favorites from an encrypted backup file, restoring favorite flags and group mappings.
+     */
+    suspend fun importFavorites(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
-            val jsonString = context.contentResolver.openInputStream(uri)?.use { inStream ->
-                inStream.readBytes().decodeToString()
+            val payload = context.contentResolver.openInputStream(uri)?.use { inStream ->
+                AppBackupCrypto.decryptFavorites(inStream, passphrase)
             } ?: throw IllegalStateException("Could not read favorites file.")
 
-            val importedIds = json.decodeFromString<List<Int>>(jsonString)
+            // Restore custom groups
+            if (payload.favoriteGroups.isNotEmpty()) {
+                val existingGroups = settingRepository.getFavoriteGroups().toSet()
+                val mergedGroups = (existingGroups + payload.favoriteGroups).toList()
+                settingRepository.saveFavoriteGroups(mergedGroups)
+            }
+
+            // Restore message groups
+            if (payload.messageGroups.isNotEmpty()) {
+                val existingMap = settingRepository.getFavoriteMessageGroups().toMutableMap()
+                existingMap.putAll(payload.messageGroups)
+                settingRepository.saveFavoriteMessageGroups(existingMap)
+            }
+
             var count = 0
-            importedIds.forEach { id ->
+            payload.favoriteIds.forEach { id ->
                 if (id > 0) {
                     messageV2Dao.updateFavorite(id, true)
                     count++
@@ -83,7 +135,7 @@ class AppBackupManager @Inject constructor(
 
             BackupRestoreResult(
                 success = true,
-                message = "Favorites imported successfully.",
+                message = "Favorites restored successfully ($count favorite(s) marked).",
                 count = count
             )
         }.getOrElse { error ->
@@ -94,13 +146,23 @@ class AppBackupManager @Inject constructor(
         }
     }
 
-    suspend fun exportConfiguration(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
+    /**
+     * Exports full advanced settings including AI Platforms, MCP Tool connections & bindings,
+     * UI preferences, runtime backend, and favorite group taxonomy.
+     */
+    suspend fun exportConfiguration(
+        uri: Uri,
+        passphrase: String? = null,
+        options: GranularBackupOptions = GranularBackupOptions()
+    ): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
-            val platforms = settingRepository.fetchPlatformV2s()
+            val platforms = if (options.includePlatforms) settingRepository.fetchPlatformV2s() else emptyList()
             val theme = settingRepository.fetchThemes()
-            val toolConnections = toolConnectionDao.listConnections()
-            val toolBindings = platforms.flatMap { p ->
-                toolConnectionDao.listBindingsByProfile(p.uid)
+            val toolConnections = if (options.includeTools) toolConnectionDao.listConnections() else emptyList()
+            val toolBindings = if (options.includeTools) {
+                platforms.flatMap { p -> toolConnectionDao.listBindingsByProfile(p.uid) }
+            } else {
+                emptyList()
             }
 
             val connectionsWithCreds = toolConnections.map { conn ->
@@ -116,8 +178,22 @@ class AppBackupManager @Inject constructor(
                 ToolConnectionWithCredential(connection = conn, credentialPlaintext = cred)
             }
 
+            val uiPreferences = if (options.includeUiPreferences) {
+                UiPreferencesBackupDto(
+                    themeMode = theme.themeMode.ordinal,
+                    dynamicTheme = theme.dynamicTheme == DynamicTheme.ON,
+                    debugMode = settingRepository.getDebugMode(),
+                    localRuntimeBackend = settingRepository.getLocalRuntimeBackend().name
+                )
+            } else {
+                null
+            }
+
+            val favoriteGroups = if (options.includeFavorites) settingRepository.getFavoriteGroups() else emptyList()
+            val messageGroups = if (options.includeFavorites) settingRepository.getFavoriteMessageGroups() else emptyMap()
+
             val payload = ConfigBackupPayload(
-                version = 1,
+                version = 2,
                 exportedAt = System.currentTimeMillis(),
                 theme = ThemeBackupDto(
                     dynamicTheme = theme.dynamicTheme == DynamicTheme.ON,
@@ -125,12 +201,17 @@ class AppBackupManager @Inject constructor(
                 ),
                 platforms = platforms,
                 toolConnections = connectionsWithCreds,
-                agentToolBindings = toolBindings
+                agentToolBindings = toolBindings,
+                favoriteGroups = favoriteGroups,
+                messageGroups = messageGroups,
+                uiPreferences = uiPreferences
             )
 
             context.contentResolver.openOutputStream(uri)?.use { outStream ->
                 AppBackupCrypto.encryptConfig(payload, outStream, passphrase)
             } ?: throw IllegalStateException("Could not open destination file for writing.")
+
+            recordBackupMetadata()
 
             BackupRestoreResult(
                 success = true,
@@ -145,13 +226,23 @@ class AppBackupManager @Inject constructor(
         }
     }
 
+    /**
+     * Restores configuration including AI Platforms, MCP tools, UI preferences, and custom groups.
+     */
     suspend fun restoreConfiguration(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val payload = context.contentResolver.openInputStream(uri)?.use { inStream ->
                 AppBackupCrypto.decryptConfig(inStream, passphrase)
             } ?: throw IllegalStateException("Could not read backup file.")
 
-            payload.theme?.let { themeDto ->
+            // Restore Theme & UI Preferences
+            payload.uiPreferences?.let { uiPrefs ->
+                val dynamicTheme = if (uiPrefs.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
+                val themeMode = ThemeMode.getByValue(uiPrefs.themeMode) ?: ThemeMode.SYSTEM
+                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
+                settingRepository.updateDebugMode(uiPrefs.debugMode)
+                settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.fromString(uiPrefs.localRuntimeBackend))
+            } ?: payload.theme?.let { themeDto ->
                 val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
                 val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
                 settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
@@ -195,6 +286,17 @@ class AppBackupManager @Inject constructor(
                 }
             }
 
+            // Restore Favorite Groups
+            if (payload.favoriteGroups.isNotEmpty()) {
+                val existing = settingRepository.getFavoriteGroups().toSet()
+                settingRepository.saveFavoriteGroups((existing + payload.favoriteGroups).toList())
+            }
+            if (payload.messageGroups.isNotEmpty()) {
+                val existing = settingRepository.getFavoriteMessageGroups().toMutableMap()
+                existing.putAll(payload.messageGroups)
+                settingRepository.saveFavoriteMessageGroups(existing)
+            }
+
             BackupRestoreResult(
                 success = true,
                 message = "Configuration restored successfully.",
@@ -208,6 +310,9 @@ class AppBackupManager @Inject constructor(
         }
     }
 
+    /**
+     * Exports full database (conversations + messages + models + favorite groups).
+     */
     suspend fun exportDatabase(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val chatRooms = chatRoomV2Dao.getChatRooms()
@@ -217,18 +322,24 @@ class AppBackupManager @Inject constructor(
             val allModels = chatRooms.flatMap { room ->
                 chatPlatformModelV2Dao.getByChatId(room.id)
             }
+            val favoriteGroups = settingRepository.getFavoriteGroups()
+            val messageGroups = settingRepository.getFavoriteMessageGroups()
 
             val payload = DatabaseBackupPayload(
-                version = 1,
+                version = 2,
                 exportedAt = System.currentTimeMillis(),
                 chatRooms = chatRooms,
                 messages = allMessages,
-                chatPlatformModels = allModels
+                chatPlatformModels = allModels,
+                favoriteGroups = favoriteGroups,
+                messageGroups = messageGroups
             )
 
             context.contentResolver.openOutputStream(uri)?.use { outStream ->
                 AppBackupCrypto.encryptDatabase(payload, outStream, passphrase)
             } ?: throw IllegalStateException("Could not open destination file for writing.")
+
+            recordBackupMetadata()
 
             BackupRestoreResult(
                 success = true,
@@ -243,6 +354,9 @@ class AppBackupManager @Inject constructor(
         }
     }
 
+    /**
+     * Restores full database, replacing existing chats and restoring favorite groups.
+     */
     suspend fun restoreDatabase(uri: Uri, passphrase: String? = null): BackupRestoreResult = withContext(Dispatchers.IO) {
         runCatching {
             val payload = context.contentResolver.openInputStream(uri)?.use { inStream ->
@@ -267,6 +381,13 @@ class AppBackupManager @Inject constructor(
                 chatPlatformModelV2Dao.upsertAll(*payload.chatPlatformModels.toTypedArray())
             }
 
+            if (payload.favoriteGroups.isNotEmpty()) {
+                settingRepository.saveFavoriteGroups(payload.favoriteGroups)
+            }
+            if (payload.messageGroups.isNotEmpty()) {
+                settingRepository.saveFavoriteMessageGroups(payload.messageGroups)
+            }
+
             BackupRestoreResult(
                 success = true,
                 message = "Database restored successfully.",
@@ -278,5 +399,33 @@ class AppBackupManager @Inject constructor(
                 message = error.localizedMessage ?: "Failed to restore database."
             )
         }
+    }
+
+    /**
+     * Returns the latest backup status (timestamp and count).
+     */
+    fun getBackupStatus(): BackupStatus {
+        val prefs = context.getSharedPreferences(PREFS_BACKUP_METADATA, Context.MODE_PRIVATE)
+        val lastEpoch = prefs.getLong(KEY_LAST_BACKUP_TIME, 0L)
+        val count = prefs.getInt(KEY_BACKUP_COUNT, 0)
+        return BackupStatus(
+            lastBackupEpochMs = if (lastEpoch > 0L) lastEpoch else null,
+            backupCount = count
+        )
+    }
+
+    private fun recordBackupMetadata() {
+        val prefs = context.getSharedPreferences(PREFS_BACKUP_METADATA, Context.MODE_PRIVATE)
+        val count = prefs.getInt(KEY_BACKUP_COUNT, 0) + 1
+        prefs.edit()
+            .putLong(KEY_LAST_BACKUP_TIME, System.currentTimeMillis())
+            .putInt(KEY_BACKUP_COUNT, count)
+            .apply()
+    }
+
+    companion object {
+        private const val PREFS_BACKUP_METADATA = "app_backup_metadata"
+        private const val KEY_LAST_BACKUP_TIME = "last_backup_epoch_ms"
+        private const val KEY_BACKUP_COUNT = "backup_count"
     }
 }

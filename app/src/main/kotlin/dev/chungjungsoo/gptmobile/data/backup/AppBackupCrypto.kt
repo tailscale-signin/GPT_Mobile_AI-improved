@@ -19,6 +19,7 @@ object AppBackupCrypto {
     private const val PAYLOAD_CONFIG: Byte = 1
     private const val PAYLOAD_DATABASE: Byte = 2
     private const val PAYLOAD_USER_BACKUP: Byte = 3
+    private const val PAYLOAD_FAVORITES: Byte = 4
 
     private const val ITERATIONS = 65536
     private const val KEY_LENGTH_BITS = 256
@@ -63,6 +64,17 @@ object AppBackupCrypto {
     fun decryptDatabase(inputStream: InputStream, passphrase: String? = null): DatabaseBackupPayload {
         val (type, plaintext) = decryptBytes(inputStream, passphrase)
         require(type == PAYLOAD_DATABASE) { "Selected file is not a GPT Mobile Database backup." }
+        return json.decodeFromString(plaintext.decodeToString())
+    }
+
+    fun encryptFavorites(payload: FavoritesBackupPayload, outputStream: OutputStream, passphrase: String? = null) {
+        val jsonBytes = json.encodeToString(payload).toByteArray(Charsets.UTF_8)
+        encryptBytes(PAYLOAD_FAVORITES, jsonBytes, outputStream, passphrase)
+    }
+
+    fun decryptFavorites(inputStream: InputStream, passphrase: String? = null): FavoritesBackupPayload {
+        val (type, plaintext) = decryptBytes(inputStream, passphrase)
+        require(type == PAYLOAD_FAVORITES) { "Selected file is not a GPT Mobile Favorites backup." }
         return json.decodeFromString(plaintext.decodeToString())
     }
 

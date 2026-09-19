@@ -344,7 +344,8 @@ fun ChatScreen(
                             },
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
                             onShowNextRevision = chatViewModel::showNextAssistantRevision,
-                            onContinueClick = { chatViewModel.sendContinueResponse() }
+                            onContinueClick = { chatViewModel.sendContinueResponse() },
+                            onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
@@ -508,7 +509,8 @@ private fun ChatMessagePair(
     onFavoriteLongPress: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
     onShowNextRevision: (Int, Int) -> Unit,
-    onContinueClick: () -> Unit = {}
+    onContinueClick: () -> Unit = {},
+    onActionClick: (String) -> Unit = {}
 ) {
     val selectedAssistantMessage = assistantMessages.getOrNull(platformIndexState)
     val assistantContent = selectedAssistantMessage?.effectiveContent() ?: ""
@@ -636,7 +638,8 @@ private fun ChatMessagePair(
                     onFavoriteLongPress = onFavoriteLongPress,
                     onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
                     onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) },
-                    onContinueClick = onContinueClick
+                    onContinueClick = onContinueClick,
+                    onActionClick = onActionClick
                 )
             }
         }

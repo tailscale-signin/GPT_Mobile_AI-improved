@@ -27,7 +27,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
@@ -88,33 +92,7 @@ internal fun shouldShowContinuePrompt(
     isLoading: Boolean,
     isLastMessage: Boolean = false
 ): Boolean {
-    if (isLoading || text.isBlank()) return false
-    val trimmed = text.trim()
-    val lower = trimmed.lowercase(Locale.ROOT)
-    return isLastMessage ||
-        trimmed.endsWith("...") ||
-        trimmed.endsWith("…") ||
-        trimmed.endsWith("continue?") ||
-        trimmed.endsWith("Continue?") ||
-        lower.endsWith("continue") ||
-        lower.contains("reply with continue") ||
-        lower.contains("reply 'continue'") ||
-        lower.contains("reply \"continue\"") ||
-        lower.contains("say continue") ||
-        lower.contains("type continue") ||
-        lower.contains("would you like me to continue") ||
-        lower.contains("would you like to continue") ||
-        lower.contains("shall i continue") ||
-        lower.contains("should i continue") ||
-        lower.contains("do you want me to continue") ||
-        lower.contains("do you want me to keep going") ||
-        lower.contains("let me know if you want me to continue") ||
-        lower.contains("let me know if you'd like me to continue") ||
-        lower.contains("let me know if you want me to keep going") ||
-        lower.contains("let me know if i should continue") ||
-        lower.contains("proceed?") ||
-        lower.endsWith("proceed") ||
-        (trimmed.count { it == '`' } % 2 != 0) // unclosed code block / truncated
+    return ChatResponseActionParser.shouldShowContinuePrompt(text, isLoading, isLastMessage)
 }
 
 @Composable
@@ -207,7 +185,8 @@ fun OpponentChatBubble(
     onFavoriteLongPress: () -> Unit = {},
     onShowPreviousRevision: () -> Unit = {},
     onShowNextRevision: () -> Unit = {},
-    onContinueClick: (() -> Unit)? = null
+    onContinueClick: (() -> Unit)? = null,
+    onActionClick: ((String) -> Unit)? = null
 ) {
     // Bubble background 2x more transparent than 0.08f (0.04f)
     val normalColor = Color.Black.copy(alpha = 0.04f)
@@ -234,7 +213,9 @@ fun OpponentChatBubble(
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
     val showContinueAction = remember(text, isLoading, isLastMessage) { shouldShowContinuePrompt(text, isLoading, isLastMessage) }
+    val dynamicActions = remember(text, isLoading) { ChatResponseActionParser.extractDynamicActions(text, isLoading) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
+    var actionDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
 
     var areDetailsVisible by rememberSaveable(contentIdentity) {
         mutableStateOf(isLoading)
@@ -381,6 +362,54 @@ fun OpponentChatBubble(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                     )
+                }
+
+                // Dynamic Action Buttons strip (if assistant proposed choices or options)
+                if (dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        dynamicActions.forEach { action ->
+                            val icon = when (action.iconType) {
+                                ActionIconType.SEARCH -> Icons.Default.Search
+                                ActionIconType.SUMMARIZE -> Icons.Default.Description
+                                ActionIconType.EXPLAIN -> Icons.Default.HelpOutline
+                                ActionIconType.OPTION -> Icons.Default.AutoAwesome
+                                ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
+                            }
+
+                            AssistChip(
+                                onClick = {
+                                    actionDismissed = true
+                                    onActionClick(action.actionPrompt)
+                                },
+                                label = {
+                                    Text(
+                                        text = action.label,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            )
+                        }
+                    }
                 }
 
                 // Minimal transparent continuation chip & bottom-right aligned timestamp

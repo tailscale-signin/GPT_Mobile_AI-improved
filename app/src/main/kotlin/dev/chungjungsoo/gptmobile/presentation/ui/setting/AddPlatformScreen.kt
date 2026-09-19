@@ -377,6 +377,7 @@ fun AddPlatformScreen(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun AddPlatformTopBar(
     title: String,
     scrollBehavior: TopAppBarScrollBehavior,

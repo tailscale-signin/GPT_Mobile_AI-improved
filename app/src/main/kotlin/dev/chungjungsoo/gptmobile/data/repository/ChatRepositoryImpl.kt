@@ -151,7 +151,7 @@ class ChatRepositoryImpl(
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, platform)
 
-                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM ->
+                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA ->
                     openAICompatibleAdapter.openSession(contextTurns, platform)
 
                 ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextTurns, platform)

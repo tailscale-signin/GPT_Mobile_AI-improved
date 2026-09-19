@@ -8,5 +8,6 @@ enum class ClientType {
     OPENROUTER,
     OLLAMA,
     CUSTOM,
-    LITERT_LM
+    LITERT_LM,
+    LLAMA
 }

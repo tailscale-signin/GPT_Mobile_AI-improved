@@ -1,0 +1,85 @@
+{
+  "manifest_version": "1.0",
+  "name": "GPT Mobile Built-in MCP Tools",
+  "version": "0.9.5.3",
+  "description": "Pre-bundled Model Context Protocol tool catalog and definitions for GPT Mobile AI",
+  "triple_verification": {
+    "enabled": true,
+    "manifest_check": true,
+    "sha_check": true,
+    "read_after_write": true
+  },
+  "tools": [
+    {
+      "name": "read_file",
+      "category": "FILE_SYSTEM",
+      "description": "Read content from a local file",
+      "parameters": [
+        { "name": "path", "type": "string", "required": true, "description": "File path to read" }
+      ]
+    },
+    {
+      "name": "write_file",
+      "category": "FILE_SYSTEM",
+      "description": "Write content to a local file",
+      "parameters": [
+        { "name": "path", "type": "string", "required": true, "description": "File path" },
+        { "name": "content", "type": "string", "required": true, "description": "Content to write" }
+      ]
+    },
+    {
+      "name": "list_directory",
+      "category": "FILE_SYSTEM",
+      "description": "List contents of a directory",
+      "parameters": [
+        { "name": "path", "type": "string", "required": true, "description": "Directory path" }
+      ]
+    },
+    {
+      "name": "delete_file",
+      "category": "FILE_SYSTEM",
+      "description": "Delete a file (requires confirmation)",
+      "parameters": [
+        { "name": "path", "type": "string", "required": true, "description": "File path to delete" }
+      ]
+    },
+    {
+      "name": "execute_code",
+      "category": "CODE_EXECUTION",
+      "description": "Execute Python/JavaScript code snippets",
+      "parameters": [
+        { "name": "code", "type": "string", "required": true, "description": "Code to execute" },
+        { "name": "language", "type": "string", "required": false, "description": "Programming language" }
+      ]
+    },
+    {
+      "name": "query_database",
+      "category": "DATABASE",
+      "description": "Query SQLite/Room database",
+      "parameters": [
+        { "name": "sql", "type": "string", "required": true, "description": "SQL query to execute" }
+      ]
+    },
+    {
+      "name": "http_request",
+      "category": "NETWORK",
+      "description": "Make HTTP requests (GET/POST/PUT/DELETE)",
+      "parameters": [
+        { "name": "url", "type": "string", "required": true, "description": "Target URL" },
+        { "name": "method", "type": "string", "required": false, "description": "HTTP method" },
+        { "name": "headers", "type": "object", "required": false, "description": "Request headers" },
+        { "name": "body", "type": "string", "required": false, "description": "Request body" }
+      ]
+    },
+    {
+      "name": "translate_text",
+      "category": "TRANSLATION",
+      "description": "Translate text between languages",
+      "parameters": [
+        { "name": "text", "type": "string", "required": true, "description": "Text to translate" },
+        { "name": "source_lang", "type": "string", "required": false, "description": "Source language code" },
+        { "name": "target_lang", "type": "string", "required": true, "description": "Target language code" }
+      ]
+    }
+  ]
+}

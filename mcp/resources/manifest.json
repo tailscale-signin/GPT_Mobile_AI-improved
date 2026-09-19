@@ -1,0 +1,17 @@
+{
+  "manifest_version": "1.0",
+  "resources": [
+    {
+      "uri": "mcp://system/info",
+      "name": "System Telemetry and Diagnostics",
+      "mimeType": "application/json",
+      "description": "Device hardware governor metrics, SoC details, and thermal state"
+    },
+    {
+      "uri": "mcp://database/schema",
+      "name": "Local Database Schema",
+      "mimeType": "application/json",
+      "description": "Active schema definitions for conversations, messages, and platform metadata"
+    }
+  ]
+}

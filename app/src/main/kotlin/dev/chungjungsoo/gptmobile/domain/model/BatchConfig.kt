@@ -3,6 +3,13 @@ package dev.chungjungsoo.gptmobile.domain.model
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class BatchRequest(
+    val prompt: String,
+    val maxTokens: Int = 1024,
+    val temperature: Float = 0.7f
+)
+
+@Serializable
 data class BatchConfig(
     val platform: PlatformType,
     val apiKey: String,

@@ -521,10 +521,9 @@ fun HomeScreen(
 
 /**
  * Enhanced swipe-to-dismiss card with visual effects:
- * - Dynamic color transitions matching swipe direction & progress
+ * - Dynamic full-color transitions matching swipe direction (Green for Archive, Red for Delete)
  * - Continuous pulsating animation on revealed action icons (Archive / Delete)
- * - Card background tint transition when swiped
- * - Subtle always-visible action indicators underneath the card that highlight on swipe
+ * - Clean card design without persistent action icons
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -555,14 +554,14 @@ fun FancySwipeChatCard(
         label = "pulse_scale"
     )
 
-    // Dynamic background color transition
-    val archiveBgColor = Color(0xFF4CAF50).copy(alpha = (progress * 0.35f).coerceIn(0.15f, 0.45f))
-    val deleteBgColor = Color(0xFFF44336).copy(alpha = (progress * 0.35f).coerceIn(0.15f, 0.45f))
+    // Full-color swipe backgrounds
+    val archiveColor = Color(0xFF4CAF50)
+    val deleteColor = Color(0xFFF44336)
 
     // Card surface tint dynamically reacting to swipe progress
     val cardContainerColor = when {
-        isSwipingStartToEnd && progress > 0.2f -> Color(0xFF4CAF50).copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
-        isSwipingEndToStart && progress > 0.2f -> Color(0xFFF44336).copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
+        isSwipingStartToEnd && progress > 0.2f -> archiveColor.copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
+        isSwipingEndToStart && progress > 0.2f -> deleteColor.copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
         else -> MaterialTheme.colorScheme.surface
     }
 
@@ -589,8 +588,8 @@ fun FancySwipeChatCard(
                     .clip(RoundedCornerShape(12.dp))
                     .background(
                         when {
-                            isArchiveTarget -> archiveBgColor
-                            isDeleteTarget -> deleteBgColor
+                            isArchiveTarget -> archiveColor
+                            isDeleteTarget -> deleteColor
                             else -> Color.Transparent
                         }
                     )
@@ -611,7 +610,7 @@ fun FancySwipeChatCard(
                                 .size(44.dp)
                                 .shadow(4.dp, CircleShape)
                                 .clip(CircleShape)
-                                .background(Color(0xFF4CAF50)),
+                                .background(Color.White.copy(alpha = 0.25f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -621,6 +620,12 @@ fun FancySwipeChatCard(
                                 modifier = Modifier.size(24.dp)
                             )
                         }
+                        Text(
+                            text = stringResource(R.string.archive_chat),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                     }
                 } else if (isDeleteTarget) {
                     Row(
@@ -631,12 +636,18 @@ fun FancySwipeChatCard(
                             scaleY = pulseScale
                         }
                     ) {
+                        Text(
+                            text = stringResource(R.string.delete),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
                                 .shadow(4.dp, CircleShape)
                                 .clip(CircleShape)
-                                .background(Color(0xFFF44336)),
+                                .background(Color.White.copy(alpha = 0.25f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -660,67 +671,15 @@ fun FancySwipeChatCard(
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = cardElevation)
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                ChatListItem(
-                    chatRoom = chatRoom,
-                    idx = idx,
-                    chatListState = chatListState,
-                    isGenerating = isGenerating,
-                    usingPlatform = usingPlatform,
-                    onItemClick = onItemClick,
-                    onItemLongClick = onItemLongClick
-                )
-
-                // Subtle always-visible action indicators underneath the card
-                // They highlight dynamically and become more visible when swiped
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val archiveAlpha = if (isSwipingStartToEnd) {
-                        (0.3f + progress * 0.7f).coerceIn(0.3f, 1f)
-                    } else {
-                        0.25f
-                    }
-                    val archiveTint = if (isSwipingStartToEnd && progress > 0.2f) {
-                        Color(0xFF4CAF50).copy(alpha = archiveAlpha)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = archiveAlpha)
-                    }
-
-                    Icon(
-                        imageVector = Icons.Default.Archive,
-                        contentDescription = stringResource(R.string.archive_chat),
-                        tint = archiveTint,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .scale(if (isSwipingStartToEnd) 1f + progress * 0.2f else 1f)
-                    )
-
-                    val deleteAlpha = if (isSwipingEndToStart) {
-                        (0.3f + progress * 0.7f).coerceIn(0.3f, 1f)
-                    } else {
-                        0.25f
-                    }
-                    val deleteTint = if (isSwipingEndToStart && progress > 0.2f) {
-                        Color(0xFFF44336).copy(alpha = deleteAlpha)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = deleteAlpha)
-                    }
-
-                    Icon(
-                        imageVector = Icons.Outlined.Delete,
-                        contentDescription = stringResource(R.string.delete),
-                        tint = deleteTint,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .scale(if (isSwipingEndToStart) 1f + progress * 0.2f else 1f)
-                    )
-                }
-            }
+            ChatListItem(
+                chatRoom = chatRoom,
+                idx = idx,
+                chatListState = chatListState,
+                isGenerating = isGenerating,
+                usingPlatform = usingPlatform,
+                onItemClick = onItemClick,
+                onItemLongClick = onItemLongClick
+            )
         }
     }
 }

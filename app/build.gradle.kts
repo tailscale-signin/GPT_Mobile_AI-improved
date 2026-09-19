@@ -1,3 +1,147 @@
+@file:Suppress("UnstableApiUsage")
+
+import com.android.build.api.dsl.ApplicationExtension
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension
+import org.gradle.kotlin.dsl.aboutLibraries
+import org.gradle.kotlin.dsl.configure
+
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.android.hilt)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.ksp)
+    alias(libs.plugins.kotlin.parcelize)
+    alias(libs.plugins.auto.license)
+    kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
+}
+
+extensions.configure<ApplicationExtension> {
+    namespace = "dev.chungjungsoo.gptmobile"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "dev.melo.gptmobile.improved"
+        minSdk = 31
+        targetSdk = 36
+        versionCode = 52
+        versionName = "0.9.5.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary = true
+        }
+
+        // Hugging Face OAuth. Replace these after registering an HF OAuth app;
+        // the gallery credentials cannot be reused.
+        manifestPlaceholders["appAuthRedirectScheme"] =
+            "REPLACE_WITH_YOUR_REDIRECT_SCHEME_IN_HUGGINGFACE_APP"
+        buildConfigField(
+            "String",
+            "HF_OAUTH_CLIENT_ID",
+            "\"REPLACE_WITH_YOUR_CLIENT_ID_IN_HUGGINGFACE_APP\""
+        )
+        buildConfigField(
+            "String",
+            "HF_OAUTH_REDIRECT_URI",
+            "\"REPLACE_WITH_YOUR_REDIRECT_URI_IN_HUGGINGFACE_APP\""
+        )
+
+        ndk {
+            // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
+    androidResources {
+        generateLocaleConfig = true
+    }
+
+    lint {
+        disable += "MissingTranslation"
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            vcsInfo.include = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+    buildFeatures {
+        compose = true
+        viewBinding = true
+        buildConfig = true
+    }
+    testOptions {
+        unitTests.all {
+            it.testLogging {
+                events("passed", "skipped", "failed", "standardError")
+            }
+        }
+    }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/io.netty.versions.properties"
+        }
+        jniLibs {
+            // Extract native libraries to nativeLibraryDir on installation so Qualcomm FastRPC cDSP can load libQnnHtpV79Skel.so directly from the filesystem
+            useLegacyPackaging = true
+            // Keep pre-stripped native libraries without triggering stripping warnings
+            keepDebugSymbols += setOf(
+                "**/libLiteRt.so",
+                "**/libLiteRtClGlAccelerator.so",
+                "**/libLiteRtDispatch_Qualcomm.so",
+                "**/libLiteRtCompilerPlugin_Qualcomm.so",
+                "**/liblitertlm_jni.so",
+                "**/libdatastore_shared_counter.so",
+                "**/libandroidx.graphics.path.so",
+                "**/libQnn*.so"
+            )
+            pickFirsts += setOf(
+                "**/libQnn*.so",
+                "**/libLiteRtDispatch_Qualcomm.so",
+                "**/libLiteRtCompilerPlugin_Qualcomm.so"
+            )
+        }
+    }
+}
+
+extensions.configure<ApplicationAndroidComponentsExtension> {
+    onVariants { variant ->
+        variant.androidTest?.sources?.assets?.addStaticSourceDirectory("$projectDir/schemas")
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name
+tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach {
+    enabled = false
+}
+
 dependencies {
     // Android
     implementation(libs.androidx.core.ktx)
@@ -10,7 +154,6 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
-    implementation("com.google.android.material:material:1.12.0")
 
     // SplashScreen
     implementation(libs.splashscreen)
@@ -41,6 +184,9 @@ dependencies {
     // OAuth browser flow
     implementation(libs.androidx.browser)
     implementation(libs.openid.appauth)
+
+    // JSON parsing
+    implementation("com.google.code.gson:gson:2.11.0")
 
     // On-device LiteRT-LM serving
     implementation(libs.litertlm)
@@ -80,4 +226,11 @@ dependencies {
     androidTestImplementation(libs.room.testing)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+}
+
+aboutLibraries {
+    // Remove the "generated" timestamp to allow for reproducible builds
+    export {
+        excludeFields.add("generated")
+    }
 }

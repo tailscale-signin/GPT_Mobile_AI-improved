@@ -351,10 +351,6 @@ fun HomeScreen(
                                             homeViewModel.enableSelectionMode()
                                             homeViewModel.selectChat(idx)
                                         }
-                                    },
-                                    onArchiveClick = {
-                                        homeViewModel.archiveChat(chatRoom)
-                                        Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             } else {
@@ -410,19 +406,11 @@ fun HomeScreen(
                                             onExistingChatClick(chatRoom, null)
                                         },
                                         onItemLongClick = {
-                                            homeViewModel.enableSelectionMode()
-                                            homeViewModel.selectChat(idx)
-                                        },
-                                        onOneSecondHold = {
                                             val newFavorite = !chatRoom.isFavorite
                                             homeViewModel.toggleChatFavorite(chatRoom.id, newFavorite)
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             val messageRes = if (newFavorite) R.string.chat_pinned else R.string.chat_unpinned
                                             Toast.makeText(context, messageRes, Toast.LENGTH_SHORT).show()
-                                        },
-                                        onArchiveClick = {
-                                            homeViewModel.archiveChat(chatRoom)
-                                            Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
                                         }
                                     )
                                 }
@@ -551,43 +539,15 @@ private fun ChatListItem(
     isGenerating: Boolean,
     usingPlatform: String,
     onItemClick: () -> Unit,
-    onItemLongClick: () -> Unit,
-    onOneSecondHold: (() -> Unit)? = null,
-    onArchiveClick: () -> Unit
+    onItemLongClick: () -> Unit
 ) {
-    val clickModifier = if (onOneSecondHold != null) {
-        Modifier.pointerInput(chatRoom.id) {
-            detectTapGestures(
-                onTap = { onItemClick() },
-                onLongPress = {
-                    onItemLongClick()
-                },
-                onPress = {
-                    coroutineScope {
-                        val job = launch {
-                            delay(1000L)
-                            onOneSecondHold()
-                        }
-                        try {
-                            tryAwaitRelease()
-                        } finally {
-                            job.cancel()
-                        }
-                    }
-                }
-            )
-        }
-    } else {
-        Modifier.combinedClickable(
-            onLongClick = onItemLongClick,
-            onClick = onItemClick
-        )
-    }
-
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .then(clickModifier)
+            .combinedClickable(
+                onLongClick = onItemLongClick,
+                onClick = onItemClick
+            )
             .padding(start = 8.dp, end = 8.dp),
         headlineContent = {
             Row(
@@ -664,17 +624,6 @@ private fun ChatListItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 )
-            }
-        },
-        trailingContent = {
-            if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                IconButton(onClick = onArchiveClick) {
-                    Icon(
-                        imageVector = Icons.Default.Archive,
-                        contentDescription = stringResource(R.string.archive_chat),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
-                }
             }
         }
     )

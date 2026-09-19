@@ -21,9 +21,9 @@ class AIServiceImpl @Inject constructor(
     override suspend fun executeMessage(message: QueuedMessage): Result<String> {
         return runCatching {
             val platform = if (!message.platformUid.isNullOrBlank()) {
-                platformV2Dao.getByUid(message.platformUid)
+                platformV2Dao.getPlatformByUid(message.platformUid)
             } else {
-                platformV2Dao.getAll().firstOrNull { it.enabled }
+                platformV2Dao.getPlatforms().firstOrNull { it.enabled }
             } ?: throw IllegalStateException("No active platform configured for message execution.")
 
             val targetPlatform = if (message.modelId.isNotBlank()) {
@@ -36,6 +36,7 @@ class AIServiceImpl @Inject constructor(
                 id = 0,
                 chatId = message.chatId ?: 0,
                 content = message.content,
+                platformType = targetPlatform.compatibleType.name,
                 createdAt = message.createdAt / 1000
             )
 
@@ -69,9 +70,9 @@ class AIServiceImpl @Inject constructor(
 
     override fun executeMessageStream(message: QueuedMessage): Flow<String> = flow {
         val platform = if (!message.platformUid.isNullOrBlank()) {
-            platformV2Dao.getByUid(message.platformUid)
+            platformV2Dao.getPlatformByUid(message.platformUid)
         } else {
-            platformV2Dao.getAll().firstOrNull { it.enabled }
+            platformV2Dao.getPlatforms().firstOrNull { it.enabled }
         } ?: throw IllegalStateException("No active platform configured for message execution.")
 
         val targetPlatform = if (message.modelId.isNotBlank()) {
@@ -84,6 +85,7 @@ class AIServiceImpl @Inject constructor(
             id = 0,
             chatId = message.chatId ?: 0,
             content = message.content,
+            platformType = targetPlatform.compatibleType.name,
             createdAt = message.createdAt / 1000
         )
 

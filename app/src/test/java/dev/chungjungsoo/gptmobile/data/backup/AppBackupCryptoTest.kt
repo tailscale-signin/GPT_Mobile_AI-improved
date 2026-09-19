@@ -20,18 +20,18 @@ class AppBackupCryptoTest {
             favoriteMessages = listOf(
                 FavoriteItemBackupDto(
                     messageId = 1,
-                    chatRoomId = 10,
+                    chatId = 10,
                     content = "Important prompt",
-                    role = "user",
+                    platformType = null,
                     isFavorite = true,
                     createdAt = 1000L,
                     group = "Work"
                 ),
                 FavoriteItemBackupDto(
                     messageId = 42,
-                    chatRoomId = 10,
+                    chatId = 10,
                     content = "Helpful answer",
-                    role = "assistant",
+                    platformType = "openai-gpt4",
                     isFavorite = true,
                     createdAt = 2000L,
                     group = "AI Research"

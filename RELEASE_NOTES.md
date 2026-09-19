@@ -1,34 +1,26 @@
-# Release Notes - v0.9.5.3
+# Release Notes - v0.9.5.4
 
-Welcome to **GPT Mobile AI (Improved)** v0.9.5.3!
+Welcome to **GPT Mobile AI (Improved)** v0.9.5.4!
 
-This release introduces message queuing during AI generation, shared platform labels for multi-platform organization, Llama model selection in router mode, and standardized MCP tool definitions with triple-verification processes.
+This release introduces a consolidated backup and restore module with atomic rollback and SHA-256 integrity checks, an overhauled Platform Label and Platform Settings Dialog with decoupled domain models and secure credential entry, and updated Android Gradle build dependencies.
 
 ---
 
 ### Key Highlights & Improvements
 
-#### 1. 📬 Message Queuing During AI Generation
-- **`GenerationQueueManager`**: Implements FIFO message queueing allowing users to write and queue messages while active responses generate.
-- **Capacity Limits & Overflow Protection**: Strict 50-message queue limit with automatic FIFO dropping of oldest pending message when saturated.
-- **Reactive UI & Status Tracking**: Live queue badge counter, stop-generation confirmation dialogs, and automated sequential dequeuing upon completion.
+#### 1. 🛡️ Consolidated Backup & Restore Module
+- **Integrity & Security**: Complete database and preferences backup bundle featuring SHA-256 manifest verification and tamper protection.
+- **Atomic Operations & Rollback**: Safe atomic write procedures with automatic staging directory cleanups and rollback upon failure.
+- **Data Preview & Selectivity**: Inspect conversations, configurations, and platform settings before executing a restore.
 
-#### 2. 🏷️ Shared Labels for AI Platforms
-- **`PlatformLabel` & `PlatformLabelManager`**: Categorize, filter, and tag platforms across cloud and local providers.
-- **Predefined Palette & Validation**: 12-color hex palette, 2–50 character name validation, and cross-platform usage count tracking.
+#### 2. 🏷️ Enhanced Platform Labels & Settings Dialogs
+- **Decoupled Architecture**: `AIPlatform` enum decoupled from UI drawing objects, cleanly separating presentation assets via helper extensions.
+- **Secure Password Field**: API keys and tokens are securely masked with input sanitization and `KeyboardType.Password`.
+- **Custom Endpoints**: Direct proxy/gateway URL configuration support for OpenAI, Anthropic, Ollama, and local/custom endpoints.
 
-#### 3. 🦙 Llama Model Selection Dropdown (Router Mode)
-- **`LlamaModelInfo` & `LlamaModelMapper`**: Structured model info extracting parameter counts (in millions), quantization levels (e.g. Q4_K_M, fp16), and context window sizes.
-- **Router Configuration**: Configurable server endpoint paths, retry attempts, timeout parameters, and dynamic server load metrics.
-
-#### 4. 🧩 Model Context Protocol (MCP) Structure & Triple Verification
-- Standardized directory layout under `mcp/tools/`, `mcp/resources/`, `assets/mcp-downloads/`, and server landing page `mcp/index.html`.
-- Triple-verification workflow: manifest schema checking, SHA digest validation, and read-after-write consistency checks.
-
----
-
-### Build & Packaging Details
-- Version Code: `55`
-- Version Name: `0.9.5.3`
+#### 3. ⚙️ Build & Packaging Improvements
+- Resolved Material Components dependency configuration.
+- Version Code: `56`
+- Version Name: `0.9.5.4`
 - Target SDK: 36 (Android 16), Min SDK: 31 (Android 12)
-- Architectures: `arm64-v8a`, `x86_64`
+- Architectures: `arm64-v8a`, `x86_64`, Universal APK

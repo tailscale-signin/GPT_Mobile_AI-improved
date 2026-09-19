@@ -185,6 +185,9 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.openid.appauth)
 
+    // JSON parsing
+    implementation("com.google.code.gson:gson:2.11.0")
+
     // On-device LiteRT-LM serving
     implementation(libs.litertlm)
 

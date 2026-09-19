@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.llama
 
-import dev.chungjungsoo.gptmobile.data.repository.LlamaRouterModelOption
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -37,6 +36,15 @@ enum class LlamaModelStatus {
 }
 
 /**
+ * Model option received from a Llama router or discovery endpoint.
+ */
+data class LlamaRouterModelOption(
+    val id: String,
+    val name: String = "",
+    val contextLength: Int? = null
+)
+
+/**
  * Router configuration for Llama server mode.
  */
 data class LlamaRouterConfig(
@@ -48,6 +56,9 @@ data class LlamaRouterConfig(
     val enableLoadBalancing: Boolean = true,
     val maxConcurrentRequests: Int = 4
 )
+
+private val PARAM_COUNT_REGEX = Regex("""(?i)(\d+(?:\.\d+)?)\s*[bB]""")
+private val QUANTIZATION_REGEX = Regex("""(?i)(Q\d+_[A-Z0-9_]+|f16|f32|bf16|int8|int4)""")
 
 /**
  * Mapper utility to transform raw router responses into [LlamaModelInfo].
@@ -70,14 +81,11 @@ object LlamaModelMapper {
     }
 
     private fun parseParameterCount(text: String): Long {
-        val regex = Regex("""(?i)(\d+(?:\.\d+)?)\s*[bB]""")
-        val match = regex.find(text) ?: return 0
+        val match = PARAM_COUNT_REGEX.find(text) ?: return 0
         val num = match.groupValues[1].toDoubleOrNull() ?: return 0
         return (num * 1000).toLong()
     }
 
-    private fun parseQuantization(text: String): String {
-        val regex = Regex("""(?i)(Q\d+_[A-Z0-9_]+|f16|f32|bf16|int8|int4)""")
-        return regex.find(text)?.groupValues?.get(1)?.uppercase() ?: "Q4_K_M"
-    }
+    private fun parseQuantization(text: String): String =
+        QUANTIZATION_REGEX.find(text)?.groupValues?.get(1)?.uppercase() ?: "Q4_K_M"
 }

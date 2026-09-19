@@ -1,14 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.queue
 
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatAttachmentDraft
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.QuotedMessageDraft
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
 /**
@@ -31,6 +29,15 @@ enum class QueueProcessingState {
     STOPPED,
     ERROR
 }
+
+/**
+ * Draft representing a quoted message in the conversation.
+ */
+data class QuotedMessageDraft(
+    val id: Int,
+    val content: String,
+    val senderName: String? = null
+)
 
 /**
  * Entity representing a queued message awaiting AI generation.
@@ -66,17 +73,8 @@ class GenerationQueueManager @Inject constructor() {
     private val _currentlyProcessingItem = MutableStateFlow<GenerationQueueItem?>(null)
     val currentlyProcessingItem: StateFlow<GenerationQueueItem?> = _currentlyProcessingItem.asStateFlow()
 
-    val pendingCount: StateFlow<Int> = _queue.map { list ->
-        list.count { it.status == QueuedMessageStatus.PENDING }
-    }.let { flow ->
-        // Convert to StateFlow via a simple custom holder or flow
-        _queue.map { it.count { item -> item.status == QueuedMessageStatus.PENDING } }
-    }.let {
-        // We'll maintain count directly for synchronous queries
-        MutableStateFlow(0)
-    }
-
     private val _queueCount = MutableStateFlow(0)
+    val pendingCount: StateFlow<Int> = _queueCount.asStateFlow()
     val queueCount: StateFlow<Int> = _queueCount.asStateFlow()
 
     private fun updateCount() {

@@ -30,8 +30,10 @@ val PREDEFINED_LABEL_COLORS = listOf(
     "#4CAF50", // Green
     "#8BC34A", // Light Green
     "#FF9800", // Orange
-    "#795548"  // Brown
+    "#795548" // Brown
 )
+
+private val HEX_COLOR_REGEX = Regex("^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$")
 
 /**
  * Utility functions for parsing and serializing labels on PlatformV2.
@@ -47,8 +49,7 @@ object PlatformLabelManager {
         if (trimmed.length < 2 || trimmed.length > 50) {
             return "Label name must be between 2 and 50 characters."
         }
-        val hexRegex = Regex("^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$")
-        if (!hexRegex.matches(colorHex.trim())) {
+        if (!HEX_COLOR_REGEX.matches(colorHex.trim())) {
             return "Invalid hex color format. Use #RRGGBB or #RGB."
         }
         if (description != null && description.length > 200) {
@@ -60,21 +61,22 @@ object PlatformLabelManager {
     /**
      * Parse labels assigned to a platform from its string field.
      */
-    fun parseLabels(platformLabelsString: String?): List<String> {
-        if (platformLabelsString.isNullOrBlank()) return emptyList()
-        return platformLabelsString
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-    }
+    fun parseLabels(platformLabelsString: String?): List<String> =
+        if (platformLabelsString.isNullOrBlank()) {
+            emptyList()
+        } else {
+            platformLabelsString
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+        }
 
     /**
      * Format label names into a stored string format.
      */
-    fun formatLabels(labels: List<String>): String {
-        return labels.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(",")
-    }
+    fun formatLabels(labels: List<String>): String =
+        labels.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(",")
 
     /**
      * Add a label to a platform.

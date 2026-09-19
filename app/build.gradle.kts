@@ -88,6 +88,7 @@ extensions.configure<ApplicationExtension> {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
         buildConfig = true
     }
     testOptions {

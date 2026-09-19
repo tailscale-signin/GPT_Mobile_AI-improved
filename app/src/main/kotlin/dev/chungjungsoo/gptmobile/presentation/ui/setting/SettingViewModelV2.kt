@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.backup.AppBackupManager
+import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
+import dev.chungjungsoo.gptmobile.data.backup.GranularBackupOptions
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -35,6 +37,9 @@ class SettingViewModelV2 @Inject constructor(
     val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    private val _backupStatus = MutableStateFlow(appBackupManager.getBackupStatus())
+    val backupStatus: StateFlow<BackupStatus> = _backupStatus.asStateFlow()
+
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
 
@@ -44,6 +49,11 @@ class SettingViewModelV2 @Inject constructor(
     init {
         fetchPlatforms()
         loadLocalRuntimeBackend()
+        refreshBackupStatus()
+    }
+
+    fun refreshBackupStatus() {
+        _backupStatus.value = appBackupManager.getBackupStatus()
     }
 
     private fun loadLocalRuntimeBackend() {
@@ -133,13 +143,21 @@ class SettingViewModelV2 @Inject constructor(
         closeDeleteDialog()
     }
 
-    fun openBackupRestoreDialog() = _dialogState.update { it.copy(isBackupRestoreDialogOpen = true) }
+    fun openBackupRestoreDialog() {
+        refreshBackupStatus()
+        _dialogState.update { it.copy(isBackupRestoreDialogOpen = true) }
+    }
 
     fun closeBackupRestoreDialog() = _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
 
-    fun exportConfigurationToFile(uri: Uri, passphrase: String? = null) {
+    fun exportConfigurationToFile(
+        uri: Uri,
+        passphrase: String? = null,
+        options: GranularBackupOptions = GranularBackupOptions()
+    ) {
         viewModelScope.launch {
-            val result = appBackupManager.exportConfiguration(uri, passphrase)
+            val result = appBackupManager.exportConfiguration(uri, passphrase, options)
+            refreshBackupStatus()
             if (result.success) {
                 _uiEvent.emit(UiEvent.ShowToast(result.message))
             } else {
@@ -153,7 +171,31 @@ class SettingViewModelV2 @Inject constructor(
             val result = appBackupManager.restoreConfiguration(uri, passphrase)
             if (result.success) {
                 fetchPlatforms()
+                loadLocalRuntimeBackend()
                 _uiEvent.emit(UiEvent.ShowToast("Configuration restored successfully (${result.count} platforms imported)."))
+            } else {
+                _uiEvent.emit(UiEvent.ShowToast("Restore failed: ${result.message}"))
+            }
+        }
+    }
+
+    fun exportFavoritesToFile(uri: Uri, passphrase: String? = null) {
+        viewModelScope.launch {
+            val result = appBackupManager.exportFavorites(uri, passphrase)
+            refreshBackupStatus()
+            if (result.success) {
+                _uiEvent.emit(UiEvent.ShowToast(result.message))
+            } else {
+                _uiEvent.emit(UiEvent.ShowToast("Export failed: ${result.message}"))
+            }
+        }
+    }
+
+    fun restoreFavoritesFromFile(uri: Uri, passphrase: String? = null) {
+        viewModelScope.launch {
+            val result = appBackupManager.importFavorites(uri, passphrase)
+            if (result.success) {
+                _uiEvent.emit(UiEvent.ShowToast(result.message))
             } else {
                 _uiEvent.emit(UiEvent.ShowToast("Restore failed: ${result.message}"))
             }
@@ -163,6 +205,7 @@ class SettingViewModelV2 @Inject constructor(
     fun exportDatabaseToFile(uri: Uri, passphrase: String? = null) {
         viewModelScope.launch {
             val result = appBackupManager.exportDatabase(uri, passphrase)
+            refreshBackupStatus()
             if (result.success) {
                 _uiEvent.emit(UiEvent.ShowToast(result.message))
             } else {

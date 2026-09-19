@@ -65,9 +65,9 @@ class AppBackupManager @Inject constructor(
             val favoriteItemDtos = favoriteMessages.map { msg ->
                 FavoriteItemBackupDto(
                     messageId = msg.id,
-                    chatRoomId = msg.chatRoomId,
+                    chatId = msg.chatId,
                     content = msg.content,
-                    role = msg.role,
+                    platformType = msg.platformType,
                     isFavorite = msg.isFavorite,
                     createdAt = msg.createdAt,
                     group = messageGroups[msg.id]

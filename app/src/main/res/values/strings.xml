@@ -555,6 +555,14 @@
     <string name="download_models">Get Models</string>
     <string name="unified_model_picker">Select Model</string>
 
+    <!-- v0.9.5.3 Queue & Labels Strings -->
+    <string name="queue_badge_count">%1$d queued</string>
+    <string name="generation_in_progress_queued">Message added to queue</string>
+    <string name="stop_generation_confirm_title">Stop Generation?</string>
+    <string name="stop_generation_confirm_message">Active response generation will stop and pending queued messages will be canceled.</string>
+    <string name="llama_select_router_model">Select Llama Model</string>
+    <string name="llama_router_models_header">Llama Router Models</string>
+
     <!-- AETHERION MAX Debug Mode strings -->
     <string name="qnn_adsp_path">/data/vendor/qti/adsp</string>
     <string name="qnn_skeleton_path">/data/vendor/qti/skeleton</string>

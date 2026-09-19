@@ -8,8 +8,8 @@ Welcome to the progress and build tracking dashboard for **GPT Mobile Improved**
 
 | Item | Details |
 |------|---------|
-| **Current Target Version** | `v0.9.4.6` (Version Code `51`) |
-| **Latest Production Release** | [v0.9.4.6](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.4.6) |
+| **Current Target Version** | `v0.9.5.3` (Version Code `55`) |
+| **Latest Production Release** | [v0.9.5.3](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.5.3) |
 | **Package ID** | `dev.melo.gptmobile.improved` (Side-by-side installable) |
 | **Build Status** | [![Release Build](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/workflows/release-build.yml/badge.svg?branch=main)](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/workflows/release-build.yml) |
 | **Total Downloads** | [![Total Downloads](https://img.shields.io/github/downloads/tailscale-signin/GPT_Mobile_AI-improved/total?label=Downloads&logo=github)](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/) |
@@ -18,64 +18,23 @@ Welcome to the progress and build tracking dashboard for **GPT Mobile Improved**
 
 ## 📋 Shipped Improvements & Upstream Parity
 
-### 1. Core Performance Optimizations & Conversation Pinning (v0.9.4.6 / Code 51)
-- **Conversation Pinning & Gestures**: Swipe to archive/delete, 1-second long-press interaction to pin/unpin conversations with spot elevation glow, and haptic feedback at trigger boundaries.
-- **Qualcomm QNN NPU Fixes**: Corrected boolean operator precedence in `QnnEnvironment.probeEnvironment` and eliminated redundant model re-loading in `LocalRuntimeQnnImpl`.
-- **Circuit Breaker & Classified Errors**: Automatic failure threshold tracking with circuit states (`CLOSED` / `OPEN` / `HALF_OPEN`) and classified user error propagation preventing repeated doomed retry loops.
-- **Production Artifacts**: Built, signed, and published production packages (`app-universal-release.apk`, `app-arm64-v8a-release.apk`, `app-x86_64-release.apk`, `app-release.aab`).
+### 1. Message Queuing, Shared Labels & Llama Router Mode (v0.9.5.3 / Code 55)
+- **Generation Message Queuing**: FIFO queue (`GenerationQueueManager`) managing up to 50 queued messages with overflow protection, live queue badges, and stop confirmation dialogs.
+- **Shared Platform Labels**: Multi-platform categorization with `PlatformLabel` and `PlatformLabelManager`, 12-color hex palette, and usage counting.
+- **Llama Router Selection**: `LlamaModelInfo` and `LlamaModelMapper` parsing parameter sizes, quantization, and context windows.
+- **MCP Tool Architecture**: Verified manifest, triple-verification mechanism, and standardized tool directory structure (`mcp/tools/`, `mcp/resources/`, `assets/mcp-downloads/`).
 
-### 2. Fancy OpenRouter Credits Card Integration (v0.9.4.3 / Code 46)
-- Fully integrated `FancyOpenRouterCreditsCard` into `PlatformSettingScreen`.
-- Asynchronous credit query and balance caching in `PlatformSettingViewModel`.
-- Restored `LocalAccelerators` and `LocalModelValidator` runtime classes for LiteRT-LM.
+### 2. UI Gestures, Pinning Restoration & Granular Backups (v0.9.5.2 / Code 54)
+- **Pinning & Input During Generation**: 1-second long press restores chat pinning, input composer remains active for typing while AI generates, and archive icon is hidden until swiped right.
+- **FancySwipeChatCard**: Enhanced conversational swipe card with color transitions, pulsing actions, and threshold haptics.
+- **Backup Enhancements**: Granular options for exporting/importing encrypted favorites, UI preferences, and platform configurations.
 
-### 3. UI Polish & Documentation Enhancement (v0.9.4.2-pre / Code 45)
-- Cleaned up top bar and navigation UI components (`HomeTopBar`).
-- Comprehensive documentation updates for RAG engine, Sandboxed Artifacts, and Voice Session Coordinator.
-- Automated pre-release tagging and asset publishing in CI pipeline.
+### 3. Build Stabilization & Dependency Cleanups (v0.9.5.1 / Code 53)
+- Fixed Kotlin 2.x generic `TypeToken` inference in `AdvancedSettingsViewModel`.
+- Resolved Material 3 button style resolution and removed deprecated `extractNativeLibs`.
 
-### 4. Qualcomm QNN NPU Hardware Acceleration & Runtime Diagnostics (v0.9.4.0)
-- Dynamic Qualcomm Neural Processing Unit (QNN) runtime detection and library verification.
-- Hardware probe integration in Debug Mode settings providing live device architecture and NPU availability.
-- Robust fallback to GPU (OpenCL) or multi-threaded CPU acceleration when QNN is unavailable.
+### 4. Llama Platform Integration (v0.9.5.0 / Code 52)
+- Added dedicated Llama client type, settings, and router endpoints.
 
-### 5. OpenRouter Live Credits & Balance Display (v0.9.4.1)
-- Live credit balance widget on Platform Settings screen with animated state transitions.
-- Cached balance repository preventing unnecessary network queries.
-- Clear error handling for network failures or expired tokens.
-
-### 6. Diagnostics HUD & Debug Mode Integration (v0.9.3.0)
-- End-to-end preference observation for Debug Mode using AndroidX DataStore (`SettingDataSource` and `SettingRepository`).
-- Diagnostics HUD dynamically rendered in `ChatBubble` and `ChatScreen` with generation latency, Time To First Token (TTFT), token output count, speed (tok/s), and thermal status.
-- Strict interface conformance across all test fakes (`FakeSettingDataSource`, `BackupFakeSettingDataSource`, `PlatformSettingViewModelTest`).
-- Visual refinement of `ThinkingBlock` with background alpha reduced to `0.25f` for optimal legibility.
-
-### 7. Full-Duplex Voice & Multimodal Tooling (v0.9.2.4)
-- **VoiceSessionCoordinator**: Low-latency voice interaction state machine (`IDLE` → `LISTENING` → `TRANSCRIBING` → `THINKING` → `SPEAKING`) with immediate speech interruption handling.
-- **SandboxedArtifactView**: Isolated WebView container for safely rendering HTML and SVG visual artifacts generated by AI models without security risk.
-- **AgentPlanCard**: Visual progress tracker and task execution monitor for multi-step agent plans.
-- **DocumentRagEngine**: Local on-device document chunking, BM25 keyword matching, and vector embedding similarity search.
-- **ResilientStreamingClient & StreamingDiffParser**: Fault-tolerant SSE client with exponential backoff and progressive diff parser minimizing Compose recomposition.
-
-### 8. LiteRT-LM Hardware Acceleration & Dynamic Inference Engine (v0.9.0)
-- Split execution phases (`PREFILL` and `GENERATING`) with persistent foreground status notifications.
-- Cooperative thread yielding (`yield()`) preventing UI freezing during prompt evaluation.
-- DeviceHardwareGovernor with thermal and battery throttling.
-- Rolling Context Window Compactor preserving turn 0 anchor and rolling context window.
-- OpenRouter advanced provider routing, custom reasoning token configurations, and Room schema migrations.
-
-### 9. Side-by-Side Coexistence & Deterministic Keystore
-- Application ID (`dev.melo.gptmobile.improved`) allows side-by-side installation alongside upstream builds.
-- Deterministic signing pipeline for in-place updates.
-
-### 10. High-Capacity Tooling & Uncapped Agent Limits
-- Uncapped agent loops, tool call counts, and execution timeout ceilings (`Int.MAX_VALUE` / `Long.MAX_VALUE`).
-- Up to 32 parallel tool executions with expanded buffers.
-- `ReadUrlTool` (100MB body limit) and `WebSearchTool` (100 results ceiling).
-
----
-
-## 🛠️ Releases & Artifacts
-
-- **GitHub Releases**: [Browse All Releases](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases)
-- **Latest Release Assets**: [v0.9.4.6 Assets](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.4.6)
+### 5. Core Performance Optimizations & Pinning (v0.9.4.6 / Code 51)
+- Swipe-to-dismiss, archive gestures, long-press pin interaction, and Circuit Breaker user error classification.

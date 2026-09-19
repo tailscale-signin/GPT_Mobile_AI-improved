@@ -18,6 +18,7 @@ class ModelConstantsTest {
         assertEquals("OpenRouter", ModelConstants.defaultPlatformName(ClientType.OPENROUTER))
         assertEquals("", ModelConstants.defaultPlatformName(ClientType.CUSTOM))
         assertEquals("Local", ModelConstants.defaultPlatformName(ClientType.LITERT_LM))
+        assertEquals("Llama", ModelConstants.defaultPlatformName(ClientType.LLAMA))
     }
 
     @Test
@@ -30,6 +31,7 @@ class ModelConstantsTest {
         assertTrue(ModelConstants.defaultApiUrl(ClientType.OLLAMA).startsWith("http://"))
         assertEquals("", ModelConstants.defaultApiUrl(ClientType.CUSTOM))
         assertEquals("", ModelConstants.defaultApiUrl(ClientType.LITERT_LM))
+        assertTrue(ModelConstants.defaultApiUrl(ClientType.LLAMA).startsWith("http://"))
     }
 
     @Test

@@ -30,6 +30,10 @@ object ApiKeyValidator {
             ClientType.GOOGLE -> "https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey"
             ClientType.GROQ -> "https://api.groq.com/openai/v1/models"
             ClientType.OPENROUTER -> "https://openrouter.ai/api/v1/auth/key"
+            ClientType.LLAMA -> {
+                val base = apiUrl.trim().trimEnd('/')
+                if (base.isNotEmpty()) "$base/models" else "https://api.llama.com/v1/models"
+            }
             ClientType.OLLAMA -> {
                 val base = apiUrl.trim().trimEnd('/')
                 if (base.isNotEmpty()) "$base/api/tags" else "http://localhost:11434/api/tags"
@@ -50,7 +54,7 @@ object ApiKeyValidator {
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "GPTMobile/1.0")
                 when (clientType) {
-                    ClientType.OPENAI, ClientType.GROQ, ClientType.CUSTOM -> {
+                    ClientType.OPENAI, ClientType.GROQ, ClientType.LLAMA, ClientType.CUSTOM -> {
                         setRequestProperty("Authorization", "Bearer $apiKey")
                     }
                     ClientType.ANTHROPIC -> {

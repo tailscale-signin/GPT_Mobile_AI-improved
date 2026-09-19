@@ -11,4 +11,5 @@ fun getClientTypeDisplayName(clientType: ClientType): String = when (clientType)
     ClientType.OLLAMA -> "Ollama"
     ClientType.CUSTOM -> "Custom"
     ClientType.LITERT_LM -> "Local"
+    ClientType.LLAMA -> "Llama"
 }

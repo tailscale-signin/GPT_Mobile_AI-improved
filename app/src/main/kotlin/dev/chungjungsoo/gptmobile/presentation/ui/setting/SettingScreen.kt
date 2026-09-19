@@ -26,6 +26,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
@@ -36,6 +39,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -65,6 +69,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
+import dev.chungjungsoo.gptmobile.data.backup.GranularBackupOptions
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
@@ -75,6 +81,9 @@ import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeViewModel
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.util.getDynamicThemeTitle
 import dev.chungjungsoo.gptmobile.util.getThemeModeTitle
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,18 +100,33 @@ fun SettingScreen(
     val dialogState by settingViewModel.dialogState.collectAsState()
     val localRuntimeBackend by settingViewModel.localRuntimeBackend.collectAsState()
     val debugMode by settingViewModel.debugMode.collectAsState()
+    val backupStatus by settingViewModel.backupStatus.collectAsState()
     val context = LocalContext.current
+
+    var selectedExportOptions by remember { mutableStateOf(GranularBackupOptions()) }
 
     val exportConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
-        uri?.let { settingViewModel.exportConfigurationToFile(it) }
+        uri?.let { settingViewModel.exportConfigurationToFile(it, options = selectedExportOptions) }
     }
 
     val restoreConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let { settingViewModel.restoreConfigurationFromFile(it) }
+    }
+
+    val exportFavoritesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.exportFavoritesToFile(it) }
+    }
+
+    val restoreFavoritesLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { settingViewModel.restoreFavoritesFromFile(it) }
     }
 
     val exportDatabaseLauncher = rememberLauncherForActivityResult(
@@ -464,10 +488,19 @@ fun SettingScreen(
                             subtitle = stringResource(R.string.theme_description),
                             onClick = { settingViewModel.openThemeDialog() }
                         )
+
+                        val backupSubtitle = if (backupStatus.lastBackupEpochMs != null) {
+                            val formattedDate = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.getDefault())
+                                .format(Date(backupStatus.lastBackupEpochMs!!))
+                            "Last backup: $formattedDate (${backupStatus.backupCount} created)"
+                        } else {
+                            stringResource(R.string.backup_and_restore_description)
+                        }
+
                         SettingNavigationRow(
                             icon = Icons.Default.UploadFile,
                             title = stringResource(R.string.backup_and_restore),
-                            subtitle = stringResource(R.string.backup_and_restore_description),
+                            subtitle = backupSubtitle,
                             onClick = { settingViewModel.openBackupRestoreDialog() }
                         )
                         SettingNavigationRow(
@@ -492,14 +525,24 @@ fun SettingScreen(
 
     if (dialogState.isBackupRestoreDialogOpen) {
         BackupRestoreOptionsDialog(
+            backupStatus = backupStatus,
             onDismiss = settingViewModel::closeBackupRestoreDialog,
-            onExportConfig = {
+            onExportConfig = { options ->
+                selectedExportOptions = options
                 settingViewModel.closeBackupRestoreDialog()
                 exportConfigLauncher.launch("gpt_mobile_config_${System.currentTimeMillis()}.enc")
             },
             onRestoreConfig = {
                 settingViewModel.closeBackupRestoreDialog()
                 restoreConfigLauncher.launch(arrayOf("*/*"))
+            },
+            onExportFavorites = {
+                settingViewModel.closeBackupRestoreDialog()
+                exportFavoritesLauncher.launch("gpt_mobile_favorites_${System.currentTimeMillis()}.enc")
+            },
+            onRestoreFavorites = {
+                settingViewModel.closeBackupRestoreDialog()
+                restoreFavoritesLauncher.launch(arrayOf("*/*"))
             },
             onExportDatabase = {
                 settingViewModel.closeBackupRestoreDialog()
@@ -538,12 +581,20 @@ fun SettingScreen(
 
 @Composable
 fun BackupRestoreOptionsDialog(
+    backupStatus: BackupStatus = BackupStatus(),
     onDismiss: () -> Unit,
-    onExportConfig: () -> Unit,
+    onExportConfig: (GranularBackupOptions) -> Unit,
     onRestoreConfig: () -> Unit,
+    onExportFavorites: () -> Unit,
+    onRestoreFavorites: () -> Unit,
     onExportDatabase: () -> Unit,
     onRestoreDatabase: () -> Unit
 ) {
+    var includeFavorites by remember { mutableStateOf(true) }
+    var includePlatforms by remember { mutableStateOf(true) }
+    var includeTools by remember { mutableStateOf(true) }
+    var includeUiPreferences by remember { mutableStateOf(true) }
+
     AlertDialog(
         title = {
             Text(stringResource(R.string.backup_and_restore))
@@ -554,22 +605,119 @@ fun BackupRestoreOptionsDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
+                // Backup Status Card
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (backupStatus.lastBackupEpochMs != null) Icons.Default.CloudDone else Icons.Default.UploadFile,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Backup Status",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            val statusText = if (backupStatus.lastBackupEpochMs != null) {
+                                val dateStr = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.getDefault())
+                                    .format(Date(backupStatus.lastBackupEpochMs))
+                                "Last: $dateStr (${backupStatus.backupCount} backups created)"
+                            } else {
+                                "No backups created yet"
+                            }
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Granular Configuration Backup Section
                 Text(
-                    text = stringResource(R.string.backup_configuration_section),
+                    text = "Advanced Settings Backup",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = stringResource(R.string.backup_configuration_section_desc),
+                    text = "Export or restore encrypted platform configurations, MCP tools, UI preferences, and group settings (.enc).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+
+                // Granular options toggles
+                Text(
+                    text = "Granular Options:",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { includePlatforms = !includePlatforms },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = includePlatforms, onCheckedChange = { includePlatforms = it })
+                    Text("AI Platforms & Models", style = MaterialTheme.typography.bodySmall)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { includeTools = !includeTools },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = includeTools, onCheckedChange = { includeTools = it })
+                    Text("MCP Tools & Web Search Connections", style = MaterialTheme.typography.bodySmall)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { includeUiPreferences = !includeUiPreferences },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = includeUiPreferences, onCheckedChange = { includeUiPreferences = it })
+                    Text("UI Preferences & Runtime Settings", style = MaterialTheme.typography.bodySmall)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { includeFavorites = !includeFavorites },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = includeFavorites, onCheckedChange = { includeFavorites = it })
+                    Text("Favorite Group Taxonomies", style = MaterialTheme.typography.bodySmall)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onExportConfig
+                    onClick = {
+                        val options = GranularBackupOptions(
+                            includeFavorites = includeFavorites,
+                            includePlatforms = includePlatforms,
+                            includeTools = includeTools,
+                            includeUiPreferences = includeUiPreferences
+                        )
+                        onExportConfig(options)
+                    }
                 ) {
                     Text(stringResource(R.string.export_configuration))
                 }
@@ -582,7 +730,42 @@ fun BackupRestoreOptionsDialog(
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
 
+                // Favorites Backup Section
+                Text(
+                    text = "Favorites Backup",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Export or restore starred messages and custom groups (.enc).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onExportFavorites
+                ) {
+                    Text("Export Favorites (.enc)")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onRestoreFavorites
+                ) {
+                    Text("Restore Favorites (.enc)")
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Full Database Backup Section
                 Text(
                     text = stringResource(R.string.backup_database_section),
                     style = MaterialTheme.typography.titleSmall,

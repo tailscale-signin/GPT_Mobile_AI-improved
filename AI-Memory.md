@@ -4,7 +4,7 @@ Persistent repository context for AI coding agents. Keep this file synchronized 
 
 > Index status: comprehensive and actively maintained on `main`, `feat/v0.9.5.3-release`, and all active feature branches. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 >
-> **Latest Target Release:** `0.9.5.3` (versionCode 55). Key additions: AETHERION MAX debug mode & hardware telemetry framework, GenerationQueueManager for message queuing during generation, PlatformLabel & PlatformLabelManager for shared platform tagging, LlamaModelInfo & LlamaModelMapper for Llama router mode, and standardized MCP tools directory with triple-verification processes.
+> **Latest Target Release:** `0.9.5.3` (versionCode 55). Key additions: AETHERION MAX debug mode & hardware telemetry framework, GenerationQueueManager for message queuing during generation, PlatformLabel & PlatformLabelManager for shared platform tagging, LlamaModelInfo & LlamaModelMapper for Llama router mode, standardized MCP tools directory with triple-verification processes, and Batch API integration framework (OpenRouter parallel client & Llama.cpp /v1/batch endpoint with BatchManager and BatchConfig).
 
 ## 1. Repository Overview
 
@@ -24,6 +24,7 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **Diagnostics & Telemetry (AETHERION MAX):** Real-time hardware telemetry (`HardwareDiagnosticsProvider`, `TelemetryCollector`, `TokenMetricsCollector`, `ToolMetricsCollector`, `DiagnosticsTelemetryProvider`, `ExportService`), HUD overlay (`DebugModeScreen`, `HardwareDiagnosticsPanel`, `LiveMetricsPanel`, `ToolAnalyticsPanel`, `TokenTimelinePanel`).
 - **Message Queuing:** `GenerationQueueManager` with FIFO message queueing up to 50 items, status transitions (`PENDING`, `GENERATING`, `COMPLETED`, `FAILED`), and cancellation.
 - **Platform Labels:** `PlatformLabel` and `PlatformLabelManager` supporting cross-platform tagging with 12 predefined hex colors and usage counting.
+- **Batch Processing:** `BatchManager` orchestrator, `BatchConfig` / `BatchRequest` data models, `OpenRouterBatchClient` (parallel client-side semaphore requests with backoff), and `LlamaBatchClient` (native JSONL `/v1/batch` processing with fallback). Documented in `docs/BATCH_API_INTEGRATION_RESEARCH_DESIGN.md`.
 - **MCP Integration:** Standardized tool structure in `mcp/tools/manifest.json`, `mcp/resources/manifest.json`, and triple-verification mechanism.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
 - **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.5.3` (versionCode 55).

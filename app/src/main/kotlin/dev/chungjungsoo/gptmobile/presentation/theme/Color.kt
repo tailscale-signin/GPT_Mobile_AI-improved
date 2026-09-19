@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.theme
 
 import androidx.compose.ui.graphics.Color
 
+// Modern gradient-based color palette with glassmorphism support
 val primaryLight = Color(0xFF006878)
 val onPrimaryLight = Color(0xFFFFFFFF)
 val primaryContainerLight = Color(0xFFA5EEFF)
@@ -217,6 +218,22 @@ val surfaceContainerLowDarkHighContrast = Color(0xFF171D1E)
 val surfaceContainerDarkHighContrast = Color(0xFF1B2122)
 val surfaceContainerHighDarkHighContrast = Color(0xFF252B2C)
 val surfaceContainerHighestDarkHighContrast = Color(0xFF303637)
+
+// Custom gradient colors for modern UI
+val gradientStartLight = Color(0xFF006878)
+val gradientEndLight = Color(0xFF00BCD4)
+val gradientStartDark = Color(0xFF82D3E5)
+val gradientEndDark = Color(0xFF55DFF2)
+val glassBackgroundLight = Color(0xFFE3F2FD)
+val glassBackgroundDark = Color(0xFF1A2325)
+val glassBorderLight = Color(0xFFBBDEFB)
+val glassBorderDark = Color(0xFF37474F)
+val accentCyanLight = Color(0xFF00BCD4)
+val accentCyanDark = Color(0xFF26C6DA)
+val accentPurpleLight = Color(0xFF7E57C2)
+val accentPurpleDark = Color(0xFF9575CD)
+val accentOrangeLight = Color(0xFFFF9800)
+val accentOrangeDark = Color(0xFFFFB74D)
 
 val customColor1Light = Color(0xFF006878)
 val onCustomColor1Light = Color(0xFFFFFFFF)

@@ -61,6 +61,11 @@ private val platformTypes = listOf(
         descriptionResId = R.string.openrouter_description
     ),
     PlatformTypeInfo(
+        clientType = ClientType.LLAMA,
+        titleResId = R.string.llama,
+        descriptionResId = R.string.client_type_llama_desc
+    ),
+    PlatformTypeInfo(
         clientType = ClientType.CUSTOM,
         titleResId = R.string.custom_provider,
         descriptionResId = R.string.custom_provider_description

@@ -344,7 +344,8 @@ fun ChatScreen(
                             },
                             onShowPreviousRevision = chatViewModel::showPreviousAssistantRevision,
                             onShowNextRevision = chatViewModel::showNextAssistantRevision,
-                            onContinueClick = { chatViewModel.sendContinueResponse() }
+                            onContinueClick = { chatViewModel.sendContinueResponse() },
+                            onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                         )
                     }
                     if (groupedMessages.userMessages.isNotEmpty()) {
@@ -448,14 +449,15 @@ fun ChatScreen(
 
                 ChatViewModel.MessageEditRole.ASSISTANT -> {
                     AssistantMessageEditDialog(
-                        initialMessage = session.message,
-                        attachments = session.attachments,
-                        onFileSelected = chatViewModel::addMessageEditFile,
-                        onCopyFailed = chatViewModel::notifyAttachmentCopyFailed,
-                        onFileRemoved = chatViewModel::removeMessageEditFile,
+                        initialResponse = session.message.content,
                         onDismissRequest = chatViewModel::discardMessageEditDialog,
-                        onConfirmRequest = { message, thoughts ->
-                            if (chatViewModel.saveAssistantMessageEdit(message, thoughts, session.attachments)) {
+                        onConfirmRequest = { response ->
+                            if (chatViewModel.saveAssistantMessageEdit(
+                                    turnIndex = session.turnIndex,
+                                    platformIndex = session.platformIndex,
+                                    editedContent = response
+                                )
+                            ) {
                                 chatViewModel.finishMessageEditDialog()
                             }
                         }
@@ -465,23 +467,16 @@ fun ChatScreen(
         }
 
         if (isSelectTextSheetOpen) {
-            val selectedText by chatViewModel.selectedText.collectAsStateWithLifecycle()
-            ModalBottomSheet(onDismissRequest = chatViewModel::closeSelectTextSheet) {
-                SelectionContainer(
-                    modifier = Modifier
-                        .padding(24.dp)
-                        .heightIn(min = 200.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(selectedText)
-                }
-            }
+            SelectTextBottomSheet(
+                text = chatViewModel.selectedText.value,
+                onDismissRequest = chatViewModel::closeSelectTextSheet
+            )
         }
     }
 }
 
 @Composable
-private fun ChatMessagePair(
+fun ChatMessagePair(
     messageIndex: Int,
     message: MessageV2,
     assistantMessages: List<MessageV2>,
@@ -508,7 +503,8 @@ private fun ChatMessagePair(
     onFavoriteLongPress: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
     onShowNextRevision: (Int, Int) -> Unit,
-    onContinueClick: () -> Unit = {}
+    onContinueClick: () -> Unit = {},
+    onActionClick: (String) -> Unit = {}
 ) {
     val selectedAssistantMessage = assistantMessages.getOrNull(platformIndexState)
     val assistantContent = selectedAssistantMessage?.effectiveContent() ?: ""
@@ -636,7 +632,8 @@ private fun ChatMessagePair(
                     onFavoriteLongPress = onFavoriteLongPress,
                     onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
                     onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) },
-                    onContinueClick = onContinueClick
+                    onContinueClick = onContinueClick,
+                    onActionClick = onActionClick
                 )
             }
         }
@@ -662,568 +659,19 @@ internal fun nextFollowBottom(
     isUserScrolling: Boolean,
     isScrollingAway: Boolean,
     canScrollForward: Boolean
-): Boolean = when {
-    !canScrollForward -> true
-    isUserScrolling && isScrollingAway -> false
-    else -> isFollowing
+): Boolean {
+    if (!canScrollForward) return true
+    if (isUserScrolling && isScrollingAway) return false
+    return isFollowing
 }
 
-internal fun shouldAutoScrollToBottom(
-    isFollowing: Boolean,
-    isUserDragging: Boolean,
-    isScrollInProgress: Boolean,
-    isScrollingAway: Boolean
-): Boolean = isFollowing &&
-    !isUserDragging &&
-    !(isScrollInProgress && isScrollingAway)
-
-@Composable
-internal fun ChatBottomAutoScroller(
-    listState: LazyListState,
-    isEnabled: Boolean
-) {
-    LaunchedEffect(listState, isEnabled) {
-        if (!isEnabled) return@LaunchedEffect
-
-        snapshotFlow { listState.layoutInfo }
-            .collectLatest { layoutInfo ->
-                val latestItemIndex = layoutInfo.totalItemsCount - 1
-                if (latestItemIndex >= 0 && listState.canScrollForward) {
-                    listState.requestScrollToItem(latestItemIndex)
-                }
-            }
-    }
+private suspend fun LazyListState.animateScrollToLatestChatMessage() {
+    val totalItemCount = layoutInfo.totalItemsCount
+    if (totalItemCount <= 0) return
+    animateScrollToItem(totalItemCount - 1)
 }
 
-internal suspend fun LazyListState.animateScrollToLatestChatMessage() {
-    val latestItemIndex = layoutInfo.totalItemsCount - 1
-    if (latestItemIndex >= 0) {
-        animateScrollToItem(latestItemIndex)
-    }
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun ChatTopBar(
-    title: String,
-    isMenuItemEnabled: Boolean,
-    isModelItemEnabled: Boolean,
-    onBackAction: () -> Unit,
-    scrollBehavior: TopAppBarScrollBehavior,
-    onChatTitleItemClick: () -> Unit,
-    onChatModelItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit,
-    onDisablePlatformClick: () -> Unit = {}
-) {
-    var isDropDownMenuExpanded by remember { mutableStateOf(false) }
-
-    TopAppBar(
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        navigationIcon = {
-            IconButton(
-                onClick = onBackAction
-            ) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
-            }
-        },
-        actions = {
-            IconButton(
-                enabled = isModelItemEnabled,
-                onClick = onChatModelItemClick
-            ) {
-                Icon(
-                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_model),
-                    contentDescription = stringResource(R.string.chat_models)
-                )
-            }
-            IconButton(
-                onClick = { isDropDownMenuExpanded = isDropDownMenuExpanded.not() }
-            ) {
-                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.options))
-            }
-
-            ChatDropdownMenu(
-                isDropdownMenuExpanded = isDropDownMenuExpanded,
-                isMenuItemEnabled = isMenuItemEnabled,
-                onDismissRequest = { isDropDownMenuExpanded = false },
-                onChatTitleItemClick = {
-                    onChatTitleItemClick.invoke()
-                    isDropDownMenuExpanded = false
-                },
-                onExportChatItemClick = onExportChatItemClick,
-                onDisablePlatformClick = {
-                    onDisablePlatformClick()
-                    isDropDownMenuExpanded = false
-                }
-            )
-        },
-        scrollBehavior = scrollBehavior
-    )
-}
-
-@Composable
-fun ChatDropdownMenu(
-    isDropdownMenuExpanded: Boolean,
-    isMenuItemEnabled: Boolean,
-    onDismissRequest: () -> Unit,
-    onChatTitleItemClick: () -> Unit,
-    onExportChatItemClick: () -> Unit,
-    onDisablePlatformClick: () -> Unit = {}
-) {
-    DropdownMenu(
-        modifier = Modifier.wrapContentSize(),
-        expanded = isDropdownMenuExpanded,
-        onDismissRequest = onDismissRequest
-    ) {
-        DropdownMenuItem(
-            enabled = isMenuItemEnabled,
-            text = { Text(text = stringResource(R.string.update_chat_title)) },
-            onClick = onChatTitleItemClick
-        )
-        /* Export Chat */
-        DropdownMenuItem(
-            enabled = isMenuItemEnabled,
-            text = { Text(text = stringResource(R.string.export_chat)) },
-            onClick = {
-                onExportChatItemClick()
-                onDismissRequest()
-            }
-        )
-        /* Disable Platform in current session */
-        DropdownMenuItem(
-            enabled = isMenuItemEnabled,
-            text = { Text(text = stringResource(R.string.disable_platform)) },
-            onClick = {
-                onDisablePlatformClick()
-                onDismissRequest()
-            }
-        )
-    }
-}
-
-@Composable
-fun ChatBubbleDropdownMenu(
-    isChatBubbleDropdownMenuExpanded: Boolean,
-    canEdit: Boolean,
-    onDismissRequest: () -> Unit,
-    onEditItemClick: () -> Unit,
-    onCopyItemClick: () -> Unit
-) {
-    DropdownMenu(
-        modifier = Modifier.wrapContentSize(),
-        expanded = isChatBubbleDropdownMenuExpanded,
-        onDismissRequest = onDismissRequest
-    ) {
-        DropdownMenuItem(
-            enabled = canEdit,
-            leadingIcon = {
-                Icon(
-                    Icons.Outlined.Edit,
-                    contentDescription = stringResource(R.string.edit)
-                )
-            },
-            text = { Text(text = stringResource(R.string.edit)) },
-            onClick = {
-                onEditItemClick.invoke()
-                onDismissRequest.invoke()
-            }
-        )
-        DropdownMenuItem(
-            leadingIcon = {
-                Icon(
-                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_copy),
-                    contentDescription = stringResource(R.string.copy_text)
-                )
-            },
-            text = { Text(text = stringResource(R.string.copy_text)) },
-            onClick = {
-                onCopyItemClick.invoke()
-                onDismissRequest.invoke()
-            }
-        )
-    }
-}
-
-private fun exportChat(context: Context, chatViewModel: ChatViewModel) {
-    try {
-        val (fileName, fileContent) = chatViewModel.exportChat(
-            toolTraceLabels = context.toolTraceLabels(),
-            legacyOrderNotice = context.getString(R.string.legacy_assistant_order_unavailable)
-        )
-        val file = File(context.getExternalFilesDir(null), fileName)
-        file.writeText(fileContent)
-        val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/markdown"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val chooser = Intent.createChooser(shareIntent, "Share Chat Export").apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val resInfo = context.packageManager.queryIntentActivities(chooser, PackageManager.MATCH_DEFAULT_ONLY)
-        resInfo.forEach { res ->
-            context.grantUriPermission(res.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(chooser)
-    } catch (e: Exception) {
-        Log.e("ChatExport", "Failed to export chat", e)
-        Toast.makeText(context, "Failed to export chat", Toast.LENGTH_SHORT).show()
-    }
-}
-
-private fun Context.toolTraceLabels(): ToolTraceLabels = ToolTraceLabels(
-    expandToolTrace = getString(R.string.tool_trace_expand_content_description),
-    collapseToolTrace = getString(R.string.tool_trace_collapse_content_description),
-    expand = getString(R.string.tool_trace_expand),
-    collapse = getString(R.string.tool_trace_collapse),
-    call = getString(R.string.tool_trace_call_singular),
-    calls = getString(R.string.tool_trace_call_plural),
-    running = getString(R.string.tool_trace_status_running),
-    failed = getString(R.string.tool_trace_status_failed),
-    completedWithErrors = getString(R.string.tool_trace_status_completed_with_errors),
-    canceled = getString(R.string.tool_trace_status_canceled),
-    completed = getString(R.string.tool_trace_status_completed),
-    status = getString(R.string.tool_trace_status),
-    callId = getString(R.string.tool_trace_call_id),
-    connection = getString(R.string.tool_trace_connection),
-    tool = getString(R.string.tool_trace_tool),
-    modelTool = getString(R.string.tool_trace_model_tool),
-    timing = getString(R.string.tool_trace_timing),
-    error = getString(R.string.tool_trace_error),
-    arguments = getString(R.string.tool_trace_arguments),
-    result = getString(R.string.tool_trace_result),
-    exportHeader = { count -> getString(R.string.tool_trace_export_header, count) },
-    startedAt = getString(R.string.tool_trace_timing_started_at)
-)
-
-@Preview
-@Composable
-fun ChatInputBox(
-    inputState: TextFieldState = rememberTextFieldState(),
-    chatEnabled: Boolean = true,
-    sendButtonEnabled: Boolean = true,
-    isRunning: Boolean = false,
-    selectedAttachments: List<ChatAttachmentDraft> = emptyList(),
-    onFileSelected: (String) -> Unit = {},
-    onFileRemoved: (String) -> Unit = {},
-    onCancelButtonClick: () -> Unit = {},
-    onSendButtonClick: () -> Unit = {}
-) {
-    val localStyle = LocalTextStyle.current
-    val mergedStyle = localStyle.merge(TextStyle(color = LocalContentColor.current))
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
-    val hasQuestionText = inputState.text.isNotEmpty()
-
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            scope.launch {
-                val filePath = withContext(Dispatchers.IO) {
-                    copyFileToAppDirectory(context, it)
-                }
-                filePath?.let { path -> onFileSelected(path) }
-            }
-        }
-    }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 2.dp
-    ) {
-        Column {
-            if (selectedAttachments.isNotEmpty()) {
-                FileThumbnailRow(
-                    selectedAttachments = selectedAttachments,
-                    onFileRemoved = onFileRemoved
-                )
-            }
-            BasicTextField(
-                state = inputState,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = chatEnabled,
-                textStyle = mergedStyle,
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                lineLimits = chatInputLineLimits,
-                decorator = { innerTextField ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            enabled = chatEnabled && !isRunning,
-                            onClick = { filePickerLauncher.launch("image/*") }
-                        ) {
-                            Icon(
-                                imageVector = ImageVector.vectorResource(R.drawable.ic_attach_file),
-                                contentDescription = stringResource(R.string.attach_file)
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(start = 8.dp)
-                        ) {
-                            if (inputState.text.isEmpty()) {
-                                Text(
-                                    modifier = Modifier.alpha(0.38f),
-                                    text = if (chatEnabled) stringResource(R.string.ask_a_question) else stringResource(R.string.some_platforms_disabled)
-                                )
-                            }
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                innerTextField()
-                            }
-                        }
-                        IconButton(
-                            enabled = isRunning || (chatEnabled && sendButtonEnabled && hasQuestionText),
-                            onClick = if (isRunning) onCancelButtonClick else onSendButtonClick
-                        ) {
-                            if (isRunning) {
-                                Icon(
-                                    imageVector = Icons.Filled.Stop,
-                                    contentDescription = stringResource(R.string.cancel_active_runs)
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_send),
-                                    contentDescription = stringResource(R.string.send)
-                                )
-                            }
-                        }
-                    }
-                }
-            )
-        }
-    }
-}
-
-@Composable
-internal fun FileThumbnailRow(
-    selectedAttachments: List<ChatAttachmentDraft>,
-    onFileRemoved: (String) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-    ) {
-        selectedAttachments.forEach { attachment ->
-            FileThumbnail(
-                attachment = attachment,
-                onRemove = { onFileRemoved(attachment.sourceFilePath) }
-            )
-        }
-    }
-}
-
-@Composable
-internal fun FileThumbnail(
-    attachment: ChatAttachmentDraft,
-    onRemove: () -> Unit
-) {
-    val file = File(attachment.preparedFilePath ?: attachment.sourceFilePath)
-    val isImage = isImageFile(file.extension)
-
-    Column(
-        modifier = Modifier.width(72.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            modifier = Modifier
-                .size(64.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            if (isImage) {
-                Icon(
-                    imageVector = ImageVector.vectorResource(R.drawable.ic_image),
-                    contentDescription = file.name,
-                    modifier = Modifier.fillMaxSize(),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                Icon(
-                    imageVector = ImageVector.vectorResource(R.drawable.ic_file),
-                    contentDescription = file.name,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            IconButton(
-                onClick = onRemove,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(48.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .background(
-                            MaterialTheme.colorScheme.error,
-                            RoundedCornerShape(8.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.remove),
-                        tint = MaterialTheme.colorScheme.onError,
-                        modifier = Modifier.size(10.dp)
-                    )
-                }
-            }
-
-            if (attachment.status == ChatAttachmentDraft.Status.Preparing) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 4.dp)
-                        .size(18.dp),
-                    strokeWidth = 2.dp
-                )
-            }
-        }
-
-        Text(
-            text = file.name,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier
-                .padding(top = 4.dp)
-                .width(72.dp)
-        )
-
-        attachment.notice?.let { notice ->
-            Text(
-                text = notice,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.width(72.dp)
-            )
-        }
-
-        attachment.errorMessage?.let { errorMessage ->
-            Text(
-                text = errorMessage,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.width(72.dp)
-            )
-        }
-    }
-}
-
-internal fun copyFileToAppDirectory(context: Context, uri: android.net.Uri): String? {
-    return try {
-        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-        val rawFileName = getFileName(context, uri)
-        val sanitizedFileName = sanitizeFileName(rawFileName)
-
-        val attachmentsDir = File(context.filesDir, "attachments")
-        attachmentsDir.mkdirs()
-
-        var targetFile = File(attachmentsDir, sanitizedFileName)
-
-        // If file exists, append timestamp to avoid overwrites
-        if (targetFile.exists()) {
-            val nameWithoutExt = sanitizedFileName.substringBeforeLast(".")
-            val ext = sanitizedFileName.substringAfterLast(".", "")
-            val uniqueName = if (ext.isNotEmpty()) {
-                "${nameWithoutExt}_${System.currentTimeMillis()}.$ext"
-            } else {
-                "${sanitizedFileName}_${System.currentTimeMillis()}"
-            }
-            targetFile = File(attachmentsDir, uniqueName)
-        }
-
-        // Verify canonical path is within attachments directory to prevent path traversal
-        val attachmentsDirCanonical = attachmentsDir.canonicalPath
-        val targetFileCanonical = targetFile.canonicalPath
-        if (!targetFileCanonical.startsWith(attachmentsDirCanonical + File.separator) &&
-            targetFileCanonical != attachmentsDirCanonical
-        ) {
-            return null
-        }
-
-        inputStream.use { input ->
-            targetFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-
-        targetFile.absolutePath
-    } catch (e: Exception) {
-        null
-    }
-}
-
-private fun getFileName(context: Context, uri: android.net.Uri): String {
-    var fileName = "attachment_${System.currentTimeMillis()}"
-
-    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-        if (cursor.moveToFirst() && nameIndex != -1) {
-            fileName = cursor.getString(nameIndex) ?: fileName
-        }
-    }
-
-    return fileName
-}
-
-private fun sanitizeFileName(fileName: String): String {
-    val maxLength = 200
-
-    // Remove path separators and ".." segments
-    val withoutPathTraversal = fileName
-        .replace("..", "")
-        .replace("/", "")
-        .replace("\\", "")
-
-    // Keep only safe characters: alphanumerics, dash, underscore, dot
-    val sanitized = withoutPathTraversal
-        .filter { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' }
-        .take(maxLength)
-        .trim('.')
-
-    // If sanitized name is empty, generate a fallback
-    return sanitized.ifEmpty { "attachment_${System.currentTimeMillis()}" }
-}
-
-private fun isImageFile(extension: String?): Boolean {
-    val imageExtensions = setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")
-    return extension?.lowercase() in imageExtensions
-}
-
-@Composable
-fun ScrollToBottomButton(onClick: () -> Unit) {
-    SmallFloatingActionButton(
-        onClick = onClick,
-        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-    ) {
-        Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon))
-    }
-}
+private fun shouldShowReplyLoadingIndicator(
+    isActiveMessage: Boolean,
+    loadingStates: List<ChatViewModel.LoadingState>
+): Boolean = isActiveMessage && loadingStates.any { it == ChatViewModel.LoadingState.Loading }

@@ -434,6 +434,23 @@ fun PlatformSettingScreen(
                         }
                     )
                 }
+                if (platformData.compatibleType == ClientType.LLAMA) {
+                    SettingItem(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.llama_advanced_settings),
+                        description = stringResource(R.string.llama_advanced_settings_description),
+                        enabled = platformData.enabled,
+                        onItemClick = settingViewModel::openLlamaAdvancedDialog,
+                        showTrailingIcon = true,
+                        showLeadingIcon = true,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Tune,
+                                contentDescription = stringResource(R.string.llama_advanced_settings)
+                            )
+                        }
+                    )
+                }
                 if (!isLocalPlatform) {
                     ExtendedThinkingSwitch(
                         modifier = Modifier.height(64.dp),
@@ -584,6 +601,7 @@ fun PlatformSettingScreen(
                 GeminiSafetySettingsDialog(dialogState, platformData, settingViewModel)
                 OpenRouterAdvancedSettingsDialog(dialogState, platformData.openRouterRouting, settingViewModel)
                 OllamaAdvancedSettingsDialog(dialogState, platformData.ollamaOptions, settingViewModel)
+                LlamaAdvancedSettingsDialog(dialogState, settingViewModel)
                 DeletePlatformDialog(dialogState, settingViewModel)
                 SearchBackendDialog(toolBindingState, settingViewModel)
                 LegacyMcpToolsDialog(toolBindingState, settingViewModel)

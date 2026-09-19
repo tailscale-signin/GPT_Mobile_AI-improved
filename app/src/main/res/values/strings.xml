@@ -508,6 +508,10 @@
     <string name="ollama_gpu_overhead">gpu_overhead</string>
     <string name="ollama_gpu_overhead_hint">Reserve VRAM per GPU in bytes, e.g. 1073741824 for 1GB</string>
 
+    <!-- Llama Advanced Settings -->
+    <string name="llama_advanced_settings">Llama Advanced Settings</string>
+    <string name="llama_advanced_settings_description">Configure router mode, GPU layers, context length, threads, sampling, and performance options</string>
+
     <!-- Improvements: Labels, Batch Mode, Completion Notification -->
     <string name="platform_labels">Labels</string>
     <string name="platform_labels_description">Color-coded tags to organize and filter platforms</string>

@@ -552,6 +552,14 @@ class PlatformSettingViewModel @Inject constructor(
         _dialogState.update { it.copy(isOllamaAdvancedDialogOpen = false) }
     }
 
+    fun openLlamaAdvancedDialog() {
+        _dialogState.update { it.copy(isLlamaAdvancedDialogOpen = true) }
+    }
+
+    fun closeLlamaAdvancedDialog() {
+        _dialogState.update { it.copy(isLlamaAdvancedDialogOpen = false) }
+    }
+
     fun openDeleteDialog() {
         _dialogState.update { it.copy(isDeleteDialogOpen = true) }
     }
@@ -727,6 +735,7 @@ class PlatformSettingViewModel @Inject constructor(
         val isGeminiSafetyDialogOpen: Boolean = false,
         val isOpenRouterSettingsDialogOpen: Boolean = false,
         val isOllamaAdvancedDialogOpen: Boolean = false,
+        val isLlamaAdvancedDialogOpen: Boolean = false,
         val isDeleteDialogOpen: Boolean = false
     )
 

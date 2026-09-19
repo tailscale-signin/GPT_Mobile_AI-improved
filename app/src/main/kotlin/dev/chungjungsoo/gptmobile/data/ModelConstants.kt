@@ -10,6 +10,7 @@ object ModelConstants {
     const val GOOGLE_DEFAULT_MODEL = "gemini-3.7-flash"
     const val GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
     const val OLLAMA_DEFAULT_MODEL = "gpt-oss"
+    const val LLAMA_DEFAULT_MODEL = "llama3.3"
 
     // OpenRouter has no unsuffixed alias; only the explicit tier slugs are served.
     const val OPENROUTER_DEFAULT_MODEL = "openai/gpt-5.6-sol"
@@ -44,6 +45,12 @@ object ModelConstants {
         "deepseek-r1-distill-llama-70b"
     )
     val ollamaModels = linkedSetOf(OLLAMA_DEFAULT_MODEL)
+    val llamaModels = linkedSetOf(
+        LLAMA_DEFAULT_MODEL,
+        "llama3.2",
+        "llama3.1",
+        "llama3"
+    )
 
     const val OPENAI_API_URL = "https://api.openai.com/v1/"
     const val ANTHROPIC_API_URL = "https://api.anthropic.com/v1/"
@@ -51,6 +58,7 @@ object ModelConstants {
     const val GROQ_API_URL = "https://api.groq.com/openai/v1/"
     const val OPENROUTER_API_URL = "https://openrouter.ai/api/v1/"
     const val OLLAMA_API_URL = "http://localhost:11434/v1/"
+    const val LLAMA_API_URL = "http://localhost:11434/v1/"
 
     fun getDefaultAPIUrl(apiType: ApiType) = when (apiType) {
         ApiType.OPENAI -> OPENAI_API_URL
@@ -79,6 +87,7 @@ object ModelConstants {
         ClientType.OPENROUTER -> "OpenRouter"
         ClientType.CUSTOM -> ""
         ClientType.LITERT_LM -> "Local"
+        ClientType.LLAMA -> "Llama"
     }
 
     fun defaultApiUrl(clientType: ClientType): String = when (clientType) {
@@ -90,6 +99,7 @@ object ModelConstants {
         ClientType.OPENROUTER -> OPENROUTER_API_URL
         ClientType.CUSTOM -> ""
         ClientType.LITERT_LM -> ""
+        ClientType.LLAMA -> LLAMA_API_URL
     }
 
     fun defaultModel(clientType: ClientType): String = when (clientType) {
@@ -101,6 +111,7 @@ object ModelConstants {
         ClientType.OPENROUTER -> OPENROUTER_DEFAULT_MODEL
         ClientType.CUSTOM -> ""
         ClientType.LITERT_LM -> ""
+        ClientType.LLAMA -> LLAMA_DEFAULT_MODEL
     }
 
     const val ANTHROPIC_MAXIMUM_TOKEN = 8192

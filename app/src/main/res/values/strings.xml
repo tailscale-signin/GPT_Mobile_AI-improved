@@ -82,6 +82,7 @@
     <string name="client_type_openrouter_desc">OpenRouter unified API access to hundreds of models</string>
     <string name="client_type_custom_desc">Custom OpenAI-compatible API endpoint</string>
     <string name="client_type_litert_lm_desc">On-device local AI models powered by LiteRT</string>
+    <string name="client_type_llama_desc">Llama models via local inference or router endpoints</string>
     <string name="litert_lm_description">Run models locally on device with LiteRT</string>
     <string name="api_url">API URL</string>
     <string name="api_url_hint">https://api.example.com/v1</string>
@@ -232,6 +233,7 @@
     <string name="ollama_description">Run models locally or remotely via Ollama</string>
     <string name="openrouter">OpenRouter</string>
     <string name="openrouter_description">Unified API access to hundreds of AI models</string>
+    <string name="llama">Llama</string>
     <string name="custom_provider">Custom</string>
     <string name="custom_provider_description">Any OpenAI-compatible API endpoint</string>
     <string name="litert_lm">LiteRT-LM</string>

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.5.3] - 2026-09-19
+
+### Added & Improved
+- **Message Queuing During Generation**:
+  - Implemented `GenerationQueueManager` with FIFO message sequencing, max capacity limits (50 items), and overflow protection.
+  - Users can compose and queue up messages while assistant responses are actively generating.
+  - Added queue badge counters, stop-confirmation dialogs, and automated dequeueing.
+- **Shared Platform Labels**:
+  - Added `PlatformLabel` entity and `PlatformLabelManager` utility supporting cross-platform labels.
+  - 12-color predefined palette, format validation (2–50 characters, hex colors), and platform usage count tracking.
+- **Llama Model Selection in Router Mode**:
+  - Implemented `LlamaModelInfo`, `LlamaModelStatus`, `LlamaRouterConfig`, and `LlamaModelMapper`.
+  - Parses parameter counts (millions), quantization codes, context window tokens, and dynamic server load metrics.
+- **MCP Tool Manifest & Structure**:
+  - Created standardized `mcp/` directory structure with `mcp/tools/manifest.json`, `mcp/resources/manifest.json`, `mcp/index.html`, and `assets/mcp-downloads/`.
+  - Added triple-verification process checking manifest schema, SHA digests, and read-after-write consistency.
+- **Version Bump**:
+  - Bumped version name to `0.9.5.3` (versionCode `55`).
+
+## [0.9.5.2] - 2026-09-19
+
+### Added & Improved
+- **UI Gestures & Interaction Polish**:
+  - Restored chat pinning on long-press with spot glow and haptic feedback.
+  - Allowed active user typing during generation without fading or blocking input composers.
+  - Hid static archive icon and revealed only on right swipe.
+  - Added `FancySwipeChatCard` with smooth spring transitions and color badges.
+- **Backup & Encryption Enhancements**:
+  - Added favorites backup, advanced settings backup (UI preferences, local runtimes), and granular selection options.
+
+## [0.9.5.1] - 2026-09-19
+
+### Added & Improved
+- **Build & Compilation Fixes**:
+  - Resolved generic `TypeToken` type inference issue in `AdvancedSettingsViewModel`.
+  - Fixed Material 3 button styles in `fragment_advanced_llama_settings.xml`.
+  - Cleaned deprecated `extractNativeLibs` attribute in `AndroidManifest.xml`.
+
+## [0.9.5.0] - 2026-09-19
+
+### Added & Improved
+- **Llama Platform Integration**:
+  - Added Llama model platform with configurable router endpoint, GPU offloading, and advanced options.
+
 ## [0.9.4.6] - 2026-09-17
 
 ### Added & Improved

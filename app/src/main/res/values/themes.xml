@@ -22,18 +22,4 @@
         <item name="postSplashScreenTheme">@style/Theme.GPTMobile</item>
     </style>
 
-    <!-- Material3 Button Styles -->
-    <style name="Widget.Material3.Button.OutlinedButton" parent="Widget.Material3.Button.OutlinedButton">
-        <item name="android:textColor">@color/md_theme_onSurfaceVariant</item>
-        <item name="strokeColor">@color/md_theme_outlineVariant</item>
-        <item name="backgroundTint">@color/md_theme_surfaceVariant</item>
-        <item name="android:textAppearance">@style/TextAppearance.Material3.Button</item>
-    </style>
-
-    <style name="Widget.Material3.Button.OutlinedButton.Icon" parent="Widget.Material3.Button.OutlinedButton">
-        <item name="android:textColor">@color/md_theme_onSurfaceVariant</item>
-        <item name="strokeColor">@color/md_theme_outlineVariant</item>
-        <item name="backgroundTint">@color/md_theme_surfaceVariant</item>
-    </style>
-
 </resources>

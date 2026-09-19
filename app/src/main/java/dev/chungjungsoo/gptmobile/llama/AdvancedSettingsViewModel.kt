@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
 import kotlinx.coroutines.launch
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 @Parcelize
 data class RouterModel(
@@ -50,8 +52,14 @@ class AdvancedSettingsViewModel(application: Application) : AndroidViewModel(app
         viewModelScope.launch {
             val prefs = getApplication<Application>().getSharedPreferences("llama_settings", Context.MODE_PRIVATE)
             val json = prefs.getString("advanced_settings", null) ?: "{}"
-            _settings.value = AdvancedSettings().apply {
-                // Parse JSON into settings or load defaults
+            try {
+                val type = object : TypeToken<AdvancedSettings>() {}.type
+                val gson = Gson()
+                val loadedSettings = gson.fromJson(json, type)
+                _settings.value = loadedSettings ?: AdvancedSettings()
+            } catch (e: Exception) {
+                _error.value = "Failed to load settings: ${e.message}"
+                _settings.value = AdvancedSettings()
             }
         }
     }

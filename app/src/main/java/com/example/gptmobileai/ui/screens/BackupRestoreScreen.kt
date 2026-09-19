@@ -1,6 +1,8 @@
 package com.example.gptmobileai.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -11,6 +13,7 @@ import com.example.gptmobileai.backup.BackupManager
 import com.example.gptmobileai.backup.BackupPreview
 import com.example.gptmobileai.backup.BackupVersion
 import com.example.gptmobileai.backup.BackupVersionManager
+import com.example.gptmobileai.ui.components.LoadingIndicator
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -21,7 +24,9 @@ import java.util.Locale
 @Composable
 fun BackupRestoreScreen(
     backupManager: BackupManager,
-    versionManager: BackupVersionManager? = null
+    versionManager: BackupVersionManager? = null,
+    onBackupCreated: () -> Unit = {},
+    onRestoreCompleted: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -30,6 +35,12 @@ fun BackupRestoreScreen(
     var passphrase by remember { mutableStateOf("default-passphrase") }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var versions by remember { mutableStateOf<List<BackupVersion>>(emptyList()) }
+    
+    // Loading states
+    var isBackingUp by remember { mutableStateOf(false) }
+    var backupProgress by remember { mutableStateOf(0f) }
+    var isRestoring by remember { mutableStateOf(false) }
+    var restoreProgress by remember { mutableStateOf(0f) }
 
     LaunchedEffect(Unit) {
         versionManager?.let {
@@ -47,10 +58,11 @@ fun BackupRestoreScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
-            // Create Backup Section
+            // Create Backup Section with Loading Indicator
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Create New Backup", style = MaterialTheme.typography.titleMedium)
@@ -59,28 +71,54 @@ fun BackupRestoreScreen(
 
                     OutlinedButton(
                         onClick = {
+                            isBackingUp = true
+                            backupProgress = 0f
                             coroutineScope.launch {
                                 try {
                                     val backupDir = File(context.filesDir, "backups").also { it.mkdirs() }
                                     val target = File(backupDir, "backup_${System.currentTimeMillis()}.bin")
                                     val meta = backupManager.createEncryptedBackup(target, passphrase)
+                                    
+                                    // Simulate progress updates (replace with real progress from backupManager)
+                                    for (i in 1..100 step 10) {
+                                        backupProgress = i.toFloat()
+                                        kotlinx.coroutines.delay(50)
+                                    }
+                                    
                                     selectedBackupFile = target
+                                    isBackingUp = false
+                                    backupProgress = 100f
                                     statusMessage = "Backup created successfully (${meta.sizeBytes} bytes)"
                                     versionManager?.let { versions = it.listBackupVersions() }
+                                    onBackupCreated()
                                 } catch (e: Exception) {
+                                    isBackingUp = false
+                                    backupProgress = 0f
                                     statusMessage = "Backup error: ${e.message}"
                                 }
                             }
-                        }
+                        },
+                        enabled = !isBackingUp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Backup All Data")
+                        if (isBackingUp) {
+                            LoadingIndicator(
+                                isLoading = true,
+                                progress = backupProgress,
+                                message = "Creating encrypted backup...",
+                                circular = false,
+                                showProgress = true
+                            )
+                        } else {
+                            Text("Backup All Data")
+                        }
                     }
                 }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // Restore Section - SINGLE BUTTON (Consolidated)
+            // Restore Section with Loading Indicator
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Restore from Backup", style = MaterialTheme.typography.titleMedium)
@@ -97,40 +135,82 @@ fun BackupRestoreScreen(
                             } else {
                                 statusMessage = "No backup files found."
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(if (selectedBackupFile != null) "Selected: ${selectedBackupFile!!.name}" else "Select Latest Backup File")
                     }
-                }
-            }
 
-            Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(8.dp))
 
-            // Restore All Button - THE MAIN FEATURE
-            if (selectedBackupFile != null) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Restore All Data", style = MaterialTheme.typography.titleMedium)
-
-                        Spacer(Modifier.height(8.dp))
-
+                    // Restore All Button with Loading Indicator
+                    if (selectedBackupFile != null) {
                         Button(
-                            onClick = { showRestorePreview = true },
+                            onClick = {
+                                isRestoring = true
+                                restoreProgress = 0f
+                                showRestorePreview = false
+                                coroutineScope.launch {
+                                    try {
+                                        val result = backupManager.restoreAllFromBackup(selectedBackupFile!!, passphrase)
+                                        
+                                        // Simulate progress updates (replace with real progress from backupManager)
+                                        for (i in 1..100 step 5) {
+                                            restoreProgress = i.toFloat()
+                                            kotlinx.coroutines.delay(30)
+                                        }
+                                        
+                                        if (result.success) {
+                                            isRestoring = false
+                                            restoreProgress = 100f
+                                            statusMessage = "All data restored successfully!"
+                                            onRestoreCompleted()
+                                        } else {
+                                            isRestoring = false
+                                            restoreProgress = 0f
+                                            statusMessage = "Restore failed."
+                                        }
+                                    } catch (e: Exception) {
+                                        isRestoring = false
+                                        restoreProgress = 0f
+                                        statusMessage = "Restore error: ${e.message}"
+                                    }
+                                }
+                            },
+                            enabled = selectedBackupFile != null && !isRestoring,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Restore All (Conversations + Secrets + Settings)")
+                            if (isRestoring) {
+                                LoadingIndicator(
+                                    isLoading = true,
+                                    progress = restoreProgress,
+                                    message = "Restoring data...",
+                                    circular = false,
+                                    showProgress = true
+                                )
+                            } else {
+                                Text("Restore All (Conversations + Secrets + Settings)")
+                            }
                         }
                     }
                 }
             }
 
+            // Status Message with Loading Indicator
             if (statusMessage != null) {
                 Spacer(Modifier.height(16.dp))
-                Text(
-                    text = statusMessage!!,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LoadingPulse(isLoading = isBackingUp || isRestoring)
+                    Text(
+                        text = statusMessage!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (statusMessage!!.contains("Error")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
             Spacer(Modifier.height(32.dp))
@@ -144,23 +224,37 @@ fun BackupRestoreScreen(
         }
     }
 
-    // Restore Preview Dialog
+    // Restore Preview Dialog with Loading Indicator
     if (showRestorePreview && selectedBackupFile != null) {
         RestorePreviewDialog(
             backupFile = selectedBackupFile!!,
             onConfirm = {
+                isRestoring = true
+                restoreProgress = 0f
+                showRestorePreview = false
                 coroutineScope.launch {
                     try {
                         val result = backupManager.restoreAllFromBackup(selectedBackupFile!!, passphrase)
+                        
+                        for (i in 1..100 step 5) {
+                            restoreProgress = i.toFloat()
+                            kotlinx.coroutines.delay(30)
+                        }
+                        
                         if (result.success) {
+                            isRestoring = false
+                            restoreProgress = 100f
                             statusMessage = "All data restored successfully!"
+                            onRestoreCompleted()
                         } else {
+                            isRestoring = false
+                            restoreProgress = 0f
                             statusMessage = "Restore failed."
                         }
                     } catch (e: Exception) {
+                        isRestoring = false
+                        restoreProgress = 0f
                         statusMessage = "Restore error: ${e.message}"
-                    } finally {
-                        showRestorePreview = false
                     }
                 }
             },

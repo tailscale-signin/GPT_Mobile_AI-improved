@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "gpt-mobile-mcp": {
+      "command": "node",
+      "args": ["mcp/server.js"],
+      "env": {},
+      "workingDirectory": "."
+    }
+  }
+}

@@ -917,13 +917,6 @@ fun ChatInputBox(
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
     val hasQuestionText = inputState.text.isNotEmpty()
 
-    // 2-second fade-out on generation start, 1-second fade-in on return to idle
-    val inputAlpha by animateFloatAsState(
-        targetValue = if (isRunning) 0.0f else 1.0f,
-        animationSpec = tween(durationMillis = if (isRunning) 2000 else 1000),
-        label = "chat_input_box_alpha"
-    )
-
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -955,7 +948,7 @@ fun ChatInputBox(
             BasicTextField(
                 state = inputState,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = chatEnabled && !isRunning,
+                enabled = chatEnabled,
                 textStyle = mergedStyle,
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 lineLimits = chatInputLineLimits,
@@ -968,7 +961,6 @@ fun ChatInputBox(
                     ) {
                         IconButton(
                             enabled = chatEnabled && !isRunning,
-                            modifier = Modifier.alpha(inputAlpha),
                             onClick = { filePickerLauncher.launch("image/*") }
                         ) {
                             Icon(
@@ -980,7 +972,6 @@ fun ChatInputBox(
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(start = 8.dp)
-                                .alpha(inputAlpha)
                         ) {
                             if (inputState.text.isEmpty()) {
                                 Text(
@@ -1003,7 +994,6 @@ fun ChatInputBox(
                                 )
                             } else {
                                 Icon(
-                                    modifier = Modifier.alpha(inputAlpha),
                                     imageVector = ImageVector.vectorResource(id = R.drawable.ic_send),
                                     contentDescription = stringResource(R.string.send)
                                 )

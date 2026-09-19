@@ -5,6 +5,14 @@ import android.content.res.Configuration
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -17,6 +25,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -78,6 +87,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -100,8 +110,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -138,6 +151,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsB
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
+import kotlin.math.abs
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -313,17 +327,21 @@ fun HomeScreen(
                         ) { idx, chatRoom ->
                             val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
                             val isGenerating = activeChatIds.contains(chatRoom.id)
+                            var hasTriggeredHaptic by remember { mutableStateOf(false) }
                             val dismissState = rememberSwipeToDismissBoxState(
+                                positionalThreshold = { totalDistance -> totalDistance * 0.5f },
                                 confirmValueChange = { dismissValue ->
                                     when (dismissValue) {
                                         SwipeToDismissBoxValue.StartToEnd -> {
                                             // Swipe Right -> Archive
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             homeViewModel.archiveChat(chatRoom)
                                             Toast.makeText(context, R.string.chat_archived, Toast.LENGTH_SHORT).show()
                                             false
                                         }
                                         SwipeToDismissBoxValue.EndToStart -> {
                                             // Swipe Left -> Delete with confirmation
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             chatPendingDelete = chatRoom
                                             false
                                         }
@@ -331,6 +349,19 @@ fun HomeScreen(
                                     }
                                 }
                             )
+
+                            // Trigger haptic feedback when crossing the swipe threshold
+                            val swipeProgress = dismissState.progress
+                            LaunchedEffect(dismissState.targetValue, swipeProgress) {
+                                if (dismissState.targetValue != SwipeToDismissBoxValue.Settled && swipeProgress >= 0.5f) {
+                                    if (!hasTriggeredHaptic) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        hasTriggeredHaptic = true
+                                    }
+                                } else if (dismissState.targetValue == SwipeToDismissBoxValue.Settled) {
+                                    hasTriggeredHaptic = false
+                                }
+                            }
 
                             if (chatListState.isSelectionMode || chatListState.isSearchMode) {
                                 ChatListItem(
@@ -354,66 +385,24 @@ fun HomeScreen(
                                     }
                                 )
                             } else {
-                                SwipeToDismissBox(
-                                    state = dismissState,
-                                    backgroundContent = {
-                                        val color by animateColorAsState(
-                                            when (dismissState.targetValue) {
-                                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
-                                                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                                                SwipeToDismissBoxValue.Settled -> Color.Transparent
-                                            },
-                                            label = "swipe_background_color"
-                                        )
-                                        val alignment = when (dismissState.targetValue) {
-                                            SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                                            SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
-                                            SwipeToDismissBoxValue.Settled -> Alignment.Center
-                                        }
-                                        val icon = when (dismissState.targetValue) {
-                                            SwipeToDismissBoxValue.StartToEnd -> Icons.Default.Archive
-                                            SwipeToDismissBoxValue.EndToStart -> Icons.Outlined.Delete
-                                            SwipeToDismissBoxValue.Settled -> Icons.Default.Archive
-                                        }
-                                        val iconTint = when (dismissState.targetValue) {
-                                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.onPrimaryContainer
-                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.error
-                                            SwipeToDismissBoxValue.Settled -> Color.Transparent
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(color)
-                                                .padding(horizontal = 24.dp),
-                                            contentAlignment = alignment
-                                        ) {
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = null,
-                                                tint = iconTint,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
+                                FancySwipeChatCard(
+                                    dismissState = dismissState,
+                                    chatRoom = chatRoom,
+                                    idx = idx,
+                                    chatListState = chatListState,
+                                    isGenerating = isGenerating,
+                                    usingPlatform = usingPlatform,
+                                    onItemClick = {
+                                        onExistingChatClick(chatRoom, null)
+                                    },
+                                    onItemLongClick = {
+                                        val newFavorite = !chatRoom.isFavorite
+                                        homeViewModel.toggleChatFavorite(chatRoom.id, newFavorite)
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        val messageRes = if (newFavorite) R.string.chat_pinned else R.string.chat_unpinned
+                                        Toast.makeText(context, messageRes, Toast.LENGTH_SHORT).show()
                                     }
-                                ) {
-                                    ChatListItem(
-                                        chatRoom = chatRoom,
-                                        idx = idx,
-                                        chatListState = chatListState,
-                                        isGenerating = isGenerating,
-                                        usingPlatform = usingPlatform,
-                                        onItemClick = {
-                                            onExistingChatClick(chatRoom, null)
-                                        },
-                                        onItemLongClick = {
-                                            val newFavorite = !chatRoom.isFavorite
-                                            homeViewModel.toggleChatFavorite(chatRoom.id, newFavorite)
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            val messageRes = if (newFavorite) R.string.chat_pinned else R.string.chat_unpinned
-                                            Toast.makeText(context, messageRes, Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                }
+                                )
                             }
                         }
                     }
@@ -526,6 +515,212 @@ fun HomeScreen(
                     homeViewModel.closeDeleteWarningDialog()
                 }
             )
+        }
+    }
+}
+
+/**
+ * Enhanced swipe-to-dismiss card with visual effects:
+ * - Dynamic color transitions matching swipe direction & progress
+ * - Continuous pulsating animation on revealed action icons (Archive / Delete)
+ * - Card background tint transition when swiped
+ * - Subtle always-visible action indicators underneath the card that highlight on swipe
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FancySwipeChatCard(
+    dismissState: SwipeToDismissBoxState,
+    chatRoom: ChatRoomV2,
+    idx: Int,
+    chatListState: HomeViewModel.ChatListState,
+    isGenerating: Boolean,
+    usingPlatform: String,
+    onItemClick: () -> Unit,
+    onItemLongClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val progress = dismissState.progress
+    val isSwipingStartToEnd = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
+    val isSwipingEndToStart = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+
+    // Pulse animation spec for revealed swipe icons
+    val infiniteTransition = rememberInfiniteTransition(label = "icon_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.22f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
+    // Dynamic background color transition
+    val archiveBgColor = Color(0xFF4CAF50).copy(alpha = (progress * 0.35f).coerceIn(0.15f, 0.45f))
+    val deleteBgColor = Color(0xFFF44336).copy(alpha = (progress * 0.35f).coerceIn(0.15f, 0.45f))
+
+    // Card surface tint dynamically reacting to swipe progress
+    val cardContainerColor = when {
+        isSwipingStartToEnd && progress > 0.2f -> Color(0xFF4CAF50).copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
+        isSwipingEndToStart && progress > 0.2f -> Color(0xFFF44336).copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
+        else -> MaterialTheme.colorScheme.surface
+    }
+
+    val animatedCardColor by animateColorAsState(
+        targetValue = cardContainerColor,
+        animationSpec = tween(150),
+        label = "swipe_card_color"
+    )
+
+    val cardElevation = if (progress > 0.1f) 4.dp else 1.dp
+
+    SwipeToDismissBox(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        state = dismissState,
+        backgroundContent = {
+            val isArchiveTarget = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
+            val isDeleteTarget = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        when {
+                            isArchiveTarget -> archiveBgColor
+                            isDeleteTarget -> deleteBgColor
+                            else -> Color.Transparent
+                        }
+                    )
+                    .padding(horizontal = 24.dp),
+                contentAlignment = if (isArchiveTarget) Alignment.CenterStart else Alignment.CenterEnd
+            ) {
+                if (isArchiveTarget) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = pulseScale
+                            scaleY = pulseScale
+                        }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .shadow(4.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color(0xFF4CAF50)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Archive,
+                                contentDescription = stringResource(R.string.archive_chat),
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                } else if (isDeleteTarget) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = pulseScale
+                            scaleY = pulseScale
+                        }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .shadow(4.dp, CircleShape)
+                                .clip(CircleShape)
+                                .background(Color(0xFFF44336)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = stringResource(R.string.delete),
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = animatedCardColor,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = cardElevation)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                ChatListItem(
+                    chatRoom = chatRoom,
+                    idx = idx,
+                    chatListState = chatListState,
+                    isGenerating = isGenerating,
+                    usingPlatform = usingPlatform,
+                    onItemClick = onItemClick,
+                    onItemLongClick = onItemLongClick
+                )
+
+                // Subtle always-visible action indicators underneath the card
+                // They highlight dynamically and become more visible when swiped
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val archiveAlpha = if (isSwipingStartToEnd) {
+                        (0.3f + progress * 0.7f).coerceIn(0.3f, 1f)
+                    } else {
+                        0.25f
+                    }
+                    val archiveTint = if (isSwipingStartToEnd && progress > 0.2f) {
+                        Color(0xFF4CAF50).copy(alpha = archiveAlpha)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = archiveAlpha)
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.Archive,
+                        contentDescription = stringResource(R.string.archive_chat),
+                        tint = archiveTint,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .scale(if (isSwipingStartToEnd) 1f + progress * 0.2f else 1f)
+                    )
+
+                    val deleteAlpha = if (isSwipingEndToStart) {
+                        (0.3f + progress * 0.7f).coerceIn(0.3f, 1f)
+                    } else {
+                        0.25f
+                    }
+                    val deleteTint = if (isSwipingEndToStart && progress > 0.2f) {
+                        Color(0xFFF44336).copy(alpha = deleteAlpha)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = deleteAlpha)
+                    }
+
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = stringResource(R.string.delete),
+                        tint = deleteTint,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .scale(if (isSwipingEndToStart) 1f + progress * 0.2f else 1f)
+                    )
+                }
+            }
         }
     }
 }

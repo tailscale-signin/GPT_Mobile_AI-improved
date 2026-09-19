@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.mcp
 
+import android.content.Context
 import com.google.gson.Gson
 import dev.chungjungsoo.gptmobile.data.mcp.model.McpParameter
 import dev.chungjungsoo.gptmobile.data.mcp.model.McpToolCategory
+import dev.chungjungsoo.gptmobile.data.mcp.model.McpToolDefinition
+import dev.chungjungsoo.gptmobile.data.mcp.model.McpToolResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -88,7 +91,7 @@ class McpToolRegistry(
                 parameters = listOf(
                     McpParameter(name = "path", type = "string", description = "File path to read", required = true)
                 ),
-                category = "FILE_SYSTEM"
+                category = McpToolCategory.FILE_SYSTEM.name
             ),
             McpToolDefinition(
                 name = "write_file",
@@ -97,7 +100,7 @@ class McpToolRegistry(
                     McpParameter(name = "path", type = "string", description = "File path", required = true),
                     McpParameter(name = "content", type = "string", description = "Content to write", required = true)
                 ),
-                category = "FILE_SYSTEM"
+                category = McpToolCategory.FILE_SYSTEM.name
             ),
             McpToolDefinition(
                 name = "list_directory",
@@ -105,7 +108,7 @@ class McpToolRegistry(
                 parameters = listOf(
                     McpParameter(name = "path", type = "string", description = "Directory path", required = true)
                 ),
-                category = "FILE_SYSTEM"
+                category = McpToolCategory.FILE_SYSTEM.name
             ),
             McpToolDefinition(
                 name = "delete_file",
@@ -113,7 +116,7 @@ class McpToolRegistry(
                 parameters = listOf(
                     McpParameter(name = "path", type = "string", description = "File path to delete", required = true)
                 ),
-                category = "FILE_SYSTEM"
+                category = McpToolCategory.FILE_SYSTEM.name
             ),
 
             // Code Execution Tools
@@ -124,7 +127,7 @@ class McpToolRegistry(
                     McpParameter(name = "code", type = "string", description = "Code to execute", required = true),
                     McpParameter(name = "language", type = "string", description = "Programming language (python, javascript)", required = false)
                 ),
-                category = "CODE_EXECUTION"
+                category = McpToolCategory.CODE_EXECUTION.name
             ),
 
             // Database Tools
@@ -134,7 +137,7 @@ class McpToolRegistry(
                 parameters = listOf(
                     McpParameter(name = "sql", type = "string", description = "SQL query to execute", required = true)
                 ),
-                category = "DATABASE"
+                category = McpToolCategory.DATABASE.name
             ),
 
             // Network Tools
@@ -147,7 +150,7 @@ class McpToolRegistry(
                     McpParameter(name = "headers", type = "object", description = "Request headers", required = false),
                     McpParameter(name = "body", type = "string", description = "Request body", required = false)
                 ),
-                category = "NETWORK"
+                category = McpToolCategory.NETWORK.name
             ),
 
             // Translation Tools
@@ -159,7 +162,7 @@ class McpToolRegistry(
                     McpParameter(name = "source_lang", type = "string", description = "Source language code (e.g., en, es)", required = false),
                     McpParameter(name = "target_lang", type = "string", description = "Target language code (e.g., fr, de)", required = true)
                 ),
-                category = "TRANSLATION"
+                category = McpToolCategory.TRANSLATION.name
             )
         )
     }

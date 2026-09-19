@@ -26,9 +26,9 @@ data class UiPreferencesBackupDto(
 @Serializable
 data class FavoriteItemBackupDto(
     val messageId: Int,
-    val chatRoomId: Long,
+    val chatId: Int,
     val content: String,
-    val role: String,
+    val platformType: String? = null,
     val isFavorite: Boolean = true,
     val createdAt: Long = 0L,
     val group: String? = null

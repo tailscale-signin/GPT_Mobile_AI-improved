@@ -939,7 +939,7 @@ class ChatViewModel @Inject constructor(
             }
 
             updateAttachments(
-                currentAttachments.invoke().map { attachment ->
+                currentAttachments().map { attachment ->
                     if (attachment.sourceFilePath != filePath) {
                         attachment
                     } else if (preparationResult == null) {
@@ -1596,14 +1596,17 @@ internal fun normalizeAssistantRow(
         val matchedIndex = assistantMessages.indices.firstOrNull { index ->
             index !in consumedIndexes && assistantMessages[index].platformType == platformUid
         }
-        if (matchedIndex != null) {
+
+        if (matchedIndex == null) {
+            createEmptyAssistantMessage(chatId, platformUid)
+        } else {
             consumedIndexes += matchedIndex
             assistantMessages[matchedIndex]
-        } else {
-            createEmptyAssistantMessage(chatId, platformUid)
         }
     }
-    return normalizedMessages
+    val overflowMessages = assistantMessages.filterIndexed { index, _ -> index !in consumedIndexes }
+
+    return normalizedMessages + overflowMessages
 }
 
 internal fun updateAssistantSlot(
@@ -1612,72 +1615,40 @@ internal fun updateAssistantSlot(
     platformIndex: Int,
     transform: (MessageV2) -> MessageV2
 ): ChatViewModel.GroupedMessages {
-    val row = groupedMessages.assistantMessages.getOrNull(turnIndex) ?: return groupedMessages
-    val message = row.getOrNull(platformIndex) ?: return groupedMessages
-    val updatedRow = row.toMutableList().apply {
-        this[platformIndex] = transform(message)
-    }
-    val updatedAssistantMessages = groupedMessages.assistantMessages.toMutableList().apply {
-        this[turnIndex] = updatedRow
-    }
+    if (turnIndex !in groupedMessages.assistantMessages.indices) return groupedMessages
+
+    val currentTurnMessages = groupedMessages.assistantMessages[turnIndex].toMutableList()
+    if (platformIndex !in currentTurnMessages.indices) return groupedMessages
+
+    currentTurnMessages[platformIndex] = transform(currentTurnMessages[platformIndex])
+
+    val updatedAssistantMessages = groupedMessages.assistantMessages.toMutableList()
+    updatedAssistantMessages[turnIndex] = currentTurnMessages
+
     return groupedMessages.copy(assistantMessages = updatedAssistantMessages)
 }
 
-internal fun formatToolTraceMarkdown(
-    events: List<ToolEvent>,
-    labels: ToolTraceLabels = ToolTraceLabels.Default
-): String {
-    if (events.isEmpty()) return ""
-    return buildString {
-        appendLine(labels.exportHeader(events.size))
-        events.forEach { event ->
-            val toolName = event.toolName.ifBlank { labels.modelTool }
-            val statusLabel = when (event.status) {
-                ToolEvent.Status.RUNNING -> labels.running
-                ToolEvent.Status.SUCCESS -> labels.completed
-                ToolEvent.Status.FAILURE -> labels.failed
-                ToolEvent.Status.CANCELED -> labels.canceled
-                ToolEvent.Status.ERROR -> labels.completedWithErrors
-            }
-            appendLine("- **$toolName** ($statusLabel)")
-            if (event.arguments.isNotBlank()) {
-                appendLine("  - ${labels.arguments}: `${event.arguments}`")
-            }
-            if (event.result.isNotBlank()) {
-                appendLine("  - ${labels.result}: `${event.result}`")
-            }
-            if (!event.error.isNullOrBlank()) {
-                appendLine("  - ${labels.error}: `${event.error}`")
-            }
-        }
-    }.trimEnd()
-}
+internal fun shouldShowReplyLoadingIndicator(
+    isActiveMessage: Boolean,
+    loadingStates: List<ChatViewModel.LoadingState>
+): Boolean = isActiveMessage && loadingStates.any { it == ChatViewModel.LoadingState.Loading }
 
-data class ToolTraceLabels(
-    val expandToolTrace: String = "Expand tool trace",
-    val collapseToolTrace: String = "Collapse tool trace",
-    val expand: String = "Expand",
-    val collapse: String = "Collapse",
-    val call: String = "call",
-    val calls: String = "calls",
-    val running: String = "running",
-    val failed: String = "failed",
-    val completedWithErrors: String = "completed with errors",
-    val canceled: String = "canceled",
-    val completed: String = "completed",
-    val status: String = "Status",
-    val callId: String = "Call ID",
-    val connection: String = "Connection",
-    val tool: String = "Tool",
-    val modelTool: String = "Model tool",
-    val timing: String = "Timing",
-    val error: String = "Error",
-    val arguments: String = "Arguments",
-    val result: String = "Result",
-    val exportHeader: (Int) -> String = { count -> "### Tool Traces ($count)" },
-    val startedAt: String = "Started at"
-) {
-    companion object {
-        val Default = ToolTraceLabels()
+internal fun hasAssistantProcessDetails(
+    timeline: List<AssistantTimelineItem>,
+    fallbackThoughts: String,
+    hasToolEvents: Boolean
+): Boolean {
+    val hasTimelineDetails = timeline.any { item ->
+        when (item.type) {
+            AssistantTimelineItemType.THINKING -> !item.content.isNullOrBlank()
+            AssistantTimelineItemType.TOOL -> true
+            AssistantTimelineItemType.TEXT -> {
+                val parsed = ThinkingParser.extractThinking(item.content.orEmpty())
+                !parsed.thinking.isNullOrBlank()
+            }
+            AssistantTimelineItemType.NOTICE,
+            AssistantTimelineItemType.LEGACY_ORDER -> false
+        }
     }
+    return hasTimelineDetails || fallbackThoughts.isNotBlank() || hasToolEvents
 }

@@ -4,7 +4,7 @@ Persistent repository context for AI coding agents. Keep this file synchronized 
 
 > Index status: comprehensive and actively maintained on `main`, `feat/v0.9.5.3-release`, and all active feature branches. Core architecture, Android targets, UI screens, encrypted backup/security, agent runtime/tools, Room V2 database & migrations, DataStore, local runtime & acceleration, network transports & SSE parsing, model catalogs, OpenRouter advanced routing/reasoning, Ollama advanced options & timeout resilience, WorkManager workers, DI modules, DTOs, and test roots are fully indexed.
 >
-> **Latest Target Release:** `0.9.5.3` (versionCode 55). Key additions: GenerationQueueManager for message queuing during generation, PlatformLabel & PlatformLabelManager for shared platform tagging, LlamaModelInfo & LlamaModelMapper for Llama router mode, and standardized MCP tools directory with triple-verification processes.
+> **Latest Target Release:** `0.9.5.3` (versionCode 55). Key additions: AETHERION MAX debug mode & hardware telemetry framework, GenerationQueueManager for message queuing during generation, PlatformLabel & PlatformLabelManager for shared platform tagging, LlamaModelInfo & LlamaModelMapper for Llama router mode, and standardized MCP tools directory with triple-verification processes.
 
 ## 1. Repository Overview
 
@@ -16,11 +16,12 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **UI:** Jetpack Compose, Material 3, lifecycle-aware state collection (`collectAsStateWithLifecycle`), and Compose Navigation.
 - **Motion & Design Tokens:** Theme motion primitives (`defaultSpatialSpec`, `fastSpatialSpec`, `fastEffectsSpec`) in `presentation.theme.Motion.kt` and alpha tokens (`ChatAlphaTokens`, `LocalChatAlpha`) in `presentation.theme.ChatAlphaTokens.kt`.
 - **Language/runtime:** Kotlin 2.x, Java 21 bytecode, coroutines, Flow/StateFlow, and kotlinx.serialization.
-- **Dependency injection:** Hilt/Dagger with KSP.
+- **Dependency injection:** Hilt/Dagger with KSP (`DiagnosticsModule` for Aetherion Max telemetry singletons).
 - **Networking:** Ktor clients (OkHttp and CIO engines), Server-Sent Events (SSE) streaming support, resilient retry/exponential backoff, and `ApiCredentialRotator` for round-robin multi-key failover across `ProviderAdapters` (OpenAI, Anthropic, Gemini, Groq, OpenRouter, Ollama, Llama, and OpenAI-compatible services).
 - **Persistence:** Room (`ChatDatabaseV2`, Schema version 19) with full FTS search and DataStore preferences (`SettingDataSource`). Authoritative migration registry in `ChatDatabaseV2Migrations.ALL_MIGRATIONS`.
 - **Security:** Android Keystore-backed AES-256-GCM credential encryption (`SecretVault`); passphrase-protected user exports using PBKDF2-HMAC-SHA256 and AES-256-GCM (`AppBackupCrypto`).
-- **Local inference:** Qualcomm AI Engine Direct (QNN) + LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention, speculative decoding); Ollama and Llama supported for self-hosted network inference with timeout resilience and configurable advanced options.
+- **Local inference & Acceleration:** Qualcomm AI Engine Direct (QNN) + LiteRT-LM (`LocalRuntimeImpl`, conversation fingerprinting, dynamic accelerator selection for NPU/GPU/CPU, warm engine retention, speculative decoding); Ollama and Llama supported for self-hosted network inference with timeout resilience and configurable advanced options.
+- **Diagnostics & Telemetry (AETHERION MAX):** Real-time hardware telemetry (`HardwareDiagnosticsProvider`, `TelemetryCollector`, `TokenMetricsCollector`, `ToolMetricsCollector`, `DiagnosticsTelemetryProvider`, `ExportService`), HUD overlay (`DebugModeScreen`, `HardwareDiagnosticsPanel`, `LiveMetricsPanel`, `ToolAnalyticsPanel`, `TokenTimelinePanel`).
 - **Message Queuing:** `GenerationQueueManager` with FIFO message queueing up to 50 items, status transitions (`PENDING`, `GENERATING`, `COMPLETED`, `FAILED`), and cancellation.
 - **Platform Labels:** `PlatformLabel` and `PlatformLabelManager` supporting cross-platform tagging with 12 predefined hex colors and usage counting.
 - **MCP Integration:** Standardized tool structure in `mcp/tools/manifest.json`, `mcp/resources/manifest.json`, and triple-verification mechanism.

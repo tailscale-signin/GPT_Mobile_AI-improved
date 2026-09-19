@@ -15,6 +15,7 @@ sealed class UnifiedModelProvider(val key: String, val displayName: String) {
     data object Google : UnifiedModelProvider("google", "Google Gemini")
     data object Groq : UnifiedModelProvider("groq", "Groq")
     data object LiteRtLm : UnifiedModelProvider("litert_lm", "On-Device (LiteRT)")
+    data object Llama : UnifiedModelProvider("llama", "Llama")
     data class Custom(val customName: String) : UnifiedModelProvider("custom", customName)
 
     companion object {
@@ -26,6 +27,7 @@ sealed class UnifiedModelProvider(val key: String, val displayName: String) {
             "google" -> Google
             "groq" -> Groq
             "litert_lm", "local" -> LiteRtLm
+            "llama" -> Llama
             else -> Custom(key)
         }
     }

@@ -28,6 +28,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
@@ -379,6 +381,8 @@ fun OpponentChatBubble(
                                 ActionIconType.SEARCH -> Icons.Default.Search
                                 ActionIconType.SUMMARIZE -> Icons.Default.Description
                                 ActionIconType.EXPLAIN -> Icons.Default.HelpOutline
+                                ActionIconType.CONFIRM -> Icons.Default.Check
+                                ActionIconType.CANCEL -> Icons.Default.Close
                                 ActionIconType.OPTION -> Icons.Default.AutoAwesome
                                 ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
                             }

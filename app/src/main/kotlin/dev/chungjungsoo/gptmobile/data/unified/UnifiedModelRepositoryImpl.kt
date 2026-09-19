@@ -26,28 +26,29 @@ class UnifiedModelRepositoryImpl @Inject constructor(
 
     override suspend fun getAllModels(): List<UnifiedModel> = withContext(Dispatchers.IO) {
         cacheMutex.withLock {
-            val platforms = platformV2Dao.getAll()
+            val platforms = platformV2Dao.getPlatforms()
             val result = mutableListOf<UnifiedModel>()
+
+            val catalogEntries = runCatching {
+                modelCatalogRepository.getVisibleEntries()
+            }.getOrDefault(emptyList())
 
             for (platform in platforms) {
                 val provider = UnifiedModelProvider.fromKey(platform.compatibleType.name)
-                val catalogModels = runCatching {
-                    modelCatalogRepository.getCatalog(platform).models
-                }.getOrDefault(emptyList())
 
-                if (catalogModels.isNotEmpty()) {
-                    catalogModels.forEach { catModel ->
+                if (catalogEntries.isNotEmpty() && platform.compatibleType.name.equals("LITERT_LM", ignoreCase = true)) {
+                    catalogEntries.forEach { catEntry ->
                         result.add(
                             UnifiedModel(
-                                id = "${platform.uid}::${catModel.id}",
-                                name = catModel.name.ifBlank { catModel.id },
-                                modelId = catModel.id,
+                                id = "${platform.uid}::${catEntry.id}",
+                                name = catEntry.displayName.ifBlank { catEntry.id },
+                                modelId = catEntry.id,
                                 provider = provider,
                                 platformUid = platform.uid,
-                                description = catModel.description,
-                                contextWindow = catModel.contextWindow ?: 0,
-                                isDefault = platform.model == catModel.id,
-                                isActive = (activeModelId == null && platform.model == catModel.id) || activeModelId == "${platform.uid}::${catModel.id}"
+                                description = "RAM: ${catEntry.minRamGb}GB, Vision: ${catEntry.capabilities.vision}",
+                                contextWindow = catEntry.defaultConfig.maxTokens,
+                                isDefault = platform.model == catEntry.id,
+                                isActive = (activeModelId == null && platform.model == catEntry.id) || activeModelId == "${platform.uid}::${catEntry.id}"
                             )
                         )
                     }
@@ -59,7 +60,7 @@ class UnifiedModelRepositoryImpl @Inject constructor(
                             modelId = platform.model,
                             provider = provider,
                             platformUid = platform.uid,
-                            description = "Default model for ${platform.name}",
+                            description = "Configured model for ${platform.name}",
                             isDefault = true,
                             isActive = (activeModelId == null) || activeModelId == "${platform.uid}::${platform.model}"
                         )
@@ -96,9 +97,9 @@ class UnifiedModelRepositoryImpl @Inject constructor(
         if (parts.size == 2) {
             val platformUid = parts[0]
             val actualModelId = parts[1]
-            val platform = platformV2Dao.getByUid(platformUid)
+            val platform = platformV2Dao.getPlatformByUid(platformUid)
             if (platform != null) {
-                platformV2Dao.update(platform.copy(model = actualModelId))
+                platformV2Dao.editPlatform(platform.copy(model = actualModelId))
                 cacheMutex.withLock {
                     activeModelId = modelId
                     cachedModels = cachedModels.map {

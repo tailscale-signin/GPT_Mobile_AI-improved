@@ -154,7 +154,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
-    implementation("com.google.android.material:material:112.0")
+    implementation("com.google.android.material:material:1.12.0")
 
     // SplashScreen
     implementation(libs.splashscreen)

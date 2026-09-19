@@ -16,15 +16,15 @@ plugins {
 }
 
 extensions.configure<ApplicationExtension> {
-    namespace = "dev.chungjungsoo.gptmobile"
+    namespace = "dev.melo.gptmobile.improved"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31
         targetSdk = 36
-        versionCode = 51
-        versionName = "0.9.4.6"
+        versionCode = 52
+        versionName = "0.9.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

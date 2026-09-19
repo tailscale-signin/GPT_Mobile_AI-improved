@@ -23,8 +23,8 @@ extensions.configure<ApplicationExtension> {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31
         targetSdk = 36
-        versionCode = 55
-        versionName = "0.9.5.3"
+        versionCode = 56
+        versionName = "0.9.5.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -154,7 +154,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
-    implementation("com.google.android.material:material:1.12.0")
+    implementation("com.google.android.material:material:112.0")
 
     // SplashScreen
     implementation(libs.splashscreen)

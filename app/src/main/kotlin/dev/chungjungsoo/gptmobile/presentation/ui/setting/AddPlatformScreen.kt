@@ -377,7 +377,6 @@ fun AddPlatformScreen(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
 private fun AddPlatformTopBar(
     title: String,
     scrollBehavior: TopAppBarScrollBehavior,
@@ -419,4 +418,5 @@ private fun getClientTypeDescription(clientType: ClientType): String = when (cli
     ClientType.OPENROUTER -> stringResource(R.string.client_type_openrouter_desc)
     ClientType.CUSTOM -> stringResource(R.string.client_type_custom_desc)
     ClientType.LITERT_LM -> stringResource(R.string.client_type_litert_lm_desc)
+    ClientType.LLAMA -> stringResource(R.string.client_type_llama_desc)
 }

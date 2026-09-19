@@ -31,3 +31,7 @@ app/build/**
 .idea/copilot.data.migration.agent.xml
 .idea/copilot.data.migration.edit.xml
 .idea/copilot.data.migration.ask2agent.xml
+
+# MCP Server
+mcp/node_modules/
+node_modules/

@@ -18,7 +18,10 @@ interface OpenRouterBatchCacheDao {
 
     @Transaction
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdateBatch(entities: List<OpenRouterBatchCacheEntity>)
+    suspend fun insertOrUpdateBatch(entities: List<OpenRouterBatchCacheEntity>): List<Long>
+
+    @Query("DELETE FROM openrouter_batch_cache WHERE id IN (SELECT id FROM openrouter_batch_cache WHERE timestamp < :threshold LIMIT :limit)")
+    suspend fun deleteExpiredBatch(threshold: Long, limit: Int = 100): Int
 
     @Query("DELETE FROM openrouter_batch_cache WHERE timestamp < :threshold")
     suspend fun deleteExpired(threshold: Long): Int

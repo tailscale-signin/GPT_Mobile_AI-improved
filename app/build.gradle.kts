@@ -114,6 +114,8 @@ extensions.configure<ApplicationExtension> {
                 "**/libLiteRtDispatch_Qualcomm.so",
                 "**/libLiteRtCompilerPlugin_Qualcomm.so",
                 "**/liblitertlm_jni.so",
+                "**/liblitertlm_apple_framework.so",
+                "**/libYnnpack*.so",
                 "**/libdatastore_shared_counter.so",
                 "**/libandroidx.graphics.path.so",
                 "**/libQnn*.so"

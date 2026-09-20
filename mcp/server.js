@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * GPT Mobile AI - Model Context Protocol (MCP) Server Implementation
- * Version: 0.9.5.3
- * Implements the 8 tools defined in mcp/tools/manifest.json and resources in mcp/resources/manifest.json.
+ * Version: 0.9.5.4
+ * Implements the 11 tools defined in mcp/tools/manifest.json and resources in mcp/resources/manifest.json.
  */
 
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
@@ -17,7 +17,7 @@ const { URL } = require('url');
 
 const server = new McpServer({
   name: 'GPT Mobile MCP',
-  version: '0.9.5.3'
+  version: '0.9.5.4'
 });
 
 // Helper for HTTP requests
@@ -315,6 +315,92 @@ server.tool(
         content: [{ type: 'text', text: `Translation failed: ${error.message}` }]
       };
     }
+  }
+);
+
+// Helper function to detect public IP
+async function getPublicIp() {
+  const res = await executeHttpRequest('https://api.ipify.org?format=json');
+  return JSON.parse(res.body).ip;
+}
+
+// 9. geolocate_ip - Look up IP geolocation data
+server.tool(
+  'geolocate_ip',
+  'Look up geolocation data for an IP address (auto-detect if omitted)',
+  {
+    ip: z.string().optional().describe('IP address to lookup (auto-detect host IP if omitted)')
+  },
+  async ({ ip }) => {
+    const targetIp = ip || await getPublicIp();
+
+    const url = `https://ipapi.co/${targetIp}/json/`;
+    const res = await executeHttpRequest(url, 'GET', { 'User-Agent': 'GPT-Mobile-AI' });
+
+    if (res.statusCode === 200) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify(res.body, null, 2) }]
+      };
+    }
+
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `IP lookup failed: ${res.body}` }]
+    };
+  }
+);
+
+// 10. reverse_geocode - Convert coordinates to address
+server.tool(
+  'reverse_geocode',
+  'Convert latitude/longitude coordinates to human-readable address',
+  {
+    latitude: z.number().describe('Latitude coordinate (-90 to 90)'),
+    longitude: z.number().describe('Longitude coordinate (-180 to 180)')
+  },
+  async ({ latitude, longitude }) => {
+    // Validate coordinates
+    if (latitude < -90 || latitude > 90) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Invalid latitude: ${latitude}. Must be between -90 and 90.` }]
+      };
+    }
+    if (longitude < -180 || longitude > 180) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Invalid longitude: ${longitude}. Must be between -180 and 180.` }]
+      };
+    }
+
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+    const res = await executeHttpRequest(url, 'GET', { 'User-Agent': 'GPT-Mobile-AI/1.0' });
+
+    if (res.statusCode === 200) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify(res.body, null, 2) }]
+      };
+    }
+
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Reverse geocode failed: ${res.body}` }]
+    };
+  }
+);
+
+// 11. get_current_location - GPS from device (placeholder)
+server.tool(
+  'get_current_location',
+  'Get current GPS location from device (requires Android/iOS native bridge)',
+  {},
+  async () => {
+    return {
+      content: [{
+        type: 'text',
+        text: 'GPS access requires a native Android/iOS companion service to pass coordinates to the MCP server. Use geolocate_ip() for network-based location instead.'
+      }]
+    };
   }
 );
 

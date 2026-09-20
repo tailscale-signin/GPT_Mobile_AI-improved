@@ -1,4 +1,0 @@
-# Trigger fresh release build for v0.9.2.4
-release_version=0.9.2.4
-build_timestamp=2026-09-17T00:30:00Z
-trigger_reason=Rerun unit tests for release branch PR 293

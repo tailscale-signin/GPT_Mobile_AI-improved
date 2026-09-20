@@ -36,6 +36,10 @@ class AdvancedSettingsFragment : Fragment() {
 
     private fun setupRecyclerView() {
         adapter = RouterModeAdapter(viewModel.models.value ?: emptyList())
+        adapter.setOnModelClickListener { selectedModel ->
+            binding.etSelectedModel.setText(selectedModel.id)
+            Toast.makeText(requireContext(), "Selected ${selectedModel.name}", Toast.LENGTH_SHORT).show()
+        }
         binding.recyclerViewModels.apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = this@AdvancedSettingsFragment.adapter

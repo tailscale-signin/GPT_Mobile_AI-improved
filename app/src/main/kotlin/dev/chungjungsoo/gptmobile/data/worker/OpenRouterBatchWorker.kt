@@ -13,9 +13,10 @@ import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao
+import dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterBatchClient
+import dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
-import dev.chungjungsoo.gptmobile.domain.repository.OpenRouterSettingsRepository
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,11 +41,11 @@ class OpenRouterBatchWorker @AssistedInject constructor(
             return@withContext Result.failure()
         }
 
-        val settings = openRouterSettingsRepository.getSettings()
+        val settings = openRouterSettingsRepository.loadSettings()
         val client = OpenRouterBatchClient(
             apiKey = apiKey,
-            maxConcurrentRequests = settings.concurrencyLimit,
-            timeoutMs = settings.timeoutMs
+            maxConcurrentRequests = settings.batchSize,
+            timeoutMs = settings.flushTimeoutMs
         )
 
         try {
@@ -59,7 +60,7 @@ class OpenRouterBatchWorker @AssistedInject constructor(
             // Cache response if requestId is provided
             if (requestId.isNotBlank() && response.isNotBlank()) {
                 openRouterBatchCacheDao.insertOrUpdate(
-                    dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity(
+                    OpenRouterBatchCacheEntity(
                         cacheKey = requestId,
                         responseContent = response,
                         timestamp = System.currentTimeMillis()

@@ -49,6 +49,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.LlamaModelPickerDialog
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +62,7 @@ fun ChatModelDialog(
     initialModels: Map<String, String>,
     platformNames: Map<String, String>,
     platformClientTypes: Map<String, ClientType> = emptyMap(),
+    platformApiUrls: Map<String, String> = emptyMap(),
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
     ollamaModels: List<UnifiedModelOption.Ollama> = emptyList(),
     onNavigateToLocalModels: () -> Unit = {},
@@ -75,6 +77,7 @@ fun ChatModelDialog(
     }
 
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
+    var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -123,6 +126,30 @@ fun ChatModelDialog(
                                     Icon(
                                         imageVector = Icons.Default.ArrowDropDown,
                                         contentDescription = stringResource(R.string.unified_model_picker)
+                                    )
+                                }
+                            },
+                            supportingText = {
+                                Text(stringResource(R.string.model_supporting))
+                            }
+                        )
+                    } else if (clientType == ClientType.LLAMA) {
+                        // Llama platform: support both direct text entry and Llama router model picker selection
+                        OutlinedTextField(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            value = models[platformUid].orEmpty(),
+                            onValueChange = { value ->
+                                models = models.toMutableMap().apply { put(platformUid, value) }
+                            },
+                            singleLine = true,
+                            label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
+                            trailingIcon = {
+                                IconButton(onClick = { activeLlamaPickerPlatformUid = platformUid }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = stringResource(R.string.llama_select_router_model)
                                     )
                                 }
                             },
@@ -191,6 +218,21 @@ fun ChatModelDialog(
             },
             onNavigateToLocalModels = onNavigateToLocalModels,
             onDismissRequest = { activeUnifiedPickerPlatformUid = null }
+        )
+    }
+
+    // Show Llama Model Picker Dialog if active
+    activeLlamaPickerPlatformUid?.let { platformUid ->
+        val currentModel = models[platformUid].orEmpty()
+        val baseUrl = platformApiUrls[platformUid].orEmpty()
+
+        LlamaModelPickerDialog(
+            baseUrl = baseUrl,
+            currentModel = currentModel,
+            onDismiss = { activeLlamaPickerPlatformUid = null },
+            onModelSelected = { selected ->
+                models = models.toMutableMap().apply { put(platformUid, selected) }
+            }
         )
     }
 }

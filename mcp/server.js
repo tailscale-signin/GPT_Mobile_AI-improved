@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * GPT Mobile AI - Model Context Protocol (MCP) Server Implementation
- * Version: 0.9.5.4
+ * Version: 0.9.5.6
  * Implements the 11 tools defined in mcp/tools/manifest.json and resources in mcp/resources/manifest.json.
  */
 
@@ -17,7 +17,7 @@ const { URL } = require('url');
 
 const server = new McpServer({
   name: 'GPT Mobile MCP',
-  version: '0.9.5.4'
+  version: '0.9.5.6'
 });
 
 // Helper for HTTP requests

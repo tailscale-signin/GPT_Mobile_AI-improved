@@ -37,9 +37,9 @@ jobs:
         run: echo "::add-matcher::.github/gradle-problem-matcher.json"
         continue-on-error: true
 
-      - name: Run Unit Tests
+      - name: Run Unit Tests & JaCoCo Coverage Report
         run: |
-          ./gradlew :app:testDebugUnitTest --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+          ./gradlew :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
 
       - name: Run Android Lint
         run: |
@@ -53,6 +53,14 @@ jobs:
           check_name: "Unit Test Results"
           fail_on_failure: false
           require_tests: false
+
+      - name: Upload JaCoCo Coverage Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-coverage-report
+          path: app/build/reports/jacoco/jacocoTestReport/
+          if-no-files-found: ignore
 
       - name: Generate PR Step Summary
         if: always()
@@ -79,4 +87,7 @@ jobs:
             else
               echo "### ✅ Android Lint Succeeded" >> $GITHUB_STEP_SUMMARY
             fi
+          fi
+          if [ -d "app/build/reports/jacoco/jacocoTestReport" ]; then
+            echo "### 📊 JaCoCo Code Coverage Report Generated" >> $GITHUB_STEP_SUMMARY
           fi

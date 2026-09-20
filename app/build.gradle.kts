@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.auto.license)
+    jacoco
     kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
 }
 
@@ -72,6 +73,9 @@ extensions.configure<ApplicationExtension> {
     }
 
     buildTypes {
+        debug {
+            enableUnitTestCoverage = true
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -142,6 +146,41 @@ ksp {
 // Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name
 tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach {
     enabled = false
+}
+
+tasks.register<JacocoReport>("jacocoTestReport") {
+    dependsOn("testDebugUnitTest")
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+
+    val fileFilter = setOf(
+        "**/R.class",
+        "**/R$*.class",
+        "**/BuildConfig.*",
+        "**/Manifest*.*",
+        "**/*Test*.*",
+        "android/**/*.*",
+        "**/*_Hilt*.class",
+        "**/Hilt_*.class",
+        "**/*_Factory.class",
+        "**/*_MembersInjector.class"
+    )
+
+    val debugTree = fileTree("$buildDir/tmp/kotlin-classes/debug") {
+        exclude(fileFilter)
+    }
+    val mainSrc = "$projectDir/src/main/java"
+
+    sourceDirectories.setFrom(files(mainSrc))
+    classDirectories.setFrom(files(debugTree))
+    executionData.setFrom(fileTree(buildDir) {
+        include(
+            "outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec",
+            "jacoco/testDebugUnitTest.exec"
+        )
+    })
 }
 
 dependencies {

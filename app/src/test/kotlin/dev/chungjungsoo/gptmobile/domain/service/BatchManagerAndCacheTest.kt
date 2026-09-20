@@ -65,5 +65,25 @@ class BatchManagerAndCacheTest {
         val key2 = CacheKeyGenerator.generate("model-a", messages2)
 
         assert(key1 != key2)
+        // Verify SHA-256 format (model:64-char-hex)
+        val hexPart = key1.substringAfter(":")
+        assertEquals(64, hexPart.length)
+    }
+
+    @Test
+    fun `reQueueFailed re-adds failed requests to front of queue`() = runTest {
+        val settings = OpenRouterSettings(
+            apiKey = "test",
+            batchSize = 5,
+            flushTimeoutMs = 10000L
+        )
+        val queueManager = OpenRouterBatchQueueManager(settings, scope = this) {}
+        val failed = listOf(
+            OpenRouterBatchRequestItem("f1", "m", emptyList()),
+            OpenRouterBatchRequestItem("f2", "m", emptyList())
+        )
+
+        queueManager.reQueueFailed(failed)
+        assertEquals(2, queueManager.pendingCount())
     }
 }

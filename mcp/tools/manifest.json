@@ -84,7 +84,7 @@
     {
       "name": "geolocate_ip",
       "category": "LOCATION",
-      "description": "Look up geolocation data for an IP address (auto-detect if omitted)",
+      "description": "Look up geolocation data for an IP address (auto-detect host IP if omitted)",
       "parameters": [
         { "name": "ip", "type": "string", "required": false, "description": "IP address to lookup (auto-detect host IP if omitted)" }
       ]
@@ -95,7 +95,8 @@
       "description": "Convert latitude/longitude coordinates to human-readable address",
       "parameters": [
         { "name": "latitude", "type": "number", "required": true, "description": "Latitude coordinate (-90 to 90)" },
-        { "name": "longitude", "type": "number", "required": true, "description": "Longitude coordinate (-180 to 180)" }
+        { "name": "longitude", "type": "number", "required": true, "description": "Longitude coordinate (-180 to 180)" },
+        { "name": "format", "type": "string", "required": false, "description": "Output format: json, address, or text" }
       ]
     },
     {

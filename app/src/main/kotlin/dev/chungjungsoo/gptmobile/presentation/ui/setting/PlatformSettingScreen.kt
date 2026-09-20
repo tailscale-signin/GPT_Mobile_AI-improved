@@ -579,6 +579,13 @@ fun PlatformSettingScreen(
                             onDismiss = settingViewModel::closeApiModelDialog,
                             onModelSelected = settingViewModel::updateApiModel
                         )
+                    } else if (platformData.compatibleType == ClientType.LLAMA && dialogState.isApiModelDialogOpen) {
+                        LlamaModelPickerDialog(
+                            baseUrl = platformData.apiUrl,
+                            currentModel = platformData.model,
+                            onDismiss = settingViewModel::closeApiModelDialog,
+                            onModelSelected = settingViewModel::updateApiModel
+                        )
                     } else {
                         ModelDialog(dialogState, platformData.model, settingViewModel)
                     }

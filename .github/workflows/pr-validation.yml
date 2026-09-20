@@ -33,6 +33,12 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
+      - name: Setup Gradle Problem Matcher
+        uses: ammarhurzuk/action-problem-matcher@v1
+        with:
+          problem-matcher: gradle
+        continue-on-error: true
+
       - name: Run Unit Tests
         run: |
           ./gradlew :app:testDebugUnitTest --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
@@ -40,3 +46,39 @@ jobs:
       - name: Run Android Lint
         run: |
           ./gradlew :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
+
+      - name: Publish Test Results
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: "**/build/test-results/**/*.xml"
+          check_name: "Unit Test Results"
+          fail_on_failure: false
+          require_tests: false
+
+      - name: Generate PR Step Summary
+        if: always()
+        run: |
+          echo "## CI Validation Summary" >> $GITHUB_STEP_SUMMARY
+          if [ -f test.log ]; then
+            TEST_FAILURES=$(grep -E "(FAILURE|FAILED|There were failing tests)" test.log || true)
+            if [ -n "$TEST_FAILURES" ]; then
+              echo "### ❌ Unit Test Warnings / Failures" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$TEST_FAILURES" | tail -n 20 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ✅ Unit Tests Succeeded" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          if [ -f lint.log ]; then
+            LINT_ERRORS=$(grep -E "(Error:|Fatal error:|errors occurred:)" lint.log || true)
+            if [ -n "$LINT_ERRORS" ]; then
+              echo "### ⚠️ Lint Findings" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$LINT_ERRORS" | tail -n 20 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ✅ Android Lint Succeeded" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi

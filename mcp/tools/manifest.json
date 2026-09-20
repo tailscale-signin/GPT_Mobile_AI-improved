@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0",
   "name": "GPT Mobile Built-in MCP Tools",
-  "version": "0.9.5.3",
+  "version": "0.9.5.4",
   "description": "Pre-bundled Model Context Protocol tool catalog and definitions for GPT Mobile AI",
   "triple_verification": {
     "enabled": true,
@@ -80,6 +80,30 @@
         { "name": "source_lang", "type": "string", "required": false, "description": "Source language code" },
         { "name": "target_lang", "type": "string", "required": true, "description": "Target language code" }
       ]
+    },
+    {
+      "name": "geolocate_ip",
+      "category": "LOCATION",
+      "description": "Look up geolocation data for an IP address (keyless API)",
+      "parameters": [
+        { "name": "ip", "type": "string", "required": false, "description": "IP address to lookup (auto-detect host IP if omitted)" }
+      ]
+    },
+    {
+      "name": "reverse_geocode",
+      "category": "LOCATION",
+      "description": "Convert latitude/longitude coordinates to human-readable address (OpenStreetMap Nominatim)",
+      "parameters": [
+        { "name": "latitude", "type": "number", "required": true, "description": "Latitude (-90 to 90)" },
+        { "name": "longitude", "type": "number", "required": true, "description": "Longitude (-180 to 180)" },
+        { "name": "format", "type": "string", "required": false, "description": "Output format: json, address, or text" }
+      ]
+    },
+    {
+      "name": "get_current_location",
+      "category": "LOCATION",
+      "description": "Get current GPS location from Android/iOS device (requires native companion service)",
+      "parameters": []
     }
   ]
 }

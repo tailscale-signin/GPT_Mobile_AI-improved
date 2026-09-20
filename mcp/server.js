@@ -1,9 +1,18 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const path = require('path');
+const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+
+let sqlite3;
+try {
+  sqlite3 = require('sqlite3').verbose();
+} catch (e) {
+  sqlite3 = null;
+}
 
 // Create MCP server instance
 const server = new Server({
@@ -252,21 +261,72 @@ function getSystemInfo() {
   };
 }
 
-// Helper: Get database schema (placeholder)
-function getDatabaseSchema() {
-  return {
-    version: '19',
-    tables: [
-      {
-        name: 'conversations',
-        columns: ['id TEXT PRIMARY KEY', 'title TEXT', 'created_at INTEGER', 'updated_at INTEGER']
-      },
-      {
-        name: 'messages',
-        columns: ['id TEXT PRIMARY KEY', 'conversation_id TEXT', 'role TEXT', 'content TEXT', 'created_at INTEGER']
-      }
-    ]
-  };
+// Default database path for GPT Mobile local data or fallback memory db
+const DEFAULT_DB_PATH = process.env.GPT_MOBILE_DB_PATH || path.join(__dirname, 'gpt_mobile.db');
+
+function getDatabaseConnection(dbPath = DEFAULT_DB_PATH) {
+  if (!sqlite3) {
+    throw new Error('sqlite3 module is not installed or available');
+  }
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+      if (err) reject(err);
+      else resolve(db);
+    });
+  });
+}
+
+// Helper: Get database schema
+async function getDatabaseSchema(dbPath = DEFAULT_DB_PATH) {
+  if (!sqlite3) {
+    return {
+      version: '19',
+      tables: [
+        {
+          name: 'conversations',
+          columns: ['id TEXT PRIMARY KEY', 'title TEXT', 'created_at INTEGER', 'updated_at INTEGER']
+        },
+        {
+          name: 'messages',
+          columns: ['id TEXT PRIMARY KEY', 'conversation_id TEXT', 'role TEXT', 'content TEXT', 'created_at INTEGER']
+        }
+      ]
+    };
+  }
+
+  try {
+    const db = await getDatabaseConnection(dbPath);
+    return new Promise((resolve) => {
+      db.all("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", [], (err, tables) => {
+        if (err || !tables || tables.length === 0) {
+          db.close();
+          resolve({
+            version: '19',
+            tables: [
+              {
+                name: 'conversations',
+                columns: ['id TEXT PRIMARY KEY', 'title TEXT', 'created_at INTEGER', 'updated_at INTEGER']
+              },
+              {
+                name: 'messages',
+                columns: ['id TEXT PRIMARY KEY', 'conversation_id TEXT', 'role TEXT', 'content TEXT', 'created_at INTEGER']
+              }
+            ]
+          });
+          return;
+        }
+
+        const schema = {
+          database: dbPath,
+          tables: tables.map(t => ({ name: t.name, sql: t.sql }))
+        };
+        db.close();
+        resolve(schema);
+      });
+    });
+  } catch (error) {
+    return { error: error.message };
+  }
 }
 
 // Helper: Translate text (placeholder - would need external API)
@@ -292,16 +352,15 @@ function getCurrentLocation() {
 // Tool: read_file - Read file contents from local filesystem
 server.tool('read_file', {
   path: { type: 'string' }
-}, async ({ path }) => {
+}, async ({ path: filePath }) => {
   try {
-    const fs = require('fs');
-    const content = fs.readFileSync(path, 'utf-8');
+    const content = fs.readFileSync(filePath, 'utf-8');
     return {
       content: [{ type: 'text', text: content }]
     };
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `Error reading file ${path}: ${error.message}` }]
+      content: [{ type: 'text', text: `Error reading file ${filePath}: ${error.message}` }]
     };
   }
 });
@@ -310,23 +369,21 @@ server.tool('read_file', {
 server.tool('write_file', {
   path: { type: 'string' },
   content: { type: 'string' }
-}, async ({ path, content }) => {
+}, async ({ path: filePath, content }) => {
   try {
-    const fs = require('fs');
-    
     // Create parent directories if they don't exist
-    const dir = require('path').dirname(path);
+    const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     
-    fs.writeFileSync(path, content, 'utf-8');
+    fs.writeFileSync(filePath, content, 'utf-8');
     return {
-      content: [{ type: 'text', text: `Successfully wrote to ${path}` }]
+      content: [{ type: 'text', text: `Successfully wrote to ${filePath}` }]
     };
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `Error writing file ${path}: ${error.message}` }]
+      content: [{ type: 'text', text: `Error writing file ${filePath}: ${error.message}` }]
     };
   }
 });
@@ -334,12 +391,11 @@ server.tool('write_file', {
 // Tool: list_directory - List directory contents
 server.tool('list_directory', {
   path: { type: 'string' }
-}, async ({ path }) => {
+}, async ({ path: dirPath }) => {
   try {
-    const fs = require('fs');
-    const entries = fs.readdirSync(path, { withFileTypes: true });
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
     
-    let output = `Contents of ${path}:\n\n`;
+    let output = `Contents of ${dirPath}:\n\n`;
     
     entries.forEach(entry => {
       const type = entry.isDirectory() ? 'DIR' : 'FILE';
@@ -351,7 +407,7 @@ server.tool('list_directory', {
     };
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `Error listing directory ${path}: ${error.message}` }]
+      content: [{ type: 'text', text: `Error listing directory ${dirPath}: ${error.message}` }]
     };
   }
 });
@@ -359,22 +415,21 @@ server.tool('list_directory', {
 // Tool: delete_file - Delete a file
 server.tool('delete_file', {
   path: { type: 'string' }
-}, async ({ path }) => {
+}, async ({ path: filePath }) => {
   try {
-    const fs = require('fs');
-    if (fs.existsSync(path)) {
-      fs.unlinkSync(path);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
       return {
-        content: [{ type: 'text', text: `Successfully deleted ${path}` }]
+        content: [{ type: 'text', text: `Successfully deleted ${filePath}` }]
       };
     } else {
       return {
-        content: [{ type: 'text', text: `File not found: ${path}` }]
+        content: [{ type: 'text', text: `File not found: ${filePath}` }]
       };
     }
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `Error deleting file ${path}: ${error.message}` }]
+      content: [{ type: 'text', text: `Error deleting file ${filePath}: ${error.message}` }]
     };
   }
 });
@@ -410,12 +465,99 @@ server.tool('execute_code', {
 
 // Tool: query_database - Execute SQL queries against SQLite/Room database
 server.tool('query_database', {
-  sql: { type: 'string' }
-}, async ({ sql }) => {
+  sql: { type: 'string' },
+  params: { type: 'array' },
+  database_path: { type: 'string' },
+  read_only: { type: 'boolean' }
+}, async ({ sql, params = [], database_path = DEFAULT_DB_PATH, read_only = true }) => {
   try {
-    return {
-      content: [{ type: 'text', text: `Database query execution not implemented. This is a placeholder.` }]
-    };
+    if (!sql || typeof sql !== 'string') {
+      return {
+        content: [{ type: 'text', text: 'Error: sql parameter must be a non-empty string.' }]
+      };
+    }
+
+    const trimmedSql = sql.trim();
+    const isSelect = /^(SELECT|PRAGMA|EXPLAIN|WITH)\b/i.test(trimmedSql);
+
+    // Read-only safety guard
+    if (read_only && !isSelect) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Permission denied: Mutation statements (INSERT, UPDATE, DELETE, DROP, ALTER) are disallowed when read_only=true. Use a SELECT/PRAGMA/EXPLAIN query or set read_only to false.`
+        }]
+      };
+    }
+
+    if (!sqlite3) {
+      return {
+        content: [{
+          type: 'text',
+          text: `sqlite3 driver not loaded in environment. Query received: "${trimmedSql}". Mock schema available via mcp://database/schema.`
+        }]
+      };
+    }
+
+    // Resolve db path safely
+    const resolvedPath = path.resolve(database_path);
+
+    const db = await new Promise((resolve, reject) => {
+      const mode = read_only ? sqlite3.OPEN_READONLY : (sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE);
+      const conn = new sqlite3.Database(resolvedPath, mode, (err) => {
+        if (err) reject(err);
+        else resolve(conn);
+      });
+    });
+
+    try {
+      if (isSelect) {
+        // Enforce max row cap (default 100) if no LIMIT specified
+        let safeSql = trimmedSql;
+        if (!/\bLIMIT\b/i.test(safeSql)) {
+          safeSql += ' LIMIT 100';
+        }
+
+        const rows = await new Promise((resolve, reject) => {
+          db.all(safeSql, params, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+          });
+        });
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 'success',
+              rowCount: rows.length,
+              rows: rows
+            }, null, 2)
+          }]
+        };
+      } else {
+        // Execute mutation statement
+        const result = await new Promise((resolve, reject) => {
+          db.run(trimmedSql, params, function (err) {
+            if (err) reject(err);
+            else resolve({ changes: this.changes, lastID: this.lastID });
+          });
+        });
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 'success',
+              changes: result.changes,
+              lastID: result.lastID
+            }, null, 2)
+          }]
+        };
+      }
+    } finally {
+      db.close();
+    }
   } catch (error) {
     return {
       content: [{ type: 'text', text: `Error executing database query: ${error.message}` }]
@@ -600,7 +742,7 @@ server.resource('mcp://system/info', async () => {
 
 // Resource: mcp://database/schema - Database schema definition
 server.resource('mcp://database/schema', async () => {
-  const schema = getDatabaseSchema();
+  const schema = await getDatabaseSchema();
   return {
     contents: [{
       uri: 'mcp://database/schema',

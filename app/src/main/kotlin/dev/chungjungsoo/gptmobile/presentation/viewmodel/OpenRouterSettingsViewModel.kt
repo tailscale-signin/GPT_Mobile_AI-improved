@@ -29,9 +29,14 @@ class OpenRouterSettingsViewModel @Inject constructor(
     }
 
     fun updateSettings(newSettings: OpenRouterSettings) {
+        val validated = newSettings.copy(
+            batchSize = newSettings.batchSize.coerceIn(1, 100),
+            maxRetries = newSettings.maxRetries.coerceIn(0, 10),
+            cacheTtlSeconds = newSettings.cacheTtlSeconds.coerceAtLeast(0)
+        )
         viewModelScope.launch {
-            repository.saveSettings(newSettings)
-            _settings.value = newSettings
+            repository.saveSettings(validated)
+            _settings.value = validated
         }
     }
 

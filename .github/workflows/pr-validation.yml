@@ -34,9 +34,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Setup Gradle Problem Matcher
-        uses: ammarhurzuk/action-problem-matcher@v1
-        with:
-          problem-matcher: gradle
+        run: echo "::add-matcher::.github/gradle-problem-matcher.json"
         continue-on-error: true
 
       - name: Run Unit Tests

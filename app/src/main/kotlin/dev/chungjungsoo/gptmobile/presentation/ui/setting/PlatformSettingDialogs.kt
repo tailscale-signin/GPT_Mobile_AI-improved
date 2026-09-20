@@ -29,11 +29,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +50,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.google.gson.Gson
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.llama.LlamaModelInfo
+import dev.chungjungsoo.gptmobile.data.llama.LlamaRouterClient
 import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorOption
 import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorUnavailableReason
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
@@ -58,10 +62,12 @@ import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
+import dev.chungjungsoo.gptmobile.presentation.ui.llama.LlamaModelDropdown
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
 import dev.chungjungsoo.gptmobile.util.isValidUrl
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -1606,16 +1612,12 @@ private fun OllamaAdvancedSettingsDialog(
                     onConfirmRequest(resultJson)
                 }
             ) {
-                Text(stringResource(R.string.save))
+                Text(stringResource(R.string.confirm))
             }
         },
         dismissButton = {
-            TextButton(
-                onClick = {
-                    onConfirmRequest(null)
-                }
-            ) {
-                Text(stringResource(R.string.reset))
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(R.string.cancel))
             }
         }
     )
@@ -1635,38 +1637,27 @@ private fun OpenRouterAdvancedSettingsDialog(
             coerceInputValues = true
         }
     }
-    val initialParsed = remember(initialRoutingJson) {
+    val initialOptions = remember(initialRoutingJson) {
         if (!initialRoutingJson.isNullOrBlank()) {
             runCatching { jsonSerializer.decodeFromString<OpenRouterOptions>(initialRoutingJson) }.getOrNull()
-                ?: runCatching {
-                    val routing = jsonSerializer.decodeFromString<OpenRouterProviderRouting>(initialRoutingJson)
-                    OpenRouterOptions(provider = routing)
-                }.getOrNull()
         } else {
-            OpenRouterOptions.createDefault()
-        } ?: OpenRouterOptions.createDefault()
+            OpenRouterOptions()
+        } ?: OpenRouterOptions()
+    }
+    val initialRouting = remember(initialOptions) {
+        initialOptions.provider ?: OpenRouterProviderRouting()
     }
 
-    var streamEnabled by remember { mutableStateOf(initialParsed.stream ?: OpenRouterOptions.DEFAULT_STREAM) }
-    var maxTokensText by remember { mutableStateOf((initialParsed.maxTokens ?: OpenRouterOptions.DEFAULT_MAX_TOKENS).toString()) }
-    var temperatureText by remember { mutableStateOf((initialParsed.temperature ?: OpenRouterOptions.DEFAULT_TEMPERATURE).toString()) }
-    var topPText by remember { mutableStateOf((initialParsed.topP ?: OpenRouterOptions.DEFAULT_TOP_P).toString()) }
-    var topKText by remember { mutableStateOf((initialParsed.topK ?: OpenRouterOptions.DEFAULT_TOP_K).toString()) }
-    var freqPenaltyText by remember { mutableStateOf((initialParsed.frequencyPenalty ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY).toString()) }
-    var presPenaltyText by remember { mutableStateOf((initialParsed.presencePenalty ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY).toString()) }
-    var repPenaltyText by remember { mutableStateOf((initialParsed.repetitionPenalty ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY).toString()) }
-    var seedText by remember { mutableStateOf((initialParsed.seed ?: OpenRouterOptions.DEFAULT_SEED).toString()) }
-
-    var allowFallbacks by remember {
-        mutableStateOf(initialParsed.provider?.allowFallbacks ?: OpenRouterOptions.DEFAULT_PROVIDER_ALLOW_FALLBACKS)
+    var streamEnabled by remember { mutableStateOf(initialOptions.stream) }
+    var orderText by remember { mutableStateOf(initialRouting.order.joinToString(", ")) }
+    var allowFallbacks by remember { mutableStateOf(initialRouting.allowFallbacks) }
+    var sortStrategy by remember { mutableStateOf(initialRouting.sort ?: "") }
+    var dataCollection by remember { mutableStateOf(initialRouting.dataCollection ?: "") }
+    var quantizationsText by remember { mutableStateOf(initialRouting.quantizations.joinToString(", ")) }
+    var reasoningEffortText by remember { mutableStateOf(initialOptions.reasoningEffort ?: "") }
+    var maxReasoningTokensText by remember {
+        mutableStateOf(initialOptions.maxReasoningTokens?.toString() ?: "")
     }
-    var sortStrategy by remember {
-        mutableStateOf(initialParsed.provider?.sort ?: OpenRouterOptions.DEFAULT_PROVIDER_SORT)
-    }
-
-    var sortExpanded by remember { mutableStateOf(false) }
-
-    val sortOptions = listOf("price-asc", "price", "throughput", "latency")
 
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -1683,7 +1674,7 @@ private fun OpenRouterAdvancedSettingsDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
                     text = stringResource(R.string.openrouter_advanced_settings_description),
@@ -1705,73 +1696,10 @@ private fun OpenRouterAdvancedSettingsDialog(
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    value = maxTokensText,
-                    onValueChange = { maxTokensText = it },
-                    label = { Text(stringResource(R.string.max_tokens)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = temperatureText,
-                    onValueChange = { temperatureText = it },
-                    label = { Text(stringResource(R.string.temperature)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = topPText,
-                    onValueChange = { topPText = it },
-                    label = { Text(stringResource(R.string.top_p)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = topKText,
-                    onValueChange = { topKText = it },
-                    label = { Text(stringResource(R.string.top_k)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = freqPenaltyText,
-                    onValueChange = { freqPenaltyText = it },
-                    label = { Text(stringResource(R.string.openrouter_frequency_penalty)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = presPenaltyText,
-                    onValueChange = { presPenaltyText = it },
-                    label = { Text(stringResource(R.string.openrouter_presence_penalty)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = repPenaltyText,
-                    onValueChange = { repPenaltyText = it },
-                    label = { Text(stringResource(R.string.openrouter_repetition_penalty)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = seedText,
-                    onValueChange = { seedText = it },
-                    label = { Text(stringResource(R.string.openrouter_seed)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    value = orderText,
+                    onValueChange = { orderText = it },
+                    label = { Text(stringResource(R.string.openrouter_provider_order)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_provider_order_hint)) },
                     singleLine = true
                 )
 
@@ -1787,64 +1715,79 @@ private fun OpenRouterAdvancedSettingsDialog(
                     )
                 }
 
-                ExposedDropdownMenuBox(
-                    expanded = sortExpanded,
-                    onExpandedChange = { sortExpanded = it }
-                ) {
-                    OutlinedTextField(
-                        modifier = Modifier
-                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, true)
-                            .fillMaxWidth(),
-                        value = sortStrategy,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(stringResource(R.string.openrouter_sort_strategy)) },
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded)
-                        }
-                    )
-                    ExposedDropdownMenu(
-                        expanded = sortExpanded,
-                        onDismissRequest = { sortExpanded = false }
-                    ) {
-                        sortOptions.forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option) },
-                                onClick = {
-                                    sortStrategy = option
-                                    sortExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = sortStrategy,
+                    onValueChange = { sortStrategy = it },
+                    label = { Text(stringResource(R.string.openrouter_sort_strategy)) },
+                    placeholder = { Text("price, throughput, latency") },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = dataCollection,
+                    onValueChange = { dataCollection = it },
+                    label = { Text(stringResource(R.string.openrouter_data_collection)) },
+                    placeholder = { Text("allow, deny") },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = quantizationsText,
+                    onValueChange = { quantizationsText = it },
+                    label = { Text(stringResource(R.string.openrouter_quantizations)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_quantizations_hint)) },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = reasoningEffortText,
+                    onValueChange = { reasoningEffortText = it },
+                    label = { Text(stringResource(R.string.openrouter_reasoning_effort)) },
+                    placeholder = { Text("high, medium, low") },
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = maxReasoningTokensText,
+                    onValueChange = { maxReasoningTokensText = it },
+                    label = { Text(stringResource(R.string.openrouter_max_reasoning_tokens)) },
+                    placeholder = { Text(stringResource(R.string.openrouter_max_reasoning_tokens_hint)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
             }
         },
         onDismissRequest = onDismissRequest,
         confirmButton = {
             TextButton(
                 onClick = {
+                    val orderList = orderText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    val quantList = quantizationsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    val parsedTokens = maxReasoningTokensText.toIntOrNull()
+
                     val routing = OpenRouterProviderRouting(
-                        sort = sortStrategy,
-                        allowFallbacks = allowFallbacks
+                        order = orderList,
+                        allowFallbacks = allowFallbacks,
+                        sort = sortStrategy.trim().takeIf { it.isNotEmpty() },
+                        dataCollection = dataCollection.trim().takeIf { it.isNotEmpty() },
+                        quantizations = quantList
                     )
                     val options = OpenRouterOptions(
+                        provider = routing,
                         stream = streamEnabled,
-                        maxTokens = maxTokensText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_MAX_TOKENS,
-                        temperature = temperatureText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TEMPERATURE,
-                        topP = topPText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_TOP_P,
-                        topK = topKText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_TOP_K,
-                        frequencyPenalty = freqPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_FREQUENCY_PENALTY,
-                        presencePenalty = presPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_PRESENCE_PENALTY,
-                        repetitionPenalty = repPenaltyText.toFloatOrNull() ?: OpenRouterOptions.DEFAULT_REPETITION_PENALTY,
-                        seed = seedText.toIntOrNull() ?: OpenRouterOptions.DEFAULT_SEED,
-                        provider = routing
+                        reasoningEffort = reasoningEffortText.trim().takeIf { it.isNotEmpty() },
+                        maxReasoningTokens = parsedTokens
                     )
                     val resultJson = jsonSerializer.encodeToString(options)
                     onConfirmRequest(resultJson)
                 }
             ) {
-                Text(stringResource(R.string.save))
+                Text(stringResource(R.string.confirm))
             }
         },
         dismissButton = {
@@ -1887,6 +1830,33 @@ private fun LlamaAdvancedSettingsDialog(
     var useMlock by remember { mutableStateOf(initialSettings.useMlock) }
     var useFlashAttn by remember { mutableStateOf(initialSettings.useFlashAttn) }
     var verbose by remember { mutableStateOf(initialSettings.verbose) }
+
+    var routerModels by remember { mutableStateOf<List<LlamaModelInfo>>(emptyList()) }
+    var isFetchingRouterModels by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val routerClient = remember { LlamaRouterClient() }
+
+    fun refreshRouterModels() {
+        if (!routerModeEnabled) return
+        val targetUrl = serverUrl.trim().ifEmpty { "http://localhost:8080" }
+        isFetchingRouterModels = true
+        coroutineScope.launch {
+            try {
+                val fetched = routerClient.fetchModels(targetUrl)
+                routerModels = fetched
+            } catch (_: Exception) {
+                routerModels = emptyList()
+            } finally {
+                isFetchingRouterModels = false
+            }
+        }
+    }
+
+    LaunchedEffect(routerModeEnabled, serverUrl) {
+        if (routerModeEnabled) {
+            refreshRouterModels()
+        }
+    }
 
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -1941,6 +1911,17 @@ private fun LlamaAdvancedSettingsDialog(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     singleLine = true
                 )
+
+                if (routerModeEnabled) {
+                    LlamaModelDropdown(
+                        models = routerModels,
+                        selectedModelId = selectedModel,
+                        onModelSelected = { selectedModel = it },
+                        isLoading = isFetchingRouterModels,
+                        onRefresh = { refreshRouterModels() },
+                        label = stringResource(R.string.llama_select_router_model)
+                    )
+                }
 
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
@@ -2120,7 +2101,6 @@ private fun LlamaAdvancedSettingsDialog(
                 )
             }
         },
-        onDismissRequest = onDismissRequest,
         confirmButton = {
             TextButton(
                 onClick = {

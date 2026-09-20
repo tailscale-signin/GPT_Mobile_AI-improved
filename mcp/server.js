@@ -2,7 +2,7 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const { JSDOM } = require('jsdom');
-const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sseServerTransport.js');
+const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 
 // Create MCP server instance

@@ -8,6 +8,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -18,13 +21,18 @@ class OpenRouterSettingsViewModel @Inject constructor(
     private val _settings = MutableLiveData<OpenRouterSettings>()
     val settings: LiveData<OpenRouterSettings> = _settings
 
+    private val _uiState = MutableStateFlow(OpenRouterSettings(apiKey = ""))
+    val uiState: StateFlow<OpenRouterSettings> = _uiState.asStateFlow()
+
     init {
         loadSettings()
     }
 
     fun loadSettings() {
         viewModelScope.launch {
-            _settings.value = repository.loadSettings()
+            val s = repository.loadSettings()
+            _settings.value = s
+            _uiState.value = s
         }
     }
 
@@ -37,6 +45,7 @@ class OpenRouterSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             repository.saveSettings(validated)
             _settings.value = validated
+            _uiState.value = validated
         }
     }
 

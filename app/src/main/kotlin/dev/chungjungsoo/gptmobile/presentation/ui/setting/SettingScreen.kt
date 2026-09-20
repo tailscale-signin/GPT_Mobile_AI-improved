@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.DynamicFeed
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
@@ -92,6 +93,7 @@ fun SettingScreen(
     onNavigationClick: () -> Unit,
     onNavigateToAiPlatforms: () -> Unit,
     onNavigateToLocalModels: () -> Unit,
+    onNavigateToOpenRouterSettings: () -> Unit = {},
     onNavigateToToolConnections: () -> Unit,
     onNavigateToAboutPage: () -> Unit,
     modifier: Modifier = Modifier
@@ -206,6 +208,12 @@ fun SettingScreen(
                             title = stringResource(R.string.local_models),
                             subtitle = stringResource(R.string.local_models_description),
                             onClick = onNavigateToLocalModels
+                        )
+                        SettingNavigationRow(
+                            icon = Icons.Default.DynamicFeed,
+                            title = "OpenRouter Batching & Cache",
+                            subtitle = "Configure background request queue, batching, and TTL caching",
+                            onClick = onNavigateToOpenRouterSettings
                         )
                         SettingNavigationRow(
                             icon = Icons.Default.Build,

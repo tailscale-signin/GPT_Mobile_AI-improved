@@ -48,11 +48,11 @@ class ResponseCache(
 object CacheKeyGenerator {
     fun generate(model: String, messages: List<OpenRouterMessageItem>): String {
         val promptText = messages.joinToString("\n") { "${it.role}:${it.content}" }
-        return "${model}:${sha256(promptText)}"
+        return "$model:${sha256(promptText)}"
     }
 
     fun generate(model: String, prompt: String): String {
-        return "${model}:${sha256(prompt)}"
+        return "$model:${sha256(prompt)}"
     }
 
     private fun sha256(input: String): String {

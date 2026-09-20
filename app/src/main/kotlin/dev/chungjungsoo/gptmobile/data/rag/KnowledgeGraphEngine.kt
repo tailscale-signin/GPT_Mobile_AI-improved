@@ -1,0 +1,180 @@
+package dev.chungjungsoo.gptmobile.data.rag
+
+import kotlinx.serialization.Serializable
+import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Domain representations for the on-device Knowledge Graph Memory engine.
+ */
+@Serializable
+data class KnowledgeEntity(
+    val id: String,
+    val name: String,
+    val type: String, // e.g., "PERSON", "CONCEPT", "TECHNOLOGY", "LOCATION", "PREFERENCE", "PROJECT"
+    val attributes: Map<String, String> = emptyMap()
+)
+
+@Serializable
+data class KnowledgeRelation(
+    val sourceId: String,
+    val relationType: String, // e.g., "USES", "PREFERS", "LOCATED_IN", "CONTRIBUTES_TO", "DEVELOPED_WITH"
+    val targetId: String,
+    val weight: Float = 1.0f,
+    val context: String = ""
+)
+
+@Serializable
+data class KnowledgeFact(
+    val entity: KnowledgeEntity,
+    val relation: KnowledgeRelation,
+    val target: KnowledgeEntity
+) {
+    fun toContextString(): String =
+        "${entity.name} (${entity.type}) -[${relation.relationType}]-> ${target.name} (${target.type})${if (relation.context.isNotBlank()) " [${relation.context}]" else ""}"
+}
+
+/**
+ * Knowledge Graph Memory Engine for local entity-relationship extraction,
+ * semantic associative recall, and graph traversal.
+ */
+@Singleton
+class KnowledgeGraphEngine @Inject constructor() {
+
+    private val entities = mutableMapOf<String, KnowledgeEntity>()
+    private val outgoingEdges = mutableMapOf<String, MutableList<KnowledgeRelation>>()
+    private val incomingEdges = mutableMapOf<String, MutableList<KnowledgeRelation>>()
+
+    @Synchronized
+    fun addEntity(entity: KnowledgeEntity) {
+        val normalizedId = entity.id.lowercase(Locale.ROOT).trim()
+        val normalizedEntity = entity.copy(id = normalizedId)
+        entities[normalizedId] = normalizedEntity
+        outgoingEdges.putIfAbsent(normalizedId, mutableListOf())
+        incomingEdges.putIfAbsent(normalizedId, mutableListOf())
+    }
+
+    @Synchronized
+    fun addRelation(relation: KnowledgeRelation) {
+        val src = relation.sourceId.lowercase(Locale.ROOT).trim()
+        val dst = relation.targetId.lowercase(Locale.ROOT).trim()
+        val normalizedRelation = relation.copy(sourceId = src, targetId = dst)
+
+        outgoingEdges.getOrPut(src) { mutableListOf() }.add(normalizedRelation)
+        incomingEdges.getOrPut(dst) { mutableListOf() }.add(normalizedRelation)
+    }
+
+    @Synchronized
+    fun getEntity(id: String): KnowledgeEntity? =
+        entities[id.lowercase(Locale.ROOT).trim()]
+
+    @Synchronized
+    fun getAllEntities(): List<KnowledgeEntity> = entities.values.toList()
+
+    @Synchronized
+    fun getRelationsFor(entityId: String): List<KnowledgeRelation> {
+        val id = entityId.lowercase(Locale.ROOT).trim()
+        val outRels = outgoingEdges[id] ?: emptyList()
+        val inRels = incomingEdges[id] ?: emptyList()
+        return (outRels + inRels).distinct()
+    }
+
+    /**
+     * Traverses graph from [seedEntityId] up to [maxDepth] steps.
+     */
+    @Synchronized
+    fun querySubgraph(seedEntityId: String, maxDepth: Int = 2): List<KnowledgeFact> {
+        val rootId = seedEntityId.lowercase(Locale.ROOT).trim()
+        if (!entities.containsKey(rootId)) return emptyList()
+
+        val facts = mutableListOf<KnowledgeFact>()
+        val visitedEntities = mutableSetOf(rootId)
+        var frontier = setOf(rootId)
+
+        for (depth in 0 until maxDepth) {
+            val nextFrontier = mutableSetOf<String>()
+            for (currentId in frontier) {
+                val out = outgoingEdges[currentId] ?: emptyList()
+                for (rel in out) {
+                    val src = entities[rel.sourceId]
+                    val dst = entities[rel.targetId]
+                    if (src != null && dst != null) {
+                        facts.add(KnowledgeFact(src, rel, dst))
+                        if (visitedEntities.add(rel.targetId)) {
+                            nextFrontier.add(rel.targetId)
+                        }
+                    }
+                }
+            }
+            frontier = nextFrontier
+            if (frontier.isEmpty()) break
+        }
+
+        return facts.distinctBy { "${it.relation.sourceId}->${it.relation.relationType}->${it.relation.targetId}" }
+    }
+
+    /**
+     * Finds related contextual facts matching entities detected in [queryText].
+     */
+    @Synchronized
+    fun queryContextualFacts(queryText: String, maxResults: Int = 5): List<KnowledgeFact> {
+        val tokens = queryText.lowercase(Locale.ROOT).split(Regex("\\W+")).filter { it.length > 2 }.toSet()
+        if (tokens.isEmpty()) return emptyList()
+
+        // Match seed entities that overlap with tokens
+        val matchedEntities = entities.values.filter { entity ->
+            val entityTokens = entity.name.lowercase(Locale.ROOT).split(Regex("\\W+"))
+            entityTokens.any { tokens.contains(it) } || tokens.contains(entity.id)
+        }
+
+        val collectedFacts = mutableListOf<KnowledgeFact>()
+        for (seed in matchedEntities) {
+            collectedFacts.addAll(querySubgraph(seed.id, maxDepth = 2))
+        }
+
+        return collectedFacts.distinctBy { "${it.relation.sourceId}:${it.relation.relationType}:${it.relation.targetId}" }
+            .take(maxResults)
+    }
+
+    /**
+     * Extracts entities and relations from conversational or structured text using pattern and keyword heuristics.
+     */
+    @Synchronized
+    fun extractAndStoreFromText(text: String) {
+        val lines = text.lines()
+        val relationKeywords = listOf(
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:is using|uses|built with|built on|runs on)\\s+([a-zA-Z0-9_-]+)") to "USES",
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:prefers|likes|favorite is)\\s+([a-zA-Z0-9_-]+)") to "PREFERS",
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:works at|contributes to|part of)\\s+([a-zA-Z0-9_-]+)") to "CONTRIBUTES_TO",
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:located in|lives in|based in)\\s+([a-zA-Z0-9_-]+)") to "LOCATED_IN"
+        )
+
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+
+            for ((pattern, relType) in relationKeywords) {
+                val match = pattern.find(trimmed)
+                if (match != null && match.groupValues.size >= 3) {
+                    val subject = match.groupValues[1].trim()
+                    val target = match.groupValues[2].trim()
+                    if (subject.isNotBlank() && target.isNotBlank()) {
+                        val srcEntity = KnowledgeEntity(id = subject.lowercase(Locale.ROOT), name = subject, type = "ENTITY")
+                        val dstEntity = KnowledgeEntity(id = target.lowercase(Locale.ROOT), name = target, type = "ENTITY")
+                        addEntity(srcEntity)
+                        addEntity(dstEntity)
+                        addRelation(KnowledgeRelation(srcEntity.id, relType, dstEntity.id, 1.0f, trimmed))
+                    }
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    fun clear() {
+        entities.clear()
+        outgoingEdges.clear()
+        incomingEdges.clear()
+    }
+}

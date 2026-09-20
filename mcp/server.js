@@ -318,35 +318,85 @@ server.tool(
   }
 );
 
-// Helper function to detect public IP
+// Helper function to detect public IP with fallback
 async function getPublicIp() {
-  const res = await executeHttpRequest('https://api.ipify.org?format=json');
-  return JSON.parse(res.body).ip;
+  const providers = [
+    { url: 'https://api.ipify.org?format=json', parse: (body) => JSON.parse(body).ip },
+    { url: 'https://freeipapi.com/api/json', parse: (body) => JSON.parse(body).ipAddress }
+  ];
+
+  for (const provider of providers) {
+    try {
+      const res = await executeHttpRequest(provider.url, 'GET', { 'User-Agent': 'Mozilla/5.0 (compatible; GPT-Mobile-AI/1.0)' });
+      if (res.statusCode === 200) {
+        return provider.parse(res.body);
+      }
+    } catch (_) {}
+  }
+  return null;
 }
 
-// 9. geolocate_ip - Look up IP geolocation data
+// 9. geolocate_ip - Look up IP geolocation data with multi-provider fallback
 server.tool(
   'geolocate_ip',
-  'Look up geolocation data for an IP address (auto-detect if omitted)',
+  'Look up geolocation data for an IP address (auto-detect host IP if omitted)',
   {
     ip: z.string().optional().describe('IP address to lookup (auto-detect host IP if omitted)')
   },
   async ({ ip }) => {
-    const targetIp = ip || await getPublicIp();
+    try {
+      const targetIp = ip || await getPublicIp();
+      const ipParam = targetIp ? `/${encodeURIComponent(targetIp)}` : '';
 
-    const url = `https://ipapi.co/${targetIp}/json/`;
-    const res = await executeHttpRequest(url, 'GET', { 'User-Agent': 'GPT-Mobile-AI' });
+      // Geolocation provider fallbacks
+      const providers = [
+        {
+          name: 'freeipapi',
+          url: targetIp ? `https://freeipapi.com/api/json/${encodeURIComponent(targetIp)}` : 'https://freeipapi.com/api/json'
+        },
+        {
+          name: 'ipwhois',
+          url: targetIp ? `https://ipwhois.app/json/${encodeURIComponent(targetIp)}` : 'https://ipwhois.app/json/'
+        },
+        {
+          name: 'ipapi.co',
+          url: `https://ipapi.co${ipParam}/json/`
+        }
+      ];
 
-    if (res.statusCode === 200) {
+      for (const provider of providers) {
+        try {
+          const res = await executeHttpRequest(provider.url, 'GET', {
+            'User-Agent': 'Mozilla/5.0 (compatible; GPT-Mobile-AI/1.0)'
+          });
+
+          if (res.statusCode === 200) {
+            let data;
+            try {
+              data = JSON.parse(res.body);
+            } catch (_) {
+              data = res.body;
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data)
+              }]
+            };
+          }
+        } catch (_) {}
+      }
+
       return {
-        content: [{ type: 'text', text: JSON.stringify(res.body, null, 2) }]
+        isError: true,
+        content: [{ type: 'text', text: 'All geolocation providers failed to resolve IP location.' }]
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `IP lookup error: ${err.message}` }]
       };
     }
-
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `IP lookup failed: ${res.body}` }]
-    };
   }
 );
 
@@ -373,19 +423,38 @@ server.tool(
       };
     }
 
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
-    const res = await executeHttpRequest(url, 'GET', { 'User-Agent': 'GPT-Mobile-AI/1.0' });
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+      const res = await executeHttpRequest(url, 'GET', {
+        'User-Agent': 'Mozilla/5.0 (compatible; GPT-Mobile-AI/1.0; https://github.com/tailscale-signin/GPT_Mobile_AI-improved)'
+      });
 
-    if (res.statusCode === 200) {
+      if (res.statusCode === 200) {
+        let parsed;
+        try {
+          parsed = JSON.parse(res.body);
+        } catch (_) {
+          parsed = res.body;
+        }
+
+        return {
+          content: [{
+            type: 'text',
+            text: typeof parsed === 'object' ? JSON.stringify(parsed, null, 2) : String(parsed)
+          }]
+        };
+      }
+
       return {
-        content: [{ type: 'text', text: JSON.stringify(res.body, null, 2) }]
+        isError: true,
+        content: [{ type: 'text', text: `Reverse geocode failed with HTTP ${res.statusCode}: ${res.body}` }]
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Reverse geocode error: ${err.message}` }]
       };
     }
-
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `Reverse geocode failed: ${res.body}` }]
-    };
   }
 );
 

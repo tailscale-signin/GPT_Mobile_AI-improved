@@ -131,7 +131,7 @@ fun UserChatBubble(
                         Text(
                             text = formattedTime,
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f)
                         )
                     }
                 }
@@ -190,8 +190,8 @@ fun OpponentChatBubble(
     onContinueClick: (() -> Unit)? = null,
     onActionClick: ((String) -> Unit)? = null
 ) {
-    // Bubble background 2x more transparent than 0.08f (0.04f)
-    val normalColor = Color.Black.copy(alpha = 0.04f)
+    // Bubble background 50% more opaque than 0.04f (0.06f)
+    val normalColor = Color.Black.copy(alpha = 0.06f)
     val bubbleColor = animateColorAsState(
         targetValue = if (isFavorite) Color.Cyan.copy(alpha = 0.12f) else normalColor,
         animationSpec = tween(durationMillis = 500),
@@ -469,7 +469,7 @@ fun OpponentChatBubble(
                         Text(
                             text = formattedTime,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                             modifier = Modifier
                                 .padding(start = 8.dp)
                         )
@@ -584,9 +584,9 @@ internal fun DetailsButton(
                 .size(16.dp)
                 .rotate(rotation),
             tint = if (isEnabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.19f)
             }
         )
         Spacer(modifier = Modifier.width(4.dp))
@@ -594,9 +594,9 @@ internal fun DetailsButton(
             text = stringResource(R.string.details),
             style = MaterialTheme.typography.labelSmall,
             color = if (isEnabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.19f)
             }
         )
     }

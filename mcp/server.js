@@ -320,8 +320,22 @@ server.tool(
 
 // Helper function to detect public IP
 async function getPublicIp() {
-  const res = await executeHttpRequest('https://api.ipify.org?format=json');
-  return JSON.parse(res.body).ip;
+  try {
+    const res = await executeHttpRequest('https://api.ipify.org?format=json', 'GET', {
+      'User-Agent': 'GPT-Mobile-AI/0.9.5.6'
+    });
+    if (res.statusCode === 200) {
+      const parsed = JSON.parse(res.body);
+      if (parsed.ip) return parsed.ip;
+    }
+  } catch (_) {}
+
+  // Fallback to ip-api.com
+  const fallbackRes = await executeHttpRequest('http://ip-api.com/json/', 'GET', {
+    'User-Agent': 'GPT-Mobile-AI/0.9.5.6'
+  });
+  const parsedFallback = JSON.parse(fallbackRes.body);
+  return parsedFallback.query;
 }
 
 // 9. geolocate_ip - Look up IP geolocation data
@@ -332,21 +346,82 @@ server.tool(
     ip: z.string().optional().describe('IP address to lookup (auto-detect host IP if omitted)')
   },
   async ({ ip }) => {
-    const targetIp = ip || await getPublicIp();
+    try {
+      const targetIp = (ip && ip.trim()) ? ip.trim() : await getPublicIp();
 
-    const url = `https://ipapi.co/${targetIp}/json/`;
-    const res = await executeHttpRequest(url, 'GET', { 'User-Agent': 'GPT-Mobile-AI' });
+      // Primary: ip-api.com (reliable, free, keyless)
+      const ipApiUrl = targetIp ? `http://ip-api.com/json/${targetIp}` : 'http://ip-api.com/json/';
+      const res = await executeHttpRequest(ipApiUrl, 'GET', {
+        'User-Agent': 'GPT-Mobile-AI/0.9.5.6'
+      });
 
-    if (res.statusCode === 200) {
+      if (res.statusCode === 200) {
+        let parsed;
+        try {
+          parsed = JSON.parse(res.body);
+        } catch (_) {
+          parsed = res.body;
+        }
+
+        if (parsed && parsed.status === 'success') {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                ip: parsed.query,
+                country: parsed.country,
+                countryCode: parsed.countryCode,
+                region: parsed.region,
+                regionName: parsed.regionName,
+                city: parsed.city,
+                zip: parsed.zip,
+                lat: parsed.lat,
+                lon: parsed.lon,
+                timezone: parsed.timezone,
+                isp: parsed.isp,
+                org: parsed.org
+              }, null, 2)
+            }]
+          };
+        } else if (parsed && parsed.message) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `IP lookup error: ${parsed.message}` }]
+          };
+        }
+      }
+
+      // Fallback: ipapi.co
+      const fallbackUrl = targetIp ? `https://ipapi.co/${targetIp}/json/` : 'https://ipapi.co/json/';
+      const fallbackRes = await executeHttpRequest(fallbackUrl, 'GET', {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+      });
+
+      if (fallbackRes.statusCode === 200) {
+        let fallbackParsed;
+        try {
+          fallbackParsed = JSON.parse(fallbackRes.body);
+        } catch (_) {
+          fallbackParsed = fallbackRes.body;
+        }
+        return {
+          content: [{
+            type: 'text',
+            text: typeof fallbackParsed === 'object' ? JSON.stringify(fallbackParsed, null, 2) : fallbackParsed
+          }]
+        };
+      }
+
       return {
-        content: [{ type: 'text', text: JSON.stringify(res.body, null, 2) }]
+        isError: true,
+        content: [{ type: 'text', text: `IP lookup failed with status ${res.statusCode}: ${res.body}` }]
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `IP lookup exception: ${error.message}` }]
       };
     }
-
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `IP lookup failed: ${res.body}` }]
-    };
   }
 );
 
@@ -356,9 +431,10 @@ server.tool(
   'Convert latitude/longitude coordinates to human-readable address',
   {
     latitude: z.number().describe('Latitude coordinate (-90 to 90)'),
-    longitude: z.number().describe('Longitude coordinate (-180 to 180)')
+    longitude: z.number().describe('Longitude coordinate (-180 to 180)'),
+    format: z.enum(['json', 'address', 'text']).optional().default('json').describe('Output format')
   },
-  async ({ latitude, longitude }) => {
+  async ({ latitude, longitude, format = 'json' }) => {
     // Validate coordinates
     if (latitude < -90 || latitude > 90) {
       return {
@@ -373,19 +449,46 @@ server.tool(
       };
     }
 
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
-    const res = await executeHttpRequest(url, 'GET', { 'User-Agent': 'GPT-Mobile-AI/1.0' });
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+      const res = await executeHttpRequest(url, 'GET', {
+        'User-Agent': 'GPT-Mobile-AI/0.9.5.6 (https://github.com/tailscale-signin/GPT_Mobile_AI-improved)'
+      });
 
-    if (res.statusCode === 200) {
+      if (res.statusCode === 200) {
+        let parsed;
+        try {
+          parsed = JSON.parse(res.body);
+        } catch (_) {
+          parsed = null;
+        }
+
+        let output;
+        if (parsed && format === 'address') {
+          output = parsed.display_name || 'Address not found';
+        } else if (parsed && format === 'text') {
+          output = `Location: ${parsed.display_name || 'Unknown'}\nCoordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+        } else if (parsed) {
+          output = JSON.stringify(parsed, null, 2);
+        } else {
+          output = res.body;
+        }
+
+        return {
+          content: [{ type: 'text', text: output }]
+        };
+      }
+
       return {
-        content: [{ type: 'text', text: JSON.stringify(res.body, null, 2) }]
+        isError: true,
+        content: [{ type: 'text', text: `Reverse geocode failed with status ${res.statusCode}: ${res.body}` }]
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Reverse geocode exception: ${error.message}` }]
       };
     }
-
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `Reverse geocode failed: ${res.body}` }]
-    };
   }
 );
 

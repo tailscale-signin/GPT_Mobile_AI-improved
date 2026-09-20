@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.worker
 import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -31,22 +32,34 @@ class OpenRouterBatchWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val prompt = inputData.getString(KEY_PROMPT)
-        val apiKey = inputData.getString(KEY_API_KEY)
         val requestId = inputData.getString(KEY_REQUEST_ID) ?: ""
         val temperature = inputData.getFloat(KEY_TEMPERATURE, 0.7f)
         val maxTokens = inputData.getInt(KEY_MAX_TOKENS, 1024)
 
-        if (prompt.isNullOrBlank() || apiKey.isNullOrBlank()) {
-            Log.e(TAG, "Missing prompt or API key for OpenRouterBatchWorker")
+        if (prompt.isNullOrBlank()) {
+            Log.e(TAG, "Missing prompt for OpenRouterBatchWorker")
             return@withContext Result.failure()
         }
 
+        // Clean up expired cache entries older than threshold
+        val cleanupThreshold = System.currentTimeMillis() - CACHE_EXPIRY_THRESHOLD_MS
+        openRouterBatchCacheDao.deleteExpired(cleanupThreshold)
+
         val settings = openRouterSettingsRepository.loadSettings()
+        val apiKey = inputData.getString(KEY_API_KEY)?.takeIf { it.isNotBlank() } ?: settings.apiKey
+
+        if (apiKey.isBlank()) {
+            Log.e(TAG, "Missing API key for OpenRouterBatchWorker")
+            return@withContext Result.failure()
+        }
+
         val client = OpenRouterBatchClient(
             apiKey = apiKey,
             maxConcurrentRequests = settings.batchSize,
             timeoutMs = settings.flushTimeoutMs
         )
+
+        val maxAllowedRetries = settings.maxRetries.coerceAtLeast(1)
 
         try {
             val response = client.processRequest(
@@ -57,8 +70,8 @@ class OpenRouterBatchWorker @AssistedInject constructor(
                 )
             )
 
-            // Cache response if requestId is provided
-            if (requestId.isNotBlank() && response.isNotBlank()) {
+            // Cache response if requestId is provided and content size is within safety limits
+            if (requestId.isNotBlank() && response.isNotBlank() && response.length <= MAX_CACHE_SIZE) {
                 openRouterBatchCacheDao.insertOrUpdate(
                     OpenRouterBatchCacheEntity(
                         cacheKey = requestId,
@@ -76,7 +89,7 @@ class OpenRouterBatchWorker @AssistedInject constructor(
             Result.success(outputData)
         } catch (e: Exception) {
             Log.e(TAG, "OpenRouter batch dispatch failed: ${e.message}", e)
-            if (runAttemptCount < MAX_RETRIES) {
+            if (runAttemptCount < maxAllowedRetries) {
                 Result.retry()
             } else {
                 Result.failure(
@@ -98,13 +111,17 @@ class OpenRouterBatchWorker @AssistedInject constructor(
         const val KEY_MAX_TOKENS = "max_tokens"
         const val KEY_RESPONSE = "response"
         const val KEY_ERROR_MESSAGE = "error_message"
-        private const val MAX_RETRIES = 3
+
+        // 1MB max response cache size to avoid SQLite row/DB exhaustion
+        const val MAX_CACHE_SIZE = 1024 * 1024
+        // 7 days default cache retention threshold for background cleanup
+        const val CACHE_EXPIRY_THRESHOLD_MS = 7L * 24 * 60 * 60 * 1000
 
         fun enqueueBatchRequest(
             context: Context,
             requestId: String,
             prompt: String,
-            apiKey: String,
+            apiKey: String? = null,
             temperature: Float = 0.7f,
             maxTokens: Int = 1024
         ) {
@@ -112,19 +129,21 @@ class OpenRouterBatchWorker @AssistedInject constructor(
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
+            val dataBuilder = Data.Builder()
+                .putString(KEY_REQUEST_ID, requestId)
+                .putString(KEY_PROMPT, prompt)
+                .putFloat(KEY_TEMPERATURE, temperature)
+                .putInt(KEY_MAX_TOKENS, maxTokens)
+
+            if (!apiKey.isNullOrBlank()) {
+                dataBuilder.putString(KEY_API_KEY, apiKey)
+            }
+
             val workRequest = OneTimeWorkRequestBuilder<OpenRouterBatchWorker>()
                 .setConstraints(constraints)
-                .setInputData(
-                    Data.Builder()
-                        .putString(KEY_REQUEST_ID, requestId)
-                        .putString(KEY_PROMPT, prompt)
-                        .putString(KEY_API_KEY, apiKey)
-                        .putFloat(KEY_TEMPERATURE, temperature)
-                        .putInt(KEY_MAX_TOKENS, maxTokens)
-                        .build()
-                )
+                .setInputData(dataBuilder.build())
                 .setBackoffCriteria(
-                    androidx.work.BackoffPolicy.EXPONENTIAL,
+                    BackoffPolicy.EXPONENTIAL,
                     10,
                     TimeUnit.SECONDS
                 )

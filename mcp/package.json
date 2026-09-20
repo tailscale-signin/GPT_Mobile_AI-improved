@@ -1,6 +1,6 @@
 {
   "name": "gpt-mobile-mcp-server",
-  "version": "0.9.5.3",
+  "version": "0.9.5.6",
   "description": "Model Context Protocol (MCP) server implementation for GPT Mobile AI",
   "main": "server.js",
   "type": "commonjs",

@@ -7,6 +7,27 @@
 -ignorewarnings
 
 # -------------------------------------------------------------
+# Native Libraries & JNI Protection (LiteRT-LM & Qualcomm QNN)
+# -------------------------------------------------------------
+-keep class com.qualcomm.qnn.** { *; }
+-keep interface com.qualcomm.qnn.** { *; }
+-keep class com.qualcomm.qti.** { *; }
+-keep interface com.qualcomm.qti.** { *; }
+-keep class com.litertlm.** { *; }
+-keep interface com.litertlm.** { *; }
+-dontwarn com.qualcomm.qnn.**
+-dontwarn com.qualcomm.qti.**
+-dontwarn com.litertlm.**
+-keepnames class com.qualcomm.qnn.** { *; }
+-keepnames class com.qualcomm.qti.** { *; }
+-keepnames class com.litertlm.** { *; }
+
+# Critical: Preserve all JNI native method signatures
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# -------------------------------------------------------------
 # Aggressive Code & Logging Stripping for Performance
 # -------------------------------------------------------------
 # Strip Android Log calls completely in release builds to eliminate string allocation & CPU cycles
@@ -66,6 +87,16 @@
 # Don't optimize LiteRT-LM native binding JNI classes
 -keepclasseswithmembernames,includedescriptorclasses class com.google.ai.edge.** {
     native <methods>;
+}
+
+# -------------------------------------------------------------
+# Room Database Rules
+# -------------------------------------------------------------
+-keepclassmembers,allowobfuscation interface * {
+    @androidx.room.* <methods>;
+}
+-keepclassmembers class * {
+    @androidx.room.* <methods>;
 }
 
 # -------------------------------------------------------------

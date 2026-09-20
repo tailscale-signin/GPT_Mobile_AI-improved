@@ -8,7 +8,8 @@ import androidx.recyclerview.widget.RecyclerView
 import dev.chungjungsoo.gptmobile.R
 
 class RouterModeAdapter(
-    private var models: List<RouterModel>
+    private var models: List<RouterModel>,
+    private var onModelClick: ((RouterModel) -> Unit)? = null
 ) : RecyclerView.Adapter<RouterModeAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -30,9 +31,17 @@ class RouterModeAdapter(
         holder.tvType.text = model.type
         holder.tvStatus.text = model.status
         holder.tvAliases.text = model.aliases.joinToString(", ")
+
+        holder.itemView.setOnClickListener {
+            onModelClick?.invoke(model)
+        }
     }
 
     override fun getItemCount(): Int = models.size
+
+    fun setOnModelClickListener(listener: (RouterModel) -> Unit) {
+        onModelClick = listener
+    }
 
     fun updateData(newModels: List<RouterModel>) {
         models = newModels

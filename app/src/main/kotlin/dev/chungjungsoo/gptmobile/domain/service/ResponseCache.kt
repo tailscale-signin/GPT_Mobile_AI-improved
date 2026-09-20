@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.domain.service
 
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterMessageItem
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 data class CachedResponse(
@@ -47,10 +48,16 @@ class ResponseCache(
 object CacheKeyGenerator {
     fun generate(model: String, messages: List<OpenRouterMessageItem>): String {
         val promptText = messages.joinToString("\n") { "${it.role}:${it.content}" }
-        return "${model}:${promptText.hashCode()}"
+        return "${model}:${sha256(promptText)}"
     }
 
     fun generate(model: String, prompt: String): String {
-        return "${model}:${prompt.hashCode()}"
+        return "${model}:${sha256(prompt)}"
+    }
+
+    private fun sha256(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = digest.digest(input.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 }

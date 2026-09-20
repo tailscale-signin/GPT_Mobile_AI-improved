@@ -1,42 +1,32 @@
 # Location MCP Tool
 
-A complete location service implementation for the GPT Mobile AI app using Android's FusedLocationProviderClient.
+A comprehensive location tracking tool for GPT Mobile AI Improved, built with Android best practices.
 
 ## Features
 
-- **Last Known Location**: Retrieve the most recent cached location
-- **Single Location Request**: Get a fresh location update on demand
-- **Continuous Updates**: Start/stop real-time location tracking with configurable intervals
-- **Permission Management**: Handle runtime location permissions gracefully
-- **State Flow Integration**: Reactive state management via Kotlin Flow
-- **Compose UI**: Ready-to-use Jetpack Compose component
-
-## Architecture
-
-```
-LocationModule (Hilt DI)
-    └── LocationService (FusedLocationProviderClient)
-        └── LocationViewModel (MVVM layer)
-            └── LocationMcpTool (UI component)
-```
+- **Real-time Location Tracking** - Uses FusedLocationProviderClient for power-efficient updates
+- **Permission Management** - Automatic fine/coarse location permission handling
+- **Configurable Priority** - Choose between HIGH_ACCURACY, BALANCED_POWER_ACCURACY (default), LOW_POWER, NO_POWER
+- **State Management** - Kotlin StateFlow for reactive UI updates
+- **Compose UI** - Modern Material 3 design with live location display
 
 ## Usage
 
-### In ViewModel/Repository
+### In ViewModel
 ```kotlin
-val locationService: LocationService = hiltInject()
+private val locationViewModel: LocationViewModel by viewModels()
+
+// Request permissions
+locationViewModel.requestPermissions()
 
 // Get last known location
-val location = locationService.getLastKnownLocation()
+locationViewModel.getLastKnownLocation()
 
-// Start continuous updates
-locationService.startLocationUpdates(
-    minUpdateIntervalMillis = 10_000,
-    maxUpdateDistanceMeters = 10f
+// Start tracking
+locationViewModel.requestLocationUpdates(
+    priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+    minUpdateIntervalMillis = 5000L
 )
-
-// Stop updates
-locationService.stopLocationUpdates()
 ```
 
 ### In Compose UI
@@ -44,31 +34,39 @@ locationService.stopLocationUpdates()
 @Composable
 fun LocationScreen() {
     val viewModel: LocationViewModel = hiltViewModel()
-    LocationMcpTool(viewModel = viewModel)
+    val state by viewModel.locationState.collectAsState()
+    
+    // Display location data
 }
 ```
+
+## Configuration Options
+
+- **Priority**: `HIGH_ACCURACY`, `BALANCED_POWER_ACCURACY` (default), `LOW_POWER`, `NO_POWER`
+- **Update Interval**: Configurable in milliseconds (default: 5000ms)
+
+## Architecture
+
+- **Hilt DI** - Dependency injection for FusedLocationProviderClient
+- **ViewModel** - State management with Kotlin Flow
+- **Compose UI** - Declarative UI with Material 3 components
+- **Lifecycle Aware** - Proper cleanup on ViewModel destruction
 
 ## Permissions
 
-The AndroidManifest.xml already includes the required permissions:
-- `ACCESS_FINE_LOCATION`
-- `ACCESS_COARSE_LOCATION`
-
-## Dependencies
-
-No new dependencies required. Uses existing:
-- Hilt for dependency injection
-- Kotlin Coroutines Flow
-- Jetpack Compose (UI)
-- Android Location APIs
+The app requires location permissions in AndroidManifest.xml:
+```xml
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+```
 
 ## Testing
 
-```kotlin
-@Test
-fun testLocationService() = runTest {
-    val service = locationService
-    val location = service.getLastKnownLocation()
-    assertNotNull(location)
-}
-```
+1. Grant location permission when prompted
+2. Call `requestLocationUpdates()` to start tracking
+3. Observe real-time updates in the UI
+4. Call `removeLocationUpdates()` to stop tracking
+
+## License
+
+MIT License - See LICENSE file for details.

@@ -27,6 +27,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.AiPlatformsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LicenseScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpToolsSelectionScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.OpenRouterSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingScreen
@@ -40,6 +41,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupPlatformTypeScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupPlatformWizardScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupViewModelV2
 import dev.chungjungsoo.gptmobile.presentation.ui.startscreen.StartScreen
+import dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterSettingsViewModel
 
 @Composable
 fun SetupNavGraph(
@@ -196,8 +198,16 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigationClick = { navController.navigateUp() },
                 onNavigateToAiPlatforms = { navController.navigate(Route.AI_PLATFORMS) },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
+                onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
                 onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
+            )
+        }
+        composable(Route.OPENROUTER_SETTINGS) {
+            val viewModel: OpenRouterSettingsViewModel = hiltViewModel()
+            OpenRouterSettingsScreen(
+                viewModel = viewModel,
+                onNavigationClick = { navController.navigateUp() }
             )
         }
         composable(Route.AI_PLATFORMS) {

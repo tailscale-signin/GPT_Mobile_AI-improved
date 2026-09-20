@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import kotlinx.coroutines.flow.Flow
@@ -45,9 +46,11 @@ interface MessageV2Dao {
     )
     fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>>
 
+    @Transaction
     @Insert
     suspend fun addMessages(vararg messages: MessageV2)
 
+    @Transaction
     @Insert
     suspend fun insertMessageList(messages: List<MessageV2>)
 

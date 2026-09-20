@@ -80,6 +80,23 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_21_22 = object : Migration(21, 22) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `openrouter_batch_cache` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `cache_key` TEXT NOT NULL,
+                    `response_content` TEXT NOT NULL,
+                    `timestamp` INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_openrouter_batch_cache_cache_key` ON `openrouter_batch_cache` (`cache_key`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_openrouter_batch_cache_timestamp` ON `openrouter_batch_cache` (`timestamp`)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -91,6 +108,7 @@ object ChatDatabaseV2Migrations {
         MIGRATION_17_18,
         MIGRATION_18_19,
         MIGRATION_19_20,
-        MIGRATION_20_21
+        MIGRATION_20_21,
+        MIGRATION_21_22
     )
 }

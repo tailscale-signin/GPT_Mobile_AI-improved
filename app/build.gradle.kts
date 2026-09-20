@@ -211,6 +211,10 @@ dependencies {
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.work.runtime.ktx)
 
+    // Location & Play Services
+    implementation(libs.play.services.location)
+    implementation(libs.kotlinx.coroutines.play.services)
+
     // Ktor
     implementation(libs.ktor.content.negotiation)
     implementation(libs.ktor.core)

@@ -10,6 +10,7 @@ import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
 import kotlinx.coroutines.launch
 import com.google.gson.Gson
+import dev.chungjungsoo.gptmobile.data.llama.LlamaRouterClient
 
 @Parcelize
 data class RouterModel(
@@ -41,6 +42,8 @@ class AdvancedSettingsViewModel(application: Application) : AndroidViewModel(app
 
     private val _saved = MutableLiveData<Boolean>()
     val saved: LiveData<Boolean> = _saved
+
+    private val routerClient = LlamaRouterClient()
 
     init {
         loadSettings()
@@ -77,6 +80,33 @@ class AdvancedSettingsViewModel(application: Application) : AndroidViewModel(app
     }
 
     private suspend fun fetchModels(): List<RouterModel> {
+        val serverUrl = _settings.value?.serverUrl?.trim().orEmpty().ifEmpty { "http://localhost:8080/v1/" }
+        return try {
+            val fetched = routerClient.fetchModels(serverUrl)
+            if (fetched.isNotEmpty()) {
+                fetched.map { modelInfo ->
+                    RouterModel(
+                        id = modelInfo.id,
+                        name = modelInfo.name,
+                        type = modelInfo.quantization,
+                        available = true,
+                        aliases = emptyList(),
+                        tags = listOf(modelInfo.formattedParameters, modelInfo.quantization).filter { it.isNotBlank() },
+                        ctxSize = modelInfo.contextWindowTokens,
+                        ngl = 35,
+                        threads = 8,
+                        status = "available"
+                    )
+                }
+            } else {
+                fallbackModels()
+            }
+        } catch (_: Exception) {
+            fallbackModels()
+        }
+    }
+
+    private fun fallbackModels(): List<RouterModel> {
         return listOf(
             RouterModel("llama3", "Llama 3 8B", "chat", true),
             RouterModel("mistral", "Mistral 7B", "chat", true),
@@ -95,7 +125,8 @@ class AdvancedSettingsViewModel(application: Application) : AndroidViewModel(app
             _loading.value = true
             try {
                 val prefs = getApplication<Application>().getSharedPreferences("llama_settings", Context.MODE_PRIVATE)
-                prefs.edit().putString("advanced_settings", settings.toString()).apply()
+                val json = Gson().toJson(settings)
+                prefs.edit().putString("advanced_settings", json).apply()
                 _saved.value = true
                 _loading.value = false
             } catch (e: Exception) {

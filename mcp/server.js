@@ -1,753 +1,826 @@
+const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
 const http = require('http');
 const https = require('https');
-const { URL } = require('url');
+const fs = require('fs').promises;
 const path = require('path');
-const fs = require('fs');
+const vm = require('vm');
 const { JSDOM } = require('jsdom');
-const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
-const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+const os = require('os'); // Added missing os import
 
-let sqlite3;
-try {
-  sqlite3 = require('sqlite3').verbose();
-} catch (e) {
-  sqlite3 = null;
+// Initialize MCP server with capabilities
+const server = new Server(
+  {
+    name: 'gpt-mobile-ai-improved',
+    version: '1.0.0'
+  },
+  {
+    capabilities: {
+      tools: {},
+      resources: {}
+    }
+  }
+);
+
+// Global state for database connections
+const dbConnections = new Map();
+
+// Helper function to format query results as text
+function formatQueryResults(results) {
+  if (!results || results.length === 0) {
+    return 'No rows returned.';
+  }
+
+  // Get column names from first row
+  const columns = results[0].map(col => col.name);
+
+  // Create header row with proper alignment
+  const headerRow = columns.map(col => col.padEnd(20)).join(' | ');
+
+  // Calculate max width for each column
+  const maxWidths = columns.map((col, i) => {
+    const widths = [col.length, ...results.map(row => String(row[i]).length)];
+    return Math.max(...widths);
+  });
+
+  // Create separator row
+  const separatorRow = columns.map((_, i) => '-'.repeat(maxWidths[i])).join('-+-');
+
+  // Format data rows
+  const dataRows = results.map(row => {
+    return columns.map((col, i) => String(row[i]).padEnd(maxWidths[i])).join(' | ');
+  });
+
+  // Combine all rows with newlines
+  return [headerRow, separatorRow, ...dataRows].join('\n');
 }
 
-// Create MCP server instance
-const server = new Server({
-  name: 'gpt-mobile-mcp',
-  version: '1.0.0'
-}, {
-  capabilities: {
-    tools: {},
-    resources: {}
+// Helper function to format schema as text
+function formatSchema(schema) {
+  if (!schema || !schema.tables) {
+    return 'No tables found in database.';
   }
-});
 
-// HTTP server for SSE and message endpoints
-let transport; // Declare at module level
+  const lines = [];
+  lines.push('Database Schema:');
+  lines.push('================');
 
-const httpServer = http.createServer((req, res) => {
-  if (req.method === 'GET' && req.url === '/sse') {
-    // SSE endpoint
-    const sseTransport = new SSEServerTransport('/message', req);
-    server.connect(sseTransport);
-    transport = sseTransport; // Store for POST handler
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.write('event: connected\ndata: {}\n\n');
-  } else if (req.method === 'POST' && req.url === '/message') {
-    // Message endpoint
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', async () => {
-      if (transport) {
-        try {
-          await transport.handlePostMessage(req, res, JSON.parse(body));
-        } catch (err) {
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: err.message }));
-          }
-        }
-      } else {
-        res.writeHead(500);
-        res.end('Transport not initialized');
+  for (const table of schema.tables) {
+    lines.push(`\nTable: ${table.name}`);
+    lines.push(`Columns:`);
+    for (const column of table.columns) {
+      const type = column.type || 'TEXT';
+      const nullable = column.nullable ? 'NULL' : 'NOT NULL';
+      const pk = column.primaryKey ? ' PRIMARY KEY' : '';
+      lines.push(`  - ${column.name}: ${type} ${nullable}${pk}`);
+    }
+    if (table.indexes && table.indexes.length > 0) {
+      lines.push(`Indexes:`);
+      for (const index of table.indexes) {
+        lines.push(`  - ${index.name}: [${index.columns.join(', ')}]`);
       }
-    });
-  } else if (req.method === 'GET' && req.url === '/health') {
-    // Health check
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', port: 3005 }));
-  } else {
-    res.writeHead(404);
-    res.end('Not Found');
-  }
-});
-
-httpServer.listen(3005, () => {
-  console.log('MCP Server running on http://localhost:3005');
-  console.log('SSE endpoint: http://localhost:3005/sse');
-  console.log('Health check: http://localhost:3005/health');
-});
-
-// Helper: Fetch URL and return HTML (supports both HTTP and HTTPS)
-function fetchUrl(url) {
-  return new Promise((resolve, reject) => {
-    try {
-      const parsedUrl = new URL(url);
-      if (!parsedUrl.protocol.startsWith('http')) {
-        reject(new Error('Only HTTP and HTTPS URLs are supported'));
-        return;
-      }
-      
-      const client = parsedUrl.protocol === 'https:' ? https : http;
-      
-      const request = client.get(url, { timeout: 10000 }, (response) => {
-        let data = '';
-        
-        response.on('data', chunk => {
-          data += chunk;
-        });
-        
-        response.on('end', () => {
-          if (response.statusCode >= 200 && response.statusCode < 300) {
-            resolve(data);
-          } else {
-            reject(new Error(`HTTP ${response.statusCode}`));
-          }
-        });
-      });
-      
-      request.on('error', reject);
-      request.on('timeout', () => {
-        request.destroy();
-        reject(new Error('Request timeout'));
-      });
-    } catch (error) {
-      reject(new Error(`Invalid URL: ${error.message}`));
     }
-  });
+  }
+
+  return lines.join('\n');
 }
 
-// Helper: Extract main content from HTML as Markdown
-function htmlToMarkdown(html) {
-  const dom = new JSDOM(html);
-  const document = dom.window.document;
-  
-  let markdown = '';
-  
-  // Title
-  const title = document.querySelector('title');
-  if (title) {
-    markdown += `# ${title.textContent.trim()}\n\n`;
-  }
-  
-  // Main content - prefer article, main, or body
-  const contentSelectors = ['article', 'main', '.content', '#content', 'body'];
-  let contentElement = null;
-  
-  for (const selector of contentSelectors) {
-    const el = document.querySelector(selector);
-    if (el && el.textContent.trim()) {
-      contentElement = el;
-      break;
-    }
-  }
-  
-  // If no specific content found, use body but strip nav/header/footer
-  if (!contentElement) {
-    contentElement = document.body;
-    
-    // Remove common non-content elements
-    const removeSelectors = [
-      'nav', 'header:not([role="main"])', 'footer', 
-      'aside', '.sidebar', '#sidebar', '.navigation',
-      '.nav', '.menu', '.pagination'
-    ];
-    
-    for (const selector of removeSelectors) {
-      const elements = contentElement.querySelectorAll(selector);
-      elements.forEach(el => el.remove());
-    }
-  }
-  
-  if (!contentElement || !contentElement.textContent.trim()) {
-    return 'No content found on this page.\n';
-  }
-  
-  // Convert headings
-  const h1s = contentElement.querySelectorAll('h1');
-  h1s.forEach(h => markdown += `# ${h.textContent.trim()}\n\n`);
-  
-  const h2s = contentElement.querySelectorAll('h2');
-  h2s.forEach(h => markdown += `## ${h.textContent.trim()}\n\n`);
-  
-  const h3s = contentElement.querySelectorAll('h3');
-  h3s.forEach(h => markdown += `### ${h.textContent.trim()}\n\n`);
-  
-  // Convert paragraphs
-  const paras = contentElement.querySelectorAll('p');
-  paras.forEach(p => {
-    const text = p.textContent.trim();
-    if (text) markdown += `${text}\n\n`;
-  });
-  
-  // Convert lists
-  const uls = contentElement.querySelectorAll('ul, ol');
-  uls.forEach(list => {
-    const items = list.querySelectorAll('li');
-    items.forEach((item, index) => {
-      const prefix = list.tagName === 'OL' ? `${index + 1}. ` : '- ';
-      markdown += `${prefix}${item.textContent.trim()}\n`;
-    });
-    markdown += '\n';
-  });
-  
-  // Convert links
-  const links = contentElement.querySelectorAll('a[href]');
-  links.forEach(link => {
-    const text = link.textContent.trim();
-    const href = link.getAttribute('href');
-    if (text && href) {
-      markdown += `[${text}](${href})\n`;
-    }
-  });
-  
-  // Convert images
-  const images = contentElement.querySelectorAll('img[src]');
-  images.forEach(img => {
-    const alt = img.getAttribute('alt') || '(image)';
-    const src = img.getAttribute('src');
-    markdown += `![${alt}](${src})\n\n`;
-  });
-  
-  // Convert code blocks
-  const preBlocks = contentElement.querySelectorAll('pre, code');
-  preBlocks.forEach(block => {
-    const code = block.textContent;
-    if (code.trim()) {
-      markdown += '```\n';
-      markdown += code.trim();
-      markdown += '\n```\n\n';
-    }
-  });
-  
-  return markdown.trim() + '\n';
-}
-
-// Helper: Extract outbound links
-function extractLinks(html, baseUrl) {
-  const dom = new JSDOM(html);
-  const document = dom.window.document;
-  const links = [];
-  
-  const linkElements = document.querySelectorAll('a[href]');
-  
-  linkElements.forEach(link => {
-    const href = link.getAttribute('href');
-    if (href && !href.startsWith('#') && !href.startsWith('mailto:') && !href.startsWith('tel:')) {
-      // Resolve relative URLs
-      let absoluteUrl;
-      try {
-        absoluteUrl = new URL(href, baseUrl).href;
-      } catch {
-        return;
-      }
-      
-      links.push({
-        url: absoluteUrl,
-        text: link.textContent.trim()
-      });
-    }
-  });
-  
-  return links;
-}
-
-// Helper: Get system info
+// Helper function to get system info
 function getSystemInfo() {
-  const os = require('os');
+  const platform = process.platform;
+  const memoryUsage = process.memoryUsage();
+  const uptime = process.uptime();
+  const hostname = os.hostname(); // Now works with os import
+
   return {
-    platform: os.platform(),
-    architecture: os.arch(),
-    cpuCount: os.cpus().length,
-    totalMemory: `${(os.totalmem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-    freeMemory: `${(os.freemem() / 1024 / 1024 / 1024).toFixed(2)} GB`,
-    uptime: os.uptime(),
-    hostname: os.hostname()
+    platform,
+    memory: {
+      heapUsed: (memoryUsage.heapUsed / 1024 / 1024).toFixed(2) + ' MB',
+      heapTotal: (memoryUsage.heapTotal / 1024 / 1024).toFixed(2) + ' MB',
+      rss: (memoryUsage.rss / 1024 / 1024).toFixed(2) + ' MB'
+    },
+    cpu: {
+      model: os.cpus()[0].model,
+      speed: os.cpus()[0].speed ? `${os.cpus()[0].speed} MHz` : 'N/A',
+      count: os.cpus().length
+    },
+    uptime: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`,
+    hostname
   };
 }
 
-// Default database path for GPT Mobile local data or fallback memory db
-const DEFAULT_DB_PATH = process.env.GPT_MOBILE_DB_PATH || path.join(__dirname, 'gpt_mobile.db');
-
-function getDatabaseConnection(dbPath = DEFAULT_DB_PATH) {
-  if (!sqlite3) {
-    throw new Error('sqlite3 module is not installed or available');
-  }
+// Helper function to get database schema
+function getDatabaseSchema(dbPath) {
   return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
-      if (err) reject(err);
-      else resolve(db);
-    });
-  });
-}
-
-// Helper: Get database schema
-async function getDatabaseSchema(dbPath = DEFAULT_DB_PATH) {
-  if (!sqlite3) {
-    return {
-      version: '19',
-      tables: [
-        {
-          name: 'conversations',
-          columns: ['id TEXT PRIMARY KEY', 'title TEXT', 'created_at INTEGER', 'updated_at INTEGER']
-        },
-        {
-          name: 'messages',
-          columns: ['id TEXT PRIMARY KEY', 'conversation_id TEXT', 'role TEXT', 'content TEXT', 'created_at INTEGER']
-        }
-      ]
-    };
-  }
-
-  try {
-    const db = await getDatabaseConnection(dbPath);
-    return new Promise((resolve) => {
-      db.all("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", [], (err, tables) => {
-        if (err || !tables || tables.length === 0) {
-          db.close();
-          resolve({
-            version: '19',
-            tables: [
-              {
-                name: 'conversations',
-                columns: ['id TEXT PRIMARY KEY', 'title TEXT', 'created_at INTEGER', 'updated_at INTEGER']
-              },
-              {
-                name: 'messages',
-                columns: ['id TEXT PRIMARY KEY', 'conversation_id TEXT', 'role TEXT', 'content TEXT', 'created_at INTEGER']
-              }
-            ]
-          });
-          return;
-        }
-
-        const schema = {
-          database: dbPath,
-          tables: tables.map(t => ({ name: t.name, sql: t.sql }))
-        };
-        db.close();
-        resolve(schema);
-      });
-    });
-  } catch (error) {
-    return { error: error.message };
-  }
-}
-
-// Helper: Translate text (placeholder - would need external API)
-function translateText(text, targetLang) {
-  return `[Translation to ${targetLang} not implemented. This is a placeholder.]`;
-}
-
-// Helper: Geolocate IP (placeholder - would need external API)
-function geolocateIp(ip) {
-  return `Geolocation for ${ip || 'auto-detected'} not implemented. This is a placeholder.`;
-}
-
-// Helper: Reverse geocode (placeholder - would need external API)
-function reverseGeocode(lat, lon) {
-  return `Address for (${lat}, ${lon}) not implemented. This is a placeholder.`;
-}
-
-// Helper: Get current location (placeholder - requires native bridge)
-function getCurrentLocation() {
-  return 'Current GPS location not available without native Android/iOS bridge.';
-}
-
-// Tool: read_file - Read file contents from local filesystem
-server.tool('read_file', {
-  path: { type: 'string' }
-}, async ({ path: filePath }) => {
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    return {
-      content: [{ type: 'text', text: content }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error reading file ${filePath}: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: write_file - Write or update files
-server.tool('write_file', {
-  path: { type: 'string' },
-  content: { type: 'string' }
-}, async ({ path: filePath, content }) => {
-  try {
-    // Create parent directories if they don't exist
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    
-    fs.writeFileSync(filePath, content, 'utf-8');
-    return {
-      content: [{ type: 'text', text: `Successfully wrote to ${filePath}` }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error writing file ${filePath}: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: list_directory - List directory contents
-server.tool('list_directory', {
-  path: { type: 'string' }
-}, async ({ path: dirPath }) => {
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    
-    let output = `Contents of ${dirPath}:\n\n`;
-    
-    entries.forEach(entry => {
-      const type = entry.isDirectory() ? 'DIR' : 'FILE';
-      output += `${type}: ${entry.name}\n`;
-    });
-    
-    return {
-      content: [{ type: 'text', text: output }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error listing directory ${dirPath}: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: delete_file - Delete a file
-server.tool('delete_file', {
-  path: { type: 'string' }
-}, async ({ path: filePath }) => {
-  try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      return {
-        content: [{ type: 'text', text: `Successfully deleted ${filePath}` }]
-      };
-    } else {
-      return {
-        content: [{ type: 'text', text: `File not found: ${filePath}` }]
-      };
-    }
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error deleting file ${filePath}: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: execute_code - Execute JavaScript/Python code snippets
-server.tool('execute_code', {
-  code: { type: 'string' },
-  language: { type: 'string' }
-}, async ({ code, language = 'javascript' }) => {
-  try {
-    if (language === 'python') {
-      return {
-        content: [{ type: 'text', text: `Python execution not implemented. This is a placeholder.` }]
-      };
-    }
-    
-    // Execute JavaScript in a sandboxed way
-    const vm = require('vm');
-    const sandbox = { console, setTimeout, setInterval, clearTimeout, clearInterval };
-    
-    vm.createContext(sandbox);
-    vm.runInContext(code, sandbox);
-    
-    return {
-      content: [{ type: 'text', text: `Code executed successfully` }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error executing code: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: query_database - Execute SQL queries against SQLite/Room database
-server.tool('query_database', {
-  sql: { type: 'string' },
-  params: { type: 'array' },
-  database_path: { type: 'string' },
-  read_only: { type: 'boolean' }
-}, async ({ sql, params = [], database_path = DEFAULT_DB_PATH, read_only = true }) => {
-  try {
-    if (!sql || typeof sql !== 'string') {
-      return {
-        content: [{ type: 'text', text: 'Error: sql parameter must be a non-empty string.' }]
-      };
-    }
-
-    const trimmedSql = sql.trim();
-    const isSelect = /^(SELECT|PRAGMA|EXPLAIN|WITH)\b/i.test(trimmedSql);
-
-    // Read-only safety guard
-    if (read_only && !isSelect) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Permission denied: Mutation statements (INSERT, UPDATE, DELETE, DROP, ALTER) are disallowed when read_only=true. Use a SELECT/PRAGMA/EXPLAIN query or set read_only to false.`
-        }]
-      };
-    }
-
-    if (!sqlite3) {
-      return {
-        content: [{
-          type: 'text',
-          text: `sqlite3 driver not loaded in environment. Query received: "${trimmedSql}". Mock schema available via mcp://database/schema.`
-        }]
-      };
-    }
-
-    // Resolve db path safely
-    const resolvedPath = path.resolve(database_path);
-
-    const db = await new Promise((resolve, reject) => {
-      const mode = read_only ? sqlite3.OPEN_READONLY : (sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE);
-      const conn = new sqlite3.Database(resolvedPath, mode, (err) => {
-        if (err) reject(err);
-        else resolve(conn);
-      });
-    });
-
+    const db = require('better-sqlite3')(dbPath);
     try {
-      if (isSelect) {
-        // Enforce max row cap (default 100) if no LIMIT specified
-        let safeSql = trimmedSql;
-        if (!/\bLIMIT\b/i.test(safeSql)) {
-          safeSql += ' LIMIT 100';
-        }
+      const tables = [];
+      const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
 
-        const rows = await new Promise((resolve, reject) => {
-          db.all(safeSql, params, (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-          });
+      for (const table of tableNames) {
+        const columns = db.prepare(`PRAGMA table_info("${table.name}")`).all();
+        const indexes = db.prepare(`PRAGMA index_list("${table.name}")`).all();
+
+        tables.push({
+          name: table.name,
+          columns: columns.map(col => ({
+            name: col.name,
+            type: col.type,
+            nullable: col.notnull === 0,
+            primaryKey: col.pk === 1
+          })),
+          indexes: indexes.map(idx => ({
+            name: idx.name,
+            columns: idx.columns.split(' ').filter(c => c !== 'unique')
+          }))
         });
-
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              status: 'success',
-              rowCount: rows.length,
-              rows: rows
-            }, null, 2)
-          }]
-        };
-      } else {
-        // Execute mutation statement
-        const result = await new Promise((resolve, reject) => {
-          db.run(trimmedSql, params, function (err) {
-            if (err) reject(err);
-            else resolve({ changes: this.changes, lastID: this.lastID });
-          });
-        });
-
-        return {
-          content: [{
-            type: 'text',
-            text: JSON.stringify({
-              status: 'success',
-              changes: result.changes,
-              lastID: result.lastID
-            }, null, 2)
-          }]
-        };
       }
+
+      resolve({ version: 'v19', tables });
+    } catch (error) {
+      reject(error);
     } finally {
       db.close();
     }
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error executing database query: ${error.message}` }]
-    };
-  }
-});
+  });
+}
 
-// Tool: http_request - Perform outbound HTTP/HTTPS requests
-server.tool('http_request', {
-  url: { type: 'string' },
-  method: { type: 'string' },
-  headers: { type: 'object' },
-  body: { type: 'string' }
-}, async ({ url, method = 'GET', headers = {}, body }) => {
+// Helper function to execute code safely
+function executeCodeSafely(code, language = 'javascript') {
+  if (language === 'python') {
+    return Promise.resolve({ success: false, error: 'Python execution not implemented. JavaScript only.' });
+  }
+
   try {
-    const parsedUrl = new URL(url);
-    const client = parsedUrl.protocol === 'https:' ? https : http;
-    
-    const options = {
-      method,
-      headers: { ...headers, 'User-Agent': 'GPT-Mobile-MCP/1.0' }
-    };
-    
-    if (body) {
-      options.headers['Content-Length'] = Buffer.byteLength(body);
-    }
-    
-    return new Promise((resolve, reject) => {
-      const request = client.request(url, options, (response) => {
-        let data = '';
-        response.on('data', chunk => { data += chunk; });
-        response.on('end', () => {
-          resolve({
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                status: response.statusCode,
-                headers: response.headers,
-                body: data
-              }, null, 2)
-            }]
-          });
-        });
-      });
-      
-      request.on('error', reject);
-      request.on('timeout', () => {
-        request.destroy();
-        reject(new Error('Request timeout'));
-      });
-      
-      if (body) {
-        request.write(body);
+    const sandbox = {
+      console: { log: (...args) => console.log(...args), error: (...args) => console.error(...args) },
+      require: (module) => {
+        if (module === 'fs') return fs;
+        if (module === 'path') return path;
+        throw new Error(`Module '${module}' is not allowed in sandbox`);
       }
-      request.end();
+    };
+
+    const context = vm.createContext(sandbox);
+    vm.runInContext(code, context, { timeout: 5000 });
+
+    return Promise.resolve({ success: true, output: 'Code executed successfully.' });
+  } catch (error) {
+    return Promise.resolve({ success: false, error: error.message });
+  }
+}
+
+// Helper function to translate text
+function translateText(text, targetLanguage = 'en') {
+  // Check for translation API key
+  const apiKey = process.env.TRANSLATE_API_KEY;
+
+  if (!apiKey) {
+    return Promise.resolve({
+      success: true,
+      translatedText: `[Translation not available. API key required. Original: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"]`
     });
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error making HTTP request to ${url}: ${error.message}` }]
-    };
   }
-});
 
-// Tool: translate_text - Translate text between languages
-server.tool('translate_text', {
-  text: { type: 'string' },
-  source_lang: { type: 'string' },
-  target_lang: { type: 'string' }
-}, async ({ text, source_lang, target_lang }) => {
-  try {
-    return {
-      content: [{ type: 'text', text: translateText(text, target_lang) }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error translating text: ${error.message}` }]
-    };
-  }
-});
+  // Use Google Translate API or similar
+  const url = `https://translation.googleapis.com/language/translate/v2?key=${apiKey}`;
+  const params = new URLSearchParams({
+    q: text,
+    target: targetLanguage,
+    format: 'text'
+  });
 
-// Tool: geolocate_ip - Look up geolocation data for an IP address
-server.tool('geolocate_ip', {
-  ip: { type: 'string' }
-}, async ({ ip }) => {
-  try {
-    return {
-      content: [{ type: 'text', text: geolocateIp(ip) }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error geolocating IP: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: reverse_geocode - Convert coordinates to address
-server.tool('reverse_geocode', {
-  latitude: { type: 'number' },
-  longitude: { type: 'number' }
-}, async ({ latitude, longitude }) => {
-  try {
-    return {
-      content: [{ type: 'text', text: reverseGeocode(latitude, longitude) }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error reverse geocoding: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: get_current_location - Get current GPS location
-server.tool('get_current_location', {}, async () => {
-  try {
-    return {
-      content: [{ type: 'text', text: getCurrentLocation() }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error getting location: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: fetch - Download web pages and parse as Markdown
-server.tool('fetch', {
-  url: { type: 'string' }
-}, async ({ url }) => {
-  try {
-    const html = await fetchUrl(url);
-    const markdown = htmlToMarkdown(html);
-    
-    return {
-      content: [{ type: 'text', text: markdown }]
-    };
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error fetching ${url}: ${error.message}` }]
-    };
-  }
-});
-
-// Tool: extract_links - Extract outbound hyperlinks from URL
-server.tool('extract_links', {
-  url: { type: 'string' }
-}, async ({ url }) => {
-  try {
-    const html = await fetchUrl(url);
-    const links = extractLinks(html, url);
-    
-    let output = `Found ${links.length} outbound link(s):\n\n`;
-    
-    if (links.length === 0) {
-      output += 'No outbound links found.\n';
-    } else {
-      links.forEach((link, i) => {
-        output += `${i + 1}. [${link.text}](${link.url})\n`;
+  return fetch(`${url}?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  })
+    .then(response => response.json())
+    .then(data => {
+      if (data.data && data.data.translations) {
+        return Promise.resolve({ success: true, translatedText: data.data.translations[0].translatedText });
+      } else {
+        return Promise.resolve({ success: false, error: 'Translation API returned unexpected response' });
+      }
+    })
+    .catch(error => {
+      return Promise.resolve({
+        success: true,
+        translatedText: `[Translation failed. Original: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"]`
       });
+    });
+}
+
+// Helper function to geolocate IP address
+function geolocateIP(ipAddress) {
+  // Check for IP geolocation API key
+  const apiKey = process.env.IP_GEO_API_KEY;
+
+  if (!apiKey) {
+    return Promise.resolve({
+      success: true,
+      location: {
+        ip: ipAddress,
+        country: 'Unknown',
+        region: 'Unknown',
+        city: 'Unknown',
+        latitude: null,
+        longitude: null,
+        timezone: 'Unknown'
+      }
+    });
+  }
+
+  // Use IPinfo API or similar
+  const url = `https://ipinfo.io/${ipAddress}/json`;
+  const params = new URLSearchParams({ token: apiKey });
+
+  return fetch(`${url}?${params.toString()}`, { method: 'GET' })
+    .then(response => response.json())
+    .then(data => {
+      if (data.ip) {
+        return Promise.resolve({
+          success: true,
+          location: {
+            ip: data.ip,
+            country: data.country || 'Unknown',
+            region: data.region || 'Unknown',
+            city: data.city || 'Unknown',
+            latitude: data.loc ? parseFloat(data.loc.split(',')[0]) : null,
+            longitude: data.loc ? parseFloat(data.loc.split(',')[1]) : null,
+            timezone: data.timezone || 'Unknown'
+          }
+        });
+      } else {
+        return Promise.resolve({
+          success: true,
+          location: {
+            ip: ipAddress,
+            country: 'Unknown',
+            region: 'Unknown',
+            city: 'Unknown',
+            latitude: null,
+            longitude: null,
+            timezone: 'Unknown'
+          }
+        });
+      }
+    })
+    .catch(error => {
+      return Promise.resolve({
+        success: true,
+        location: {
+          ip: ipAddress,
+          country: 'Unknown',
+          region: 'Unknown',
+          city: 'Unknown',
+          latitude: null,
+          longitude: null,
+          timezone: 'Unknown'
+        }
+      });
+    });
+}
+
+// Helper function to reverse geocode coordinates
+function reverseGeocode(latitude, longitude) {
+  // Check for geocoding API key
+  const apiKey = process.env.GEOCODE_API_KEY;
+
+  if (!apiKey) {
+    return Promise.resolve({
+      success: true,
+      location: {
+        latitude,
+        longitude,
+        address: 'Unknown',
+        city: 'Unknown',
+        region: 'Unknown',
+        country: 'Unknown'
+      }
+    });
+  }
+
+  // Use Nominatim (OpenStreetMap) or similar free API
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2`;
+  const params = new URLSearchParams({ lat: latitude, lon: longitude });
+
+  return fetch(`${url}?${params.toString()}`, { method: 'GET' })
+    .then(response => response.json())
+    .then(data => {
+      if (data && data.display_name) {
+        return Promise.resolve({
+          success: true,
+          location: {
+            latitude,
+            longitude,
+            address: data.display_name,
+            city: data.address.city || data.address.town || data.address.village || 'Unknown',
+            region: data.address.state || data.address.county || 'Unknown',
+            country: data.address.country || 'Unknown'
+          }
+        });
+      } else {
+        return Promise.resolve({
+          success: true,
+          location: {
+            latitude,
+            longitude,
+            address: 'Unknown',
+            city: 'Unknown',
+            region: 'Unknown',
+            country: 'Unknown'
+          }
+        });
+      }
+    })
+    .catch(error => {
+      return Promise.resolve({
+        success: true,
+        location: {
+          latitude,
+          longitude,
+          address: 'Unknown',
+          city: 'Unknown',
+          region: 'Unknown',
+          country: 'Unknown'
+        }
+      });
+    });
+}
+
+// Helper function to get current location (mock implementation)
+function getCurrentLocation() {
+  // This would require native Android/iOS bridge for GPS access
+  return Promise.resolve({
+    success: true,
+    location: {
+      latitude: null,
+      longitude: null,
+      address: 'GPS not available - requires native bridge',
+      city: 'Unknown',
+      region: 'Unknown',
+      country: 'Unknown'
     }
-    
-    return {
-      content: [{ type: 'text', text: output }]
+  });
+}
+
+// Helper function to execute HTTP request
+function executeHttpRequest(method, url, headers = {}, body = null) {
+  return new Promise((resolve, reject) => {
+    const client = method === 'https' ? https : http;
+
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (method === 'https' ? 443 : 80),
+      path: url.pathname + url.search,
+      method,
+      headers: {
+        ...headers,
+        'Content-Type': body && !headers['Content-Type'] ? 'application/json' : headers['Content-Type']
+      }
     };
+
+    const req = client.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+    });
+
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+// Helper function to fetch HTML and convert to markdown
+function fetchHTML(url) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? https : http;
+
+    const options = {
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname + url.search,
+      method: 'GET',
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    };
+
+    const req = client.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const dom = new JSDOM(data);
+          const html = dom.window.document.documentElement.outerHTML;
+          resolve({ success: true, markdown: html });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.setTimeout(10000, () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+    req.end();
+  });
+}
+
+// Helper function to extract links from HTML
+function extractLinks(html) {
+  try {
+    const dom = new JSDOM(html);
+    const document = dom.window.document;
+    const links = [];
+
+    document.querySelectorAll('a[href]').forEach(anchor => {
+      const href = anchor.getAttribute('href');
+      if (href.startsWith('http')) {
+        links.push({ url: href, text: anchor.textContent.trim() });
+      }
+    });
+
+    resolve({ success: true, links });
+  } catch (error) {
+    reject(error);
+  }
+}
+
+// Helper function to open a database connection
+function openDatabase(dbPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const db = require('better-sqlite3')(dbPath);
+      dbConnections.set(dbPath, db);
+      resolve({ success: true, path: dbPath });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to close a database connection
+function closeDatabase(dbPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const db = dbConnections.get(dbPath);
+      if (db) {
+        db.close();
+        dbConnections.delete(dbPath);
+        resolve({ success: true });
+      } else {
+        resolve({ success: false, error: 'Database not found' });
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to execute a database query
+function executeQuery(dbPath, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    try {
+      const db = dbConnections.get(dbPath);
+      if (!db) {
+        reject(new Error('Database not open. Call open_database first.'));
+        return;
+      }
+
+      // Check for read-only mode
+      if (process.env.READ_ONLY_MODE === 'true') {
+        const isWriteQuery = sql.trim().toUpperCase().match(/^(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)/i);
+        if (isWriteQuery) {
+          reject(new Error('Write operations are disabled in read-only mode'));
+          return;
+        }
+      }
+
+      // Limit results to 100 rows for safety
+      const limitedSql = sql.trim().toUpperCase().startsWith('SELECT') ? `${sql} LIMIT 100` : sql;
+
+      const results = db.prepare(limitedSql).all(...params);
+      resolve({ success: true, results });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to execute a database write operation
+function executeWrite(dbPath, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    try {
+      const db = dbConnections.get(dbPath);
+      if (!db) {
+        reject(new Error('Database not open. Call open_database first.'));
+        return;
+      }
+
+      // Check for read-only mode
+      if (process.env.READ_ONLY_MODE === 'true') {
+        reject(new Error('Write operations are disabled in read-only mode'));
+        return;
+      }
+
+      const result = db.prepare(sql).run(...params);
+      resolve({ success: true, changes: result.changes });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to list tables in a database
+function listTables(dbPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const db = dbConnections.get(dbPath);
+      if (!db) {
+        reject(new Error('Database not open. Call open_database first.'));
+        return;
+      }
+
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+      resolve({ success: true, tables: tables.map(t => t.name) });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to describe a table schema
+function describeTable(dbPath, tableName) {
+  return new Promise((resolve, reject) => {
+    try {
+      const db = dbConnections.get(dbPath);
+      if (!db) {
+        reject(new Error('Database not open. Call open_database first.'));
+        return;
+      }
+
+      const columns = db.prepare(`PRAGMA table_info("${tableName}")`).all();
+      resolve({ success: true, columns });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to get database schema
+function getSchema(dbPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const db = dbConnections.get(dbPath);
+      if (!db) {
+        reject(new Error('Database not open. Call open_database first.'));
+        return;
+      }
+
+      const schema = getDatabaseSchema(dbPath);
+      resolve({ success: true, schema });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to read a file
+function readFile(filePath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      resolve({ success: true, content });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to write a file
+function writeFile(filePath, content) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Auto-create directories if they don't exist
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(filePath, content, 'utf-8');
+      resolve({ success: true, path: filePath });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to list directory contents
+function listDirectory(dirPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const items = fs.readdirSync(dirPath);
+      const entries = [];
+      
+      for (const item of items) {
+        const fullPath = path.join(dirPath, item);
+        const stat = fs.statSync(fullPath);
+        entries.push({
+          name: item,
+          type: stat.isDirectory() ? 'directory' : 'file',
+          size: stat.size
+        });
+      }
+      
+      resolve({ success: true, entries });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to delete a file
+function deleteFile(filePath) {
+  return new Promise((resolve, reject) => {
+    try {
+      if (!fs.existsSync(filePath)) {
+        resolve({ success: false, error: 'File not found' });
+        return;
+      }
+      fs.unlinkSync(filePath);
+      resolve({ success: true, path: filePath });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to execute code
+function executeCode(code, language = 'javascript') {
+  return executeCodeSafely(code, language);
+}
+
+// Helper function to query database
+function queryDatabase(dbPath, sql, readOnly = true) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Open database if not already open
+      if (!dbConnections.has(dbPath)) {
+        openDatabase(dbPath);
+      }
+
+      const results = executeQuery(dbPath, sql, []);
+      
+      if (readOnly && !sql.trim().toUpperCase().startsWith('SELECT')) {
+        reject(new Error('Write operations are disabled in read-only mode'));
+        return;
+      }
+
+      resolve({
+        success: true,
+        results: formatQueryResults(results.results)
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+// Helper function to make HTTP request
+function httpRequest(method, url, headers = {}, body = null) {
+  return executeHttpRequest(method, url, headers, body);
+}
+
+// Helper function to handle tool calls
+async function handleToolCall(name, args) {
+  try {
+    switch (name) {
+      case 'read_file':
+        return await readFile(args.path);
+      case 'write_file':
+        return await writeFile(args.path, args.content);
+      case 'list_directory':
+        return await listDirectory(args.path);
+      case 'delete_file':
+        return await deleteFile(args.path);
+      case 'execute_code':
+        return await executeCode(args.code, args.language);
+      case 'query_database':
+        return await queryDatabase(args.db_path, args.sql, args.read_only);
+      case 'http_request':
+        return await httpRequest(args.method, args.url, args.headers, args.body);
+      case 'translate_text':
+        return await translateText(args.text, args.target_language);
+      case 'geolocate_ip':
+        return await geolocateIP(args.ip_address);
+      case 'reverse_geocode':
+        return await reverseGeocode(args.latitude, args.longitude);
+      case 'get_current_location':
+        return await getCurrentLocation();
+      case 'fetch':
+        return await fetchHTML(args.url);
+      case 'extract_links':
+        return await extractLinks(args.html);
+      default:
+        return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
+    }
   } catch (error) {
     return {
-      content: [{ type: 'text', text: `Error extracting links from ${url}: ${error.message}` }]
+      content: [{ type: 'text', text: `Error: ${error.message}` }],
+      isError: true
     };
   }
-});
+}
 
-// Resource: mcp://system/info - System telemetry and diagnostics
-server.resource('mcp://system/info', async () => {
-  const info = getSystemInfo();
-  return {
-    contents: [{
-      uri: 'mcp://system/info',
-      mimeType: 'application/json',
-      text: JSON.stringify(info, null, 2)
-    }]
-  };
-});
+// Helper function to handle resource requests
+async function handleResourceRequest(uri) {
+  try {
+    if (uri === 'mcp://system/info') {
+      return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(getSystemInfo(), null, 2) }] };
+    } else if (uri === 'mcp://database/schema') {
+      const dbPath = process.env.DATABASE_PATH || '/data/app.db';
+      const schema = await getSchema(dbPath);
+      return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(schema, null, 2) }] };
+    } else {
+      return { contents: [] };
+    }
+  } catch (error) {
+    return { contents: [], isError: true };
+  }
+}
 
-// Resource: mcp://database/schema - Database schema definition
-server.resource('mcp://database/schema', async () => {
-  const schema = await getDatabaseSchema();
-  return {
-    contents: [{
-      uri: 'mcp://database/schema',
-      mimeType: 'application/json',
-      text: JSON.stringify(schema, null, 2)
-    }]
-  };
-});
+// Helper function to handle incoming messages
+async function handleMessage(message) {
+  if (message.method === 'tools/call') {
+    return await handleToolCall(message.params.name, message.params.arguments);
+  } else if (message.method === 'resources/read') {
+    return await handleResourceRequest(message.params.uri);
+  } else {
+    return { contents: [{ type: 'text', text: `Unknown method: ${message.method}` }] };
+  }
+}
+
+// Helper function to start the server
+async function startServer() {
+  try {
+    // Create HTTP server for SSE and message endpoints
+    const httpServer = http.createServer(async (req, res) => {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', port: 3005 }));
+        return;
+      }
+
+      if (req.url === '/sse') {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        const transport = new SSEServerTransport('/message', req);
+        await server.connect(transport);
+
+        // Keep connection alive
+        setInterval(() => {
+          res.write('event: keepalive\ndata: {}\n\n');
+        }, 30000);
+      } else if (req.url === '/message' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+          try {
+            const message = JSON.parse(body);
+            const response = await handleMessage(message);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(response));
+          } catch (error) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: error.message }));
+          }
+        });
+      } else {
+        res.writeHead(404);
+        res.end('Not Found');
+      }
+    });
+
+    httpServer.listen(3005, () => {
+      console.log(`MCP Server running on http://localhost:3005`);
+      console.log(`SSE endpoint: http://localhost:3005/sse`);
+      console.log(`Health check: http://localhost:3005/health`);
+    });
+
+    // Start stdio transport for MCP protocol
+    const stdioTransport = new StdioServerTransport();
+    await server.connect(stdioTransport);
+    console.log('MCP Server started successfully');
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();

@@ -55,9 +55,12 @@
     {
       "name": "query_database",
       "category": "DATABASE",
-      "description": "Query SQLite/Room database",
+      "description": "Query SQLite/Room database with parameterized queries and safety guards",
       "parameters": [
-        { "name": "sql", "type": "string", "required": true, "description": "SQL query to execute" }
+        { "name": "sql", "type": "string", "required": true, "description": "SQL query or statement to execute" },
+        { "name": "params", "type": "array", "required": false, "description": "Optional parameterized query arguments" },
+        { "name": "database_path", "type": "string", "required": false, "description": "Optional custom database path" },
+        { "name": "read_only", "type": "boolean", "required": false, "description": "Whether mutation statements are blocked (default true)" }
       ]
     },
     {
@@ -103,6 +106,22 @@
       "category": "LOCATION",
       "description": "Get current GPS location from device (requires Android/iOS native bridge)",
       "parameters": []
+    },
+    {
+      "name": "fetch",
+      "category": "WEB",
+      "description": "Download HTML web pages and parse to clean Markdown",
+      "parameters": [
+        { "name": "url", "type": "string", "required": true, "description": "URL of the webpage to fetch" }
+      ]
+    },
+    {
+      "name": "extract_links",
+      "category": "WEB",
+      "description": "Extract outbound hyperlinks from a webpage URL",
+      "parameters": [
+        { "name": "url", "type": "string", "required": true, "description": "URL of the webpage to extract links from" }
+      ]
     }
   ]
 }

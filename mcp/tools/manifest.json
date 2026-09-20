@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0",
   "name": "GPT Mobile Built-in MCP Tools",
-  "version": "0.9.5.4",
+  "version": "0.9.5.6",
   "description": "Pre-bundled Model Context Protocol tool catalog and definitions for GPT Mobile AI",
   "triple_verification": {
     "enabled": true,

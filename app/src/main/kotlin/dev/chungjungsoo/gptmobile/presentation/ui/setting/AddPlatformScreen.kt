@@ -81,6 +81,7 @@ fun AddPlatformScreen(
     var model by remember { mutableStateOf("") }
     var isReasoningEnabled by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
+    var showLlamaPicker by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
@@ -315,6 +316,20 @@ fun AddPlatformScreen(
                             )
                             Text(text = stringResource(R.string.openrouter_browse_models))
                         }
+                    } else if (clientType == ClientType.LLAMA) {
+                        OutlinedButton(
+                            onClick = { showLlamaPicker = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.List,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text(text = stringResource(R.string.llama_select_router_model))
+                        }
                     }
 
                     Row(
@@ -356,6 +371,17 @@ fun AddPlatformScreen(
         OpenRouterModelPickerDialog(
             currentModel = model,
             onDismiss = { showOpenRouterPicker = false },
+            onModelSelected = { selectedModel ->
+                model = selectedModel
+            }
+        )
+    }
+
+    if (showLlamaPicker) {
+        LlamaModelPickerDialog(
+            baseUrl = apiUrl,
+            currentModel = model,
+            onDismiss = { showLlamaPicker = false },
             onModelSelected = { selectedModel ->
                 model = selectedModel
             }

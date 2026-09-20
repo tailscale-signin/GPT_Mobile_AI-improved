@@ -98,7 +98,7 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 
 ### 15. 🗄️ Instant Search & Robust Database (`ChatDatabaseV2`)
 - **Fast Full-Text Search**: Instant search indexing across all conversation histories and tool executions.
-- **Safe Room Migrations**: Powered by `ChatDatabaseV2` (Schema v19) with verified automated migrations guaranteeing zero data loss across updates.
+- **Safe Room Migrations**: Powered by `ChatDatabaseV2` (Schema v22) with verified automated migrations guaranteeing zero data loss across updates. See [Room Database Migrations](docs/DATABASE_MIGRATIONS.md).
 
 ### 16. 📉 Up to 60% Smaller App Download Size
 - **Native ABI Splits**: Published as targeted `arm64-v8a` and `x86_64` release APK packages alongside universal APKs, saving storage space and cellular download data.
@@ -137,7 +137,7 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 | **Encrypted Backups** | ❌ Not supported | ✅ Passphrase-protected PBKDF2 + AES-GCM export/import |
 | **Favorites Management** | ❌ Basic or none | ✅ Custom group chips, rich Markdown dialog, chat jump |
 | **Web Search** | ❌ Manual setup / none | ✅ Zero-config `droid-mcp-web` (DuckDuckGo, Firecrawl, Perplexity, Exa) |
-| **Search & Database** | Monolithic legacy database | ✅ Modern `ChatDatabaseV2` (Schema v19) with instant search |
+| **Search & Database** | Monolithic legacy database | ✅ Modern `ChatDatabaseV2` (Schema v22) with instant search |
 | **APK Footprint** | Large universal APK | ✅ Up to 60% lighter native ABI split APKs |
 
 ---
@@ -154,7 +154,7 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 - **UI**: Jetpack Compose, Material Design 3 (fully optimized with stability contracts)
 - **Language**: Kotlin 2.x, Coroutines, StateFlow
 - **Networking**: Ktor Client with CIO and OkHttp engines, Server-Sent Events (SSE)
-- **Persistence**: Room Database (`ChatDatabaseV2`, Schema v19), DataStore Preferences
+- **Persistence**: Room Database (`ChatDatabaseV2`, Schema v22), DataStore Preferences
 - **Dependency Injection**: Hilt / Dagger with KSP
 - **Security**: Android Keystore AES-256-GCM credential encryption (`SecretVault`)
 - **Inference**: Qualcomm QNN SDK & Google LiteRT-LM with dynamic hardware governor
@@ -162,28 +162,87 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 
 ---
 
-## 🏗️ Getting Started
+## 🚀 Quick Start & Installation
 
 ### Prerequisites
-- Android Studio Ladybug (2024.2.1) or newer
+- Android Studio Ladybug (2024.2.1) or Hedgehog+
 - JDK 21 (JDK 17 minimum)
 - Android SDK 36 (target/compile) / Min SDK 31
+- Target device architectures: `arm64-v8a` (recommended for NPU), `x86_64` (emulator)
 
-### Building from Source
+### Step 1: Clone the Repository
 ```bash
-# Clone the repository
 git clone https://github.com/tailscale-signin/GPT_Mobile_AI-improved.git
 cd GPT_Mobile_AI-improved
+```
 
-# Build debug APK
+### Step 2: Native Libraries & Architecture
+The app requires LiteRT and Qualcomm QNN native libraries for hardware acceleration.
+- Prebuilts are configured via Gradle dependencies (`libs.litertlm`, `libs.qnn.runtime`, `libs.qnn.litert.delegate`).
+- Run the verification script to verify environment compatibility:
+```bash
+bash scripts/verify_native_libs.sh
+```
+
+### Step 3: Configure API Keys & Credentials
+Optionally configure credentials in `local.properties`:
+```properties
+# HuggingFace OAuth Credentials (optional for model downloads)
+HF_OAUTH_CLIENT_ID=your_client_id_here
+HF_OAUTH_REDIRECT_URI=your_redirect_uri_here
+```
+API keys for OpenAI, Anthropic, Google Gemini, OpenRouter, and Groq can be entered and safely encrypted directly within the app settings via the Keystore `SecretVault`.
+
+### Step 4: Build and Run
+
+**Build Debug APK:**
+```bash
 ./gradlew assembleDebug
+# Install on connected device/emulator
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-# Build release APK (ABI splits & universal)
+**Build Release APK:**
+```bash
 ./gradlew assembleRelease
+```
 
-# Run unit tests
+**Run Automated Tests:**
+```bash
 ./gradlew testDebugUnitTest
 ```
+
+---
+
+## 🐛 Debug Builds & Developer Tools
+
+### Debug vs Release Comparison
+
+| Feature | Debug | Release |
+|---------|-------|---------|
+| Minification | ❌ Disabled | ✅ Enabled (R8) |
+| Resource Shrinking | ❌ Disabled | ✅ Enabled |
+| Debug Symbols | ✅ Retained | ❌ Stripped |
+| In-Chat Telemetry HUD | ✅ Active with details | ⚠️ Telemetry mode |
+| APK Output | `app/build/outputs/apk/debug/` | `app/build/outputs/apk/release/` |
+
+### Debug Build Verification
+Verify debug builds anytime with:
+```bash
+bash scripts/verify_debug_build.sh
+```
+
+---
+
+## 🛠️ Troubleshooting
+
+| Issue | Possible Cause | Solution |
+|-------|---------------|----------|
+| NPU initialization fails | Incompatible chipset or missing FastRPC driver | Automatic fallback to GPU or CPU takes over seamlessly |
+| App crashes on start | Missing or incompatible 32-bit ABI | Use `arm64-v8a` or `x86_64` builds (32-bit legacy ABIs are deprecated) |
+| OAuth redirect fails | Wrong redirect scheme configuration | Verify `manifestPlaceholders` in `app/build.gradle.kts` matches HF app |
+| Network request timeouts | Endpoint rate limit or firewall restriction | Multi-key credential rotator will auto-failover; check proxy/VPN settings |
+| Database migration error | Modified schema without version increment | Consult [docs/DATABASE_MIGRATIONS.md](docs/DATABASE_MIGRATIONS.md) and run migrations test suite |
 
 ---
 

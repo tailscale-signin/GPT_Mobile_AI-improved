@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
-import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings
@@ -19,7 +18,10 @@ class OpenRouterSettingsRepositoryImpl @Inject constructor(
     override suspend fun loadSettings(): OpenRouterSettings {
         // Find existing OpenRouter platform from DB if available
         val openRouterPlatform = platformV2Dao.getPlatforms().firstOrNull {
-            it.compatibleType == ClientType.OPENAI && (it.name.contains("OpenRouter", ignoreCase = true) || it.apiUrl.contains("openrouter", ignoreCase = true))
+            it.compatibleType == ClientType.OPENAI && (
+                it.name.contains("OpenRouter", ignoreCase = true) ||
+                    it.apiUrl.contains("openrouter", ignoreCase = true)
+            )
         }
 
         val key = openRouterPlatform?.token ?: inMemorySettings.apiKey
@@ -35,7 +37,10 @@ class OpenRouterSettingsRepositoryImpl @Inject constructor(
         inMemorySettings = settings
         // Update database if matching platform exists
         val openRouterPlatform = platformV2Dao.getPlatforms().firstOrNull {
-            it.compatibleType == ClientType.OPENAI && (it.name.contains("OpenRouter", ignoreCase = true) || it.apiUrl.contains("openrouter", ignoreCase = true))
+            it.compatibleType == ClientType.OPENAI && (
+                it.name.contains("OpenRouter", ignoreCase = true) ||
+                    it.apiUrl.contains("openrouter", ignoreCase = true)
+            )
         }
 
         if (openRouterPlatform != null) {

@@ -459,8 +459,11 @@ fun PlatformSettingScreen(
                         onCheckedChange = { settingViewModel.toggleReasoning() }
                     )
 
-                    // Batch API Mode for OpenAI & Anthropic
-                    if (platformData.compatibleType == ClientType.OPENAI || platformData.compatibleType == ClientType.ANTHROPIC) {
+                    // Batch API Mode for OpenAI, Anthropic, & OpenRouter
+                    if (platformData.compatibleType == ClientType.OPENAI ||
+                        platformData.compatibleType == ClientType.ANTHROPIC ||
+                        platformData.compatibleType == ClientType.OPENROUTER
+                    ) {
                         PreferenceListSwitch(
                             modifier = Modifier.height(64.dp),
                             title = stringResource(R.string.batch_mode),

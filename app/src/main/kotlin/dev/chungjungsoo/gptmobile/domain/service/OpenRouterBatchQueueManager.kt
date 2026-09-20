@@ -3,10 +3,11 @@ package dev.chungjungsoo.gptmobile.domain.service
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterBatchItemResult
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterBatchRequestItem
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings
-import java.util.Timer
-import java.util.TimerTask
+import java.util.ArrayDeque
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -16,22 +17,21 @@ class OpenRouterBatchQueueManager(
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
     private val onBatchReady: suspend (List<OpenRouterBatchRequestItem>) -> Unit
 ) {
-    private val queue = mutableListOf<OpenRouterBatchRequestItem>()
+    private val queue = ArrayDeque<OpenRouterBatchRequestItem>()
     private val mutex = Mutex()
-    private var timer: Timer? = null
+    private var flushJob: Job? = null
 
     suspend fun enqueue(request: OpenRouterBatchRequestItem) {
         val shouldFlush: Boolean
         val batchToFlush = mutableListOf<OpenRouterBatchRequestItem>()
 
         mutex.withLock {
-            queue.add(request)
+            queue.addLast(request)
             if (queue.size >= settings.batchSize) {
-                cancelTimer()
-                batchToFlush.addAll(queue.take(settings.batchSize))
-                // Remove flushed items
-                repeat(batchToFlush.size) {
-                    if (queue.isNotEmpty()) queue.removeAt(0)
+                cancelFlushJobLocked()
+                val count = minOf(queue.size, settings.batchSize)
+                repeat(count) {
+                    queue.pollFirst()?.let { batchToFlush.add(it) }
                 }
                 shouldFlush = true
             } else {
@@ -46,32 +46,26 @@ class OpenRouterBatchQueueManager(
     }
 
     private fun scheduleFlushLocked() {
-        timer?.cancel()
-        timer = Timer("OpenRouterBatchTimer", true).apply {
-            schedule(object : TimerTask() {
-                override fun run() {
-                    scope.launch {
-                        flush()
-                    }
-                }
-            }, settings.flushTimeoutMs)
+        flushJob?.cancel()
+        flushJob = scope.launch {
+            delay(settings.flushTimeoutMs)
+            flush()
         }
     }
 
-    private fun cancelTimer() {
-        timer?.cancel()
-        timer = null
+    private fun cancelFlushJobLocked() {
+        flushJob?.cancel()
+        flushJob = null
     }
 
     suspend fun flush(): List<OpenRouterBatchRequestItem> {
         val batch = mutableListOf<OpenRouterBatchRequestItem>()
         mutex.withLock {
-            cancelTimer()
+            cancelFlushJobLocked()
             if (queue.isNotEmpty()) {
                 val count = minOf(queue.size, settings.batchSize)
-                batch.addAll(queue.take(count))
                 repeat(count) {
-                    queue.removeAt(0)
+                    queue.pollFirst()?.let { batch.add(it) }
                 }
             }
         }
@@ -79,6 +73,15 @@ class OpenRouterBatchQueueManager(
             onBatchReady(batch)
         }
         return batch
+    }
+
+    suspend fun reQueueFailed(requests: List<OpenRouterBatchRequestItem>) {
+        mutex.withLock {
+            for (item in requests) {
+                queue.addFirst(item)
+            }
+            scheduleFlushLocked()
+        }
     }
 
     suspend fun pendingCount(): Int = mutex.withLock { queue.size }
@@ -92,18 +95,17 @@ class RetryPolicy(
         var attempt = 0
         var lastException: Throwable = RuntimeException("Unknown error")
 
-        while (attempt <= maxRetries) {
+        while (attempt < maxRetries) {
             val result = block()
             if (result.isSuccess) {
                 return result
             }
             lastException = result.exceptionOrNull() ?: RuntimeException("Execution failed")
-            if (attempt == maxRetries) {
-                break
-            }
-            val delayMs = baseDelayMs * (1L shl attempt)
-            kotlinx.coroutines.delay(delayMs)
             attempt++
+            if (attempt < maxRetries) {
+                val delayMs = baseDelayMs * (1L shl (attempt - 1))
+                delay(delayMs)
+            }
         }
 
         return Result.failure(lastException)

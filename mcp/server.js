@@ -33,9 +33,16 @@ const httpServer = http.createServer((req, res) => {
     // Message endpoint
     let body = '';
     req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
+    req.on('end', async () => {
       if (transport) {
-        transport.handlePostMessage(JSON.parse(body));
+        try {
+          await transport.handlePostMessage(req, res, JSON.parse(body));
+        } catch (err) {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        }
       } else {
         res.writeHead(500);
         res.end('Transport not initialized');
@@ -163,8 +170,8 @@ function htmlToMarkdown(html) {
   const uls = contentElement.querySelectorAll('ul, ol');
   uls.forEach(list => {
     const items = list.querySelectorAll('li');
-    const prefix = list.tagName === 'OL' ? `${Array.from(items).indexOf(_) + 1}. ` : '- ';
-    items.forEach(item => {
+    items.forEach((item, index) => {
+      const prefix = list.tagName === 'OL' ? `${index + 1}. ` : '- ';
       markdown += `${prefix}${item.textContent.trim()}\n`;
     });
     markdown += '\n';
@@ -442,9 +449,14 @@ server.tool('http_request', {
         response.on('data', chunk => { data += chunk; });
         response.on('end', () => {
           resolve({
-            status: response.statusCode,
-            headers: response.headers,
-            body: data
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                status: response.statusCode,
+                headers: response.headers,
+                body: data
+              }, null, 2)
+            }]
           });
         });
       });

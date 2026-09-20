@@ -1,7 +1,6 @@
 package com.gptmobileai.location
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Looper
@@ -11,56 +10,50 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 @HiltViewModel
 class LocationViewModel @Inject constructor(
-    private val context: Context
+    @ApplicationContext private val context: Context,
+    private val fusedLocationClient: FusedLocationProviderClient
 ) : ViewModel() {
 
     // UI State
     private val _locationState = MutableStateFlow(LocationUiState())
     val locationState: StateFlow<LocationUiState> = _locationState.asStateFlow()
 
-    private var fusedLocationClient: FusedLocationProviderClient =
-        LocationServices.getFusedLocationProviderClient(context)
-
     private var locationCallback: LocationCallback? = null
     private var locationRequest: LocationRequest? = null
 
     // Request permissions
     fun requestPermissions() {
-        val permissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-
         _locationState.value = _locationState.value.copy(
             permissionStatus = PermissionStatus.PENDING
         )
-
-        // In real app, call ActivityCompat.requestPermissions here
-        // For now, simulate success if permissions already granted
         checkSelfPermission()
     }
 
-    private fun checkSelfPermission() {
+    fun hasLocationPermission(): Boolean {
         val hasFineLocation = context.checkSelfPermission(
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
         val hasCoarseLocation = context.checkSelfPermission(
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
+        return hasFineLocation || hasCoarseLocation
+    }
 
+    fun checkSelfPermission() {
         _locationState.value = _locationState.value.copy(
-            permissionStatus = if (hasFineLocation && hasCoarseLocation) {
+            permissionStatus = if (hasLocationPermission()) {
                 PermissionStatus.GRANTED
             } else {
                 PermissionStatus.DENIED
@@ -70,6 +63,14 @@ class LocationViewModel @Inject constructor(
 
     // Get last known location
     fun getLastKnownLocation() {
+        if (!hasLocationPermission()) {
+            _locationState.value = _locationState.value.copy(
+                permissionStatus = PermissionStatus.DENIED,
+                errorMessage = "Location permission not granted"
+            )
+            return
+        }
+
         viewModelScope.launch {
             _locationState.value = _locationState.value.copy(
                 isLoading = true,
@@ -77,32 +78,25 @@ class LocationViewModel @Inject constructor(
             )
 
             try {
-                val location = fusedLocationClient.lastLocation
-                    .addOnSuccessListener { location ->
-                        if (location != null) {
-                            _locationState.value = _locationState.value.copy(
-                                lastKnownLocation = LocationData(
-                                    latitude = location.latitude,
-                                    longitude = location.longitude,
-                                    altitude = location.altitude ?: 0f,
-                                    accuracy = location.accuracy ?: 0f,
-                                    timestamp = location.time
-                                ),
-                                isLoading = false
-                            )
-                        } else {
-                            _locationState.value = _locationState.value.copy(
-                                errorMessage = "No location available",
-                                isLoading = false
-                            )
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        _locationState.value = _locationState.value.copy(
-                            errorMessage = e.message ?: "Unknown error",
-                            isLoading = false
-                        )
-                    }
+                @Suppress("MissingPermission")
+                val location = fusedLocationClient.lastLocation.await()
+                if (location != null) {
+                    _locationState.value = _locationState.value.copy(
+                        lastKnownLocation = LocationData(
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            altitude = location.altitude.toFloat(),
+                            accuracy = location.accuracy,
+                            timestamp = location.time
+                        ),
+                        isLoading = false
+                    )
+                } else {
+                    _locationState.value = _locationState.value.copy(
+                        errorMessage = "No location available",
+                        isLoading = false
+                    )
+                }
             } catch (e: Exception) {
                 _locationState.value = _locationState.value.copy(
                     errorMessage = e.message ?: "Unknown error",
@@ -113,21 +107,23 @@ class LocationViewModel @Inject constructor(
     }
 
     // Start location updates
-    fun requestLocationUpdates(priority: Priority = Priority.PRIORITY_BALANCED_POWER_ACCURACY) {
-        if (_locationState.value.permissionStatus != PermissionStatus.GRANTED) {
+    fun requestLocationUpdates(priority: Int = Priority.PRIORITY_BALANCED_POWER_ACCURACY) {
+        if (!hasLocationPermission()) {
             _locationState.value = _locationState.value.copy(
+                permissionStatus = PermissionStatus.DENIED,
                 errorMessage = "Location permission not granted"
             )
             return
         }
 
         viewModelScope.launch {
-            locationRequest = LocationRequest.Builder(
+            val request = LocationRequest.Builder(
                 priority,
                 5000L // Update interval in milliseconds
             ).build()
+            locationRequest = request
 
-            locationCallback = object : LocationCallback() {
+            val callback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     super.onLocationResult(result)
                     result.lastLocation?.let { location ->
@@ -135,20 +131,28 @@ class LocationViewModel @Inject constructor(
                             lastKnownLocation = LocationData(
                                 latitude = location.latitude,
                                 longitude = location.longitude,
-                                altitude = location.altitude ?: 0f,
-                                accuracy = location.accuracy ?: 0f,
+                                altitude = location.altitude.toFloat(),
+                                accuracy = location.accuracy,
                                 timestamp = location.time
                             )
                         )
                     }
                 }
             }
+            locationCallback = callback
 
-            fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
-                Looper.getMainLooper()
-            )
+            try {
+                @Suppress("MissingPermission")
+                fusedLocationClient.requestLocationUpdates(
+                    request,
+                    callback,
+                    Looper.getMainLooper()
+                )
+            } catch (e: Exception) {
+                _locationState.value = _locationState.value.copy(
+                    errorMessage = e.message ?: "Failed to start location updates"
+                )
+            }
         }
     }
 

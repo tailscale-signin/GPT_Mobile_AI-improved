@@ -8,14 +8,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.gptmobileai.location.LocationViewModel.LocationData
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationMcpToolScreen(
-    onPermissionGranted: () -> Unit,
+    onPermissionGranted: () -> Unit = {},
     viewModel: LocationViewModel = viewModel()
 ) {
     val state by viewModel.locationState.collectAsState()
@@ -86,23 +85,23 @@ fun LocationMcpToolScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Latitude: ${state.lastKnownLocation.latitude.toString()}",
+                            text = "Latitude: ${state.lastKnownLocation?.latitude}",
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Longitude: ${state.lastKnownLocation.longitude.toString()}",
+                            text = "Longitude: ${state.lastKnownLocation?.longitude}",
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Altitude: ${state.lastKnownLocation.altitude} m",
+                            text = "Altitude: ${state.lastKnownLocation?.altitude} m",
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Accuracy: ${state.lastKnownLocation.accuracy} m",
+                            text = "Accuracy: ${state.lastKnownLocation?.accuracy} m",
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Updated: ${formatTimestamp(state.lastKnownLocation.timestamp)}",
+                            text = "Updated: ${formatTimestamp(state.lastKnownLocation?.timestamp ?: 0L)}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

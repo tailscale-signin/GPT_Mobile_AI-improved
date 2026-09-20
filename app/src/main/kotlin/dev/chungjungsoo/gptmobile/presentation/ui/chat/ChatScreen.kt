@@ -419,6 +419,7 @@ fun ChatScreen(
                 initialModels = chatPlatformModels,
                 platformNames = platformNames,
                 platformClientTypes = appAllPlatforms.associate { it.uid to it.compatibleType },
+                platformApiUrls = appAllPlatforms.associate { it.uid to it.apiUrl },
                 downloadedLocalModels = downloadedLocalModels,
                 onNavigateToLocalModels = onNavigateToLocalModels,
                 onDismissRequest = chatViewModel::closeChatModelDialog,

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * GPT Mobile AI - Model Context Protocol (MCP) Server Implementation
- * Version: 0.9.5.3
- * Implements the 8 tools defined in mcp/tools/manifest.json and resources in mcp/resources/manifest.json.
+ * Version: 0.9.5.4
+ * Implements the 11 tools defined in mcp/tools/manifest.json and resources in mcp/resources/manifest.json.
  */
 
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
@@ -17,7 +17,7 @@ const { URL } = require('url');
 
 const server = new McpServer({
   name: 'GPT Mobile MCP',
-  version: '0.9.5.3'
+  version: '0.9.5.4'
 });
 
 // Helper for HTTP requests
@@ -315,6 +315,108 @@ server.tool(
         content: [{ type: 'text', text: `Translation failed: ${error.message}` }]
       };
     }
+  }
+);
+
+// 9. geolocate_ip - Look up IP geolocation data
+server.tool(
+  'geolocate_ip',
+  'Look up geolocation data for an IP address (keyless API)',
+  {
+    ip: z.string().optional().describe('IP address to lookup (auto-detect host IP if omitted)')
+  },
+  async ({ ip }) => {
+    const targetIp = ip || await getPublicIp();
+    
+    // Use ipapi.is (keyless, free tier available)
+    const url = `https://ipapi.co/${targetIp}/json/`;
+    const res = await executeHttpRequest(url, 'GET', { 'User-Agent': 'GPT-Mobile-AI' });
+    
+    if (res.statusCode === 200) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify(res.body, null, 2) }]
+      };
+    }
+    
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `IP lookup failed (status ${res.statusCode}): ${res.body}` }]
+    };
+  }
+);
+
+// Helper: Detect public IP of the host
+async function getPublicIp() {
+  const res = await executeHttpRequest('https://api.ipify.org?format=json');
+  return JSON.parse(res.body).ip;
+}
+
+// 10. reverse_geocode - Convert coordinates to human-readable address
+server.tool(
+  'reverse_geocode',
+  'Convert latitude/longitude coordinates to human-readable address (OpenStreetMap Nominatim)',
+  {
+    latitude: z.number().describe('Latitude (-90 to 90)'),
+    longitude: z.number().describe('Longitude (-180 to 180)'),
+    format: z.enum(['json', 'address', 'text']).optional().default('json').describe('Output format')
+  },
+  async ({ latitude, longitude, format = 'json' }) => {
+    // Validate coordinate bounds
+    if (latitude < -90 || latitude > 90) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Invalid latitude: ${latitude}. Must be between -90 and 90.` }]
+      };
+    }
+    if (longitude < -180 || longitude > 180) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Invalid longitude: ${longitude}. Must be between -180 and 180.` }]
+      };
+    }
+
+    // Use Nominatim (OpenStreetMap, keyless)
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+    const res = await executeHttpRequest(url, 'GET', { 
+      'User-Agent': 'GPT-Mobile-AI/1.0' 
+    });
+    
+    if (res.statusCode === 200) {
+      let output;
+      if (format === 'address') {
+        const data = JSON.parse(res.body);
+        output = `${data.display_name || 'Address not found'}`;
+      } else if (format === 'text') {
+        const data = JSON.parse(res.body);
+        output = `Location: ${data.display_name || 'Unknown'}\nCoordinates: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      } else {
+        output = res.body;
+      }
+      
+      return {
+        content: [{ type: 'text', text: output }]
+      };
+    }
+    
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Reverse geocode failed (status ${res.statusCode}): ${res.body}` }]
+    };
+  }
+);
+
+// 11. get_current_location - Get GPS coordinates from device (requires native bridge)
+server.tool(
+  'get_current_location',
+  'Get current GPS location from Android/iOS device (requires native companion service)',
+  {},
+  async () => {
+    return {
+      content: [{ 
+        type: 'text', 
+        text: 'GPS access requires a native Android/iOS bridge. Use get_my_ip() for network-based location, or implement a companion service to expose GPS coordinates via HTTP/WebSocket.' 
+      }]
+    };
   }
 );
 

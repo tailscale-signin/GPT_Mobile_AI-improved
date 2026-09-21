@@ -543,3 +543,31 @@ private fun chatMarkdownTypography() = markdownTypography(
     bullet = MaterialTheme.typography.bodyMedium,
     list = MaterialTheme.typography.bodyMedium
 )
+
+@Composable
+private fun DefaultParagraph(
+    content: String,
+    node: org.intellij.markdown.ast.ASTNode,
+    style: TextStyle,
+    annotator: MarkdownAnnotator
+) {
+    MarkdownParagraph(
+        content,
+        node,
+        Modifier,
+        style,
+        annotatorSettings(
+            LocalMarkdownTypography.current.textLink,
+            LocalMarkdownTypography.current.inlineCode.toSpanStyle(),
+            annotator,
+            LocalReferenceLinkHandler.current,
+            LocalUriHandler.current,
+            null
+        )
+    )
+}
+
+private fun extractNodeText(
+    content: String,
+    node: org.intellij.markdown.ast.ASTNode
+): String = content.substring(node.startOffset, node.endOffset)

@@ -78,6 +78,28 @@ object McpPresetCatalog {
             isPreinstalled = true
         ),
         McpPreset(
+            id = "device-location",
+            name = "Device Location & Geocoding",
+            description = "Device GPS coordinates, altitude, accuracy, and geocoding services powered by OpenStreetMap Nominatim and Android location sensors. Preinstalled and ready to use.",
+            category = McpCategory.SYSTEM,
+            commandOrUrl = "builtin://device_location",
+            transportType = McpTransportType.STDIO,
+            iconName = "location",
+            author = "GPT Mobile AI",
+            alias = "device_location",
+            suggestedAuthType = "NONE",
+            pricing = McpPricingType.FREE,
+            requiredFields = emptyList(),
+            toolCapabilities = listOf(
+                "get_current_location: GPS coordinates (latitude, longitude, altitude, accuracy)",
+                "reverse_geocode: Convert GPS coordinates into formatted human-readable street addresses",
+                "geocode_address: Convert addresses and place names into GPS coordinates",
+                "calculate_distance: Calculate distance between two sets of coordinates"
+            ),
+            websiteUrl = "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
+            isPreinstalled = true
+        ),
+        McpPreset(
             id = "brave-search",
             name = "Brave Search",
             description = "Privacy-preserving web and local search querying Brave's independent global index without ad tracking or profiling.",

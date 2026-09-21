@@ -86,4 +86,21 @@ class GroqReasoningParserTest {
             emitted
         )
     }
+
+    @Test
+    fun `reasoningChunk passes through while content is empty`() {
+        val parser = GroqReasoningParser()
+
+        val emitted = parser.append(reasoningChunk = "Thinking step 1") +
+            parser.append(reasoningChunk = " step 2") +
+            parser.flush()
+
+        assertEquals(
+            listOf(
+                ApiState.Thinking("Thinking step 1"),
+                ApiState.Thinking(" step 2")
+            ),
+            emitted
+        )
+    }
 }

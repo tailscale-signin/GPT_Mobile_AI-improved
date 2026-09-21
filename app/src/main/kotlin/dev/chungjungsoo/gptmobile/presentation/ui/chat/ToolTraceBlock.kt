@@ -184,18 +184,28 @@ internal fun resolveToolServiceInfo(
     connectionUidSnapshot: String? = null,
 ): ToolServiceInfo {
     val rawName = toolName.ifBlank { modelToolName }.trim()
+    val isGatewayTool = connectionUidSnapshot?.startsWith("gateway:", ignoreCase = true) == true
     val toolDef = ToolRegistry.first { it.matches(rawName, connectionNameSnapshot, connectionUidSnapshot) }
-    val serviceName = if (!connectionNameSnapshot.isNullOrBlank() && toolDef !is WebTool && toolDef !is SystemTool) {
-        connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
-    } else {
-        stringResource(toolDef.serviceNameRes)
+
+    val serviceName = when {
+        isGatewayTool -> connectionNameSnapshot?.takeIf { it.isNotBlank() } ?: "GATEWAY"
+        !connectionNameSnapshot.isNullOrBlank() && toolDef !is WebTool && toolDef !is SystemTool ->
+            connectionNameSnapshot.trim().replaceFirstChar { it.uppercase(Locale.ROOT) }
+        else -> stringResource(toolDef.serviceNameRes)
     }
-    val monogram = if (!connectionNameSnapshot.isNullOrBlank() && toolDef == DefaultTool) {
-        serviceName.take(2).uppercase(Locale.ROOT)
-    } else {
-        toolDef.monogram
+
+    val monogram = when {
+        isGatewayTool -> "GW"
+        !connectionNameSnapshot.isNullOrBlank() && toolDef == DefaultTool ->
+            serviceName.take(2).uppercase(Locale.ROOT)
+        else -> toolDef.monogram
     }
-    val badgeColor = if (!connectionNameSnapshot.isNullOrBlank() && toolDef == DefaultTool) Color(0xFF455A64) else toolDef.badgeColor
+
+    val badgeColor = when {
+        isGatewayTool -> Color(0xFF1565C0)
+        !connectionNameSnapshot.isNullOrBlank() && toolDef == DefaultTool -> Color(0xFF455A64)
+        else -> toolDef.badgeColor
+    }
     val displayNameRes = toolDef.getDisplayNameRes(rawName)
     val toolDisplayName = if (displayNameRes != null) {
         stringResource(displayNameRes)

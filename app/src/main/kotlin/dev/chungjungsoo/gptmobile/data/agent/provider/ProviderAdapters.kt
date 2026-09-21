@@ -40,6 +40,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.request.ReasoningConfig
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionCallOutput
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCreatedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseFailedEvent
@@ -425,6 +426,10 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                                 try {
                                     openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig).collect { chunk ->
+                                        chunk.gatewayProgress?.let { progress ->
+                                            emit(ProviderEvent.GatewayProgressUpdate(progress))
+                                        }
+
                                         chunk.error?.let { err ->
                                             chunkError = err.message
                                         } ?: chunk.choices.orEmpty().forEach { choice ->
@@ -432,7 +437,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             choice.finishReason?.let { lastFinishReason = it }
                                             assembler.accept(
                                                 content = choice.delta.content,
-                                                reasoning = choice.delta.effectiveReasoning,
+                                                reasoning = if (chunk.gatewayProgress == null) choice.delta.effectiveReasoning else null,
                                                 toolCalls = choice.delta.toolCalls,
                                                 finishReason = choice.finishReason
                                             ).forEach { emit(it) }
@@ -508,6 +513,10 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                         try {
                             openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                chunk.gatewayProgress?.let { progress ->
+                                    emit(ProviderEvent.GatewayProgressUpdate(progress))
+                                }
+
                                 chunk.error?.let { error ->
                                     roundFailed = true
                                     lastFailedMessage = error.message
@@ -517,7 +526,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         emit(ProviderEvent.Failed(error.message))
                                     }
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
-                                    val effectiveReasoning = choice.delta.effectiveReasoning
+                                    val effectiveReasoning =
+                                        if (chunk.gatewayProgress == null) choice.delta.effectiveReasoning else null
                                     if (llamaReasoningParser != null) {
                                         // For Llama endpoints (llama-server), stream reasoning chunks directly or extract <think> tags in content
                                         llamaReasoningParser.append(

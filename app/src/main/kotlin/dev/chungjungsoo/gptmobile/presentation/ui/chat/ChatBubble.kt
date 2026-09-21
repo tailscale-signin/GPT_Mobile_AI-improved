@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -44,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -83,6 +86,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
@@ -219,6 +224,44 @@ fun OpponentChatBubble(
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     var actionDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
 
+    // Suggestion Button Hold-to-Highlight State
+    val highlightProgress = remember { Animatable(0f) }
+    var activeHighlightedSentence by remember { mutableStateOf<String?>(null) }
+    var activeHighlightJob by remember { mutableStateOf<Job?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    fun startHighlight(buttonText: String, promptText: String) {
+        val matchingSentence = SuggestionHighlightManager.findMatchingSentence(text, buttonText, promptText)
+        if (matchingSentence != null) {
+            activeHighlightedSentence = matchingSentence
+            activeHighlightJob?.cancel()
+            activeHighlightJob = coroutineScope.launch {
+                val current = highlightProgress.value
+                val remainingRatio = (1f - current).coerceAtLeast(0f)
+                val duration = (SuggestionHighlightManager.ANIMATION_DURATION_MS * remainingRatio).toInt()
+                highlightProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = duration, easing = LinearEasing)
+                )
+            }
+        }
+    }
+
+    fun reverseHighlight() {
+        activeHighlightJob?.cancel()
+        activeHighlightJob = coroutineScope.launch {
+            val current = highlightProgress.value
+            val duration = (SuggestionHighlightManager.ANIMATION_DURATION_MS * current).toInt()
+            highlightProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = duration, easing = LinearEasing)
+            )
+            if (highlightProgress.value == 0f) {
+                activeHighlightedSentence = null
+            }
+        }
+    }
+
     var areDetailsVisible by rememberSaveable(contentIdentity) {
         mutableStateOf(isLoading)
     }
@@ -265,7 +308,9 @@ fun OpponentChatBubble(
                     AssistantAnswerContent(
                         timeline = contentTimeline,
                         isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity
+                        contentIdentity = contentIdentity,
+                        highlightSentence = activeHighlightedSentence,
+                        highlightProgress = highlightProgress.value
                     )
                 } else {
                     LegacyAssistantAnswerContent(
@@ -273,7 +318,9 @@ fun OpponentChatBubble(
                         text = text,
                         thoughts = thoughts,
                         isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity
+                        contentIdentity = contentIdentity,
+                        highlightSentence = activeHighlightedSentence,
+                        highlightProgress = highlightProgress.value
                     )
                 }
 
@@ -389,31 +436,44 @@ fun OpponentChatBubble(
                                 ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
                             }
 
-                            AssistChip(
-                                onClick = {
-                                    actionDismissed = true
-                                    onActionClick(action.actionPrompt)
-                                },
-                                label = {
-                                    Text(
-                                        text = action.label,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                            Box(
+                                modifier = Modifier.pointerInput(action) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            startHighlight(action.label, action.actionPrompt)
+                                            val released = tryAwaitRelease()
+                                            reverseHighlight()
+                                            if (released) {
+                                                actionDismissed = true
+                                                onActionClick(action.actionPrompt)
+                                            }
+                                        }
                                     )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                },
-                                colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                ),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            )
+                                }
+                            ) {
+                                AssistChip(
+                                    onClick = { /* Handled by pointerInput onPress/release */ },
+                                    label = {
+                                        Text(
+                                            text = action.label,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                )
+                            }
                         }
                     }
                 }
@@ -443,24 +503,37 @@ fun OpponentChatBubble(
                             label = "pulseAlpha"
                         )
 
-                        SuggestionChip(
-                            onClick = {
-                                continueDismissed = true
-                                onContinueClick?.invoke()
-                            },
-                            label = { Text("Continue") },
-                            icon = {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = "Continue",
-                                    modifier = Modifier.size(14.dp)
+                        Box(
+                            modifier = Modifier.pointerInput(Unit) {
+                                detectTapGestures(
+                                    onPress = {
+                                        startHighlight("continue", "continue")
+                                        val released = tryAwaitRelease()
+                                        reverseHighlight()
+                                        if (released) {
+                                            continueDismissed = true
+                                            onContinueClick?.invoke()
+                                        }
+                                    }
                                 )
-                            },
-                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                            }
+                        ) {
+                            SuggestionChip(
+                                onClick = { /* Handled by pointerInput onPress/release */ },
+                                label = { Text("Continue") },
+                                icon = {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = "Continue",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                                )
                             )
-                        )
+                        }
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
@@ -671,7 +744,9 @@ private fun AssistantProcessContent(
 private fun AssistantAnswerContent(
     timeline: List<AssistantTimelineItem>,
     isLoading: Boolean,
-    contentIdentity: Any
+    contentIdentity: Any,
+    highlightSentence: String? = null,
+    highlightProgress: Float = 0f
 ) {
     val textItems = remember(timeline) {
         timeline.mapIndexedNotNull { index, item ->
@@ -690,6 +765,8 @@ private fun AssistantAnswerContent(
             ChatMarkdown(
                 content = display,
                 contentIdentity = "$contentIdentity:text:$index",
+                highlightSentence = highlightSentence,
+                highlightProgress = highlightProgress,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
@@ -753,7 +830,9 @@ private fun LegacyAssistantAnswerContent(
     text: String,
     thoughts: String,
     isLoading: Boolean,
-    contentIdentity: Any
+    contentIdentity: Any,
+    highlightSentence: String? = null,
+    highlightProgress: Float = 0f
 ) {
     val parsed = remember(text) {
         if (thoughts.isBlank() && text.contains("<think", ignoreCase = true)) {
@@ -770,6 +849,8 @@ private fun LegacyAssistantAnswerContent(
                 ChatMarkdown(
                     content = display,
                     contentIdentity = contentIdentity,
+                    highlightSentence = highlightSentence,
+                    highlightProgress = highlightProgress,
                     modifier = Modifier.padding(16.dp)
                 )
             }

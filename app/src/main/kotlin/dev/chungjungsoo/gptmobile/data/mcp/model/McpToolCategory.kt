@@ -8,5 +8,6 @@ enum class McpToolCategory(val displayName: String) {
     CODE_EXECUTION("Code Execution"),
     DATABASE("Database"),
     NETWORK("Network"),
-    TRANSLATION("Translation")
+    TRANSLATION("Translation"),
+    LOCATION("Location")
 }

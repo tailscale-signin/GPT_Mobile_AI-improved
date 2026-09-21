@@ -157,19 +157,17 @@ fun UserChatBubble(
                 )
             }
         }
+        MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
 @Composable
 fun OpponentChatBubble(
     modifier: Modifier = Modifier,
-    canEdit: Boolean = false,
-    canRetry: Boolean = false,
-    isLoading: Boolean = false,
+    canRetry: Boolean,
+    isLoading: Boolean,
     isError: Boolean = false,
-    isFavorite: Boolean = false,
-    debugMode: Boolean = false,
-    text: String = "",
+    text: String,
     timestamp: Long? = null,
     thoughts: String = "",
     timeline: List<AssistantTimelineItem> = emptyList(),
@@ -178,6 +176,9 @@ fun OpponentChatBubble(
     runNotices: List<ChatRunNotice> = emptyList(),
     toolEvents: List<ToolEvent> = emptyList(),
     contentIdentity: Any = text,
+    canEdit: Boolean = false,
+    isFavorite: Boolean = false,
+    debugMode: Boolean = false,
     revisionIndexLabel: String? = null,
     canShowPreviousRevision: Boolean = false,
     canShowNextRevision: Boolean = false,
@@ -630,36 +631,46 @@ internal fun DetailsButton(
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = isEnabled, onClick = onClick)
+            .clip(MaterialTheme.shapes.extraLarge)
+            .clickable(
+                enabled = isEnabled,
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .semantics {
                 role = Role.Button
-                contentDescription = if (isEnabled) {
-                    if (isVisible) expandedDesc else collapsedDesc
-                } else {
+                stateDescription = if (!isEnabled) {
                     unavailableDesc
-                }
-                stateDescription = if (isEnabled) {
-                    if (isVisible) expandedDesc else collapsedDesc
+                } else if (isVisible) {
+                    expandedDesc
                 } else {
-                    unavailableDesc
+                    collapsedDesc
                 }
             },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = stringResource(R.string.details),
-            style = MaterialTheme.typography.labelSmall,
-            color = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-        )
         Icon(
             imageVector = Icons.Rounded.KeyboardArrowDown,
             contentDescription = null,
-            tint = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
             modifier = Modifier
                 .size(16.dp)
-                .rotate(rotation)
+                .rotate(rotation),
+            tint = if (isEnabled) {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.19f)
+            }
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = stringResource(R.string.details),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isEnabled) {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.19f)
+            }
         )
     }
 }
@@ -888,23 +899,267 @@ fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatfo
             name, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(12.dp)); if (isLoading) Spacer(Modifier.width(4.dp))
     }
-    if (selected) {
-        FilledTonalButton(
-            onClick = onPlatformClick,
-            shape = CircleShape,
-            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-            contentPadding = PaddingValues(0.dp),
-            content = content
-        )
-    } else {
-        OutlinedButton(
-            onClick = onPlatformClick,
-            shape = CircleShape,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-            contentPadding = PaddingValues(0.dp),
-            content = content
+    TextButton(
+        modifier = Modifier.widthIn(max = 160.dp), onClick = onPlatformClick,
+        colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.textButtonColors(),
+        content = content
+    )
+}
+
+@Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(ImageVector.vectorResource(R.drawable.ic_copy), stringResource(R.string.copy_text))
+}
+@Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text))
+}
+@Composable
+private fun FavoriteIcon(
+    isFavorite: Boolean,
+    onFavoriteClick: () -> Unit,
+    onFavoriteLongPress: () -> Unit = {}
+) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onFavoriteClick() },
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onFavoriteLongPress()
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+            stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
+            tint = if (isFavorite) Color.Cyan else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
+@Composable private fun RetryIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(Icons.Rounded.Refresh, stringResource(R.string.retry))
+}
+@Composable private fun EditTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
+    Icon(Icons.Outlined.Edit, stringResource(R.string.edit))
+}
+
+@Composable
+internal fun TelemetryBadge(notice: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.semantics { contentDescription = notice },
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Text(
+            text = notice,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * Rich diagnostics inspection card rendered when Debug Mode is turned on.
+ * Displays real-time hardware status, QNN HTP NPU native readiness, and token generation speed.
+ */
+@Composable
+internal fun ChatDebugDiagnosticsCard(
+    agentRun: AgentRun?,
+    telemetryNotice: String?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    var isCopied by remember { mutableStateOf(false) }
+
+    val snapshot = remember(agentRun, telemetryNotice) {
+        DiagnosticsTelemetryProvider.getSnapshot(
+            context = context,
+            backendName = agentRun?.modelSnapshot ?: "On-Device",
+            accelerator = "NPU / Hexagon HTP"
+        )
+    }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Debug Diagnostics",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Debug Diagnostics HUD",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                TextButton(
+                    onClick = {
+                        val fullReport = DiagnosticsTelemetryProvider.formatDiagnosticsText(snapshot, telemetryNotice)
+                        clipboardManager.setText(AnnotatedString(fullReport))
+                        isCopied = true
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text(
+                        text = if (isCopied) "Copied!" else "Copy Diagnostics",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Processor & Native Accelerator Status
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Processor: ${snapshot.socModel}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+                Text(
+                    text = if (snapshot.qnnReady) "Hexagon NPU: Ready" else "Hexagon NPU: Inactive",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (snapshot.qnnReady) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                    fontSize = 11.sp
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            // Memory & Thermals
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "RAM: ${snapshot.availableRamMb} MB avail / ${snapshot.totalRamGb} GB",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+                Text(
+                    text = "Thermal: ${snapshot.thermalStatus}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+            }
+
+            if (!telemetryNotice.isNullOrBlank()) {
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = telemetryNotice,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 11.sp
+                )
+            }
+        }
+    }
+}
+
+internal fun isTelemetryNotice(message: String): Boolean =
+    message.startsWith("Local: ") && message.contains("tok/s")
+
+internal fun extractTelemetryNotice(notices: List<String>): Pair<String?, List<String>> {
+    val telemetry = notices.firstOrNull(::isTelemetryNotice)
+    val remaining = notices.filterNot(::isTelemetryNotice)
+    return telemetry to remaining
+}
+
+internal fun buildDiagnosticsHudText(
+    agentRun: AgentRun?,
+    telemetryNotice: String?,
+    debugMode: Boolean
+): String? {
+    if (!debugMode) return telemetryNotice
+
+    val parts = mutableListOf<String>()
+    agentRun?.modelSnapshot?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
+    agentRunDurationSeconds(agentRun ?: return telemetryNotice)?.let { duration ->
+        parts.add("${duration}s")
+    }
+    telemetryNotice?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
+
+    return if (parts.isNotEmpty()) parts.joinToString(" • ") else telemetryNotice
+}
+
+@Preview
+@Composable
+fun UserChatBubblePreview() {
+    val sampleText = "How can I print hello world in Python?"
+    GPTMobileTheme {
+        UserChatBubble(text = sampleText, files = emptyList(), onLongPress = {})
+    }
+}
+
+@Composable
+internal fun MessageFileThumbnailRow(files: List<String>, modifier: Modifier = Modifier, usePrimaryColors: Boolean = true) {
+    val validFiles = remember(files) { files.filter(String::isNotBlank) }
+    if (validFiles.isEmpty()) return
+    Row(
+        modifier = modifier.wrapContentHeight().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) { validFiles.forEach { MessageFileThumbnail(it, usePrimaryColors) } }
+}
+
+@Composable
+private fun MessageFileThumbnail(filePath: String, usePrimaryColors: Boolean) {
+    val file = remember(filePath) { File(filePath) }
+    val isImage = remember(file.extension) { isImageFile(file.extension) }
+    val container = if (usePrimaryColors) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .7f) else MaterialTheme.colorScheme.surfaceVariant
+    val content = if (usePrimaryColors) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(modifier = Modifier.width(56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(container)) {
+            Icon(
+                ImageVector.vectorResource(if (isImage) R.drawable.ic_image else R.drawable.ic_file), file.name,
+                modifier = Modifier.fillMaxWidth().padding(8.dp), tint = content
+            )
+        }
+        Text(
+            file.name, style = MaterialTheme.typography.labelSmall, color = content, maxLines = 2,
+            overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(top = 4.dp).width(56.dp)
+        )
+    }
+}
+
+private fun isImageFile(extension: String?): Boolean =
+    extension != null && extension.lowercase() in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")

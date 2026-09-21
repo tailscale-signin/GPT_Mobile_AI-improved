@@ -31,6 +31,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalUriHandler
@@ -86,6 +88,8 @@ private val codeHighlightCache = LruCache<String, AnnotatedString>(400)
 fun ChatMarkdown(
     content: String,
     contentIdentity: Any = content,
+    highlightSentence: String? = null,
+    highlightProgress: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     val isDarkTheme = isSystemInDarkTheme()
@@ -110,14 +114,56 @@ fun ChatMarkdown(
             }
             .toMap()
     }
-    val annotator = remember(inlineMathByPlaceholder) {
+    val normalTextColor = MaterialTheme.colorScheme.onSurface
+    val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
+    val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
+
+    val annotator = remember(inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
-            if (!containsInlineMathPlaceholder(text)) {
+            val hasMath = containsInlineMathPlaceholder(text)
+            val hasSentenceHighlight = !highlightSentence.isNullOrBlank() &&
+                highlightProgress > 0.01f &&
+                text.contains(highlightSentence, ignoreCase = true)
+
+            if (!hasMath && !hasSentenceHighlight) {
                 false
             } else {
-                appendTextWithInlineMath(this, text, inlineMathByPlaceholder)
-                true
+                if (hasSentenceHighlight && !hasMath) {
+                    val sIndex = text.indexOf(highlightSentence!!, ignoreCase = true)
+                    if (sIndex != -1) {
+                        val interpolatedColor = lerp(normalTextColor, targetYellow, highlightProgress.coerceIn(0f, 1f))
+                        val interpolatedBg = Color.Transparent.copy(alpha = 0f).let {
+                            lerp(it, targetBg, highlightProgress.coerceIn(0f, 1f))
+                        }
+                        val interpolatedWeight = SuggestionHighlightManager.interpolateFontWeight(highlightProgress)
+
+                        if (sIndex > 0) {
+                            append(text.substring(0, sIndex))
+                        }
+                        val startSpan = length
+                        append(text.substring(sIndex, sIndex + highlightSentence.length))
+                        val endSpan = length
+                        addStyle(
+                            style = SpanStyle(
+                                color = interpolatedColor,
+                                background = interpolatedBg,
+                                fontWeight = interpolatedWeight
+                            ),
+                            start = startSpan,
+                            end = endSpan
+                        )
+                        if (sIndex + highlightSentence.length < text.length) {
+                            append(text.substring(sIndex + highlightSentence.length))
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    appendTextWithInlineMath(this, text, inlineMathByPlaceholder)
+                    true
+                }
             }
         }
     }
@@ -224,7 +270,7 @@ fun ChatMarkdown(
             }
         )
     }
-    key(contentIdentity) {
+    key(contentIdentity, highlightSentence, (highlightProgress * 100).toInt()) {
         val markdownState = rememberMarkdownState(
             content = combinedMarkdown,
             retainState = true
@@ -497,31 +543,3 @@ private fun chatMarkdownTypography() = markdownTypography(
     bullet = MaterialTheme.typography.bodyMedium,
     list = MaterialTheme.typography.bodyMedium
 )
-
-@Composable
-private fun DefaultParagraph(
-    content: String,
-    node: org.intellij.markdown.ast.ASTNode,
-    style: TextStyle,
-    annotator: MarkdownAnnotator
-) {
-    MarkdownParagraph(
-        content,
-        node,
-        Modifier,
-        style,
-        annotatorSettings(
-            LocalMarkdownTypography.current.textLink,
-            LocalMarkdownTypography.current.inlineCode.toSpanStyle(),
-            annotator,
-            LocalReferenceLinkHandler.current,
-            LocalUriHandler.current,
-            null
-        )
-    )
-}
-
-private fun extractNodeText(
-    content: String,
-    node: org.intellij.markdown.ast.ASTNode
-): String = content.substring(node.startOffset, node.endOffset)

@@ -27,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,14 +48,18 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.dto.gateway.GatewayBubbleState
+import dev.chungjungsoo.gptmobile.data.dto.gateway.GatewayToolSource
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.time.Instant
 import java.util.Locale
@@ -73,6 +78,24 @@ fun ToolEvent.toToolCallState(): ToolCallState = when {
     status == ToolEventStatus.FAILED || isError -> ToolCallState.Failed(isError)
     status == ToolEventStatus.CANCELED -> ToolCallState.Canceled
     else -> ToolCallState.Completed
+}
+
+fun ToolEvent.toGatewayBubbleState(): GatewayBubbleState = when {
+    status == ToolEventStatus.PENDING -> GatewayBubbleState.QUEUED
+    status == ToolEventStatus.RUNNING -> GatewayBubbleState.RUNNING
+    status == ToolEventStatus.FAILED || isError -> GatewayBubbleState.FAILED
+    status == ToolEventStatus.CANCELED -> GatewayBubbleState.NO_USEFUL_RESULT
+    else -> GatewayBubbleState.COMPLETED
+}
+
+fun ToolEvent.resolveToolSource(): GatewayToolSource = when {
+    connectionNameSnapshot?.contains("gateway", ignoreCase = true) == true ||
+        connectionUidSnapshot?.contains("gateway", ignoreCase = true) == true ||
+        toolName.startsWith("git-mcp", ignoreCase = true) ||
+        toolName.startsWith("gitmcp", ignoreCase = true) -> GatewayToolSource.GATEWAY
+
+    connectionNameSnapshot?.contains("remote_fallback", ignoreCase = true) == true -> GatewayToolSource.REMOTE_FALLBACK
+    else -> GatewayToolSource.CLIENT
 }
 
 interface ToolDefinition {
@@ -325,7 +348,6 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
     val noMatchingToolCalls = stringResource(R.string.no_matching_tool_calls)
     val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
 
-    // Make the tool call chat bubble more opaque for better visibility
     Column(
         modifier = modifier
             .padding(horizontal = 16.dp)
@@ -475,32 +497,106 @@ private fun toolTraceLabels() = ToolTraceLabels(
 private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
     val callDescription = stringResource(R.string.tool_trace_call_content_description, event.callId, event.status.lowercase(Locale.ROOT))
     val serviceInfo = resolveToolServiceInfo(event.toolName, event.modelToolName, event.connectionNameSnapshot, event.connectionUidSnapshot)
+    val toolSource = event.resolveToolSource()
+    val bubbleState = event.toGatewayBubbleState()
+    val durationSec = toolDurationSeconds(event)
+
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.07f)),
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp).semantics { contentDescription = callDescription },
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.12f)),
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).semantics { contentDescription = callDescription },
+        shape = RoundedCornerShape(12.dp),
+        border = CardDefaults.outlinedCardBorder()
     ) {
         Column(Modifier.padding(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ToolServiceCircleIcon(serviceInfo, sizeDp = 20)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "${event.sequence + 1}. ${serviceInfo.serviceName} — ${serviceInfo.toolDisplayName}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(6.dp))
-                ToolStatusIndicator(event.toToolCallState())
+            // Header with Source Badge (GATEWAY / CLIENT / REMOTE FALLBACK)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    ToolServiceCircleIcon(serviceInfo, sizeDp = 20)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "${event.sequence + 1}. 🔧 ${serviceInfo.serviceName}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(toolSource.badgeColor)
+                ) {
+                    Text(
+                        text = toolSource.label,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
+
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = serviceInfo.toolDisplayName.ifBlank { event.toolName },
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold),
+                color = Color.White.copy(alpha = 0.9f)
+            )
+
             Spacer(Modifier.height(4.dp))
             if (event.modelToolName != event.toolName) ToolTraceLine(labels.modelTool, event.modelToolName)
-            ToolTraceLine(labels.status, event.status)
             ToolTraceLine(labels.callId, event.callId)
             connectionLabel(event)?.let { ToolTraceLine(labels.connection, it) }
             toolTimingLabel(event, labels)?.let { ToolTraceLine(labels.timing, it) }
             event.error?.takeIf { it.isNotBlank() }?.let { ToolTraceLine(labels.error, toolEventErrorText(it)) }
             ToolTraceBlockText(labels.arguments, event.arguments)
             event.result?.takeIf { it.isNotBlank() }?.let { ToolTraceBlockText(labels.result, it) }
+
+            // Bubble State Indicator Footer
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val stateColor = when (bubbleState) {
+                    GatewayBubbleState.RUNNING -> MaterialTheme.colorScheme.primary
+                    GatewayBubbleState.COMPLETED -> Color(0xFF4CAF50)
+                    GatewayBubbleState.FAILED -> MaterialTheme.colorScheme.error
+                    GatewayBubbleState.NO_USEFUL_RESULT -> Color(0xFFFF9800)
+                    GatewayBubbleState.RETRYING, GatewayBubbleState.REMOTE_FALLBACK -> Color(0xFF03A9F4)
+                    GatewayBubbleState.MEMORY_CHECKPOINT -> Color(0xFFAB47BC)
+                    else -> Color.White.copy(alpha = 0.7f)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = bubbleState.symbol,
+                        color = stateColor,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (bubbleState == GatewayBubbleState.COMPLETED) "Completed · useful result" else bubbleState.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = stateColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (durationSec != null) {
+                    Text(
+                        text = "$durationSec s",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+                }
+            }
         }
     }
 }

@@ -47,9 +47,15 @@ data class Delta(
     @SerialName("reasoning")
     val reasoning: String? = null,
 
+    @SerialName("reasoning_content")
+    val reasoningContent: String? = null,
+
     @SerialName("tool_calls")
     val toolCalls: List<ChatToolCallDelta>? = null
-)
+) {
+    val effectiveReasoning: String?
+        get() = reasoning ?: reasoningContent
+}
 
 @Serializable
 data class ChatToolCallDelta(

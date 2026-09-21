@@ -200,7 +200,9 @@ class ChatRepositoryImpl(
                         ProviderEvent.Completed -> Unit
                     }
 
-                    is AgentRunEvent.ToolStarted -> Unit
+                    is AgentRunEvent.ToolStarted -> {
+                        emit(ApiState.Notice("Running tool: ${runEvent.call.name}...", persistent = false))
+                    }
 
                     is AgentRunEvent.ToolFinished -> trace.finish(runEvent.call, runEvent.result)
 

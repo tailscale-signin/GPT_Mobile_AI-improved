@@ -203,6 +203,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                 val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
                 val isOllama = platform.compatibleType == ClientType.OLLAMA
+                val isLlama = platform.compatibleType == ClientType.LLAMA
 
                 val openRouterHeaders = if (isOpenRouter) {
                     mapOf(
@@ -431,7 +432,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             choice.finishReason?.let { lastFinishReason = it }
                                             assembler.accept(
                                                 content = choice.delta.content,
-                                                reasoning = choice.delta.reasoning,
+                                                reasoning = choice.delta.effectiveReasoning,
                                                 toolCalls = choice.delta.toolCalls,
                                                 finishReason = choice.finishReason
                                             ).forEach { emit(it) }
@@ -503,6 +504,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                             }
                         }
 
+                        val llamaReasoningParser = if (isLlama) GroqReasoningParser() else null
+
                         try {
                             openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
                                 chunk.error?.let { error ->
@@ -514,13 +517,33 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         emit(ProviderEvent.Failed(error.message))
                                     }
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
-                                    assembler.accept(
-                                        content = choice.delta.content,
-                                        reasoning = choice.delta.reasoning,
-                                        toolCalls = choice.delta.toolCalls,
-                                        finishReason = choice.finishReason
-                                    ).forEach { emit(it) }
+                                    val effectiveReasoning = choice.delta.effectiveReasoning
+                                    if (llamaReasoningParser != null) {
+                                        // For Llama endpoints (llama-server), stream reasoning chunks directly or extract <think> tags in content
+                                        llamaReasoningParser.append(
+                                            contentChunk = choice.delta.content,
+                                            reasoningChunk = effectiveReasoning
+                                        ).forEach { state ->
+                                            state.toProviderEvent()?.let { emit(it) }
+                                        }
+                                        assembler.accept(
+                                            content = null,
+                                            reasoning = null,
+                                            toolCalls = choice.delta.toolCalls,
+                                            finishReason = choice.finishReason
+                                        ).forEach { emit(it) }
+                                    } else {
+                                        assembler.accept(
+                                            content = choice.delta.content,
+                                            reasoning = effectiveReasoning,
+                                            toolCalls = choice.delta.toolCalls,
+                                            finishReason = choice.finishReason
+                                        ).forEach { emit(it) }
+                                    }
                                 }
+                            }
+                            llamaReasoningParser?.flush()?.forEach { state ->
+                                state.toProviderEvent()?.let { emit(it) }
                             }
                         } catch (t: Throwable) {
                             if (t is CancellationException) throw t

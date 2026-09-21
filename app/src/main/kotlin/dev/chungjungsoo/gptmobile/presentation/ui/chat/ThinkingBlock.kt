@@ -43,7 +43,7 @@ fun ThinkingBlock(
 ) {
     if (thoughts.isBlank()) return
 
-    var isExpanded by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(isLoading) }
     val rotationAngle by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
         label = "rotation"

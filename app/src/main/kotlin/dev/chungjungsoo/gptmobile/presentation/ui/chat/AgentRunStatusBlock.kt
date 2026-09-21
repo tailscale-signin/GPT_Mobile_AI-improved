@@ -29,6 +29,8 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunTerminalError
+import dev.chungjungsoo.gptmobile.data.dto.gateway.GatewayProgress
+import dev.chungjungsoo.gptmobile.ui.component.GatewayJobProgressCard
 import kotlinx.coroutines.delay
 
 @Composable
@@ -54,7 +56,19 @@ fun RunNoticeChips(notices: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AgentRunStatusBlock(run: AgentRun?, modifier: Modifier = Modifier) {
+fun AgentRunStatusBlock(
+    run: AgentRun?,
+    modifier: Modifier = Modifier,
+    gatewayProgress: GatewayProgress? = null
+) {
+    if (gatewayProgress != null && (run == null || run.status == AgentRunStatus.RUNNING)) {
+        GatewayJobProgressCard(
+            progress = gatewayProgress,
+            modifier = modifier
+        )
+        return
+    }
+
     if (run == null ||
         run.status == AgentRunStatus.COMPLETED ||
         run.status == AgentRunStatus.QUEUED

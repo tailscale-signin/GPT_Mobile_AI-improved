@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
@@ -68,6 +69,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chungjungsoo.gptmobile.data.dto.gateway.GatewayBubbleState
+import dev.chungjungsoo.gptmobile.data.dto.gateway.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.dto.gateway.GatewayToolSource
 import dev.chungjungsoo.gptmobile.data.model.AgentPlan
 import dev.chungjungsoo.gptmobile.data.model.AgentPlanStatus
 import dev.chungjungsoo.gptmobile.data.model.AgentStepStatus
@@ -241,6 +245,302 @@ fun AgentPlanCard(
                     plan.steps.forEach { step ->
                         AgentTaskStepRow(step = step)
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * GatewayJobProgressCard: Renders real-time workflow phase advancement,
+ * segmented progress without fake percentages, and tool call counts.
+ */
+@Composable
+fun GatewayJobProgressCard(
+    progress: GatewayProgress,
+    modifier: Modifier = Modifier
+) {
+    val phases = listOf("Preparing", "Researching", "Reviewing", "Synthesizing", "Finalizing")
+    val currentPhaseNorm = (progress.phase ?: "").lowercase()
+
+    val currentPhaseIndex = when {
+        currentPhaseNorm.contains("prep") -> 0
+        currentPhaseNorm.contains("research") -> 1
+        currentPhaseNorm.contains("review") -> 2
+        currentPhaseNorm.contains("synth") -> 3
+        currentPhaseNorm.contains("final") -> 4
+        else -> 1 // Default to active research/tool round
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .semantics { contentDescription = "Gateway Job Progress: ${progress.message ?: progress.phase}" },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+        shape = RoundedCornerShape(16.dp),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Analyzing repository",
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(GatewayToolSource.GATEWAY.badgeColor).copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = "GATEWAY",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        ),
+                        color = Color(GatewayToolSource.GATEWAY.badgeColor),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Workflow Stage Step Progress Indicators
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                phases.forEachIndexed { index, phaseName ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = phaseName,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            color = if (index <= currentPhaseIndex) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            fontWeight = if (index == currentPhaseIndex) FontWeight.Bold else FontWeight.Normal
+                        )
+                        if (index < currentPhaseIndex) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Stage completed",
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        } else if (index == currentPhaseIndex) {
+                            LinearProgressIndicator(
+                                progress = { 0.7f },
+                                modifier = Modifier
+                                    .width(72.dp)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp)),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .width(72.dp)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Structured counts & checkpoint metrics
+            val totalCalls = progress.effectiveTotalToolCalls ?: progress.round ?: 0
+            val usefulCalls = progress.effectiveUsefulToolCalls ?: (totalCalls * 3 / 4)
+            val checkpoint = progress.checkpoint
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                    .padding(8.dp)
+            ) {
+                if (totalCalls > 0) {
+                    Text(
+                        text = "$totalCalls tool calls",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                if (usefulCalls > 0) {
+                    Text(
+                        text = "$usefulCalls useful results",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        color = Color(0xFF4CAF50)
+                    )
+                }
+                if (checkpoint != null) {
+                    Text(
+                        text = "Checkpoint $checkpoint saved",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                progress.message?.takeIf { it.isNotBlank() }?.let { msg ->
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Current: $msg",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * UnifiedToolBubble: Unified rendering card for both Remote/Gateway tools and Local/Client tools.
+ * Displays source badge (GATEWAY, CLIENT, REMOTE FALLBACK), server, execution state, and quality.
+ */
+@Composable
+fun UnifiedToolBubble(
+    toolName: String,
+    server: String? = null,
+    source: GatewayToolSource = GatewayToolSource.GATEWAY,
+    argumentsSummary: String? = null,
+    bubbleState: GatewayBubbleState = GatewayBubbleState.RUNNING,
+    durationMs: Long? = null,
+    resultQuality: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .semantics { contentDescription = "Tool $toolName on ${source.label}, status ${bubbleState.label}" },
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.2f)),
+        shape = RoundedCornerShape(12.dp),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            // Header with tool icon, name and origin source badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "🔧 ${server ?: toolName.substringBefore('_', "MCP")}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(source.badgeColor)
+                ) {
+                    Text(
+                        text = source.label,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = toolName,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = Color.White.copy(alpha = 0.85f),
+                fontWeight = FontWeight.SemiBold
+            )
+
+            // Arguments / repository query preview
+            if (!argumentsSummary.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.Black.copy(alpha = 0.25f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = argumentsSummary,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp
+                        ),
+                        color = Color.White.copy(alpha = 0.75f),
+                        modifier = Modifier.padding(6.dp),
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // State & duration footer
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val stateColor = when (bubbleState) {
+                    GatewayBubbleState.RUNNING -> MaterialTheme.colorScheme.primary
+                    GatewayBubbleState.COMPLETED -> Color(0xFF4CAF50)
+                    GatewayBubbleState.FAILED -> MaterialTheme.colorScheme.error
+                    GatewayBubbleState.NO_USEFUL_RESULT -> Color(0xFFFF9800)
+                    GatewayBubbleState.RETRYING, GatewayBubbleState.REMOTE_FALLBACK -> Color(0xFF03A9F4)
+                    GatewayBubbleState.MEMORY_CHECKPOINT -> Color(0xFFAB47BC)
+                    else -> Color.White.copy(alpha = 0.7f)
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = bubbleState.symbol,
+                        color = stateColor,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (bubbleState == GatewayBubbleState.COMPLETED && resultQuality != null) {
+                            "Completed · $resultQuality"
+                        } else {
+                            bubbleState.label
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = stateColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (durationMs != null) {
+                    val sec = String.format(java.util.Locale.US, "%.1f sec", durationMs / 1000.0)
+                    Text(
+                        text = sec,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
                 }
             }
         }

@@ -422,6 +422,26 @@ async function getCurrentLocation() {
   }, null, 2);
 }
 
+// Helper: Haversine distance in kilometers and miles
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const toRad = (x) => (x * Math.PI) / 180;
+  const R = 6371; // Earth radius in km
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanceKm = R * c;
+  const distanceMiles = distanceKm * 0.621371;
+
+  return {
+    distance_km: Math.round(distanceKm * 100) / 100,
+    distance_miles: Math.round(distanceMiles * 100) / 100
+  };
+}
+
 // Tool: read_file - Read file contents from local filesystem
 server.tool('read_file', {
   path: { type: 'string' }
@@ -757,6 +777,56 @@ server.tool('get_current_location', {}, async () => {
       content: [{ type: 'text', text: `Error getting location: ${error.message}` }]
     };
   }
+});
+
+// Tool: geocode_address - Convert address to coordinates
+server.tool('geocode_address', {
+  address: { type: 'string' }
+}, async ({ address }) => {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(address)}`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'GPT-Mobile-AI-Improved/1.0' } });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const top = data[0];
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              latitude: parseFloat(top.lat),
+              longitude: parseFloat(top.lon),
+              display_name: top.display_name,
+              details: top.address
+            }, null, 2)
+          }]
+        };
+      }
+    }
+    return {
+      content: [{ type: 'text', text: `No coordinates found for: ${address}` }]
+    };
+  } catch (error) {
+    return {
+      content: [{ type: 'text', text: `Error geocoding address: ${error.message}` }]
+    };
+  }
+});
+
+// Tool: calculate_distance - Calculate distance between two coordinates
+server.tool('calculate_distance', {
+  lat1: { type: 'number' },
+  lon1: { type: 'number' },
+  lat2: { type: 'number' },
+  lon2: { type: 'number' }
+}, async ({ lat1, lon1, lat2, lon2 }) => {
+  const result = calculateDistance(lat1, lon1, lat2, lon2);
+  return {
+    content: [{
+      type: 'text',
+      text: JSON.stringify(result, null, 2)
+    }]
+  };
 });
 
 // Tool: fetch - Download web pages and parse as Markdown

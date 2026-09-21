@@ -52,6 +52,17 @@ object McpPresetCatalog {
             isPreinstalled = McpSearchToolSet.IS_PREINSTALLED
         ),
         McpPreset(
+            id = McpLocationToolSet.PRESET_ID,
+            name = McpLocationToolSet.PRESET_NAME,
+            description = "Device GPS coordinates, altitude, accuracy, and geocoding services powered by OpenStreetMap Nominatim and Android location sensors. Preinstalled and ready to use.",
+            category = McpCategory.SYSTEM,
+            transportType = McpTransportType.STDIO,
+            commandOrUrl = McpLocationToolSet.DEFAULT_LAUNCHER_PATH,
+            args = emptyList(),
+            builtInTools = McpLocationToolSet.tools,
+            isPreinstalled = McpLocationToolSet.IS_PREINSTALLED
+        ),
+        McpPreset(
             id = "brave-search",
             name = "Brave Search",
             description = "Web and local search capability using Brave Search API.",

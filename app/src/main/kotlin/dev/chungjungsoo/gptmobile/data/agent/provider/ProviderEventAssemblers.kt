@@ -85,7 +85,8 @@ class ChatCompletionsEventAssembler {
     private data class PendingCall(
         var callId: String? = null,
         var name: String? = null,
-        val arguments: StringBuilder = StringBuilder()
+        val arguments: StringBuilder = StringBuilder(),
+        var noticeEmitted: Boolean = false
     )
 
     private val pending = sortedMapOf<Int, PendingCall>()
@@ -102,7 +103,13 @@ class ChatCompletionsEventAssembler {
         toolCalls.orEmpty().forEach { delta ->
             val call = pending.getOrPut(delta.index) { PendingCall() }
             delta.id?.let { call.callId = it }
-            delta.function?.name?.let { call.name = it }
+            delta.function?.name?.let {
+                call.name = it
+                if (!call.noticeEmitted && it.isNotBlank()) {
+                    call.noticeEmitted = true
+                    events += ProviderEvent.Notice("Formulating call to tool: $it...", persistent = false)
+                }
+            }
             delta.function?.arguments?.let { call.arguments.append(it) }
         }
         if (finishReason == "tool_calls") {

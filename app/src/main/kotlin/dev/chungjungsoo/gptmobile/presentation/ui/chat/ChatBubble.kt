@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -44,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -83,6 +86,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
@@ -152,17 +157,19 @@ fun UserChatBubble(
                 )
             }
         }
-        MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
     }
 }
 
 @Composable
 fun OpponentChatBubble(
     modifier: Modifier = Modifier,
-    canRetry: Boolean,
-    isLoading: Boolean,
+    canEdit: Boolean = false,
+    canRetry: Boolean = false,
+    isLoading: Boolean = false,
     isError: Boolean = false,
-    text: String,
+    isFavorite: Boolean = false,
+    debugMode: Boolean = false,
+    text: String = "",
     timestamp: Long? = null,
     thoughts: String = "",
     timeline: List<AssistantTimelineItem> = emptyList(),
@@ -171,9 +178,6 @@ fun OpponentChatBubble(
     runNotices: List<ChatRunNotice> = emptyList(),
     toolEvents: List<ToolEvent> = emptyList(),
     contentIdentity: Any = text,
-    canEdit: Boolean = false,
-    isFavorite: Boolean = false,
-    debugMode: Boolean = false,
     revisionIndexLabel: String? = null,
     canShowPreviousRevision: Boolean = false,
     canShowNextRevision: Boolean = false,
@@ -218,6 +222,44 @@ fun OpponentChatBubble(
     val dynamicActions = remember(text, isLoading) { ChatResponseActionParser.extractDynamicActions(text, isLoading) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     var actionDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
+
+    // Suggestion Button Hold-to-Highlight State
+    val highlightProgress = remember { Animatable(0f) }
+    var activeHighlightedSentence by remember { mutableStateOf<String?>(null) }
+    var activeHighlightJob by remember { mutableStateOf<Job?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    fun startHighlight(buttonText: String, promptText: String) {
+        val matchingSentence = SuggestionHighlightManager.findMatchingSentence(text, buttonText, promptText)
+        if (matchingSentence != null) {
+            activeHighlightedSentence = matchingSentence
+            activeHighlightJob?.cancel()
+            activeHighlightJob = coroutineScope.launch {
+                val current = highlightProgress.value
+                val remainingRatio = (1f - current).coerceAtLeast(0f)
+                val duration = (SuggestionHighlightManager.ANIMATION_DURATION_MS * remainingRatio).toInt()
+                highlightProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = duration, easing = LinearEasing)
+                )
+            }
+        }
+    }
+
+    fun reverseHighlight() {
+        activeHighlightJob?.cancel()
+        activeHighlightJob = coroutineScope.launch {
+            val current = highlightProgress.value
+            val duration = (SuggestionHighlightManager.ANIMATION_DURATION_MS * current).toInt()
+            highlightProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = duration, easing = LinearEasing)
+            )
+            if (highlightProgress.value == 0f) {
+                activeHighlightedSentence = null
+            }
+        }
+    }
 
     var areDetailsVisible by rememberSaveable(contentIdentity) {
         mutableStateOf(isLoading)
@@ -265,7 +307,9 @@ fun OpponentChatBubble(
                     AssistantAnswerContent(
                         timeline = contentTimeline,
                         isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity
+                        contentIdentity = contentIdentity,
+                        highlightSentence = activeHighlightedSentence,
+                        highlightProgress = highlightProgress.value
                     )
                 } else {
                     LegacyAssistantAnswerContent(
@@ -273,7 +317,9 @@ fun OpponentChatBubble(
                         text = text,
                         thoughts = thoughts,
                         isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity
+                        contentIdentity = contentIdentity,
+                        highlightSentence = activeHighlightedSentence,
+                        highlightProgress = highlightProgress.value
                     )
                 }
 
@@ -389,31 +435,44 @@ fun OpponentChatBubble(
                                 ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
                             }
 
-                            AssistChip(
-                                onClick = {
-                                    actionDismissed = true
-                                    onActionClick(action.actionPrompt)
-                                },
-                                label = {
-                                    Text(
-                                        text = action.label,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                            Box(
+                                modifier = Modifier.pointerInput(action) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            startHighlight(action.label, action.actionPrompt)
+                                            val released = tryAwaitRelease()
+                                            reverseHighlight()
+                                            if (released) {
+                                                actionDismissed = true
+                                                onActionClick(action.actionPrompt)
+                                            }
+                                        }
                                     )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                },
-                                colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                ),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            )
+                                }
+                            ) {
+                                AssistChip(
+                                    onClick = { /* Handled by pointerInput onPress/release */ },
+                                    label = {
+                                        Text(
+                                            text = action.label,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    ),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                )
+                            }
                         }
                     }
                 }
@@ -443,24 +502,37 @@ fun OpponentChatBubble(
                             label = "pulseAlpha"
                         )
 
-                        SuggestionChip(
-                            onClick = {
-                                continueDismissed = true
-                                onContinueClick?.invoke()
-                            },
-                            label = { Text("Continue") },
-                            icon = {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = "Continue",
-                                    modifier = Modifier.size(14.dp)
+                        Box(
+                            modifier = Modifier.pointerInput(Unit) {
+                                detectTapGestures(
+                                    onPress = {
+                                        startHighlight("continue", "continue")
+                                        val released = tryAwaitRelease()
+                                        reverseHighlight()
+                                        if (released) {
+                                            continueDismissed = true
+                                            onContinueClick?.invoke()
+                                        }
+                                    }
                                 )
-                            },
-                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                            }
+                        ) {
+                            SuggestionChip(
+                                onClick = { /* Handled by pointerInput onPress/release */ },
+                                label = { Text("Continue") },
+                                icon = {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = "Continue",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                                )
                             )
-                        )
+                        }
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
@@ -558,46 +630,36 @@ internal fun DetailsButton(
 
     Row(
         modifier = Modifier
-            .clip(MaterialTheme.shapes.extraLarge)
-            .clickable(
-                enabled = isEnabled,
-                role = Role.Button,
-                onClick = onClick
-            )
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = isEnabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .semantics {
                 role = Role.Button
-                stateDescription = if (!isEnabled) {
-                    unavailableDesc
-                } else if (isVisible) {
-                    expandedDesc
+                contentDescription = if (isEnabled) {
+                    if (isVisible) expandedDesc else collapsedDesc
                 } else {
-                    collapsedDesc
+                    unavailableDesc
+                }
+                stateDescription = if (isEnabled) {
+                    if (isVisible) expandedDesc else collapsedDesc
+                } else {
+                    unavailableDesc
                 }
             },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = Icons.Rounded.KeyboardArrowDown,
-            contentDescription = null,
-            modifier = Modifier
-                .size(16.dp)
-                .rotate(rotation),
-            tint = if (isEnabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.19f)
-            }
-        )
-        Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = stringResource(R.string.details),
             style = MaterialTheme.typography.labelSmall,
-            color = if (isEnabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.19f)
-            }
+            color = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        )
+        Icon(
+            imageVector = Icons.Rounded.KeyboardArrowDown,
+            contentDescription = null,
+            tint = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+            modifier = Modifier
+                .size(16.dp)
+                .rotate(rotation)
         )
     }
 }
@@ -671,7 +733,9 @@ private fun AssistantProcessContent(
 private fun AssistantAnswerContent(
     timeline: List<AssistantTimelineItem>,
     isLoading: Boolean,
-    contentIdentity: Any
+    contentIdentity: Any,
+    highlightSentence: String? = null,
+    highlightProgress: Float = 0f
 ) {
     val textItems = remember(timeline) {
         timeline.mapIndexedNotNull { index, item ->
@@ -690,6 +754,8 @@ private fun AssistantAnswerContent(
             ChatMarkdown(
                 content = display,
                 contentIdentity = "$contentIdentity:text:$index",
+                highlightSentence = highlightSentence,
+                highlightProgress = highlightProgress,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
@@ -753,7 +819,9 @@ private fun LegacyAssistantAnswerContent(
     text: String,
     thoughts: String,
     isLoading: Boolean,
-    contentIdentity: Any
+    contentIdentity: Any,
+    highlightSentence: String? = null,
+    highlightProgress: Float = 0f
 ) {
     val parsed = remember(text) {
         if (thoughts.isBlank() && text.contains("<think", ignoreCase = true)) {
@@ -770,6 +838,8 @@ private fun LegacyAssistantAnswerContent(
                 ChatMarkdown(
                     content = display,
                     contentIdentity = contentIdentity,
+                    highlightSentence = highlightSentence,
+                    highlightProgress = highlightProgress,
                     modifier = Modifier.padding(16.dp)
                 )
             }
@@ -818,267 +888,23 @@ fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatfo
             name, maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary
         )
-        Spacer(Modifier.width(12.dp)); if (isLoading) Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(12.dp))
     }
-    TextButton(
-        modifier = Modifier.widthIn(max = 160.dp), onClick = onPlatformClick,
-        colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.textButtonColors(),
-        content = content
-    )
-}
-
-@Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(ImageVector.vectorResource(R.drawable.ic_copy), stringResource(R.string.copy_text))
-}
-@Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text))
-}
-@Composable
-private fun FavoriteIcon(
-    isFavorite: Boolean,
-    onFavoriteClick: () -> Unit,
-    onFavoriteLongPress: () -> Unit = {}
-) {
-    val haptic = LocalHapticFeedback.current
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onFavoriteClick() },
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onFavoriteLongPress()
-                    }
-                )
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
-            stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
-            tint = if (isFavorite) Color.Cyan else MaterialTheme.colorScheme.onSurfaceVariant
+    if (selected) {
+        FilledTonalButton(
+            onClick = onPlatformClick,
+            shape = CircleShape,
+            colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            contentPadding = PaddingValues(0.dp),
+            content = content
+        )
+    } else {
+        OutlinedButton(
+            onClick = onPlatformClick,
+            shape = CircleShape,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+            contentPadding = PaddingValues(0.dp),
+            content = content
         )
     }
 }
-@Composable private fun RetryIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(Icons.Rounded.Refresh, stringResource(R.string.retry))
-}
-@Composable private fun EditTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(Icons.Outlined.Edit, stringResource(R.string.edit))
-}
-
-@Composable
-internal fun TelemetryBadge(notice: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.semantics { contentDescription = notice },
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh
-    ) {
-        Text(
-            text = notice,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-/**
- * Rich diagnostics inspection card rendered when Debug Mode is turned on.
- * Displays real-time hardware status, QNN HTP NPU native readiness, and token generation speed.
- */
-@Composable
-internal fun ChatDebugDiagnosticsCard(
-    agentRun: AgentRun?,
-    telemetryNotice: String?,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    var isCopied by remember { mutableStateOf(false) }
-
-    val snapshot = remember(agentRun, telemetryNotice) {
-        DiagnosticsTelemetryProvider.getSnapshot(
-            context = context,
-            backendName = agentRun?.modelSnapshot ?: "On-Device",
-            accelerator = "NPU / Hexagon HTP"
-        )
-    }
-
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = "Debug Diagnostics",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Debug Diagnostics HUD",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                TextButton(
-                    onClick = {
-                        val fullReport = DiagnosticsTelemetryProvider.formatDiagnosticsText(snapshot, telemetryNotice)
-                        clipboardManager.setText(AnnotatedString(fullReport))
-                        isCopied = true
-                    },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.height(28.dp)
-                ) {
-                    Text(
-                        text = if (isCopied) "Copied!" else "Copy Diagnostics",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Processor & Native Accelerator Status
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Processor: ${snapshot.socModel}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp
-                )
-                Text(
-                    text = if (snapshot.qnnReady) "Hexagon NPU: Ready" else "Hexagon NPU: Inactive",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (snapshot.qnnReady) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
-                    fontSize = 11.sp
-                )
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            // Memory & Thermals
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "RAM: ${snapshot.availableRamMb} MB avail / ${snapshot.totalRamGb} GB",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp
-                )
-                Text(
-                    text = "Thermal: ${snapshot.thermalStatus}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp
-                )
-            }
-
-            if (!telemetryNotice.isNullOrBlank()) {
-                Spacer(Modifier.height(6.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = telemetryNotice,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 11.sp
-                )
-            }
-        }
-    }
-}
-
-internal fun isTelemetryNotice(message: String): Boolean =
-    message.startsWith("Local: ") && message.contains("tok/s")
-
-internal fun extractTelemetryNotice(notices: List<String>): Pair<String?, List<String>> {
-    val telemetry = notices.firstOrNull(::isTelemetryNotice)
-    val remaining = notices.filterNot(::isTelemetryNotice)
-    return telemetry to remaining
-}
-
-internal fun buildDiagnosticsHudText(
-    agentRun: AgentRun?,
-    telemetryNotice: String?,
-    debugMode: Boolean
-): String? {
-    if (!debugMode) return telemetryNotice
-
-    val parts = mutableListOf<String>()
-    agentRun?.modelSnapshot?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
-    agentRunDurationSeconds(agentRun ?: return telemetryNotice)?.let { duration ->
-        parts.add("${duration}s")
-    }
-    telemetryNotice?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
-
-    return if (parts.isNotEmpty()) parts.joinToString(" • ") else telemetryNotice
-}
-
-@Preview
-@Composable
-fun UserChatBubblePreview() {
-    val sampleText = "How can I print hello world in Python?"
-    GPTMobileTheme {
-        UserChatBubble(text = sampleText, files = emptyList(), onLongPress = {})
-    }
-}
-
-@Composable
-internal fun MessageFileThumbnailRow(files: List<String>, modifier: Modifier = Modifier, usePrimaryColors: Boolean = true) {
-    val validFiles = remember(files) { files.filter(String::isNotBlank) }
-    if (validFiles.isEmpty()) return
-    Row(
-        modifier = modifier.wrapContentHeight().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) { validFiles.forEach { MessageFileThumbnail(it, usePrimaryColors) } }
-}
-
-@Composable
-private fun MessageFileThumbnail(filePath: String, usePrimaryColors: Boolean) {
-    val file = remember(filePath) { File(filePath) }
-    val isImage = remember(file.extension) { isImageFile(file.extension) }
-    val container = if (usePrimaryColors) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .7f) else MaterialTheme.colorScheme.surfaceVariant
-    val content = if (usePrimaryColors) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-    Column(modifier = Modifier.width(56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(container)) {
-            Icon(
-                ImageVector.vectorResource(if (isImage) R.drawable.ic_image else R.drawable.ic_file), file.name,
-                modifier = Modifier.fillMaxWidth().padding(8.dp), tint = content
-            )
-        }
-        Text(
-            file.name, style = MaterialTheme.typography.labelSmall, color = content, maxLines = 2,
-            overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp).width(56.dp)
-        )
-    }
-}
-
-private fun isImageFile(extension: String?): Boolean =
-    extension != null && extension.lowercase() in setOf("jpg", "jpeg", "png", "gif", "bmp", "webp")

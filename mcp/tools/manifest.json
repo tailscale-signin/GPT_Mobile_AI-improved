@@ -108,6 +108,25 @@
       "parameters": []
     },
     {
+      "name": "geocode_address",
+      "category": "LOCATION",
+      "description": "Convert a street address or location name into geographic coordinates (latitude and longitude)",
+      "parameters": [
+        { "name": "address", "type": "string", "required": true, "description": "Address or place name to geocode" }
+      ]
+    },
+    {
+      "name": "calculate_distance",
+      "category": "LOCATION",
+      "description": "Calculate great-circle distance between two geographic coordinates using the Haversine formula",
+      "parameters": [
+        { "name": "lat1", "type": "number", "required": true, "description": "Latitude of starting location" },
+        { "name": "lon1", "type": "number", "required": true, "description": "Longitude of starting location" },
+        { "name": "lat2", "type": "number", "required": true, "description": "Latitude of destination location" },
+        { "name": "lon2", "type": "number", "required": true, "description": "Longitude of destination location" }
+      ]
+    },
+    {
       "name": "fetch",
       "category": "WEB",
       "description": "Download HTML web pages and parse to clean Markdown",

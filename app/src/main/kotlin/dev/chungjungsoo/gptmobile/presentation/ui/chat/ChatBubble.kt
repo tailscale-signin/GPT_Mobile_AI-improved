@@ -162,6 +162,109 @@ fun UserChatBubble(
 }
 
 @Composable
+private fun GatewayActivityBar(
+    isLoading: Boolean,
+    toolEvents: List<ToolEvent>,
+    modifier: Modifier = Modifier
+) {
+    if (!isLoading) return
+
+    val gatewayEvents = remember(toolEvents) {
+        toolEvents.filter {
+            it.connectionUidSnapshot?.startsWith("gateway:", ignoreCase = true) == true
+        }
+    }
+
+    val running = gatewayEvents.count { it.status == ToolEventStatus.RUNNING }
+    val completed = gatewayEvents.count { it.status == ToolEventStatus.COMPLETED }
+    val failed = gatewayEvents.count { it.status == ToolEventStatus.FAILED }
+
+    val latestRunning = gatewayEvents
+        .filter { it.status == ToolEventStatus.RUNNING }
+        .maxByOrNull { it.sequence }
+
+    val title = if (gatewayEvents.isEmpty()) {
+        "AI is working"
+    } else {
+        buildString {
+            append("Gateway working")
+            append(" • ")
+            append(completed)
+            append(" completed")
+            if (running > 0) {
+                append(" • ")
+                append(running)
+                append(" running")
+            }
+            if (failed > 0) {
+                append(" • ")
+                append(failed)
+                append(" failed")
+            }
+        }
+    }
+
+    val detail = latestRunning?.let { event ->
+        val server = event.connectionNameSnapshot ?: "GATEWAY"
+        val tool = event.toolName
+            .ifBlank { event.modelToolName }
+            .substringAfterLast("__")
+            .replace('_', ' ')
+        "$server — $tool"
+    } ?: if (gatewayEvents.isNotEmpty()) {
+        "Waiting for the next model/tool step…"
+    } else {
+        "Preparing model, memory, and tools…"
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                if (gatewayEvents.isNotEmpty()) {
+                    Text(
+                        text = "GATEWAY",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            // Indeterminate is intentional: the gateway knows whether work
+            // is progressing, but not the future number of model/tool steps.
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 fun OpponentChatBubble(
     modifier: Modifier = Modifier,
     canRetry: Boolean,
@@ -285,6 +388,12 @@ fun OpponentChatBubble(
     Column(modifier = modifier) {
         RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
         AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
+
+        GatewayActivityBar(
+            isLoading = isLoading,
+            toolEvents = toolEvents,
+            modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
+        )
 
         AnimatedVisibility(
             visible = shouldShowBubble,

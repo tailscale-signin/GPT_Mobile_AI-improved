@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.dto.openai.response
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class ChatCompletionChunk(
@@ -20,8 +21,83 @@ data class ChatCompletionChunk(
     @SerialName("choices")
     val choices: List<Choice>? = null,
 
+    @SerialName("gateway_progress")
+    val gatewayProgress: GatewayProgress? = null,
+
     @SerialName("error")
     val error: ErrorDetail? = null
+)
+
+@Serializable
+data class GatewayProgress(
+    @SerialName("protocol")
+    val protocol: String? = null,
+
+    @SerialName("event")
+    val event: String? = null,
+
+    @SerialName("job_id")
+    val jobId: String? = null,
+
+    @SerialName("sequence")
+    val sequence: Int? = null,
+
+    @SerialName("phase")
+    val phase: String? = null,
+
+    @SerialName("stage")
+    val stage: String? = null,
+
+    @SerialName("message")
+    val message: String? = null,
+
+    @SerialName("timestamp")
+    val timestamp: Double? = null,
+
+    @SerialName("status")
+    val status: String? = null,
+
+    @SerialName("tool_call_id")
+    val toolCallId: String? = null,
+
+    @SerialName("tool_name")
+    val toolName: String? = null,
+
+    @SerialName("tool_source")
+    val toolSource: String? = null,
+
+    @SerialName("server")
+    val server: String? = null,
+
+    @SerialName("route")
+    val route: String? = null,
+
+    @SerialName("tool_args")
+    val toolArgs: JsonObject? = null,
+
+    @SerialName("result_quality")
+    val resultQuality: String? = null,
+
+    @SerialName("duration_ms")
+    val durationMs: Long? = null,
+
+    @SerialName("round")
+    val round: Int? = null,
+
+    @SerialName("total_tool_calls")
+    val totalToolCalls: Int? = null,
+
+    @SerialName("useful_tool_calls")
+    val usefulToolCalls: Int? = null,
+
+    @SerialName("repository_tool_calls")
+    val repositoryToolCalls: Int? = null,
+
+    @SerialName("no_progress")
+    val noProgress: Int? = null,
+
+    @SerialName("checkpoint")
+    val checkpoint: Int? = null
 )
 
 @Serializable

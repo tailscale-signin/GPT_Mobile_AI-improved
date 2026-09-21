@@ -37,6 +37,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -57,6 +58,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 
 class ChatRepositoryImpl(
     private val context: Context,
@@ -189,6 +191,13 @@ class ChatRepositoryImpl(
                         is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))
 
                         is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
+
+                        is ProviderEvent.GatewayProgressUpdate -> {
+                            val gatewayToolEvent = trace.gateway(providerEvent.progress)
+                            if (gatewayToolEvent != null) {
+                                emit(ApiState.ToolCall(gatewayToolEvent.sequence))
+                            }
+                        }
 
                         is ProviderEvent.ToolCall -> {
                             val toolEvent = trace.start(providerEvent)
@@ -486,6 +495,12 @@ private class ToolTraceSession(
 ) {
     private val toolsByName = tools.associateBy { it.modelToolName }
     private val pendingEventIds = mutableMapOf<String, ArrayDeque<String>>()
+
+    // Gateway-owned tools are executed on the Windows gateway, not on
+    // Android. Their stable call IDs let us update the same ToolEvent
+    // bubble when completion arrives.
+    private val gatewayEventIds = mutableMapOf<String, String>()
+
     private var sequence = 0
 
     suspend fun start(call: ProviderEvent.ToolCall): ToolEvent {
@@ -505,6 +520,76 @@ private class ToolTraceSession(
         return event
     }
 
+    suspend fun gateway(progress: GatewayProgress): ToolEvent? {
+        // Client-owned tools already travel through ProviderEvent.ToolCall
+        // and are recorded by the normal path. Only mirror gateway-owned
+        // executions here to avoid duplicate tool bubbles.
+        if (!progress.toolSource.equals("gateway", ignoreCase = true)) return null
+
+        val callId = progress.toolCallId?.takeIf { it.isNotBlank() } ?: return null
+        val eventName = progress.event?.lowercase().orEmpty()
+        val toolName = progress.toolName?.takeIf { it.isNotBlank() } ?: "gateway_tool"
+        val server = progress.server?.takeIf { it.isNotBlank() } ?: "gateway"
+
+        return when (eventName) {
+            "tool_started" -> {
+                if (gatewayEventIds.containsKey(callId)) return null
+
+                val event = recorder.startTool(
+                    runId = runId,
+                    sequence = sequence++,
+                    callId = callId,
+                    toolName = toolName,
+                    modelToolName = toolName,
+                    arguments = progress.toolArgs ?: JsonObject(emptyMap()),
+                    connectionUid = "gateway:$server",
+                    connectionName = "GATEWAY • $server",
+                    startedAt = progress.timestampEpochSeconds()
+                )
+
+                gatewayEventIds[callId] = event.eventId
+                event
+            }
+
+            "tool_completed", "tool_failed", "tool_blocked" -> {
+                val eventId = gatewayEventIds.remove(callId) ?: return null
+                val isError =
+                    eventName == "tool_failed" ||
+                    eventName == "tool_blocked" ||
+                    progress.status.equals("failed", ignoreCase = true) ||
+                    progress.status.equals("blocked", ignoreCase = true)
+
+                val resultText = buildString {
+                    append(progress.message ?: progress.status ?: "Gateway tool finished")
+                    progress.resultQuality?.takeIf { it.isNotBlank() }?.let {
+                        append("\nResult quality: ")
+                        append(it)
+                    }
+                    progress.durationMs?.let {
+                        append("\nGateway duration: ")
+                        append(it)
+                        append(" ms")
+                    }
+                }
+
+                recorder.finishTool(
+                    eventId = eventId,
+                    result = AgentToolResult(
+                        callId = callId,
+                        content = ToolResultContent.Text(resultText),
+                        isError = isError
+                    ),
+                    completedAt = currentEpochSeconds(),
+                    error = if (isError) resultText else null
+                )
+
+                null
+            }
+
+            else -> null
+        }
+    }
+
     suspend fun finish(call: ProviderEvent.ToolCall, result: AgentToolResult) {
         val eventId = pendingEventIds[call.callId]?.removeFirstOrNull() ?: return
         recorder.finishTool(
@@ -514,6 +599,12 @@ private class ToolTraceSession(
             error = result.errorMessage()
         )
     }
+}
+
+private fun GatewayProgress.timestampEpochSeconds(): Long {
+    // v7.2 sends UNIX time as a floating-point value. If unavailable,
+    // use receipt time so duration/status rendering still works.
+    return (timestamp ?: (System.currentTimeMillis() / 1000.0)).toLong()
 }
 
 private fun AgentToolResult.errorMessage(): String? {

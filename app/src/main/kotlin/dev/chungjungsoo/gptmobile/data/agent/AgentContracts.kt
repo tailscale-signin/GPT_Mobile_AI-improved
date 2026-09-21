@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -12,6 +13,11 @@ sealed interface ProviderEvent {
     data class Failed(val message: String) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false) : ProviderEvent
     data class PhaseChanged(val phase: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase) : ProviderEvent
+
+    // GatewayProgressUpdate is observational only. AgentRunner must never
+    // execute it as a client-owned tool call.
+    data class GatewayProgressUpdate(val progress: GatewayProgress) : ProviderEvent
+
     data object Completed : ProviderEvent
 }
 

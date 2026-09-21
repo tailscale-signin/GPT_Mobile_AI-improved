@@ -197,6 +197,10 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     implementation("com.google.android.material:material:1.12.0")
 
+    // Location
+    implementation(libs.play.services.location)
+    implementation(libs.kotlinx.coroutines.play.services)
+
     // SplashScreen
     implementation(libs.splashscreen)
 

@@ -163,6 +163,42 @@ class McpToolRegistry(
                     McpParameter(name = "target_lang", type = "string", description = "Target language code (e.g., fr, de)", required = true)
                 ),
                 category = McpToolCategory.TRANSLATION.name
+            ),
+
+            // Location Tools
+            McpToolDefinition(
+                name = "get_current_location",
+                description = "Get current GPS coordinates (latitude, longitude, altitude, accuracy)",
+                parameters = emptyList(),
+                category = McpToolCategory.LOCATION.name
+            ),
+            McpToolDefinition(
+                name = "reverse_geocode",
+                description = "Convert latitude/longitude coordinates to a human-readable address",
+                parameters = listOf(
+                    McpParameter(name = "latitude", type = "number", description = "Latitude coordinate (-90 to 90)", required = true),
+                    McpParameter(name = "longitude", type = "number", description = "Longitude coordinate (-180 to 180)", required = true)
+                ),
+                category = McpToolCategory.LOCATION.name
+            ),
+            McpToolDefinition(
+                name = "geocode_address",
+                description = "Convert a street address or place name to GPS coordinates",
+                parameters = listOf(
+                    McpParameter(name = "address", type = "string", description = "Address or place name to geocode", required = true)
+                ),
+                category = McpToolCategory.LOCATION.name
+            ),
+            McpToolDefinition(
+                name = "calculate_distance",
+                description = "Calculate the great-circle distance between two geographic coordinates using the Haversine formula",
+                parameters = listOf(
+                    McpParameter(name = "lat1", type = "number", description = "Latitude of point 1", required = true),
+                    McpParameter(name = "lon1", type = "number", description = "Longitude of point 1", required = true),
+                    McpParameter(name = "lat2", type = "number", description = "Latitude of point 2", required = true),
+                    McpParameter(name = "lon2", type = "number", description = "Longitude of point 2", required = true)
+                ),
+                category = McpToolCategory.LOCATION.name
             )
         )
     }

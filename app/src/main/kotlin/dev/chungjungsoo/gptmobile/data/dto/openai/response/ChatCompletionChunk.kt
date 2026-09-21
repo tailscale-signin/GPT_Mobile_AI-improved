@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.dto.openai.response
 
+import dev.chungjungsoo.gptmobile.data.dto.gateway.GatewayProgress
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -21,7 +22,10 @@ data class ChatCompletionChunk(
     val choices: List<Choice>? = null,
 
     @SerialName("error")
-    val error: ErrorDetail? = null
+    val error: ErrorDetail? = null,
+
+    @SerialName("gateway_progress")
+    val gatewayProgress: GatewayProgress? = null
 )
 
 @Serializable
@@ -51,7 +55,10 @@ data class Delta(
     val reasoningContent: String? = null,
 
     @SerialName("tool_calls")
-    val toolCalls: List<ChatToolCallDelta>? = null
+    val toolCalls: List<ChatToolCallDelta>? = null,
+
+    @SerialName("gateway_progress")
+    val gatewayProgress: GatewayProgress? = null
 ) {
     val effectiveReasoning: String?
         get() = reasoning ?: reasoningContent

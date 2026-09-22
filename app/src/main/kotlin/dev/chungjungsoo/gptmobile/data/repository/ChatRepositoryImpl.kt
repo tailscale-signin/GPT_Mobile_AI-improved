@@ -26,6 +26,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -192,7 +193,16 @@ class ChatRepositoryImpl(
 
                         is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
 
+                        is ProviderEvent.GatewayMetadataCaptured -> {
+                            providerEvent.metadata.jobId?.let { jobId ->
+                                agentRunDao.bindGatewayJob(runId, jobId, platform.apiUrl)
+                            }
+                        }
+
                         is ProviderEvent.GatewayProgressUpdate -> {
+                            providerEvent.progress.sequence?.let { seq ->
+                                agentRunDao.advanceGatewaySequence(runId, seq)
+                            }
                             val gatewayToolEvent = trace.gateway(providerEvent.progress)
                             if (gatewayToolEvent != null) {
                                 emit(ApiState.ToolCall(gatewayToolEvent.sequence))
@@ -308,7 +318,6 @@ class ChatRepositoryImpl(
             return chatRoomV2Dao.getChatRooms()
         }
 
-        // Search by title and message content concurrently on I/O dispatcher
         val (titleMatches, messageMatchChatIds) = withContext(Dispatchers.IO) {
             coroutineScope {
                 val titleJob = async { chatRoomV2Dao.searchChatRoomsByTitle(query) }
@@ -317,7 +326,6 @@ class ChatRepositoryImpl(
             }
         }
 
-        // Query only the matched chat rooms directly from DB by ID instead of fetching all chat rooms into memory
         val messageMatches = if (messageMatchChatIds.isEmpty()) {
             emptyList()
         } else {
@@ -326,12 +334,10 @@ class ChatRepositoryImpl(
             }
         }
 
-        // Combine results and remove duplicates, maintaining order by updatedAt
         val titleMatchIds = HashSet<Int>(titleMatches.size)
         val combined = ArrayList<ChatRoomV2>(titleMatches.size + messageMatches.size)
         for (room in titleMatches) {
             titleMatchIds.add(room.id)
-            combined.add(room)
         }
         for (room in messageMatches) {
             if (titleMatchIds.add(room.id)) {
@@ -416,6 +422,15 @@ class ChatRepositoryImpl(
 
     override suspend fun interruptActiveAgentRuns(completedAt: Long): Int = agentRunDao.interruptActiveRuns(completedAt)
 
+    override suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Boolean =
+        agentRunDao.bindGatewayJob(runId, jobId, baseUrl) == 1
+
+    override suspend fun advanceGatewaySequence(runId: String, sequence: Int): Boolean =
+        agentRunDao.advanceGatewaySequence(runId, sequence) == 1
+
+    override suspend fun getRecoverableGatewayRuns(): List<AgentRun> =
+        agentRunDao.getRecoverableGatewayRuns()
+
     override fun generateDefaultChatTitle(messages: List<MessageV2>): String? = messages.sortedBy { it.createdAt }.firstOrNull { it.platformType == null }?.content?.replace('\n', ' ')?.take(50)
 
     override suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean) {
@@ -435,7 +450,6 @@ class ChatRepositoryImpl(
 
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {
         if (chatRoom.id == 0) {
-            // New Chat
             val chatId = chatRoomV2Dao.addChatRoom(chatRoom)
             val updatedMessages = messages.map { it.copy(chatId = chatId.toInt()) }
             messageV2Dao.addMessages(*updatedMessages.toTypedArray())
@@ -496,9 +510,6 @@ private class ToolTraceSession(
     private val toolsByName = tools.associateBy { it.modelToolName }
     private val pendingEventIds = mutableMapOf<String, ArrayDeque<String>>()
 
-    // Gateway-owned tools are executed on the Windows gateway, not on
-    // Android. Their stable call IDs let us update the same ToolEvent
-    // bubble when completion arrives.
     private val gatewayEventIds = mutableMapOf<String, String>()
 
     private var sequence = 0
@@ -521,9 +532,6 @@ private class ToolTraceSession(
     }
 
     suspend fun gateway(progress: GatewayProgress): ToolEvent? {
-        // Client-owned tools already travel through ProviderEvent.ToolCall
-        // and are recorded by the normal path. Only mirror gateway-owned
-        // executions here to avoid duplicate tool bubbles.
         val isGatewaySource = progress.toolSource.equals("gateway", ignoreCase = true) ||
             progress.origin.equals("gateway", ignoreCase = true)
         if (!isGatewaySource) return null
@@ -564,8 +572,17 @@ private class ToolTraceSession(
                     progress.status.equals("failed", ignoreCase = true) ||
                     progress.status.equals("blocked", ignoreCase = true)
 
+                val isEmptyResult = !isError && (
+                    progress.resultQuality.equals("empty", ignoreCase = true) ||
+                    progress.status.equals("no_useful_result", ignoreCase = true)
+                )
+
                 val resultText = buildString {
-                    append(progress.message ?: progress.status ?: "Gateway tool finished")
+                    if (isEmptyResult) {
+                        append(progress.message ?: "Completed — No results")
+                    } else {
+                        append(progress.message ?: progress.status ?: "Gateway tool finished")
+                    }
                     progress.resultQuality?.takeIf { it.isNotBlank() }?.let {
                         append("\nResult quality: ")
                         append(it)
@@ -582,7 +599,8 @@ private class ToolTraceSession(
                     result = AgentToolResult(
                         callId = callId,
                         content = ToolResultContent.Text(resultText),
-                        isError = isError
+                        isError = isError,
+                        traceContent = if (isEmptyResult) ToolResultContent.Text("") else null
                     ),
                     completedAt = currentEpochSeconds(),
                     error = if (isError) resultText else null
@@ -607,8 +625,6 @@ private class ToolTraceSession(
 }
 
 private fun GatewayProgress.timestampEpochSeconds(): Long {
-    // v7.2 sends UNIX time as a floating-point value. If unavailable,
-    // use receipt time so duration/status rendering still works.
     return (timestamp ?: (System.currentTimeMillis() / 1000.0)).toLong()
 }
 

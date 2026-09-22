@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.UnknownEvent
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
@@ -125,6 +126,28 @@ class OpenAIAPIImpl @Inject constructor(
                     return@execute
                 }
 
+                // Capture Gateway headers from response
+                val gatewayJobId = response.headers["X-Gateway-Job-ID"]
+                val gatewayRequestId = response.headers["X-Gateway-Request-ID"]
+                val gatewayVersion = response.headers["X-Gateway-Version"]
+                val gatewayProgressProtocol = response.headers["X-Gateway-Progress-Protocol"]
+                val gatewaySingleflight = response.headers["X-Gateway-Singleflight"]
+
+                val gatewayMetadata = if (gatewayJobId != null || gatewayRequestId != null || gatewayVersion != null) {
+                    GatewayResponseMetadata(
+                        jobId = gatewayJobId,
+                        requestId = gatewayRequestId,
+                        version = gatewayVersion,
+                        progressProtocol = gatewayProgressProtocol,
+                        singleflightRole = gatewaySingleflight
+                    )
+                } else {
+                    null
+                }
+
+                // If gateway metadata is present, emit an initial chunk carrying the metadata
+                var firstChunk = true
+
                 // Success - read SSE stream
                 val channel = response.bodyAsChannel()
                 while (!channel.isClosedForRead) {
@@ -136,10 +159,20 @@ class OpenAIAPIImpl @Inject constructor(
 
                     try {
                         val chunk = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
-                        emit(chunk)
+                        if (firstChunk && gatewayMetadata != null) {
+                            firstChunk = false
+                            emit(chunk.copy(gatewayMetadata = gatewayMetadata))
+                        } else {
+                            emit(chunk)
+                        }
                     } catch (_: Exception) {
                         // Skip malformed chunks
                     }
+                }
+
+                // If no chunks were emitted but metadata was present, emit a metadata chunk
+                if (firstChunk && gatewayMetadata != null) {
+                    emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
                 }
             }
         } catch (e: Exception) {

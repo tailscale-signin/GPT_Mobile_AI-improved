@@ -23,6 +23,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -45,6 +46,9 @@ class GPTMobileApp :
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
+
+    @Inject
+    lateinit var gatewayNetworkRecoveryMonitor: GatewayNetworkRecoveryMonitor
 
     @Volatile
     var secretMigrationErrors: List<SecretMigrationError> = emptyList()
@@ -75,6 +79,7 @@ class GPTMobileApp :
         SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
         registerActivityLifecycleCallbacks(AppForegroundTracker)
+        gatewayNetworkRecoveryMonitor.start()
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
             val startup = startupDependencies()

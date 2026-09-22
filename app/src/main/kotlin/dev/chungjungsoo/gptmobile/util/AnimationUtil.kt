@@ -1,12 +1,14 @@
 package dev.chungjungsoo.gptmobile.util
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.delay
 
 /**
  * Animation utilities for fade-in effects with staggered delays.
@@ -40,8 +42,23 @@ object AnimationUtil {
         duration: Long = DEFAULT_DURATION_MS,
         delay: Long = 0L
     ): Modifier {
-        val segmentDelay = SEGMENT_DELAY_MS * index
-        return Modifier.alpha(0f) // Will be animated by parent
+        val segmentDelay = delay + (SEGMENT_DELAY_MS * index)
+        val alphaAnim = remember(index) { Animatable(0f) }
+
+        LaunchedEffect(index, segmentDelay, duration) {
+            if (segmentDelay > 0L) {
+                delay(segmentDelay)
+            }
+            alphaAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = duration.toInt(),
+                    easing = FastOutSlowInEasing
+                )
+            )
+        }
+
+        return Modifier.alpha(alphaAnim.value)
     }
 
     /**

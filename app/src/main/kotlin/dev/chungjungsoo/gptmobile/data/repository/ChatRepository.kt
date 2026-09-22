@@ -45,6 +45,9 @@ interface ChatRepository {
     suspend fun finishActiveAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun updateAgentMessage(message: MessageV2)
     suspend fun interruptActiveAgentRuns(completedAt: Long): Int
+    suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Boolean
+    suspend fun advanceGatewaySequence(runId: String, sequence: Int): Boolean
+    suspend fun getRecoverableGatewayRuns(): List<AgentRun>
     fun generateDefaultChatTitle(messages: List<MessageV2>): String?
     suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean = false)
     suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2): String?

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Large outer glow ring -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z"/>
+
+    <!-- Large inner gradient ring -->
+    <path
+        android:fillColor="#A855F7"
+        android:pathData="M12,4c-4.97,0 -9,4.03 -9,9s4.03,9 9,9 9,-4.03 9,-9 -4.03,-9 -9,-9zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z"/>
+
+    <!-- Large AI Brain Icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM10,17l-5,-5 1.41,-1.41L10,14.17l7.59,-7.59L19,8l-9,9z"/>
+
+    <!-- Large Neural Network Lines -->
+    <path
+        android:fillColor="#C4B5FD"
+        android:pathData="M6,10h2v2H6zM16,10h2v2h-2zM6,14h2v2H6zM16,14h2v2h-2z"/>
+
+    <!-- Large Sparkle Effect -->
+    <path
+        android:fillColor="#FDE047"
+        android:pathData="M12,7l1.5,3 3,1.5 -3,1.5 -1.5,3 -1.5,-3 -3,-1.5 3,-1.5z"/>
+
+    <!-- Large Connection Lines -->
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M9,7l2,-2 2,2zM15,7l-2,-2 -2,2z"/>
+</vector>

@@ -170,6 +170,7 @@ class AgentRunForegroundService : Service() {
     }
 
     private fun buildNotification(contentText: String): Notification {
+        // Use the new fancy AI notification icon
         val openApp = buildOpenAppPendingIntent(1, lastActiveChatId)
 
         val cancelIntent = Intent(this, AgentRunForegroundService::class.java).apply {
@@ -183,7 +184,7 @@ class AgentRunForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_gpt_mobile_monochrome_foreground)
+            .setSmallIcon(R.drawable.ic_ai_notification) // NEW: Fancy AI notification icon
             .setContentTitle(getString(R.string.agent_notification_title))
             .setContentText(contentText)
             .setContentIntent(openApp)
@@ -238,7 +239,7 @@ class AgentRunForegroundService : Service() {
     }
 
     private fun buildCompletionNotification(title: String, chatId: Int?): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_gpt_mobile_monochrome_foreground)
+        .setSmallIcon(R.drawable.ic_ai_notification) // NEW: Fancy AI notification icon
         .setContentTitle(title)
         .setContentText(getString(R.string.agent_completion_notification_text))
         .setContentIntent(buildOpenAppPendingIntent(2, chatId))

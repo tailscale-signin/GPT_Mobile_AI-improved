@@ -24,6 +24,9 @@ data class ChatCompletionChunk(
     @SerialName("gateway_progress")
     val gatewayProgress: GatewayProgress? = null,
 
+    @SerialName("gateway_metadata")
+    val gatewayMetadata: GatewayResponseMetadata? = null,
+
     @SerialName("error")
     val error: ErrorDetail? = null
 )

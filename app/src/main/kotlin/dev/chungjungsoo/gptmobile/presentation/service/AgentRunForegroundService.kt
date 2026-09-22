@@ -26,6 +26,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
+import dev.chungjungsoo.gptmobile.util.NotificationManager
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +45,8 @@ class AgentRunForegroundService : Service() {
 
     @Inject
     lateinit var settingRepository: SettingRepository
+
+    private val notificationManager = NotificationManager(this)
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var activeRunsJob: Job? = null

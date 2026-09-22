@@ -29,9 +29,30 @@ data class ChatCompletionChunk(
 )
 
 @Serializable
+data class GatewayProgressUi(
+    @SerialName("icon")
+    val icon: String? = null,
+
+    @SerialName("title")
+    val title: String? = null,
+
+    @SerialName("show_origin_text")
+    val showOriginText: Boolean? = null,
+
+    @SerialName("show_server_text")
+    val showServerText: Boolean? = null,
+
+    @SerialName("show_mcp_badge")
+    val showMcpBadge: Boolean? = null
+)
+
+@Serializable
 data class GatewayProgress(
     @SerialName("protocol")
     val protocol: String? = null,
+
+    @SerialName("origin")
+    val origin: String? = null,
 
     @SerialName("event")
     val event: String? = null,
@@ -62,6 +83,12 @@ data class GatewayProgress(
 
     @SerialName("tool_name")
     val toolName: String? = null,
+
+    @SerialName("display_title")
+    val displayTitle: String? = null,
+
+    @SerialName("ui")
+    val ui: GatewayProgressUi? = null,
 
     @SerialName("tool_source")
     val toolSource: String? = null,

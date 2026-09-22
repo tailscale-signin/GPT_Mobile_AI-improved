@@ -3,7 +3,6 @@
 
     <style name="Theme.GPTMobile" parent="android:Theme.Material.NoActionBar">
         <item name="android:fontFamily">@font/proxima_nova</item>
-        <item name="fontFamily">@font/proxima_nova</item>
     </style>
 
     <!-- Manifest theme compatibility aliases -->

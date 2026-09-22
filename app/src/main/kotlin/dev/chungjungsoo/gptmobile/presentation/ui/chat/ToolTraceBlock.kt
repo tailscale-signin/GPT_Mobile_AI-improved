@@ -540,7 +540,11 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
             toolTimingLabel(event, labels)?.let { ToolTraceLine(labels.timing, it) }
             event.error?.takeIf { it.isNotBlank() }?.let { ToolTraceLine(labels.error, toolEventErrorText(it)) }
             ToolTraceBlockText(labels.arguments, event.arguments)
-            event.result?.takeIf { it.isNotBlank() }?.let { ToolTraceBlockText(labels.result, it) }
+            if (event.resultType == ToolEventResultType.EMPTY) {
+                ToolTraceLine(labels.result, "✓ Completed — No results")
+            } else {
+                event.result?.takeIf { it.isNotBlank() }?.let { ToolTraceBlockText(labels.result, it) }
+            }
         }
     }
 }

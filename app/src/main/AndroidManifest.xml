@@ -41,6 +41,22 @@
             </intent-filter>
         </activity>
 
+        <!-- Notification click handler - singleTask to prevent multiple instances -->
+        <activity
+            android:name=".presentation.ui.chat.NotificationClickHandlerActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="gptmobile" android:host="open-chat" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".data.service.GptTileService"
             android:exported="true"
@@ -74,18 +90,6 @@
             android:name=".presentation.service.AgentRunForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-        <activity
-            android:name=".presentation.ui.voice.VoiceAssistantActivity"
-            android:exported="true"
-            android:theme="@style/Theme.Gptmobile.Translucent"
-            android:launchMode="singleTask"
-            android:excludeFromRecents="true">
-            <intent-filter>
-                <action android:name="android.intent.action.ASSIST" />
-                <category android:name="android.intent.action.DEFAULT" />
-            </intent-filter>
-        </activity>
     </application>
 
 </manifest>

@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import dev.chungjungsoo.gptmobile.R
@@ -21,7 +23,7 @@ class NotificationManager(private val context: Context) {
         private const val CHANNEL_ID = "ai_notifications"
         private const val CHANNEL_NAME = "AI Notifications"
         private const val PRIORITY = NotificationCompat.PRIORITY_HIGH
-        private const val VIBRATION_PATTERN = longVibrationPattern()
+        private const val VIBRATION_PATTERN = VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
     }
 
     /**
@@ -136,16 +138,5 @@ class NotificationManager(private val context: Context) {
      */
     fun cancelNotification(messageId: Long) {
         NotificationManagerCompat.from(context).cancel(messageId.toInt())
-    }
-
-    /**
-     * Returns the long vibration pattern for notifications.
-     */
-    private fun longVibrationPattern(): LongArray {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            longArrayOf(0, 250, 0, 500, 0)
-        } else {
-            longArrayOf(0, 500, 0)
-        }
     }
 }

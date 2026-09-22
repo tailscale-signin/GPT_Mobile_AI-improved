@@ -20,7 +20,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.horizontalscroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
@@ -399,308 +399,304 @@ fun OpponentChatBubble(
             modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
         )
 
-        AnimatedVisibility(
-            visible = shouldShowBubble,
-            enter = fadeIn(animationSpec = tween(1000)),
-            exit = fadeOut(animationSpec = tween(1000))
-        ) {
-            Column(
+        // Per-segment fade-in animation for AI response text
+        val textItems = remember(timeline) {
+            timeline.mapIndexedNotNull { index, item ->
+                if (item.type == AssistantTimelineItemType.TEXT) {
+                    index to item
+                } else {
+                    null
+                }
+            }
+        }
+
+        // Wrap each text segment in AnimatedVisibility with 1-second fade-in from 0% to 100% opacity
+        textItems.forEachIndexed { index, (itemIndex, item) ->
+            val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
+            val thinking = parsed.thinking
+            val isLastTextItem = itemIndex == textItems.lastOrNull()?.first
+            val display = parsed.response + if (isLoading && isLastTextItem) "●" else ""
+
+            AnimatedVisibility(
+                visible = display.isNotBlank() || (isLoading && isLastTextItem),
+                enter = fadeIn(animationSpec = tween(durationMillis = 1000)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 1000)),
+                delay = index * 50L // Staggered animation for sequential appearance
+            ) {
+                if (display.isNotBlank() || (isLoading && isLastTextItem)) {
+                    ChatMarkdown(
+                        content = display,
+                        contentIdentity = "$contentIdentity:text:$itemIndex",
+                        highlightSentence = activeHighlightedSentence,
+                        highlightProgress = highlightProgress.value,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        // Details expandable content & toggle button placed below the response content
+        if (hasDetails) {
+            AnimatedContent(
+                targetState = areDetailsVisible && hasDetails,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
+                },
+                label = "assistantProcessDetails"
+            ) { isVisible ->
+                if (isVisible) {
+                    if (contentTimeline.isNotEmpty() && !hasUnavailableOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())) {
+                        AssistantProcessContent(
+                            timeline = contentTimeline,
+                            toolEvents = toolEvents,
+                            isLoading = showProcessStreamingIndicator,
+                            contentIdentity = contentIdentity
+                        )
+                    } else {
+                        LegacyAssistantProcessContent(
+                            thoughts = thoughts,
+                            toolEvents = toolEvents,
+                            isLoading = showProcessStreamingIndicator,
+                            contentIdentity = contentIdentity,
+                            showOrderNotice = hasUnavailableOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
+                        )
+                    }
+                }
+            }
+
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        color = bubbleColor,
-                        shape = RoundedCornerShape(32.dp)
-                    )
+                    .padding(top = 4.dp, bottom = 4.dp, end = 12.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
-                    hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
-                }
+                DetailsButton(
+                    isVisible = areDetailsVisible,
+                    isEnabled = true,
+                    onClick = { areDetailsVisible = !areDetailsVisible }
+                )
+            }
+        }
 
-                // Response content (rendered first so details panel appears below during streaming)
-                if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
-                    AssistantAnswerContent(
-                        timeline = contentTimeline,
-                        isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity,
-                        highlightSentence = activeHighlightedSentence,
-                        highlightProgress = highlightProgress.value
-                    )
-                } else {
-                    LegacyAssistantAnswerContent(
-                        cardColor = cardColor,
-                        text = text,
-                        thoughts = thoughts,
-                        isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity,
-                        highlightSentence = activeHighlightedSentence,
-                        highlightProgress = highlightProgress.value
-                    )
-                }
+        MessageFileThumbnailRow(
+            files = attachments,
+            usePrimaryColors = false,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
 
-                // Details expandable content & toggle button placed below the response content
-                if (hasDetails) {
-                    AnimatedContent(
-                        targetState = areDetailsVisible && hasDetails,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
-                        },
-                        label = "assistantProcessDetails"
-                    ) { isVisible ->
-                        if (isVisible) {
-                            if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
-                                AssistantProcessContent(
-                                    timeline = contentTimeline,
-                                    toolEvents = toolEvents,
-                                    isLoading = showProcessStreamingIndicator,
-                                    contentIdentity = contentIdentity
-                                )
-                            } else {
-                                LegacyAssistantProcessContent(
-                                    thoughts = thoughts,
-                                    toolEvents = toolEvents,
-                                    isLoading = showProcessStreamingIndicator,
-                                    contentIdentity = contentIdentity,
-                                    showOrderNotice = hasUnavailableOrder
-                                )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Spacer(modifier = Modifier.weight(1f))
+
+            if (!isLoading) {
+                if (!isError) {
+                    CopyTextIcon(onCopyClick)
+                    Spacer(Modifier.width(8.dp))
+                    SelectTextIcon(onSelectClick)
+                    Spacer(Modifier.width(8.dp))
+                    FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
+                    if (canEdit) {
+                        Spacer(Modifier.width(8.dp))
+                        EditTextIcon(onEditClick)
+                    }
+                }
+                if (canRetry) {
+                    Spacer(Modifier.width(8.dp))
+                    RetryIcon(onRetryClick)
+                }
+                diagnosticsHudText?.let { hudText ->
+                    Spacer(Modifier.width(8.dp))
+                    TelemetryBadge(hudText)
+                }
+            }
+        }
+
+        if (debugMode && !isLoading) {
+            ChatDebugDiagnosticsCard(
+                agentRun = agentRun,
+                telemetryNotice = telemetryNotice,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
+
+        // Dynamic Action Buttons strip (if assistant proposed choices or options)
+        if (dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                dynamicActions.forEach { action ->
+                    val icon = when (action.iconType) {
+                        ActionIconType.SEARCH -> Icons.Default.Search
+                        ActionIconType.SUMMARIZE -> Icons.Default.Description
+                        ActionIconType.EXPLAIN -> Icons.Default.HelpOutline
+                        ActionIconType.CONFIRM -> Icons.Default.Check
+                        ActionIconType.CANCEL -> Icons.Default.Close
+                        ActionIconType.OPTION -> Icons.Default.AutoAwesome
+                        ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
+                    }
+
+                    val chipInteractionSource = remember { MutableInteractionSource() }
+
+                    LaunchedEffect(chipInteractionSource, action) {
+                        chipInteractionSource.interactions.collect { interaction ->
+                            when (interaction) {
+                                is PressInteraction.Press -> {
+                                    startHighlight(action.label, action.actionPrompt)
+                                }
+                                is PressInteraction.Release, is PressInteraction.Cancel -> {
+                                    reverseHighlight()
+                                }
                             }
                         }
                     }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp, bottom = 4.dp, end = 12.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DetailsButton(
-                            isVisible = areDetailsVisible,
-                            isEnabled = true,
-                            onClick = { areDetailsVisible = !areDetailsVisible }
-                        )
-                    }
+                    AssistChip(
+                        onClick = {
+                            actionDismissed = true
+                            onActionClick(action.actionPrompt)
+                        },
+                        label = {
+                            Text(
+                                text = action.label,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        interactionSource = chipInteractionSource,
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    )
                 }
+            }
+        }
 
-                MessageFileThumbnailRow(
-                    files = attachments,
-                    usePrimaryColors = false,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        // Minimal transparent continuation chip & bottom-right aligned timestamp
+        val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AnimatedVisibility(
+                visible = isContinueVisible,
+                enter = fadeIn(tween(300)),
+                exit = fadeOut(tween(500))
+            ) {
+                val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
+                val pulseAlpha by infiniteTransition.animateFloat(
+                    initialValue = 0.45f,
+                    targetValue = 0.95f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "pulseAlpha"
                 )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Spacer(modifier = Modifier.weight(1f))
+                val continueInteractionSource = remember { MutableInteractionSource() }
 
-                    if (!isLoading) {
-                        if (!isError) {
-                            CopyTextIcon(onCopyClick)
-                            Spacer(Modifier.width(8.dp))
-                            SelectTextIcon(onSelectClick)
-                            Spacer(Modifier.width(8.dp))
-                            FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
-                            if (canEdit) {
-                                Spacer(Modifier.width(8.dp))
-                                EditTextIcon(onEditClick)
+                LaunchedEffect(continueInteractionSource) {
+                    continueInteractionSource.interactions.collect { interaction ->
+                        when (interaction) {
+                            is PressInteraction.Press -> {
+                                startHighlight("continue", "continue")
                             }
-                        }
-                        if (canRetry) {
-                            Spacer(Modifier.width(8.dp))
-                            RetryIcon(onRetryClick)
-                        }
-                        diagnosticsHudText?.let { hudText ->
-                            Spacer(Modifier.width(8.dp))
-                            TelemetryBadge(hudText)
+                            is PressInteraction.Release, is PressInteraction.Cancel -> {
+                                reverseHighlight()
+                            }
                         }
                     }
                 }
 
-                if (debugMode && !isLoading) {
-                    ChatDebugDiagnosticsCard(
-                        agentRun = agentRun,
-                        telemetryNotice = telemetryNotice,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                SuggestionChip(
+                    onClick = {
+                        continueDismissed = true
+                        onContinueClick?.invoke()
+                    },
+                    label = { Text("Continue") },
+                    icon = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Continue",
+                            modifier = Modifier.size(14.dp)
+                        )
+                    },
+                    interactionSource = continueInteractionSource,
+                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
+                    colors = SuggestionChipDefaults.suggestionChipColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
                     )
-                }
+                )
+            }
 
-                // Dynamic Action Buttons strip (if assistant proposed choices or options)
-                if (dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        dynamicActions.forEach { action ->
-                            val icon = when (action.iconType) {
-                                ActionIconType.SEARCH -> Icons.Default.Search
-                                ActionIconType.SUMMARIZE -> Icons.Default.Description
-                                ActionIconType.EXPLAIN -> Icons.Default.HelpOutline
-                                ActionIconType.CONFIRM -> Icons.Default.Check
-                                ActionIconType.CANCEL -> Icons.Default.Close
-                                ActionIconType.OPTION -> Icons.Default.AutoAwesome
-                                ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
-                            }
+            Spacer(modifier = Modifier.weight(1f))
 
-                            val chipInteractionSource = remember { MutableInteractionSource() }
-
-                            LaunchedEffect(chipInteractionSource, action) {
-                                chipInteractionSource.interactions.collect { interaction ->
-                                    when (interaction) {
-                                        is PressInteraction.Press -> {
-                                            startHighlight(action.label, action.actionPrompt)
-                                        }
-                                        is PressInteraction.Release, is PressInteraction.Cancel -> {
-                                            reverseHighlight()
-                                        }
-                                    }
-                                }
-                            }
-
-                            AssistChip(
-                                onClick = {
-                                    actionDismissed = true
-                                    onActionClick(action.actionPrompt)
-                                },
-                                label = {
-                                    Text(
-                                        text = action.label,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = icon,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                },
-                                interactionSource = chipInteractionSource,
-                                colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                ),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                            )
-                        }
-                    }
-                }
-
-                // Minimal transparent continuation chip & bottom-right aligned timestamp
-                val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping
-                Row(
+            if (formattedTime.isNotBlank()) {
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .padding(start = 8.dp)
+                )
+            }
+        }
+
+        if (!isLoading && canRetry) {
+            Text(
+                text = stringResource(R.string.retry_tools_warning),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+            )
+        }
+
+        if (!isLoading) {
+            revisionIndexLabel?.let { label ->
+                Row(
+                    modifier = Modifier.padding(start = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    AnimatedVisibility(
-                        visible = isContinueVisible,
-                        enter = fadeIn(tween(300)),
-                        exit = fadeOut(tween(500))
-                    ) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "continuePulse")
-                        val pulseAlpha by infiniteTransition.animateFloat(
-                            initialValue = 0.45f,
-                            targetValue = 0.95f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "pulseAlpha"
-                        )
-
-                        val continueInteractionSource = remember { MutableInteractionSource() }
-
-                        LaunchedEffect(continueInteractionSource) {
-                            continueInteractionSource.interactions.collect { interaction ->
-                                when (interaction) {
-                                    is PressInteraction.Press -> {
-                                        startHighlight("continue", "continue")
-                                    }
-                                    is PressInteraction.Release, is PressInteraction.Cancel -> {
-                                        reverseHighlight()
-                                    }
-                                }
-                            }
-                        }
-
-                        SuggestionChip(
-                            onClick = {
-                                continueDismissed = true
-                                onContinueClick?.invoke()
-                            },
-                            label = { Text("Continue") },
-                            icon = {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = "Continue",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            },
-                            interactionSource = continueInteractionSource,
-                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
-                            )
+                    IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            stringResource(R.string.previous_revision)
                         )
                     }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    if (formattedTime.isNotBlank()) {
-                        Text(
-                            text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            modifier = Modifier
-                                .padding(start = 8.dp)
-                        )
-                    }
-                }
-
-                if (!isLoading && canRetry) {
                     Text(
-                        text = stringResource(R.string.retry_tools_warning),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-
-                if (!isLoading) {
-                    revisionIndexLabel?.let { label ->
-                        Row(
-                            modifier = Modifier.padding(start = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                    stringResource(R.string.previous_revision)
-                                )
-                            }
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            IconButton(enabled = canShowNextRevision, onClick = onShowNextRevision) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    stringResource(R.string.next_revision)
-                                )
-                            }
-                        }
+                    IconButton(enabled = canShowNextRevision, onClick = onShowNextRevision) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            stringResource(R.string.next_revision)
+                        )
                     }
                 }
             }

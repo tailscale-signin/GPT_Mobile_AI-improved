@@ -40,7 +40,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         LocalModel::class,
         OpenRouterBatchCacheEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = false
 )
 @TypeConverters(

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import android.app.ActivityManager
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunTerminalError
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -12,12 +13,13 @@ import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome
 import dev.chungjungsoo.gptmobile.util.HIGH_REFRESH_FRAME_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
-import dev.chungjungsoo.gptmobile.util.STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.assistantErrorAppendedText
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.collectApiStateUpdates
@@ -68,7 +70,8 @@ data class AgentRunNotice(
 @Singleton
 class AgentRunCoordinator @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val chatRepository: ChatRepository
+    private val chatRepository: ChatRepository,
+    private val gatewayAPI: GatewayAPI
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -77,9 +80,6 @@ class AgentRunCoordinator @Inject constructor(
     private val _activeRuns = MutableStateFlow<Map<String, ActiveAgentRun>>(emptyMap())
     private val _notices = MutableSharedFlow<AgentRunNotice>(extraBufferCapacity = 8)
 
-    // On high-RAM (>= 10GB) flagship devices with 120Hz/144Hz displays, streaming database and UI
-    // dispatch targets an 8ms frame budget (~120 FPS) for buttery-smooth live token streaming without micro-stutter,
-    // while conserving disk IO on lower memory tiers with 250ms batching.
     internal val isHighMemoryDevice by lazy {
         try {
             val actManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -91,12 +91,6 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    /**
-     * Resolves the optimal streaming publish interval by dynamically querying the hardware governor.
-     * When thermal pressure is severe or the device battery is critically low, it downshifts to 250ms
-     * to safeguard device stability, even on high-RAM hardware. Under moderate conditions it selects 33ms (~30 FPS),
-     * and on cool high-RAM devices it provides the full 8ms (~120 FPS) frame budget.
-     */
     internal val publishIntervalMillis: Long
         get() {
             return try {
@@ -247,6 +241,30 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
+    /**
+     * Attempts recovery of interrupted or uncompleted runs that have an associated gateway job.
+     */
+    suspend fun recoverInterruptedGatewayRuns() {
+        val recoverableRuns = chatRepository.getRecoverableGatewayRuns()
+        for (run in recoverableRuns) {
+            val jobId = run.gatewayJobId ?: continue
+            val baseUrl = run.gatewayBaseUrl ?: continue
+            scope.launch {
+                val config = ProviderRequestConfig(apiUrl = baseUrl, token = null)
+                val result = gatewayAPI.getJobResult(jobId, config)
+                if (result != null && result.status.equals("COMPLETED", ignoreCase = true)) {
+                    val completedAt = result.completedAt ?: currentEpochSeconds()
+                    chatRepository.finishActiveAgentRun(
+                        runId = run.runId,
+                        status = AgentRunStatus.COMPLETED,
+                        completedAt = completedAt,
+                        terminalError = null
+                    )
+                }
+            }
+        }
+    }
+
     private suspend fun execute(request: AgentRunRequest) {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
@@ -344,9 +362,6 @@ class AgentRunCoordinator @Inject constructor(
 
 internal data class AgentRunTerminalUpdate(val status: String, val error: String?)
 
-/**
- * Helper to compute effective publish interval given a hardware state and RAM profile.
- */
 internal fun resolvePublishInterval(
     hardwareState: dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState,
     isHighMemoryDevice: Boolean

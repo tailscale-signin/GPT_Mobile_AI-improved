@@ -84,6 +84,7 @@ object ToolEventResultType {
     const val TEXT = "TEXT"
     const val JSON = "JSON"
     const val RESOURCE_LINKS = "RESOURCE_LINKS"
+    const val EMPTY = "EMPTY"
     const val UNSUPPORTED = "UNSUPPORTED"
 }
 

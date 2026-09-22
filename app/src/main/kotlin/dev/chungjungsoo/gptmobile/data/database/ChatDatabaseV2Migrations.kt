@@ -97,6 +97,15 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_22_23 = object : Migration(22, 23) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `gateway_job_id` TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `gateway_base_url` TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `gateway_last_sequence` INTEGER NOT NULL DEFAULT -1")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_runs_gateway_job_id` ON `agent_runs` (`gateway_job_id`)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -109,6 +118,7 @@ object ChatDatabaseV2Migrations {
         MIGRATION_18_19,
         MIGRATION_19_20,
         MIGRATION_20_21,
-        MIGRATION_21_22
+        MIGRATION_21_22,
+        MIGRATION_22_23
     )
 }

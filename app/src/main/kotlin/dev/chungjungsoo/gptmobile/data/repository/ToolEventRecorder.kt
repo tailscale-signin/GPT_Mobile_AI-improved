@@ -4,9 +4,11 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentResourceLink
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
+import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
@@ -20,14 +22,16 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class ToolEventRecorder @Inject constructor(
-    private val dao: AgentPersistenceDao
+    private val dao: AgentPersistenceDao,
+    private val agentRunDao: AgentRunDao
 ) {
     private var eventIdFactory: () -> String = { UUID.randomUUID().toString() }
 
     internal constructor(
         dao: AgentPersistenceDao,
+        agentRunDao: AgentRunDao,
         eventIdFactory: () -> String
-    ) : this(dao) {
+    ) : this(dao, agentRunDao) {
         this.eventIdFactory = eventIdFactory
     }
 
@@ -68,11 +72,14 @@ class ToolEventRecorder @Inject constructor(
         error: String? = null
     ): ToolEvent? {
         val content = (result.traceContent ?: result.content).serialized().forStorage()
+        val isCompletedEmpty = !result.isError && result.traceContent == null && content.value.isBlank()
+        val resultType = if (isCompletedEmpty) ToolEventResultType.EMPTY else content.type
+
         val affectedRows = dao.finishToolEvent(
             eventId = eventId,
             callId = result.callId,
             result = content.value,
-            resultType = content.type,
+            resultType = resultType,
             status = if (result.isError) ToolEventStatus.FAILED else ToolEventStatus.COMPLETED,
             isError = result.isError,
             completedAt = completedAt,
@@ -80,6 +87,11 @@ class ToolEventRecorder @Inject constructor(
         )
         if (affectedRows != 1) return null
         return dao.getToolEventById(eventId)
+    }
+
+    suspend fun applyGatewayProgress(runId: String, progress: GatewayProgress) {
+        val seq = progress.sequence ?: return
+        agentRunDao.advanceGatewaySequence(runId, seq)
     }
 
     suspend fun cancelRun(runId: String, completedAt: Long) {

@@ -17,6 +17,50 @@ data class GatewayResponseMetadata(
 )
 
 /**
+ * Gateway capabilities response from GET /gateway/capabilities.
+ */
+@Serializable
+data class GatewayCapabilities(
+    val version: String? = null,
+    @SerialName("supports_resume")
+    val supportsResume: Boolean = false,
+    @SerialName("supports_cancellation")
+    val supportsCancellation: Boolean = false,
+    @SerialName("supports_result_recovery")
+    val supportsResultRecovery: Boolean = false,
+    @SerialName("progress_protocol_version")
+    val progressProtocolVersion: String? = null,
+    val protocols: List<String> = emptyList()
+)
+
+/**
+ * Gateway job result response from GET /gateway/jobs/{jobId}/result.
+ */
+@Serializable
+data class GatewayJobResult(
+    @SerialName("job_id")
+    val jobId: String,
+    val status: String,
+    val content: String? = null,
+    @SerialName("result_quality")
+    val resultQuality: String? = null,
+    val error: String? = null,
+    @SerialName("completed_at")
+    val completedAt: Long? = null
+)
+
+/**
+ * Gateway job cancellation response from POST /gateway/jobs/{jobId}/cancel.
+ */
+@Serializable
+data class GatewayCancelResult(
+    @SerialName("job_id")
+    val jobId: String,
+    val canceled: Boolean,
+    val message: String? = null
+)
+
+/**
  * Gateway progress event from SSE stream.
  */
 @Serializable

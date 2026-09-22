@@ -32,7 +32,8 @@ import androidx.room.PrimaryKey
         Index(value = ["chat_id"]),
         Index(value = ["user_message_id"]),
         Index(value = ["assistant_message_id"]),
-        Index(value = ["status"])
+        Index(value = ["status"]),
+        Index(value = ["gateway_job_id"])
     ]
 )
 data class AgentRun(
@@ -71,7 +72,16 @@ data class AgentRun(
     val completedAt: Long? = null,
 
     @ColumnInfo(name = "terminal_error")
-    val terminalError: String? = null
+    val terminalError: String? = null,
+
+    @ColumnInfo(name = "gateway_job_id")
+    val gatewayJobId: String? = null,
+
+    @ColumnInfo(name = "gateway_base_url")
+    val gatewayBaseUrl: String? = null,
+
+    @ColumnInfo(name = "gateway_last_sequence")
+    val gatewayLastSequence: Int = -1
 )
 
 data class AgentRunDraft(

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.dto.openai.response
 
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject

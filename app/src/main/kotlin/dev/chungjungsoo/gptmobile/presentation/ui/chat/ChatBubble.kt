@@ -20,7 +20,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.horizontalscroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
@@ -876,18 +876,36 @@ private fun AssistantAnswerContent(
             }
         }
     }
-    textItems.forEach { (index, item) ->
+    
+    // Per-bubble fade-in animation: each text segment fades in from 0% to 100% opacity over 1 second
+    var lastFadeDelay by remember { mutableStateOf(0f) }
+    textItems.forEachIndexed { index, (itemIndex, item) ->
         val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
         val isLastTextItem = index == textItems.lastOrNull()?.first
         val display = parsed.response + if (isLoading && isLastTextItem) "●" else ""
+        
+        // Calculate staggered delay for each bubble (100ms between each)
+        val fadeDelay = index * 100f
+        
         if (display.isNotBlank() || (isLoading && isLastTextItem)) {
-            ChatMarkdown(
-                content = display,
-                contentIdentity = "$contentIdentity:text:$index",
-                highlightSentence = highlightSentence,
-                highlightProgress = highlightProgress,
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(
+                    animationSpec = tween(
+                        durationMillis = 1000,
+                        delayMillis = fadeDelay.toInt(),
+                        easing = LinearEasing
+                    )
+                ),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+            ) {
+                ChatMarkdown(
+                    content = display,
+                    contentIdentity = "$contentIdentity:text:$itemIndex",
+                    highlightSentence = highlightSentence,
+                    highlightProgress = highlightProgress
+                )
+            }
         }
     }
 }
@@ -965,13 +983,25 @@ private fun LegacyAssistantAnswerContent(
     if (display.isNotBlank() || isLoading) {
         Card(shape = RoundedCornerShape(32.dp), colors = cardColor) {
             Column {
-                ChatMarkdown(
-                    content = display,
-                    contentIdentity = contentIdentity,
-                    highlightSentence = highlightSentence,
-                    highlightProgress = highlightProgress,
+                // Per-bubble fade-in animation for legacy content
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(
+                        animationSpec = tween(
+                            durationMillis = 1000,
+                            delayMillis = 0,
+                            easing = LinearEasing
+                        )
+                    ),
                     modifier = Modifier.padding(16.dp)
-                )
+                ) {
+                    ChatMarkdown(
+                        content = display,
+                        contentIdentity = contentIdentity,
+                        highlightSentence = highlightSentence,
+                        highlightProgress = highlightProgress
+                    )
+                }
             }
         }
     }

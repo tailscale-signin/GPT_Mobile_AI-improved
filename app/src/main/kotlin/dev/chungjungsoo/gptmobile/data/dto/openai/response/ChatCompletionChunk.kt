@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.dto.openai.response
 
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -23,6 +24,9 @@ data class ChatCompletionChunk(
 
     @SerialName("gateway_progress")
     val gatewayProgress: GatewayProgress? = null,
+
+    @SerialName("gateway_metadata")
+    val gatewayMetadata: GatewayResponseMetadata? = null,
 
     @SerialName("error")
     val error: ErrorDetail? = null

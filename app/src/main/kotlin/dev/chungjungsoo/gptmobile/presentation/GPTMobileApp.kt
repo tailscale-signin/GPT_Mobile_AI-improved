@@ -79,7 +79,6 @@ class GPTMobileApp :
         SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
         registerActivityLifecycleCallbacks(AppForegroundTracker)
-        gatewayNetworkRecoveryMonitor.start()
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
             val startup = startupDependencies()
@@ -107,6 +106,7 @@ class GPTMobileApp :
             }
             startup.localModelRepository().reconcile()
             startup.localModelRepository().awaitActiveDownloadScheduling()
+            gatewayNetworkRecoveryMonitor.start()
             Log.i(TAG, "Startup maintenance completed in ${SystemClock.elapsedRealtime() - gateStartTime}ms")
         }
 

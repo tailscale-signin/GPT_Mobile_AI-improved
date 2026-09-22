@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Large fancy AI notification icon with gradient and glow effect -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!-- Outer glow ring -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M24,24m-20,0a20,20 0,1 1,40 0a20,20 0,1 1,-40 0"/>
+
+    <!-- Main AI brain icon -->
+    <path
+        android:fillColor="#A78BFA"
+        android:pathData="M24,6C13.05,6 4,15.05 4,26s9.05,20 20,20 20,-9.05 20,-20S34.95,6 24,6zM24,44c-11.04,0 -20,-8.96 -20,-20s8.96,-20 20,-20 20,8.96 20,20 -8.96,20 -20,20z"/>
+
+    <!-- Neural network connections -->
+    <path
+        android:fillColor="#C4B5FD"
+        android:pathData="M24,12c-7.73,0 -14,6.27 -14,14s6.27,14 14,14 14,-6.27 14,-14S31.73,12 24,12z"/>
+
+    <!-- Sparkle effect -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M24,10l-3,6L15,21l6,3L24,30l3,-6L33,21l-6,-3L24,10z"/>
+
+    <!-- Inner glow -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:alpha="0.25"
+        android:pathData="M24,4C13.16,4 4,13.16 4,24s9.16,20 20,20 20,-9.16 20,-20S34.84,4 24,4z"/>
+
+    <!-- Connection lines -->
+    <path
+        android:strokeColor="#C4B5FD"
+        android:strokeWidth="2"
+        android:pathData="M10,26h28"/>
+
+</vector>

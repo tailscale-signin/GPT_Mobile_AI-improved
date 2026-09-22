@@ -33,22 +33,25 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
     }
 
     @Volatile
-    private var networkValidated = false
+    private var validatedNetwork: Network? = null
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
             val validated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            val shouldRecover = validated && !networkValidated
-            networkValidated = validated
-            if (shouldRecover) {
+            if (validated && validatedNetwork != network) {
+                validatedNetwork = network
                 scope.launch {
                     agentRunCoordinator.recoverInterruptedGatewayRuns()
                 }
+            } else if (!validated && validatedNetwork == network) {
+                validatedNetwork = null
             }
         }
 
         override fun onLost(network: Network) {
-            networkValidated = false
+            if (validatedNetwork == network) {
+                validatedNetwork = null
+            }
         }
     }
 
@@ -57,11 +60,13 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
 
         val active = connectivityManager.activeNetwork
         val capabilities = active?.let(connectivityManager::getNetworkCapabilities)
-        networkValidated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        validatedNetwork = active?.takeIf {
+            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        }
 
         connectivityManager.registerDefaultNetworkCallback(callback)
 
-        if (networkValidated) {
+        if (validatedNetwork != null) {
             scope.launch {
                 agentRunCoordinator.recoverInterruptedGatewayRuns()
             }

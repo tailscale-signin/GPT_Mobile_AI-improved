@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.6.1] - 2026-09-21
+
+### Added & Improved
+- **Suggestion Button Hold-to-Highlight**:
+  - Implemented `SuggestionHighlightManager` allowing users to press and hold suggestion buttons to highlight matching sentences in AI response markdown.
+  - Added sentence matching algorithm and smooth transition progress in `ChatMarkdown`.
+  - Added unit test suite covering highlight selection, matching, and clearing.
+- **Interaction Source Handling**:
+  - Fixed suggestion and chip click/hold interactions using dedicated `MutableInteractionSource` instances on `AssistChip` and `SuggestionChip`.
+- **Gateway Progress SSE & Activity Bar**:
+  - Added `GatewayProgress` DTO and `GatewayProgressUpdate` provider event for SSE progress streams from OpenAI-compatible gateways.
+  - Persisted gateway-owned tool traces in `ChatRepositoryImpl` with explicit `GATEWAY` visual identity.
+  - Added `GatewayActivityBar` composable in `ChatBubble` for live progress tracking during execution.
+- **Location MCP Tools**:
+  - Added built-in tools for IP geolocation, reverse geocoding, forward geocoding, address lookup, and distance calculation (`calculate_distance`).
+- **Version Bump**:
+  - Bumped version name to `0.9.6.1` (versionCode `60`).
+
+## [0.9.6.0] - 2026-09-21
+
+### Added & Improved
+- **Release Automation & Stabilization**:
+  - Version bump to 0.9.6.0 with optimized signed release distribution pipeline.
+
+## [0.9.5.6] - 2026-09-20
+
+### Added & Improved
+- **Chat UI Opacity Tuning**:
+  - Tuned chat bubble container, timestamp, and details toggle opacity tokens in `ChatAlphaTokens`.
+- **OpenRouter Batch Processing**:
+  - Persistent background execution via `OpenRouterBatchWorker` (WorkManager) with Room database cache eviction.
+- **LiteRT-LM v0.16.1**:
+  - Upgraded Google LiteRT-LM to v0.16.1 with Qualcomm Hexagon NPU acceleration.
+
 ## [0.9.5.3] - 2026-09-19
 
 ### Added & Improved

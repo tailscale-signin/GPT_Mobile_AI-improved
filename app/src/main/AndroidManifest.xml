@@ -77,11 +77,11 @@
             android:permission="android.permission.BIND_VOICE_INTERACTION"
             android:exported="true"/>
 
-        <!-- AgentRunForegroundService - referenced but implementation missing -->
-        <service
+        <!-- AgentRunForegroundService - implementation missing (presentation directory not present) -->
+        <!-- <service
             android:name=".presentation.service.AgentRunForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync" /> -->
 
         <activity
             android:name=".ui.voice.VoiceAssistantActivity"
@@ -91,7 +91,7 @@
             android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />
-                <category android:name="android.intent.action.DEFAULT" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>

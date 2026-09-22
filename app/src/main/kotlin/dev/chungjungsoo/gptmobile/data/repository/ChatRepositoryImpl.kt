@@ -524,11 +524,16 @@ private class ToolTraceSession(
         // Client-owned tools already travel through ProviderEvent.ToolCall
         // and are recorded by the normal path. Only mirror gateway-owned
         // executions here to avoid duplicate tool bubbles.
-        if (!progress.toolSource.equals("gateway", ignoreCase = true)) return null
+        val isGatewaySource = progress.toolSource.equals("gateway", ignoreCase = true) ||
+            progress.origin.equals("gateway", ignoreCase = true)
+        if (!isGatewaySource) return null
 
         val callId = progress.toolCallId?.takeIf { it.isNotBlank() } ?: return null
         val eventName = progress.event?.lowercase().orEmpty()
-        val toolName = progress.toolName?.takeIf { it.isNotBlank() } ?: "gateway_tool"
+        val toolName = progress.ui?.title?.takeIf { it.isNotBlank() }
+            ?: progress.displayTitle?.takeIf { it.isNotBlank() }
+            ?: progress.toolName?.takeIf { it.isNotBlank() }
+            ?: "gateway_tool"
         val server = progress.server?.takeIf { it.isNotBlank() } ?: "gateway"
 
         return when (eventName) {

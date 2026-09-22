@@ -187,6 +187,8 @@ class OpenAICompatibleAdapter @Inject constructor(
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
         val keyIndexCounter = AtomicInteger(0)
+        var capturedGatewayJobId: String? = null
+
         return object : AgentProviderSession {
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
@@ -210,6 +212,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                         "HTTP-Referer" to "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
                         "X-Title" to "GPT Mobile AI Improved"
                     )
+                } else {
+                    emptyMap()
+                }
+
+                // If on Llama AI platform and a gateway job ID was captured from previous rounds, propagate it
+                val llamaGatewayHeaders = if (isLlama && capturedGatewayJobId != null) {
+                    mapOf("X-Gateway-Job-ID" to capturedGatewayJobId!!)
                 } else {
                     emptyMap()
                 }
@@ -250,7 +259,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
                         token = activeKey,
-                        extraHeaders = openRouterHeaders
+                        extraHeaders = openRouterHeaders + llamaGatewayHeaders
                     )
                     var roundFailed = false
                     var canRotate = false
@@ -426,6 +435,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 try {
                                     openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig).collect { chunk ->
                                         chunk.gatewayProgress?.let { progress ->
+                                            if (isLlama && progress.jobId != null) {
+                                                capturedGatewayJobId = progress.jobId
+                                            }
                                             emit(ProviderEvent.GatewayProgressUpdate(progress))
                                         }
 
@@ -513,6 +525,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                         try {
                             openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
                                 chunk.gatewayProgress?.let { progress ->
+                                    if (isLlama && progress.jobId != null) {
+                                        capturedGatewayJobId = progress.jobId
+                                    }
                                     emit(ProviderEvent.GatewayProgressUpdate(progress))
                                 }
 
@@ -676,6 +691,11 @@ class AnthropicMessagesAdapter @Inject constructor(
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     val activeKey = candidateKeys[keyIndex]
+                    val config = ProviderRequestConfig(
+                        apiUrl = platform.apiUrl,
+                        token = activeKey,
+                        anthropicBetaFeatures = thinkingPolicy.betaFeatures
+                    )
                     val assembler = AnthropicEventAssembler()
                     var roundFailed = false
                     var canRotate = false
@@ -684,11 +704,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                         api.streamChatMessage(
                             request,
                             platform.timeout,
-                            ProviderRequestConfig(
-                                apiUrl = platform.apiUrl,
-                                token = activeKey,
-                                anthropicBetaFeatures = thinkingPolicy.betaFeatures
-                            )
+                            config
                         ).collect { chunk ->
                             assembler.accept(chunk).forEach { mapped ->
                                 when (mapped) {

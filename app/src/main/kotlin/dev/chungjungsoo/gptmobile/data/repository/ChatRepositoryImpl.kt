@@ -203,6 +203,7 @@ class ChatRepositoryImpl(
                             providerEvent.progress.sequence?.let { seq ->
                                 agentRunDao.advanceGatewaySequence(runId, seq)
                             }
+                            emit(ApiState.GatewayProgressChanged(providerEvent.progress))
                             val gatewayToolEvent = trace.gateway(providerEvent.progress)
                             if (gatewayToolEvent != null) {
                                 emit(ApiState.ToolCall(gatewayToolEvent.sequence))

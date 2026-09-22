@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -57,7 +58,12 @@ data class ActiveAgentRun(
     val runId: String,
     val chatId: Int,
     val profileUid: String,
-    val phase: LocalInferencePhase? = null
+    val phase: LocalInferencePhase? = null,
+    val gatewayStage: String? = null,
+    val gatewayMessage: String? = null,
+    val gatewayCheckpoint: Int? = null,
+    val gatewayRound: Int? = null,
+    val gatewayToolCalls: Int? = null
 )
 
 data class AgentRunNotice(
@@ -265,6 +271,21 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
+    private fun updateGatewayProgress(runId: String, progress: GatewayProgress) {
+        _activeRuns.update { runs ->
+            val current = runs[runId] ?: return@update runs
+            runs + (
+                runId to current.copy(
+                    gatewayStage = progress.stage?.takeIf { it.isNotBlank() } ?: current.gatewayStage,
+                    gatewayMessage = progress.message?.takeIf { it.isNotBlank() } ?: current.gatewayMessage,
+                    gatewayCheckpoint = progress.checkpoint ?: current.gatewayCheckpoint,
+                    gatewayRound = progress.round ?: current.gatewayRound,
+                    gatewayToolCalls = progress.totalToolCalls ?: current.gatewayToolCalls
+                )
+            )
+        }
+    }
+
     private suspend fun execute(request: AgentRunRequest) {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
@@ -297,6 +318,9 @@ class AgentRunCoordinator @Inject constructor(
                             runs
                         }
                     }
+                },
+                onGatewayProgress = { progress ->
+                    updateGatewayProgress(request.runId, progress)
                 },
                 publishIntervalMillis = publishIntervalMillis
             )

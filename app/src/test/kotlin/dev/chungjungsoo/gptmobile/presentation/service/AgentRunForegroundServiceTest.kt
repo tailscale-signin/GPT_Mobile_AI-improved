@@ -73,4 +73,48 @@ class AgentRunForegroundServiceTest {
         val text = resolveNotificationContentText(mockContext, runs)
         assertEquals("2 agent runs active", text)
     }
+    @Test
+    fun `resolveNotificationContentText prefers gateway progress message`() {
+        val mockContext = mock(Context::class.java)
+        val runs = listOf(
+            ActiveAgentRun(
+                runId = "run-1",
+                chatId = 1,
+                profileUid = "p1",
+                gatewayStage = "tool_execution",
+                gatewayMessage = "Running GitHub verification"
+            )
+        )
+
+        assertEquals("Running GitHub verification", resolveNotificationContentText(mockContext, runs))
+    }
+
+    @Test
+    fun `resolveGatewayProgressPercent maps durable gateway stages`() {
+        assertEquals(
+            20,
+            resolveGatewayProgressPercent(
+                ActiveAgentRun(runId = "run-1", chatId = 1, profileUid = "p1", gatewayStage = "context_preflight")
+            )
+        )
+        assertEquals(
+            55,
+            resolveGatewayProgressPercent(
+                ActiveAgentRun(runId = "run-1", chatId = 1, profileUid = "p1", gatewayStage = "tool_execution")
+            )
+        )
+        assertEquals(
+            90,
+            resolveGatewayProgressPercent(
+                ActiveAgentRun(runId = "run-1", chatId = 1, profileUid = "p1", gatewayStage = "final_synthesis")
+            )
+        )
+        assertEquals(
+            100,
+            resolveGatewayProgressPercent(
+                ActiveAgentRun(runId = "run-1", chatId = 1, profileUid = "p1", gatewayStage = "completed")
+            )
+        )
+    }
+
 }

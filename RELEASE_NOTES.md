@@ -1,36 +1,40 @@
-# Release Notes - v0.9.6.1
+# Release Notes - v0.9.7.0
 
-Welcome to **GPT Mobile AI (Improved)** v0.9.6.1!
+Welcome to **GPT Mobile AI (Improved)** v0.9.7.0.
 
-This full release brings suggestion button hold-to-highlight with animated smooth transitions, gateway-owned tool execution traces with live progress SSE streaming and visual status bars, interaction fixes for chips, and built-in Location & Geocoding MCP tool extensions.
+This full release introduces the Persistent Mobile Agent foundation: richer Gateway progress on Android, Android 16 progress-centric foreground notifications, and durable Gateway job reconciliation when network connectivity returns.
 
 ---
 
 ### Key Highlights & Improvements
 
-#### 1. 🔍 Suggestion Button Hold-to-Highlight & Chip Interactions
-- **Hold-to-Highlight Feature**: Added `SuggestionHighlightManager` enabling interactive hold-to-highlight on suggestion buttons. Highlights the corresponding source sentence dynamically within the response markdown with smooth alpha/progress transitions (`highlightSentence`, `highlightProgress`).
-- **Chip Interaction Fixes**: Refined click and long-press interaction handlers on `AssistChip` and `SuggestionChip` with dedicated `MutableInteractionSource` instances to prevent gesture conflicts and missed click dispatches.
+#### 1. Persistent Mobile Agent Progress
+- Structured Gateway progress now flows through the app's agent runtime instead of being limited to tool-history persistence.
+- Active agent runs track Gateway stage, message, checkpoint, round, and tool-call progress.
+- Foreground notifications can show the current Gateway message or stage while work is running.
 
-#### 2. ⚡ Gateway Progress SSE & UI Trace Integration
-- **Server-Sent Event Progress**: Added `GatewayProgress` DTO to `ChatCompletionChunk` and new `GatewayProgressUpdate` provider event for streaming real-time status updates from remote gateway agents.
-- **Gateway Tool Identity**: Persisted gateway-owned tool traces in `ChatRepositoryImpl` and introduced distinct visual identities (`GATEWAY`) distinguishing gateway actions from on-device MCP tool executions.
-- **`GatewayActivityBar`**: Rendered real-time activity indicators directly in `ChatBubble` displaying active gateway status during long-running tasks.
+#### 2. Android 16 Progress-Centric Notifications
+- Added Android 16 progress-style foreground notifications for long-running agent tasks.
+- Gateway stages are mapped into clear progress milestones.
+- Unknown stages retain an indeterminate progress fallback.
+- Earlier Android versions continue using the existing compatible progress notification.
 
-#### 3. 📍 Location & Geocoding MCP Tool Integration
-- **Built-in Geo Tools**: Integrated `geolocate_ip`, `reverse_geocode`, `get_current_location`, `geocode_address`, and `calculate_distance` (Haversine formula) in the built-in MCP server.
-- **Manifest Triple Verification**: Validated schema and checksum integrity across `mcp/tools/manifest.json`.
+#### 3. Durable Network Recovery
+- Added validated-network monitoring for Wi-Fi, cellular, and VPN/Tailscale-style network transitions.
+- When validated connectivity returns, the app reconciles persisted Gateway jobs instead of replaying the original prompt.
+- Recovery begins only after startup persistence reconciliation to avoid overwriting recovered results.
+- Network handoffs track the validated Android Network instance to avoid stale disconnect callbacks causing false recovery state.
 
-#### 4. ⚙️ Build & Packaging Details
-- **Version Code**: `60`
-- **Version Name**: `0.9.6.1`
-- **Target SDK**: 36 (Android 16), **Min SDK**: 31 (Android 12)
+#### 4. Architecture & Compatibility
+- Keeps Gateway as the owner of remote execution and tool intelligence.
+- Keeps Android responsible for presentation, lifecycle, cancellation, local durability, and recovery.
+- No Room migration and no new runtime dependency are required.
+- Provides a clean foundation for future MCP Tasks and input-required interactions.
+
+#### 5. Build & Packaging
+- **Version Code**: `62`
+- **Version Name**: `0.9.7.0`
+- **Target SDK**: 36 (Android 16)
+- **Min SDK**: 31 (Android 12)
 - **Architectures**: `arm64-v8a`, `x86_64`, Universal APK
-- **Optimization**: R8 minification, resource shrinking, and native packaging (`useLegacyPackaging = true`).
-
----
-
-### Artifacts & Downloads
-- **Universal APK**: `app-universal-release.apk`
-- **Targeted ABI APKs**: `app-arm64-v8a-release.apk` and `app-x86_64-release.apk`
-- **Release Bundle (AAB)**: `app-release.aab`
+- **Release artifacts**: signed APK variants and release AAB through the repository release workflow.

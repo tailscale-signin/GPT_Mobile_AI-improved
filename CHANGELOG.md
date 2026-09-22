@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.7.0] - 2026-09-22
+
+### Added & Improved
+- **Persistent Mobile Agent Progress**:
+  - Routed structured Gateway progress into the Android agent runtime.
+  - Added Gateway stage, message, checkpoint, round, and tool-call tracking for active runs.
+  - Added Android 16 progress-centric foreground notifications with milestone-style progress and indeterminate fallback.
+- **Gateway Network Recovery**:
+  - Added validated-network monitoring to reconcile durable Gateway jobs when connectivity returns.
+  - Preserved the existing Gateway-owned job model without replaying the original user prompt.
+  - Started recovery only after startup persistence reconciliation to avoid recovery/interruption races.
+  - Hardened Wi-Fi/cellular handoffs by tracking the validated Android Network instance.
+- **Verification**:
+  - Added unit coverage for Gateway notification text and stage-to-progress mapping.
+  - Existing APK build, PR validation, Kotlin lint, UI validation, CodeQL, and debug build checks passed before release stamping.
+- **Version Bump**:
+  - Bumped version name to `0.9.7.0` (versionCode `62`).
+
+
 ## [0.9.6.1] - 2026-09-21
 
 ### Added & Improved

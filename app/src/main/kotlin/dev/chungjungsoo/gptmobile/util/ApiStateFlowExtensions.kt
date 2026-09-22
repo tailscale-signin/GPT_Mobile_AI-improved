@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.updateAssistantSlot
@@ -74,6 +75,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onUpdate: suspend (content: String, thoughts: String, timeline: List<AssistantTimelineItem>) -> Unit,
     onNotice: (String, Boolean) -> Unit = { _, _ -> },
     onPhaseChanged: ((LocalInferencePhase) -> Unit)? = null,
+    onGatewayProgress: ((GatewayProgress) -> Unit)? = null,
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 ): ApiStateFlowOutcome {
@@ -111,6 +113,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 is ApiState.PhaseChanged -> {
                     onPhaseChanged?.invoke(chunk.phase)
+                }
+
+                is ApiState.GatewayProgressChanged -> {
+                    onGatewayProgress?.invoke(chunk.progress)
                 }
 
                 ApiState.Done -> {

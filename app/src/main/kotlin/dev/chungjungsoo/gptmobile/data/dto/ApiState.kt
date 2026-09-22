@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.dto
 
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 
 sealed class ApiState {
@@ -9,6 +10,7 @@ sealed class ApiState {
     data class ToolCall(val toolSequence: Int) : ApiState()
     data class Notice(val message: String, val persistent: Boolean = false) : ApiState()
     data class PhaseChanged(val phase: LocalInferencePhase) : ApiState()
+    data class GatewayProgressChanged(val progress: GatewayProgress) : ApiState()
     data class Error(val message: String) : ApiState()
     data object Done : ApiState()
 }

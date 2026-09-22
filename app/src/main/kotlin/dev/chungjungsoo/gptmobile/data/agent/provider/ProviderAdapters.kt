@@ -434,8 +434,15 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                                 try {
                                     openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig).collect { chunk ->
+                                        chunk.gatewayMetadata?.let { metadata ->
+                                            if (metadata.jobId != null) {
+                                                capturedGatewayJobId = metadata.jobId
+                                            }
+                                            emit(ProviderEvent.GatewayMetadataCaptured(metadata))
+                                        }
+
                                         chunk.gatewayProgress?.let { progress ->
-                                            if (isLlama && progress.jobId != null) {
+                                            if (progress.jobId != null) {
                                                 capturedGatewayJobId = progress.jobId
                                             }
                                             emit(ProviderEvent.GatewayProgressUpdate(progress))
@@ -524,8 +531,15 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                         try {
                             openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                chunk.gatewayMetadata?.let { metadata ->
+                                    if (metadata.jobId != null) {
+                                        capturedGatewayJobId = metadata.jobId
+                                    }
+                                    emit(ProviderEvent.GatewayMetadataCaptured(metadata))
+                                }
+
                                 chunk.gatewayProgress?.let { progress ->
-                                    if (isLlama && progress.jobId != null) {
+                                    if (progress.jobId != null) {
                                         capturedGatewayJobId = progress.jobId
                                     }
                                     emit(ProviderEvent.GatewayProgressUpdate(progress))

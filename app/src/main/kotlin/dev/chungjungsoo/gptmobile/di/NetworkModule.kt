@@ -16,6 +16,8 @@ import dev.chungjungsoo.gptmobile.data.network.GroqAPIImpl
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPIImpl
 import io.ktor.client.engine.cio.CIO
 import javax.inject.Singleton
 
@@ -54,4 +56,8 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideGoogleAPI(networkClient: NetworkClient): GoogleAPI = GoogleAPIImpl(networkClient)
+
+    @Provides
+    @Singleton
+    fun provideGatewayAPI(networkClient: NetworkClient): GatewayAPI = GatewayAPIImpl(networkClient)
 }

@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.viewModels
 import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +17,6 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
@@ -85,10 +83,44 @@ class MainActivity : ComponentActivity() {
         dispatchOAuthIntent(intent)
     }
 
-    override fun onNewIntent(intent: Intent) {
+    override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
         dispatchOAuthIntent(intent)
+        handleNotificationDeepLink(intent)
+    }
+
+    /**
+     * Handle deep-link intents from notification clicks.
+     * Opens the specific conversation that triggered the notification.
+     */
+    private fun handleNotificationDeepLink(intent: Intent?) {
+        val isNotificationAction = intent?.getBooleanExtra("notification_action", false) == true
+        if (!isNotificationAction) return
+
+        val conversationId = intent?.getStringExtra("conversation_id") ?: return
+
+        lifecycleScope.launch {
+            mainViewModel.event.collect { event ->
+                when (event) {
+                    is MainViewModel.SplashEvent.OpenChat -> {
+                        // Navigate to the specific conversation
+                    }
+                    else -> {}
+                }
+            }
+        }
+
+        // Fallback: directly navigate if event system not ready
+        try {
+            val openIntent = Intent(this, MainActivity::class.java).apply {
+                action = "dev.chungjungsoo.gptmobile.CONVERSATION_OPEN"
+                putExtra("conversation_id", conversationId)
+            }
+            startActivity(openIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        } catch (e: Exception) {
+            // Silently fail - event system will handle it
+        }
     }
 
     private fun launchOAuth(authorizationUri: String) {
@@ -135,6 +167,13 @@ class MainActivity : ComponentActivity() {
 
                         MainViewModel.SplashEvent.OpenMigrate -> {
                             navigate(Route.MIGRATE_V2) {
+                                popUpTo(Route.CHAT_LIST) { inclusive = true }
+                            }
+                        }
+
+                        is MainViewModel.SplashEvent.OpenChat -> {
+                            val conversationId = (event as MainViewModel.SplashEvent.OpenChat).conversationId
+                            navigate(Route.CHAT_DETAIL(conversationId)) {
                                 popUpTo(Route.CHAT_LIST) { inclusive = true }
                             }
                         }

@@ -174,6 +174,8 @@ internal data class ToolServiceInfo(
     val monogram: String,
     val badgeColor: Color,
     val textColor: Color = Color.White,
+    val isGateway: Boolean = false,
+    val iconRes: Int? = null,
 )
 
 @Composable
@@ -219,7 +221,28 @@ internal fun resolveToolServiceInfo(
             }
         }
     }
-    return ToolServiceInfo(serviceName, toolDisplayName, monogram, badgeColor, toolDef.textColor)
+
+    return if (isGatewayTool) {
+        ToolServiceInfo(
+            serviceName = "",
+            toolDisplayName = toolDisplayName,
+            monogram = "",
+            badgeColor = Color(0xFF1565C0),
+            textColor = Color.White,
+            isGateway = true,
+            iconRes = R.drawable.ic_gateway_server,
+        )
+    } else {
+        ToolServiceInfo(
+            serviceName = serviceName,
+            toolDisplayName = toolDisplayName,
+            monogram = monogram,
+            badgeColor = badgeColor,
+            textColor = toolDef.textColor,
+            isGateway = false,
+            iconRes = null,
+        )
+    }
 }
 
 @Composable
@@ -234,14 +257,14 @@ internal fun ToolServiceCircleIcon(
     ) {
         Icon(
             painter = painterResource(
-                id = if (info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor) {
-                    R.drawable.ic_github
-                } else {
-                    R.drawable.ic_gpt_mobile_foreground
-                },
+                id = when {
+                    info.isGateway && info.iconRes != null -> info.iconRes
+                    info.monogram == GitHubTool.monogram && info.badgeColor == GitHubTool.badgeColor -> R.drawable.ic_github
+                    else -> R.drawable.ic_gpt_mobile_foreground
+                }
             ),
-            contentDescription = null,
-            tint = Color.Unspecified,
+            contentDescription = if (info.isGateway) "Gateway tool" else null,
+            tint = if (info.isGateway) Color.White else Color.Unspecified,
             modifier = Modifier.size((sizeDp * 0.7).dp),
         )
     }
@@ -493,8 +516,13 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 ToolServiceCircleIcon(serviceInfo, sizeDp = 20)
                 Spacer(Modifier.width(8.dp))
+                val title = if (serviceInfo.isGateway) {
+                    "${event.sequence + 1}. ${serviceInfo.toolDisplayName}"
+                } else {
+                    "${event.sequence + 1}. ${serviceInfo.serviceName} — ${serviceInfo.toolDisplayName}"
+                }
                 Text(
-                    "${event.sequence + 1}. ${serviceInfo.serviceName} — ${serviceInfo.toolDisplayName}",
+                    text = title,
                     style = MaterialTheme.typography.titleSmall,
                     color = Color.White,
                     modifier = Modifier.weight(1f),
@@ -506,7 +534,9 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
             if (event.modelToolName != event.toolName) ToolTraceLine(labels.modelTool, event.modelToolName)
             ToolTraceLine(labels.status, event.status)
             ToolTraceLine(labels.callId, event.callId)
-            connectionLabel(event)?.let { ToolTraceLine(labels.connection, it) }
+            if (!serviceInfo.isGateway) {
+                connectionLabel(event)?.let { ToolTraceLine(labels.connection, it) }
+            }
             toolTimingLabel(event, labels)?.let { ToolTraceLine(labels.timing, it) }
             event.error?.takeIf { it.isNotBlank() }?.let { ToolTraceLine(labels.error, toolEventErrorText(it)) }
             ToolTraceBlockText(labels.arguments, event.arguments)
@@ -556,7 +586,11 @@ internal fun toolTraceStatusSummary(
     if (events.isEmpty()) return "0 ${labels.calls}"
     val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
     return if (distinctToolNames.size == 1 && primaryServiceInfo != null) {
-        "${primaryServiceInfo.serviceName} — ${primaryServiceInfo.toolDisplayName}"
+        if (primaryServiceInfo.isGateway) {
+            primaryServiceInfo.toolDisplayName
+        } else {
+            "${primaryServiceInfo.serviceName} — ${primaryServiceInfo.toolDisplayName}"
+        }
     } else {
         val noun = if (count == 1) labels.call else labels.calls
         "$count $noun"

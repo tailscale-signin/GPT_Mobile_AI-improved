@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Fancy AI notification icon with gradient and glow effect -->
+<!-- Fancy AI notification icon with gradient, glow effects, and neural network theme -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -9,27 +9,25 @@
     <!-- Outer glow ring -->
     <path
         android:fillColor="#7C3AED"
-        android:pathData="M12,12m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0"/>
-
-    <!-- Main AI brain icon -->
-    <path
-        android:fillColor="#A78BFA"
         android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 8,3.59 8,8 -3.59,8 -8,8z"/>
 
-    <!-- Neural network connections -->
+    <!-- Inner gradient circle -->
     <path
-        android:fillColor="#C4B5FD"
+        android:fillColor="#A855F7"
         android:pathData="M12,6c-3.31,0 -6,2.69 -6,6s2.69,6 6,6 6,-2.69 6,-6 -2.69,-6 -6,-6z"/>
+
+    <!-- AI brain icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM12,11.5c-1.38,0 -2.5,-1.12 -2.5,-2.5s1.12,-2.5 2.5,-2.5 2.5,1.12 2.5,2.5 -1.12,2.5 -2.5,2.5z"/>
 
     <!-- Sparkle effect -->
     <path
         android:fillColor="#FBBF24"
-        android:pathData="M12,7l-1.5,3L6,12l3.5,1.5L12,17l1.5,-3.5L17,12l-3.5,-1.5L12,7z"/>
+        android:pathData="M16.5,3.5l1.5,3 3,1.5 -3,1.5 -1.5,3 -1.5,-3 -3,-1.5 3,-1.5z"/>
 
-    <!-- Inner glow -->
+    <!-- Connection lines -->
     <path
         android:fillColor="#FFFFFF"
-        android:alpha="0.3"
-        android:pathData="M12,4c-4.97,0 -9,4.03 -9,9s4.03,9 9,9 9,-4.03 9,-9 -4.03,-9 -9,-9z"/>
-
+        android:pathData="M9,7l2,2 M13,7l-2,2 M9,13l2,-2 M13,13l-2,-2"/>
 </vector>

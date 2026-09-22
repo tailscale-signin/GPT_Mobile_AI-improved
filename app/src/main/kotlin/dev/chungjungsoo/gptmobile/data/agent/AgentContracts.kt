@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +18,9 @@ sealed interface ProviderEvent {
     // GatewayProgressUpdate is observational only. AgentRunner must never
     // execute it as a client-owned tool call.
     data class GatewayProgressUpdate(val progress: GatewayProgress) : ProviderEvent
+
+    // GatewayMetadataCaptured informs repository and coordinator of Gateway headers (jobId, etc.)
+    data class GatewayMetadataCaptured(val metadata: GatewayResponseMetadata) : ProviderEvent
 
     data object Completed : ProviderEvent
 }

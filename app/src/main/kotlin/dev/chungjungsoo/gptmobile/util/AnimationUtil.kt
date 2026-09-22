@@ -94,6 +94,6 @@ object AnimationUtil {
  */
 class DecelerateInterpolator : android.view.animation.Interpolator {
     override fun getInterpolation(input: Float): Float {
-        return 1f - (1f - input).square()
+        return 1f - (1f - input) * (1f - input)
     }
 }

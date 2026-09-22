@@ -29,14 +29,13 @@ object SuggestionHighlightManager {
         val withoutCodeBlocks = text.replace(Regex("""```[\s\S]*?```"""), "")
 
         // Split by standard sentence terminators (. ! ?) followed by whitespace or line breaks
-        val rawSentences = withoutCodeBlocks.split(Regex("""(?<=[.?!])\s+|\n\n+"""))
+        val rawSentences = withoutCodeBlocks.split(Regex("""(?<=[.?!])\s+|\n+"""))
 
         return rawSentences
-            .map { it.trim() }
-            .filter { sentence ->
-                val clean = sentence.replace(Regex("""^[\s*#\-_•\d\.\)\:]+"""), "").trim()
-                clean.length >= 8
+            .map { sentence ->
+                sentence.replace(Regex("""^[\s*#\-_•\d\.\)\:]+"""), "").trim()
             }
+            .filter { it.length >= 8 }
     }
 
     /**

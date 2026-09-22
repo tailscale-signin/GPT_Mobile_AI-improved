@@ -21,6 +21,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -43,6 +45,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -545,44 +548,47 @@ fun OpponentChatBubble(
                                 ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
                             }
 
-                            Box(
-                                modifier = Modifier.pointerInput(action) {
-                                    detectTapGestures(
-                                        onPress = {
+                            val chipInteractionSource = remember { MutableInteractionSource() }
+
+                            LaunchedEffect(chipInteractionSource, action) {
+                                chipInteractionSource.interactions.collect { interaction ->
+                                    when (interaction) {
+                                        is PressInteraction.Press -> {
                                             startHighlight(action.label, action.actionPrompt)
-                                            val released = tryAwaitRelease()
-                                            reverseHighlight()
-                                            if (released) {
-                                                actionDismissed = true
-                                                onActionClick(action.actionPrompt)
-                                            }
                                         }
-                                    )
+                                        is PressInteraction.Release, is PressInteraction.Cancel -> {
+                                            reverseHighlight()
+                                        }
+                                    }
                                 }
-                            ) {
-                                AssistChip(
-                                    onClick = { /* Handled by pointerInput onPress/release */ },
-                                    label = {
-                                        Text(
-                                            text = action.label,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    },
-                                    colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                    ),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                )
                             }
+
+                            AssistChip(
+                                onClick = {
+                                    actionDismissed = true
+                                    onActionClick(action.actionPrompt)
+                                },
+                                label = {
+                                    Text(
+                                        text = action.label,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                interactionSource = chipInteractionSource,
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            )
                         }
                     }
                 }
@@ -612,37 +618,40 @@ fun OpponentChatBubble(
                             label = "pulseAlpha"
                         )
 
-                        Box(
-                            modifier = Modifier.pointerInput(Unit) {
-                                detectTapGestures(
-                                    onPress = {
+                        val continueInteractionSource = remember { MutableInteractionSource() }
+
+                        LaunchedEffect(continueInteractionSource) {
+                            continueInteractionSource.interactions.collect { interaction ->
+                                when (interaction) {
+                                    is PressInteraction.Press -> {
                                         startHighlight("continue", "continue")
-                                        val released = tryAwaitRelease()
-                                        reverseHighlight()
-                                        if (released) {
-                                            continueDismissed = true
-                                            onContinueClick?.invoke()
-                                        }
                                     }
-                                )
+                                    is PressInteraction.Release, is PressInteraction.Cancel -> {
+                                        reverseHighlight()
+                                    }
+                                }
                             }
-                        ) {
-                            SuggestionChip(
-                                onClick = { /* Handled by pointerInput onPress/release */ },
-                                label = { Text("Continue") },
-                                icon = {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = "Continue",
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                },
-                                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
-                                colors = SuggestionChipDefaults.suggestionChipColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
-                                )
-                            )
                         }
+
+                        SuggestionChip(
+                            onClick = {
+                                continueDismissed = true
+                                onContinueClick?.invoke()
+                            },
+                            label = { Text("Continue") },
+                            icon = {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Continue",
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            },
+                            interactionSource = continueInteractionSource,
+                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                            )
+                        )
                     }
 
                     Spacer(modifier = Modifier.weight(1f))

@@ -1883,6 +1883,26 @@ private fun LlamaAdvancedSettingsDialog(
     var useFlashAttn by remember { mutableStateOf(initialSettings.useFlashAttn) }
     var verbose by remember { mutableStateOf(initialSettings.verbose) }
 
+    var gatewayIntegrationEnabled by remember { mutableStateOf(initialSettings.gatewayIntegrationEnabled) }
+    var gatewayPerformanceProfile by remember { mutableStateOf(initialSettings.gatewayPerformanceProfile) }
+    var gatewayToolRouting by remember { mutableStateOf(initialSettings.gatewayToolRouting) }
+    var gatewayCachePrompt by remember { mutableStateOf(initialSettings.gatewayCachePrompt) }
+    var gatewayCacheReuseText by remember { mutableStateOf(initialSettings.gatewayCacheReuse.toString()) }
+    var gatewaySlotAffinity by remember { mutableStateOf(initialSettings.gatewaySlotAffinity) }
+    var gatewaySlotCountText by remember { mutableStateOf(initialSettings.gatewaySlotCount.toString()) }
+    var gatewayMaxRoundsText by remember { mutableStateOf(initialSettings.gatewayMaxRounds.toString()) }
+    var gatewayAdaptiveReasoning by remember { mutableStateOf(initialSettings.gatewayAdaptiveReasoning) }
+    var gatewayThinkingBudgetText by remember { mutableStateOf(initialSettings.gatewayThinkingBudget.toString()) }
+    var gatewayHeartbeatText by remember { mutableStateOf(initialSettings.gatewayStreamHeartbeatSeconds.toString()) }
+    var gatewayProgressPollText by remember { mutableStateOf(initialSettings.gatewayProgressPollMs.toString()) }
+    var gatewayModelWaitAfterText by remember { mutableStateOf(initialSettings.gatewayModelWaitAfterSeconds.toString()) }
+    var gatewayModelWaitIntervalText by remember { mutableStateOf(initialSettings.gatewayModelWaitIntervalSeconds.toString()) }
+    var gatewayJobTimeoutText by remember { mutableStateOf(initialSettings.gatewayJobTimeoutSeconds.toString()) }
+    var gatewayProgressDetail by remember { mutableStateOf(initialSettings.gatewayProgressDetail) }
+    var gatewayProfileExpanded by remember { mutableStateOf(false) }
+    var gatewayRoutingExpanded by remember { mutableStateOf(false) }
+    var gatewayProgressExpanded by remember { mutableStateOf(false) }
+
     var routerModels by remember { mutableStateOf<List<LlamaModelInfo>>(emptyList()) }
     var isFetchingRouterModels by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -1930,6 +1950,323 @@ private fun LlamaAdvancedSettingsDialog(
                 Text(
                     text = stringResource(R.string.llama_advanced_settings_description),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text(
+                    text = "Gateway v10 Performance",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "These settings are sent with every Llama-platform request and directly tune Gateway/llama.cpp execution. High Performance is recommended for a dedicated local GPU server.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Gateway Integration")
+                        Text(
+                            "Enable job continuity, stable slot affinity, prompt-cache tuning, and mobile progress controls.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = gatewayIntegrationEnabled,
+                        onCheckedChange = { gatewayIntegrationEnabled = it }
+                    )
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = gatewayProfileExpanded,
+                    onExpandedChange = { if (gatewayIntegrationEnabled) gatewayProfileExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, gatewayIntegrationEnabled)
+                            .fillMaxWidth(),
+                        value = when (gatewayPerformanceProfile) {
+                            "low_latency" -> "Low Latency"
+                            "balanced" -> "Balanced"
+                            "max_throughput" -> "Max Throughput"
+                            else -> "High Performance"
+                        },
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = gatewayIntegrationEnabled,
+                        label = { Text("Performance Profile") },
+                        supportingText = {
+                            Text(
+                                when (gatewayPerformanceProfile) {
+                                    "low_latency" -> "Fast UI feedback and short agent loops."
+                                    "balanced" -> "Conservative cache and agent limits."
+                                    "max_throughput" -> "Higher concurrency; disables sticky slot affinity."
+                                    else -> "Aggressive cache reuse, fast progress, and deep agent loops."
+                                }
+                            )
+                        },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = gatewayProfileExpanded)
+                        }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = gatewayProfileExpanded,
+                        onDismissRequest = { gatewayProfileExpanded = false }
+                    ) {
+                        listOf(
+                            "high_performance" to "High Performance",
+                            "balanced" to "Balanced",
+                            "low_latency" to "Low Latency",
+                            "max_throughput" to "Max Throughput"
+                        ).forEach { (value, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    gatewayPerformanceProfile = value
+                                    gatewayProfileExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Prompt Cache")
+                        Text(
+                            "Keep shared prompt prefixes in llama.cpp's KV cache.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = gatewayCachePrompt,
+                        enabled = gatewayIntegrationEnabled,
+                        onCheckedChange = { gatewayCachePrompt = it }
+                    )
+                }
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayCacheReuseText,
+                    onValueChange = { gatewayCacheReuseText = it },
+                    enabled = gatewayIntegrationEnabled && gatewayCachePrompt,
+                    label = { Text("Cache Reuse Tokens") },
+                    supportingText = { Text("High-performance default: 512. Set 0 to disable reuse hints.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Stable Chat Slot Affinity")
+                        Text(
+                            "Pins a conversation to one detected llama.cpp slot for better KV reuse.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = gatewaySlotAffinity,
+                        enabled = gatewayIntegrationEnabled,
+                        onCheckedChange = { gatewaySlotAffinity = it }
+                    )
+                }
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewaySlotCountText,
+                    onValueChange = { gatewaySlotCountText = it },
+                    enabled = gatewayIntegrationEnabled && gatewaySlotAffinity,
+                    label = { Text("Maximum Slot Count") },
+                    supportingText = { Text("Gateway probes /slots and safely clamps this value.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayMaxRoundsText,
+                    onValueChange = { gatewayMaxRoundsText = it },
+                    enabled = gatewayIntegrationEnabled,
+                    label = { Text("Maximum Agent Rounds") },
+                    supportingText = { Text("High-performance default: 160. Server maximum: 500.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Adaptive Reasoning")
+                        Text(
+                            "Use stronger reasoning only where workflow complexity warrants it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = gatewayAdaptiveReasoning,
+                        enabled = gatewayIntegrationEnabled,
+                        onCheckedChange = { gatewayAdaptiveReasoning = it }
+                    )
+                }
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayThinkingBudgetText,
+                    onValueChange = { gatewayThinkingBudgetText = it },
+                    enabled = gatewayIntegrationEnabled,
+                    label = { Text("Thinking Budget Tokens") },
+                    supportingText = { Text("-1 lets Gateway choose adaptively.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = gatewayRoutingExpanded,
+                    onExpandedChange = { if (gatewayIntegrationEnabled) gatewayRoutingExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, gatewayIntegrationEnabled)
+                            .fillMaxWidth(),
+                        value = gatewayToolRouting.replaceFirstChar { it.uppercase() },
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = gatewayIntegrationEnabled,
+                        label = { Text("Tool Routing") },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = gatewayRoutingExpanded)
+                        }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = gatewayRoutingExpanded,
+                        onDismissRequest = { gatewayRoutingExpanded = false }
+                    ) {
+                        listOf("auto", "local", "remote").forEach { value ->
+                            DropdownMenuItem(
+                                text = { Text(value.replaceFirstChar { it.uppercase() }) },
+                                onClick = {
+                                    gatewayToolRouting = value
+                                    gatewayRoutingExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Mobile Streaming",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayHeartbeatText,
+                    onValueChange = { gatewayHeartbeatText = it },
+                    enabled = gatewayIntegrationEnabled,
+                    label = { Text("SSE Heartbeat (seconds)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayProgressPollText,
+                    onValueChange = { gatewayProgressPollText = it },
+                    enabled = gatewayIntegrationEnabled,
+                    label = { Text("Progress Poll (ms)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayModelWaitAfterText,
+                    onValueChange = { gatewayModelWaitAfterText = it },
+                    enabled = gatewayIntegrationEnabled,
+                    label = { Text("Model Wait Notice After (seconds)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayModelWaitIntervalText,
+                    onValueChange = { gatewayModelWaitIntervalText = it },
+                    enabled = gatewayIntegrationEnabled,
+                    label = { Text("Model Wait Notice Interval (seconds)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayJobTimeoutText,
+                    onValueChange = { gatewayJobTimeoutText = it },
+                    enabled = gatewayIntegrationEnabled,
+                    label = { Text("Gateway Job Timeout (seconds)") },
+                    supportingText = { Text("High-performance default: 5400 seconds.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    singleLine = true
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = gatewayProgressExpanded,
+                    onExpandedChange = { if (gatewayIntegrationEnabled) gatewayProgressExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, gatewayIntegrationEnabled)
+                            .fillMaxWidth(),
+                        value = gatewayProgressDetail.replaceFirstChar { it.uppercase() },
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = gatewayIntegrationEnabled,
+                        label = { Text("Progress Detail") },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = gatewayProgressExpanded)
+                        }
+                    )
+                    ExposedDropdownMenu(
+                        expanded = gatewayProgressExpanded,
+                        onDismissRequest = { gatewayProgressExpanded = false }
+                    ) {
+                        listOf("compact", "normal", "debug").forEach { value ->
+                            DropdownMenuItem(
+                                text = { Text(value.replaceFirstChar { it.uppercase() }) },
+                                onClick = {
+                                    gatewayProgressDetail = value
+                                    gatewayProgressExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "llama.cpp / Router Runtime Hints",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "The following server-launch settings are retained for router/server configuration. Changing them may require restarting llama.cpp or your router.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
@@ -2176,7 +2513,32 @@ private fun LlamaAdvancedSettingsDialog(
                         useMmap = useMmap,
                         useMlock = useMlock,
                         useFlashAttn = useFlashAttn,
-                        verbose = verbose
+                        verbose = verbose,
+                        gatewayIntegrationEnabled = gatewayIntegrationEnabled,
+                        gatewayPerformanceProfile = gatewayPerformanceProfile,
+                        gatewayToolRouting = gatewayToolRouting,
+                        gatewayCachePrompt = gatewayCachePrompt,
+                        gatewayCacheReuse = gatewayCacheReuseText.toIntOrNull()?.coerceIn(0, 8192)
+                            ?: initialSettings.gatewayCacheReuse,
+                        gatewaySlotAffinity = gatewaySlotAffinity,
+                        gatewaySlotCount = gatewaySlotCountText.toIntOrNull()?.coerceIn(1, 64)
+                            ?: initialSettings.gatewaySlotCount,
+                        gatewayMaxRounds = gatewayMaxRoundsText.toIntOrNull()?.coerceIn(4, 500)
+                            ?: initialSettings.gatewayMaxRounds,
+                        gatewayAdaptiveReasoning = gatewayAdaptiveReasoning,
+                        gatewayThinkingBudget = gatewayThinkingBudgetText.toIntOrNull()?.coerceIn(-1, 131072)
+                            ?: initialSettings.gatewayThinkingBudget,
+                        gatewayStreamHeartbeatSeconds = gatewayHeartbeatText.toIntOrNull()?.coerceIn(1, 60)
+                            ?: initialSettings.gatewayStreamHeartbeatSeconds,
+                        gatewayProgressPollMs = gatewayProgressPollText.toIntOrNull()?.coerceIn(100, 5000)
+                            ?: initialSettings.gatewayProgressPollMs,
+                        gatewayModelWaitAfterSeconds = gatewayModelWaitAfterText.toIntOrNull()?.coerceIn(3, 600)
+                            ?: initialSettings.gatewayModelWaitAfterSeconds,
+                        gatewayModelWaitIntervalSeconds = gatewayModelWaitIntervalText.toIntOrNull()?.coerceIn(3, 600)
+                            ?: initialSettings.gatewayModelWaitIntervalSeconds,
+                        gatewayJobTimeoutSeconds = gatewayJobTimeoutText.toIntOrNull()?.coerceIn(60, 14400)
+                            ?: initialSettings.gatewayJobTimeoutSeconds,
+                        gatewayProgressDetail = gatewayProgressDetail
                     )
                     onConfirmRequest(updated)
                 }

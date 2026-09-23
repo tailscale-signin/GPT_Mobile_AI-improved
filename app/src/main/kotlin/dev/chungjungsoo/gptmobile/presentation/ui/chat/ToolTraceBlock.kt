@@ -588,17 +588,83 @@ internal fun toolTraceStatusSummary(
 ): String {
     val count = events.size
     if (events.isEmpty()) return "0 ${labels.calls}"
+
     val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
-    return if (distinctToolNames.size == 1 && primaryServiceInfo != null) {
-        if (primaryServiceInfo.isGateway) {
-            primaryServiceInfo.toolDisplayName
-        } else {
-            "${primaryServiceInfo.serviceName} — ${primaryServiceInfo.toolDisplayName}"
+    if (distinctToolNames.size == 1) {
+        val toolName = distinctToolNames.single()
+        return when (overallState) {
+            ToolCallState.Running -> "${smartToolVerb(toolName)}..."
+            ToolCallState.Completed -> completedToolVerb(toolName)
+            is ToolCallState.Failed -> {
+                val noun = if (count == 1) labels.call else labels.calls
+                "$count $noun - ${labels.failed}"
+            }
+            ToolCallState.Canceled -> {
+                val noun = if (count == 1) labels.call else labels.calls
+                "$count $noun - ${labels.canceled}"
+            }
         }
-    } else {
-        val noun = if (count == 1) labels.call else labels.calls
-        "$count $noun"
     }
+
+    val noun = if (count == 1) labels.call else labels.calls
+    return when (overallState) {
+        ToolCallState.Running -> "${labels.running.replaceFirstChar { it.uppercase(Locale.ROOT) }} $count $noun..."
+        is ToolCallState.Failed -> {
+            val failedCount = events.count { it.toToolCallState() is ToolCallState.Failed }
+            if (failedCount == count) {
+                "$count $noun - ${labels.failed}"
+            } else {
+                "$count $noun - ${labels.completedWithErrors}"
+            }
+        }
+        ToolCallState.Canceled -> "$count $noun - ${labels.canceled}"
+        ToolCallState.Completed -> {
+            if (events.any { it.toToolCallState() is ToolCallState.Canceled }) {
+                "$count $noun - ${labels.canceled}"
+            } else {
+                "$count $noun - ${labels.completed}"
+            }
+        }
+    }
+}
+
+internal fun friendlyToolDisplayName(toolName: String): String {
+    val leaf = toolName.substringAfterLast("__").trim().lowercase(Locale.ROOT)
+    return when (leaf) {
+        "web_search", "search" -> "Search"
+        "read_url", "crawl", "scrape", "fetch" -> "Crawl"
+        "calculate_expression", "calculator", "calc" -> "Calculator"
+        "device_location", "location" -> "Location"
+        "current_date", "date", "time" -> "Date"
+        "read_file", "read_file_slice" -> "Read File"
+        "execute_command", "run_command", "shell" -> "Execute Command"
+        else -> leaf.replace('_', ' ').replace('-', ' ').split(' ')
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { it.replaceFirstChar { ch -> ch.titlecase(Locale.ROOT) } }
+            .ifBlank { "Tool" }
+    }
+}
+
+internal fun smartToolVerb(toolName: String): String = when (friendlyToolDisplayName(toolName)) {
+    "Search" -> "Searching"
+    "Crawl" -> "Crawling"
+    "Calculator" -> "Calculating"
+    "Location" -> "Locating"
+    "Date" -> "Getting date"
+    "Read File" -> "Reading file"
+    "Execute Command" -> "Executing command"
+    else -> "Running ${friendlyToolDisplayName(toolName)}"
+}
+
+private fun completedToolVerb(toolName: String): String = when (friendlyToolDisplayName(toolName)) {
+    "Search" -> "Searched"
+    "Crawl" -> "Crawled"
+    "Calculator" -> "Calculated"
+    "Location" -> "Located"
+    "Date" -> "Got date"
+    "Read File" -> "Read file"
+    "Execute Command" -> "Executed command"
+    else -> "Completed ${friendlyToolDisplayName(toolName)}"
 }
 
 internal fun formatToolDuration(event: ToolEvent): String? {

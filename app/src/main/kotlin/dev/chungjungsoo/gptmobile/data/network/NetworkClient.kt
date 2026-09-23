@@ -5,6 +5,8 @@ import io.ktor.client.engine.HttpClientEngineFactory
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.cio.CIOEngineConfig
 import io.ktor.client.engine.cio.endpoint
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.engine.okhttp.OkHttpConfig
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -42,6 +44,12 @@ class NetworkClient @Inject constructor(
                             connectTimeout = 30_000L
                             connectAttempts = 3
                         }
+                    }
+                }
+            } else if (httpEngine == OkHttp) {
+                engine {
+                    (this as? OkHttpConfig)?.config {
+                        retryOnConnectionFailure(true)
                     }
                 }
             }

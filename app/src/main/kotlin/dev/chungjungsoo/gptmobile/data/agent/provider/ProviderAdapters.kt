@@ -188,6 +188,11 @@ class OpenAICompatibleAdapter @Inject constructor(
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
         val keyIndexCounter = AtomicInteger(0)
         var capturedGatewayJobId: String? = null
+        val gatewayPerformanceHeaders = if (platform.compatibleType == ClientType.LLAMA) {
+            attachmentEncoder.gatewayPerformanceHeaders()
+        } else {
+            emptyMap()
+        }
 
         return object : AgentProviderSession {
             override fun streamRound(
@@ -218,7 +223,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                 // If on Llama AI platform and a gateway job ID was captured from previous rounds, propagate it
                 val llamaGatewayHeaders = if (isLlama) {
-                    attachmentEncoder.gatewayPerformanceHeaders() +
+                    gatewayPerformanceHeaders +
                         if (capturedGatewayJobId != null) {
                             mapOf("X-Gateway-Job-ID" to capturedGatewayJobId!!)
                         } else {

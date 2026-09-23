@@ -108,5 +108,9 @@
 -keepattributes Signature, Exceptions
 -keepclassmembers class kotlin.Metadata { *; }
 
+# SharedPreferences JSON uses these field names across app upgrades. Gson accesses
+# them reflectively, so release shrinking must preserve the fields and constructor.
+-keep class dev.chungjungsoo.gptmobile.llama.AdvancedSettings { *; }
+
 # Preserve line numbers and source files for release stack traces
 -keepattributes SourceFile,LineNumberTable

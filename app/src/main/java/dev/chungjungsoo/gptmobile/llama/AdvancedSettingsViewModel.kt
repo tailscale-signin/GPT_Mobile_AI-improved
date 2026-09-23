@@ -2,15 +2,14 @@ package dev.chungjungsoo.gptmobile.llama
 
 import android.app.Application
 import android.content.Context
+import android.os.Parcelable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
-import kotlinx.coroutines.launch
-import com.google.gson.Gson
 import dev.chungjungsoo.gptmobile.data.llama.LlamaRouterClient
+import kotlinx.coroutines.launch
+import kotlinx.parcelize.Parcelize
 
 @Parcelize
 data class RouterModel(
@@ -55,9 +54,7 @@ class AdvancedSettingsViewModel(application: Application) : AndroidViewModel(app
             val prefs = getApplication<Application>().getSharedPreferences("llama_settings", Context.MODE_PRIVATE)
             val json = prefs.getString("advanced_settings", null) ?: "{}"
             try {
-                val gson = Gson()
-                val loadedSettings = gson.fromJson(json, AdvancedSettings::class.java)
-                _settings.value = loadedSettings ?: AdvancedSettings()
+                _settings.value = AdvancedSettingsJson.decode(json)
             } catch (e: Exception) {
                 _error.value = "Failed to load settings: ${e.message}"
                 _settings.value = AdvancedSettings()
@@ -106,14 +103,12 @@ class AdvancedSettingsViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
-    private fun fallbackModels(): List<RouterModel> {
-        return listOf(
-            RouterModel("llama3", "Llama 3 8B", "chat", true),
-            RouterModel("mistral", "Mistral 7B", "chat", true),
-            RouterModel("codellama", "Code Llama", "code", true),
-            RouterModel("gemma", "Gemma 7B", "chat", true)
-        )
-    }
+    private fun fallbackModels(): List<RouterModel> = listOf(
+        RouterModel("llama3", "Llama 3 8B", "chat", true),
+        RouterModel("mistral", "Mistral 7B", "chat", true),
+        RouterModel("codellama", "Code Llama", "code", true),
+        RouterModel("gemma", "Gemma 7B", "chat", true)
+    )
 
     fun updateSettings(settings: AdvancedSettings) {
         _settings.value = settings
@@ -125,7 +120,7 @@ class AdvancedSettingsViewModel(application: Application) : AndroidViewModel(app
             _loading.value = true
             try {
                 val prefs = getApplication<Application>().getSharedPreferences("llama_settings", Context.MODE_PRIVATE)
-                val json = Gson().toJson(settings)
+                val json = AdvancedSettingsJson.encode(settings)
                 prefs.edit().putString("advanced_settings", json).apply()
                 _saved.value = true
                 _loading.value = false

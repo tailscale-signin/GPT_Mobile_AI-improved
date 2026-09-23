@@ -6,7 +6,9 @@ import io.ktor.client.request.HttpRequestBuilder
 
 internal fun platformTimeoutSecondsToSocketTimeoutMillis(timeoutSeconds: Int): Long? = when {
     timeoutSeconds <= 0 -> null
-    else -> timeoutSeconds * 1_000L
+    // OkHttp stores finite read/write timeouts in signed Int milliseconds.
+    // Older settings and imports may contain any positive Int number of seconds.
+    else -> (timeoutSeconds * 1_000L).coerceAtMost(Int.MAX_VALUE.toLong())
 }
 
 /**

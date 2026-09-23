@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.openrouter
 
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.service.BatchResult
+import java.net.URI
+import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -12,9 +15,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URI
-import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
 
 class OpenRouterBatchClient(
     private val apiKey: String,
@@ -24,22 +24,21 @@ class OpenRouterBatchClient(
     private val baseUrl: String = "https://openrouter.ai/api/v1"
 ) {
 
+    private val safeTimeoutMs = timeoutMs.coerceAtMost(Int.MAX_VALUE.toLong())
     private val client = OkHttpClient.Builder()
-        .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-        .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-        .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+        .connectTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
+        .readTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
+        .writeTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
         .build()
 
-    fun batchesUrl(): String {
-        return try {
-            val uri = URI(baseUrl)
-            val scheme = uri.scheme ?: "https"
-            val host = uri.host ?: "openrouter.ai"
-            val port = if (uri.port != -1) ":${uri.port}" else ""
-            "$scheme://$host$port/api/beta/batches"
-        } catch (e: Exception) {
-            "https://openrouter.ai/api/beta/batches"
-        }
+    fun batchesUrl(): String = try {
+        val uri = URI(baseUrl)
+        val scheme = uri.scheme ?: "https"
+        val host = uri.host ?: "openrouter.ai"
+        val port = if (uri.port != -1) ":${uri.port}" else ""
+        "$scheme://$host$port/api/beta/batches"
+    } catch (e: Exception) {
+        "https://openrouter.ai/api/beta/batches"
     }
 
     /**
@@ -206,7 +205,9 @@ class OpenRouterBatchClient(
                 list.add(BatchResultEntry(customId = customId, response = resp, error = err))
             }
             list
-        } else null
+        } else {
+            null
+        }
 
         return BatchStatusResponse(meta = meta, results = results)
     }
@@ -236,9 +237,7 @@ class OpenRouterBatchClient(
         onComplete(results)
     }
 
-    suspend fun processRequest(request: BatchRequest): String {
-        return processSingleRequest(request)
-    }
+    suspend fun processRequest(request: BatchRequest): String = processSingleRequest(request)
 
     private fun processSingleRequest(request: BatchRequest): String {
         val messages = listOf(

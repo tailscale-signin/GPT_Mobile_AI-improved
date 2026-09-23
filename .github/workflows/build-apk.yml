@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   pull_request:
     branches:
       - main
@@ -53,26 +51,3 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      - name: Extract Release Tag
-        id: tag_name
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        run: |
-          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        with:
-          tag_name: ${{ steps.tag_name.outputs.tag }}
-          name: Release ${{ steps.tag_name.outputs.tag }}
-          draft: false
-          prerelease: false
-          files: |
-            app/build/outputs/apk/**/*.apk
-          body: |
-            Automated tag build for ${{ steps.tag_name.outputs.tag }}.
-            
-            ### Artifacts
-            - Debug build of GPT Mobile AI
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

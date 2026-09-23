@@ -409,6 +409,8 @@ private class FakeToolConnectionDao(
             .thenBy { it.connectionUid }
     )
 
+    override suspend fun getAllConnections(): List<ToolConnection> = listConnections()
+
     override suspend fun getConnection(connectionUid: String): ToolConnection? = connections[connectionUid]
 
     override suspend fun getConnectionsByUids(connectionUids: List<String>): List<ToolConnection> = connectionUids.mapNotNull(connections::get)

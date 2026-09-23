@@ -60,25 +60,23 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
-            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-            echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
-          else
-            keytool -genkeypair -v \
-              -keystore release.keystore \
-              -alias gptmobile \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "gptmobile-deterministic-release-key" \
-              -keypass "gptmobile-deterministic-release-key" \
-              -dname "CN=GPT Mobile Improved, OU=Development, O=OpenSource, L=Global, ST=Global, C=XX"
-            echo "KEYSTORE_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
-            echo "KEY_ALIAS=gptmobile" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
+          set -euo pipefail
+          missing=()
+          [ -n "$KEYSTORE_BASE64" ] || missing+=("KEYSTORE_BASE64")
+          [ -n "$KEYSTORE_PASSWORD" ] || missing+=("KEYSTORE_PASSWORD")
+          [ -n "$KEY_ALIAS" ] || missing+=("KEY_ALIAS")
+          [ -n "$KEY_PASSWORD" ] || missing+=("KEY_PASSWORD")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Release signing secrets are missing: ${missing[*]}"
+            echo "Refusing to create a release signed with an ephemeral or publicly known key."
+            exit 1
           fi
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          chmod 600 release.keystore
+          echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
 
       - name: Increment Version

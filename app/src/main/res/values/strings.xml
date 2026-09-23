@@ -572,4 +572,18 @@
     <string name="debug_mode_hardware_diagnostics">🖥️ HARDWARE DIAGNOSTICS</string>
     <string name="debug_mode_tool_analytics">🛠️ TOOL ANALYTICS</string>
     <string name="debug_mode_export">📥 Export Diagnostics</string>
+    <string name="complete_backup_description">One encrypted file contains your settings, chats, favourites, AI platforms, tool connections, credentials, attachments, and downloaded models.</string>
+    <string name="complete_backup_password_help">Use at least 8 characters and keep the password safe. It cannot be recovered. For restore, enter the original password; confirmation is only needed to create a backup.</string>
+    <string name="complete_backup_password">Backup password</string>
+    <string name="complete_backup_confirm_password">Confirm password for backup</string>
+    <string name="complete_backup_password_mismatch">Passwords do not match.</string>
+    <string name="complete_backup_action">Backup</string>
+    <string name="complete_restore_action">Restore</string>
+    <string name="complete_backup_working">Working… Keep the app open until this finishes. Large models can take several minutes.</string>
+    <string name="complete_backup_legacy">Older configuration, chat, and favourites backups can also be restored here. They restore only the data they contain. Leave the password blank only for an older backup created without a password.</string>
+    <string name="complete_backup_last">Last backup: %1$s</string>
+    <string name="complete_backup_none">No backups created yet</string>
+    <string name="complete_restore_title">Restore backup?</string>
+    <string name="complete_restore_confirmation">A complete backup replaces current settings, chats, favourites, credentials, and app files with the saved copy. Newer data will be removed. Back up your current data first if you need to keep it. Keep the app open until restore finishes. Older partial backups restore only their own data.</string>
+    <string name="backup_picker_unavailable">No file picker is available on this device.</string>
 </resources>

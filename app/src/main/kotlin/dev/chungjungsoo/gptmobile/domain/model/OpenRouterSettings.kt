@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.domain.model
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class OpenRouterSettings(
     val apiKey: String,
     val baseUrl: String = "https://openrouter.ai/api/v1",

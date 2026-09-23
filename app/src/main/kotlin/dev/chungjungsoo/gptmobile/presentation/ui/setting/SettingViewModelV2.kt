@@ -4,13 +4,14 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.chungjungsoo.gptmobile.data.backup.AppBackupManager
+import dev.chungjungsoo.gptmobile.data.backup.BackupRestoreResult
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
-import dev.chungjungsoo.gptmobile.data.backup.GranularBackupOptions
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -25,7 +26,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SettingViewModelV2 @Inject constructor(
     private val settingRepository: SettingRepository,
-    private val appBackupManager: AppBackupManager
+    private val completeBackupManager: CompleteBackupManager
 ) : ViewModel() {
 
     val platformState: StateFlow<List<PlatformV2>> = settingRepository.observePlatformV2s()
@@ -37,8 +38,12 @@ class SettingViewModelV2 @Inject constructor(
     val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val _backupStatus = MutableStateFlow(appBackupManager.getBackupStatus())
+    private val _backupStatus = MutableStateFlow(completeBackupManager.getBackupStatus())
     val backupStatus: StateFlow<BackupStatus> = _backupStatus.asStateFlow()
+
+    private val _backupUi = MutableStateFlow(BackupUiState())
+    val backupUi: StateFlow<BackupUiState> = _backupUi.asStateFlow()
+    private var pendingPassword: String? = null
 
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
@@ -53,7 +58,7 @@ class SettingViewModelV2 @Inject constructor(
     }
 
     fun refreshBackupStatus() {
-        _backupStatus.value = appBackupManager.getBackupStatus()
+        _backupStatus.value = completeBackupManager.getBackupStatus()
     }
 
     private fun loadLocalRuntimeBackend() {
@@ -148,81 +153,102 @@ class SettingViewModelV2 @Inject constructor(
         _dialogState.update { it.copy(isBackupRestoreDialogOpen = true) }
     }
 
-    fun closeBackupRestoreDialog() = _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
+    fun closeBackupRestoreDialog() {
+        if (_backupUi.value.isBusy) return
+        pendingPassword = null
+        _backupUi.value = BackupUiState()
+        _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
+    }
 
-    fun exportConfigurationToFile(
-        uri: Uri,
-        passphrase: String? = null,
-        options: GranularBackupOptions = GranularBackupOptions()
+    fun updateBackupPassword(value: String) {
+        if (!_backupUi.value.isBusy) _backupUi.update { it.copy(password = value, message = null) }
+    }
+
+    fun updateBackupConfirmation(value: String) {
+        if (!_backupUi.value.isBusy) _backupUi.update { it.copy(confirmation = value, message = null) }
+    }
+
+    // Keep picker state in the ViewModel so rotation does not lose the password.
+    // Never persist passwords in a SavedStateHandle or a Bundle.
+    fun prepareBackupPicker(restoring: Boolean): Boolean {
+        val state = _backupUi.value
+        if (state.isBusy || (!restoring && !state.canBackup)) return false
+        pendingPassword = state.password
+        _backupUi.update { it.copy(isBusy = true, message = null, isError = false) }
+        return true
+    }
+
+    fun cancelBackupPicker() {
+        pendingPassword = null
+        _backupUi.update { it.copy(isBusy = false, isWorking = false, restoreUri = null) }
+    }
+
+    fun backupDestinationSelected(uri: Uri?) {
+        if (uri == null) {
+            cancelBackupPicker()
+            return
+        }
+        val password = pendingPassword ?: run {
+            cancelBackupPicker()
+            return
+        }
+        runBackupOperation { completeBackupManager.backup(uri, password) }
+    }
+
+    fun restoreSourceSelected(uri: Uri?) {
+        if (uri == null || pendingPassword == null) {
+            cancelBackupPicker()
+            return
+        }
+        _backupUi.update { it.copy(restoreUri = uri) }
+    }
+
+    fun confirmRestore() {
+        val uri = _backupUi.value.restoreUri ?: return
+        val password = pendingPassword ?: return
+        _backupUi.update { it.copy(restoreUri = null) }
+        runBackupOperation { completeBackupManager.restore(uri, password) }
+    }
+
+    private fun runBackupOperation(operation: suspend () -> BackupRestoreResult) {
+        if (_backupUi.value.isWorking) return
+        _backupUi.update { it.copy(isBusy = true, isWorking = true) }
+        viewModelScope.launch {
+            try {
+                val result = operation()
+                _backupUi.update {
+                    it.copy(
+                        message = result.message,
+                        isError = !result.success,
+                        password = if (result.success) "" else it.password,
+                        confirmation = if (result.success) "" else it.confirmation
+                    )
+                }
+                refreshBackupStatus()
+                if (result.success) {
+                    fetchPlatforms()
+                    loadLocalRuntimeBackend()
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _backupUi.update { it.copy(message = error.localizedMessage ?: "Backup or restore failed.", isError = true) }
+            } finally {
+                cancelBackupPicker()
+            }
+        }
+    }
+
+    data class BackupUiState(
+        val password: String = "",
+        val confirmation: String = "",
+        val isBusy: Boolean = false,
+        val isWorking: Boolean = false,
+        val restoreUri: Uri? = null,
+        val message: String? = null,
+        val isError: Boolean = false
     ) {
-        viewModelScope.launch {
-            val result = appBackupManager.exportConfiguration(uri, passphrase, options)
-            refreshBackupStatus()
-            if (result.success) {
-                _uiEvent.emit(UiEvent.ShowToast(result.message))
-            } else {
-                _uiEvent.emit(UiEvent.ShowToast("Export failed: ${result.message}"))
-            }
-        }
-    }
-
-    fun restoreConfigurationFromFile(uri: Uri, passphrase: String? = null) {
-        viewModelScope.launch {
-            val result = appBackupManager.restoreConfiguration(uri, passphrase)
-            if (result.success) {
-                fetchPlatforms()
-                loadLocalRuntimeBackend()
-                _uiEvent.emit(UiEvent.ShowToast("Configuration restored successfully (${result.count} platforms imported)."))
-            } else {
-                _uiEvent.emit(UiEvent.ShowToast("Restore failed: ${result.message}"))
-            }
-        }
-    }
-
-    fun exportFavoritesToFile(uri: Uri, passphrase: String? = null) {
-        viewModelScope.launch {
-            val result = appBackupManager.exportFavorites(uri, passphrase)
-            refreshBackupStatus()
-            if (result.success) {
-                _uiEvent.emit(UiEvent.ShowToast(result.message))
-            } else {
-                _uiEvent.emit(UiEvent.ShowToast("Export failed: ${result.message}"))
-            }
-        }
-    }
-
-    fun restoreFavoritesFromFile(uri: Uri, passphrase: String? = null) {
-        viewModelScope.launch {
-            val result = appBackupManager.importFavorites(uri, passphrase)
-            if (result.success) {
-                _uiEvent.emit(UiEvent.ShowToast(result.message))
-            } else {
-                _uiEvent.emit(UiEvent.ShowToast("Restore failed: ${result.message}"))
-            }
-        }
-    }
-
-    fun exportDatabaseToFile(uri: Uri, passphrase: String? = null) {
-        viewModelScope.launch {
-            val result = appBackupManager.exportDatabase(uri, passphrase)
-            refreshBackupStatus()
-            if (result.success) {
-                _uiEvent.emit(UiEvent.ShowToast(result.message))
-            } else {
-                _uiEvent.emit(UiEvent.ShowToast("Export failed: ${result.message}"))
-            }
-        }
-    }
-
-    fun restoreDatabaseFromFile(uri: Uri, passphrase: String? = null) {
-        viewModelScope.launch {
-            val result = appBackupManager.restoreDatabase(uri, passphrase)
-            if (result.success) {
-                _uiEvent.emit(UiEvent.ShowToast("Database restored successfully (${result.count} chat(s) imported)."))
-            } else {
-                _uiEvent.emit(UiEvent.ShowToast("Restore failed: ${result.message}"))
-            }
-        }
+        val canBackup: Boolean get() = !isBusy && password.length >= 8 && password == confirmation
     }
 
     sealed interface UiEvent {

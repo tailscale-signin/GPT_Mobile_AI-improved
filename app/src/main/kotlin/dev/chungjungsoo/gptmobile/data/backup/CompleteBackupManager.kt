@@ -1,0 +1,259 @@
+package dev.chungjungsoo.gptmobile.data.backup
+
+import android.content.Context
+import android.net.Uri
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.room.Room
+import androidx.room.withTransaction
+import androidx.sqlite.db.SupportSQLiteDatabase
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2Migrations
+import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import java.io.DataInputStream
+import java.io.File
+import java.util.Base64
+import java.util.UUID
+import javax.crypto.AEADBadTagException
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+
+@Singleton
+class CompleteBackupManager @Inject constructor(
+    @param:ApplicationContext private val context: Context,
+    private val database: ChatDatabaseV2,
+    dataStore: DataStore<Preferences>,
+    private val secretVault: SecretVault,
+    private val settings: SettingRepository,
+    private val legacy: AppBackupManager
+) {
+    private val mutex = Mutex()
+    private val preferences = CompleteBackupPreferences(context, dataStore)
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+    private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)))
+    fun getBackupStatus() = legacy.getBackupStatus()
+
+    suspend fun backup(uri: Uri, password: String): BackupRestoreResult = operation { work ->
+        require(password.length >= 8) { "Use a backup password with at least 8 characters." }
+        val storage = files()
+        val sources = storage.collect()
+        val dbFile = File(work, "database.sqlite")
+        database.withTransaction {
+            ensureIdle(restoring = false)
+            CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
+        }
+        val snapshot = openSnapshot(dbFile)
+        try {
+            validateModels(snapshot.openHelper.writableDatabase, sources.keys)
+            rewriteAttachments(snapshot.openHelper.writableDatabase) { storage.archivePath(it, sources) }
+        } finally {
+            snapshot.close()
+        }
+        sources["database.sqlite"] = dbFile
+        val manifest = CompleteBackupManifest(
+            preferences = preferences.read(),
+            sharedPreferences = preferences.readShared(),
+            secrets = readSecrets(),
+            files = sources.mapValues { it.value.length() }
+        )
+        val archive = File(work, "archive.zip")
+        CompleteBackupArchive.write(archive, manifest, sources)
+        context.contentResolver.openOutputStream(uri, "wt")?.use { CompleteBackupCrypto.encrypt(archive, it, password) }
+            ?: error("Could not open the backup destination.")
+        legacy.recordBackupMetadata()
+        BackupRestoreResult(true, "Complete backup saved.")
+    }
+
+    suspend fun restore(uri: Uri, password: String): BackupRestoreResult = operation { work ->
+        ensureIdle(restoring = true)
+        val archive = File(work, "archive.zip")
+        context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+            input.mark(16)
+            val header = ByteArray(9).also { DataInputStream(input).readFully(it) }
+            input.reset()
+            if (header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
+                val result = when (header[8].toInt()) {
+                    1 -> legacy.restoreConfiguration(uri, password.takeIf(String::isNotEmpty))
+                    2 -> legacy.restoreDatabase(uri, password.takeIf(String::isNotEmpty))
+                    4 -> legacy.importFavorites(uri, password.takeIf(String::isNotEmpty))
+                    else -> error("Unsupported legacy backup type.")
+                }
+                settings.invalidatePlatformCache()
+                return@operation result.copy(message = "Legacy backup: ${result.message}")
+            }
+            CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE)
+        } ?: error("Could not read the backup file.")
+        val staging = File(work, "files").apply { mkdirs() }
+        val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE)
+        preferences.validate(manifest.preferences, manifest.sharedPreferences)
+        validateSecrets(manifest.secrets)
+        val storage = files()
+        val paths = manifest.files.keys - "database.sqlite"
+        require(paths.map(storage::target).toSet().size == paths.size) { "Conflicting backup file locations." }
+        val snapshot = openSnapshot(File(staging, "database.sqlite"))
+        try {
+            val source = snapshot.openHelper.writableDatabase
+            CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
+            validateModels(source, paths)
+            rewriteAttachments(source) { path ->
+                if (path.isBlank()) {
+                    path
+                } else {
+                    require(path in paths) { "The backup is missing an attachment." }
+                    storage.target(path).absolutePath
+                }
+            }
+            val oldPreferences = preferences.read()
+            val oldShared = preferences.readShared()
+            val oldSecrets = readSecrets()
+            val replacement = storage.replacement(staging, paths)
+            try {
+                database.withTransaction {
+                    ensureIdle(restoring = true)
+                    CompleteBackupDatabase.restore(source, database.openHelper.writableDatabase)
+                    replacement.apply()
+                    replaceSecrets(manifest.secrets)
+                    preferences.replace(manifest.preferences, manifest.sharedPreferences)
+                }
+            } catch (error: Throwable) {
+                withContext(NonCancellable) {
+                    for (recover in listOf<suspend () -> Unit>(
+                        { replacement.rollback() },
+                        { replaceSecrets(oldSecrets) },
+                        { preferences.replace(oldPreferences, oldShared) }
+                    )) {
+                        try {
+                            recover()
+                        } catch (failure: Throwable) {
+                            error.addSuppressed(failure)
+                        }
+                    }
+                }
+                throw error
+            }
+            replacement.cleanup()
+            settings.invalidatePlatformCache()
+        } finally {
+            snapshot.close()
+        }
+        BackupRestoreResult(true, "Everything restored successfully.")
+    }
+
+    private fun openSnapshot(file: File): ChatDatabaseV2 = Room.databaseBuilder(context, ChatDatabaseV2::class.java, file.absolutePath)
+        .addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS)
+        .setJournalMode(androidx.room.RoomDatabase.JournalMode.TRUNCATE)
+        .build()
+
+    private fun rewriteAttachments(db: SupportSQLiteDatabase, transform: (String) -> String) {
+        db.query("SELECT message_id, attachments FROM messages_v2").use { rows ->
+            while (rows.moveToNext()) {
+                val encoded = rows.getString(1).orEmpty().ifBlank { "[]" }
+                val attachments = json.decodeFromString<List<ChatAttachment>>(encoded).map {
+                    it.copy(localFilePath = transform(it.localFilePath), preparedFilePath = transform(it.preparedFilePath))
+                }
+                db.execSQL("UPDATE messages_v2 SET attachments = ? WHERE message_id = ?", arrayOf<Any>(json.encodeToString(attachments), rows.getInt(0)))
+            }
+        }
+    }
+
+    private fun validateModels(db: SupportSQLiteDatabase, paths: Set<String>) {
+        db.query("SELECT relative_directory, file_name, status FROM local_models").use { rows ->
+            while (rows.moveToNext()) {
+                val path = "${rows.getString(0)}/${rows.getString(1)}"
+                require(path.startsWith("models/")) { "Unsupported model location in backup." }
+                CompleteBackupArchive.validatePath("external/$path")
+                if (rows.getString(2) == "READY") {
+                    require("internal/$path" in paths || "external/$path" in paths) { "A downloaded model is missing. Remove it or download it again before backing up." }
+                }
+            }
+        }
+    }
+
+    private suspend fun readSecrets(): Map<String, String> {
+        val refs = secretVault.references() + database.platformDao().getPlatforms().mapNotNull { it.secretRef } + database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
+        return buildMap {
+            refs.forEach { reference ->
+                secretVault.read(reference)?.let { bytes ->
+                    try {
+                        put(reference, Base64.getEncoder().encodeToString(bytes))
+                    } finally {
+                        bytes.fill(0)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun validateSecrets(values: Map<String, String>) {
+        values.forEach { (reference, encoded) ->
+            require(Regex("[A-Za-z0-9_-]{1,128}").matches(reference)) { "Invalid credential reference." }
+            val bytes = Base64.getDecoder().decode(encoded)
+            try {
+                require(bytes.size <= 64 * 1024) { "Invalid credential size." }
+            } finally {
+                bytes.fill(0)
+            }
+        }
+    }
+
+    private suspend fun replaceSecrets(values: Map<String, String>) {
+        values.forEach { (reference, encoded) ->
+            val bytes = Base64.getDecoder().decode(encoded)
+            try {
+                secretVault.put(reference, bytes)
+            } finally {
+                bytes.fill(0)
+            }
+        }
+        (secretVault.references() - values.keys).forEach { secretVault.delete(it) }
+    }
+
+    private fun ensureIdle(restoring: Boolean) {
+        val db = database.openHelper.writableDatabase
+        db.query("SELECT COUNT(*) FROM local_models WHERE status = 'DOWNLOADING'").use {
+            it.moveToFirst()
+            require(it.getInt(0) == 0) { "Finish or cancel model downloads before backing up or restoring." }
+        }
+        if (restoring) {
+            db.query("SELECT COUNT(*) FROM agent_runs WHERE status IN ('QUEUED', 'RUNNING')").use {
+                it.moveToFirst()
+                require(it.getInt(0) == 0) { "Stop active chats before restoring." }
+            }
+        }
+    }
+
+    private suspend fun operation(block: suspend (File) -> BackupRestoreResult): BackupRestoreResult = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val work = File(context.cacheDir, "complete-backup-${UUID.randomUUID()}")
+            try {
+                check(work.mkdirs()) { "Could not create temporary backup storage." }
+                block(work)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: AEADBadTagException) {
+                BackupRestoreResult(false, "The backup password is incorrect or the file is damaged.")
+            } catch (error: Exception) {
+                BackupRestoreResult(false, error.localizedMessage?.takeIf(String::isNotBlank) ?: "The backup could not be read or written.")
+            } finally {
+                work.deleteRecursively()
+            }
+        }
+    }
+
+    private companion object {
+        const val RESERVE = 16L * 1024 * 1024
+    }
+}

@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,12 +23,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DynamicFeed
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
@@ -40,14 +36,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -58,7 +52,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,12 +61,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
-import dev.chungjungsoo.gptmobile.data.backup.GranularBackupOptions
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
@@ -105,60 +95,17 @@ fun SettingScreen(
     val localRuntimeBackend by settingViewModel.localRuntimeBackend.collectAsState()
     val debugMode by settingViewModel.debugMode.collectAsState()
     val backupStatus by settingViewModel.backupStatus.collectAsState()
+    val backupUi by settingViewModel.backupUi.collectAsState()
     val context = LocalContext.current
 
-    var selectedExportOptions by remember { mutableStateOf(GranularBackupOptions()) }
-    var pendingBackupPassphrase by remember { mutableStateOf<String?>(null) }
-
-    val exportConfigLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri: Uri? ->
-        uri?.let {
-            settingViewModel.exportConfigurationToFile(
-                uri = it,
-                passphrase = pendingBackupPassphrase,
-                options = selectedExportOptions
-            )
-        }
-        pendingBackupPassphrase = null
-    }
-
-    val restoreConfigLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { settingViewModel.restoreConfigurationFromFile(it, pendingBackupPassphrase) }
-        pendingBackupPassphrase = null
-    }
-
-    val exportFavoritesLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri: Uri? ->
-        uri?.let { settingViewModel.exportFavoritesToFile(it, pendingBackupPassphrase) }
-        pendingBackupPassphrase = null
-    }
-
-    val restoreFavoritesLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { settingViewModel.restoreFavoritesFromFile(it, pendingBackupPassphrase) }
-        pendingBackupPassphrase = null
-    }
-
-    val exportDatabaseLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri: Uri? ->
-        uri?.let { settingViewModel.exportDatabaseToFile(it, pendingBackupPassphrase) }
-        pendingBackupPassphrase = null
-    }
-
-    var pendingRestoreDatabaseUri by remember { mutableStateOf<Uri?>(null) }
-    val confirmRestoreDatabaseLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            pendingRestoreDatabaseUri = uri
-        }
-    }
+    val backupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
+        onResult = settingViewModel::backupDestinationSelected
+    )
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = settingViewModel::restoreSourceSelected
+    )
 
     LaunchedEffect(settingViewModel) {
         settingViewModel.uiEvent.collect { event ->
@@ -546,355 +493,48 @@ fun SettingScreen(
     }
 
     if (dialogState.isBackupRestoreDialogOpen) {
-        BackupRestoreOptionsDialog(
+        CompleteBackupDialog(
+            state = backupUi,
             backupStatus = backupStatus,
+            onPasswordChange = settingViewModel::updateBackupPassword,
+            onConfirmationChange = settingViewModel::updateBackupConfirmation,
             onDismiss = settingViewModel::closeBackupRestoreDialog,
-            onExportConfig = { options, passphrase ->
-                selectedExportOptions = options
-                pendingBackupPassphrase = passphrase
-                settingViewModel.closeBackupRestoreDialog()
-                exportConfigLauncher.launch("gpt_mobile_config_${System.currentTimeMillis()}.enc")
+            onBackup = {
+                if (settingViewModel.prepareBackupPicker(restoring = false)) {
+                    try {
+                        backupLauncher.launch("gpt_mobile_${System.currentTimeMillis()}.gptbackup")
+                    } catch (_: android.content.ActivityNotFoundException) {
+                        settingViewModel.cancelBackupPicker()
+                        Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
+                    }
+                }
             },
-            onRestoreConfig = { passphrase ->
-                pendingBackupPassphrase = passphrase
-                settingViewModel.closeBackupRestoreDialog()
-                restoreConfigLauncher.launch(arrayOf("*/*"))
-            },
-            onExportFavorites = { passphrase ->
-                pendingBackupPassphrase = passphrase
-                settingViewModel.closeBackupRestoreDialog()
-                exportFavoritesLauncher.launch("gpt_mobile_favorites_${System.currentTimeMillis()}.enc")
-            },
-            onRestoreFavorites = { passphrase ->
-                pendingBackupPassphrase = passphrase
-                settingViewModel.closeBackupRestoreDialog()
-                restoreFavoritesLauncher.launch(arrayOf("*/*"))
-            },
-            onExportDatabase = { passphrase ->
-                pendingBackupPassphrase = passphrase
-                settingViewModel.closeBackupRestoreDialog()
-                exportDatabaseLauncher.launch("gpt_mobile_database_${System.currentTimeMillis()}.enc")
-            },
-            onRestoreDatabase = { passphrase ->
-                pendingBackupPassphrase = passphrase
-                settingViewModel.closeBackupRestoreDialog()
-                confirmRestoreDatabaseLauncher.launch(arrayOf("*/*"))
+            onRestore = {
+                if (settingViewModel.prepareBackupPicker(restoring = true)) {
+                    try {
+                        restoreLauncher.launch(arrayOf("*/*"))
+                    } catch (_: android.content.ActivityNotFoundException) {
+                        settingViewModel.cancelBackupPicker()
+                        Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
         )
     }
 
-    pendingRestoreDatabaseUri?.let { restoreUri ->
+    if (backupUi.restoreUri != null) {
         AlertDialog(
-            title = { Text(stringResource(R.string.restore_database_dialog_title)) },
-            text = { Text(stringResource(R.string.restore_database_dialog_description)) },
-            onDismissRequest = {
-                pendingRestoreDatabaseUri = null
-                pendingBackupPassphrase = null
-            },
+            title = { Text(stringResource(R.string.complete_restore_title)) },
+            text = { Text(stringResource(R.string.complete_restore_confirmation)) },
+            onDismissRequest = settingViewModel::cancelBackupPicker,
             confirmButton = {
-                Button(
-                    onClick = {
-                        settingViewModel.restoreDatabaseFromFile(restoreUri, pendingBackupPassphrase)
-                        pendingRestoreDatabaseUri = null
-                        pendingBackupPassphrase = null
-                    }
-                ) {
-                    Text(stringResource(R.string.confirm))
-                }
+                Button(onClick = settingViewModel::confirmRestore) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
-                TextButton(
-                    onClick = {
-                        pendingRestoreDatabaseUri = null
-                        pendingBackupPassphrase = null
-                    }
-                ) {
-                    Text(stringResource(R.string.cancel))
-                }
+                TextButton(onClick = settingViewModel::cancelBackupPicker) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
-}
-
-@Composable
-fun BackupRestoreOptionsDialog(
-    backupStatus: BackupStatus = BackupStatus(),
-    onDismiss: () -> Unit,
-    onExportConfig: (GranularBackupOptions, String) -> Unit,
-    onRestoreConfig: (String?) -> Unit,
-    onExportFavorites: (String) -> Unit,
-    onRestoreFavorites: (String?) -> Unit,
-    onExportDatabase: (String) -> Unit,
-    onRestoreDatabase: (String?) -> Unit
-) {
-    var includeFavorites by remember { mutableStateOf(true) }
-    var includePlatforms by remember { mutableStateOf(true) }
-    var includeTools by remember { mutableStateOf(true) }
-    var includeUiPreferences by remember { mutableStateOf(true) }
-    var backupPassphrase by remember { mutableStateOf("") }
-    var confirmPassphrase by remember { mutableStateOf("") }
-    val isSecurePassphrase = backupPassphrase.length >= 8
-    val passphrasesMatch = backupPassphrase == confirmPassphrase
-    val canExport = isSecurePassphrase && passphrasesMatch
-    val restorePassphrase = backupPassphrase.takeIf { it.isNotBlank() }
-
-    AlertDialog(
-        title = {
-            Text(stringResource(R.string.backup_and_restore))
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                // Backup Status Card
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = if (backupStatus.lastBackupEpochMs != null) Icons.Default.CloudDone else Icons.Default.UploadFile,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Backup Status",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            val statusText = if (backupStatus.lastBackupEpochMs != null) {
-                                val dateStr = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.getDefault())
-                                    .format(Date(backupStatus.lastBackupEpochMs))
-                                "Last: $dateStr (${backupStatus.backupCount} backups created)"
-                            } else {
-                                "No backups created yet"
-                            }
-                            Text(
-                                text = statusText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                Text(
-                    text = "Backup encryption",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "New backups require a passphrase of at least 8 characters. Keep it safe: it cannot be recovered by the app. Leave it blank only when restoring a legacy backup created before v0.9.7.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = backupPassphrase,
-                    onValueChange = { backupPassphrase = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Backup passphrase") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = confirmPassphrase,
-                    onValueChange = { confirmPassphrase = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Confirm passphrase for export") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    isError = confirmPassphrase.isNotEmpty() && !passphrasesMatch
-                )
-                if (backupPassphrase.isNotEmpty() && !isSecurePassphrase) {
-                    Text(
-                        text = "Use at least 8 characters for new backups.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                } else if (confirmPassphrase.isNotEmpty() && !passphrasesMatch) {
-                    Text(
-                        text = "Passphrases do not match.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Granular Configuration Backup Section
-                Text(
-                    text = "Advanced Settings Backup",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Export or restore encrypted platform configurations, MCP tools, UI preferences, and group settings (.enc).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Granular options toggles
-                Text(
-                    text = "Granular Options:",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { includePlatforms = !includePlatforms },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = includePlatforms, onCheckedChange = { includePlatforms = it })
-                    Text("AI Platforms & Models", style = MaterialTheme.typography.bodySmall)
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { includeTools = !includeTools },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = includeTools, onCheckedChange = { includeTools = it })
-                    Text("MCP Tools & Web Search Connections", style = MaterialTheme.typography.bodySmall)
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { includeUiPreferences = !includeUiPreferences },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = includeUiPreferences, onCheckedChange = { includeUiPreferences = it })
-                    Text("UI Preferences & Runtime Settings", style = MaterialTheme.typography.bodySmall)
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { includeFavorites = !includeFavorites },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = includeFavorites, onCheckedChange = { includeFavorites = it })
-                    Text("Favorite Group Taxonomies", style = MaterialTheme.typography.bodySmall)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = canExport,
-                    onClick = {
-                        val options = GranularBackupOptions(
-                            includeFavorites = includeFavorites,
-                            includePlatforms = includePlatforms,
-                            includeTools = includeTools,
-                            includeUiPreferences = includeUiPreferences
-                        )
-                        onExportConfig(options, backupPassphrase)
-                    }
-                ) {
-                    Text(stringResource(R.string.export_configuration))
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onRestoreConfig(restorePassphrase) }
-                ) {
-                    Text(stringResource(R.string.restore_configuration))
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Favorites Backup Section
-                Text(
-                    text = "Favorites Backup",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Export or restore starred messages and custom groups (.enc).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = canExport,
-                    onClick = { onExportFavorites(backupPassphrase) }
-                ) {
-                    Text("Export Favorites (.enc)")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onRestoreFavorites(restorePassphrase) }
-                ) {
-                    Text("Restore Favorites (.enc)")
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Full Database Backup Section
-                Text(
-                    text = stringResource(R.string.backup_database_section),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.backup_database_section_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = canExport,
-                    onClick = { onExportDatabase(backupPassphrase) }
-                ) {
-                    Text(stringResource(R.string.export_database))
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onRestoreDatabase(restorePassphrase) }
-                ) {
-                    Text(stringResource(R.string.restore_database))
-                }
-            }
-        },
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.close))
-            }
-        }
-    )
 }
 
 @Composable

@@ -24,6 +24,7 @@ interface SecretVault {
     suspend fun put(secretRef: String, secret: ByteArray)
     suspend fun read(secretRef: String): ByteArray?
     suspend fun delete(secretRef: String)
+    suspend fun references(): Set<String> = emptySet()
 }
 
 class SecretVaultException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -115,6 +116,15 @@ class AndroidSecretVault private constructor(
             } catch (error: Exception) {
                 throw SecretVaultException("Unable to read the credential.", error)
             }
+        }
+    }
+
+    override suspend fun references(): Set<String> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            directory.listFiles().orEmpty().mapNotNull { file ->
+                file.name.removeSuffix(".bak").takeIf { it.endsWith(".vault") }
+                    ?.removeSuffix(".vault")?.takeIf(SECRET_REF_PATTERN::matches)
+            }.toSet()
         }
     }
 

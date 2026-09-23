@@ -24,11 +24,17 @@ class BackupManager(private val context: Context) {
         private const val SALT_SIZE = 16
         private const val IV_SIZE = 12
         private const val GCM_TAG_LENGTH = 128
-        private const val PBKDF2_ITERATIONS = 65536
+        private const val PBKDF2_ITERATIONS = 600_000
+        private const val LEGACY_PBKDF2_ITERATIONS = 65_536
         private const val KEY_LEN_BITS = 256
+        private const val MIN_PASSPHRASE_LENGTH = 8
+        private const val MAX_BACKUP_BYTES = 256 * 1024 * 1024
+        private const val MAX_ENTRY_BYTES = 128 * 1024 * 1024
+        private const val MAX_TAG_BYTES = 128
     }
 
     suspend fun createEncryptedBackup(backupFile: File, passphrase: String): BackupMetadata {
+        requireSecurePassphrase(passphrase)
         val backupData = createBackupData()
         val checksum = integrityVerifier.computeDataChecksum(backupData)
 
@@ -95,18 +101,29 @@ class BackupManager(private val context: Context) {
         return bos.toByteArray()
     }
 
-    private fun deriveKey(passphrase: String, salt: ByteArray): SecretKeySpec {
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt, PBKDF2_ITERATIONS, KEY_LEN_BITS)
-        val secretKey = factory.generateSecret(spec)
-        return SecretKeySpec(secretKey.encoded, "AES")
+    private fun deriveKey(passphrase: String, salt: ByteArray, iterations: Int): SecretKeySpec {
+        val password = passphrase.toCharArray()
+        val spec = PBEKeySpec(password, salt, iterations, KEY_LEN_BITS)
+        return try {
+            val keyBytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec)
+                .encoded
+            try {
+                SecretKeySpec(keyBytes, "AES")
+            } finally {
+                keyBytes.fill(0)
+            }
+        } finally {
+            spec.clearPassword()
+            password.fill('\u0000')
+        }
     }
 
     private suspend fun encryptWithGcm(data: ByteArray, passphrase: String): ByteArray {
         val salt = ByteArray(SALT_SIZE).also { secureRandom.nextBytes(it) }
         val iv = ByteArray(IV_SIZE).also { secureRandom.nextBytes(it) }
 
-        val key = deriveKey(passphrase, salt)
+        val key = deriveKey(passphrase, salt, PBKDF2_ITERATIONS)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LENGTH, iv))
         val ciphertext = cipher.doFinal(data)
@@ -122,29 +139,58 @@ class BackupManager(private val context: Context) {
     }
 
     private suspend fun decryptWithGcm(encryptedData: ByteArray, passphrase: String): ByteArray {
+        require(passphrase.isNotBlank()) { "Backup passphrase is required" }
         val headerBytes = MAGIC_HEADER.toByteArray(Charsets.US_ASCII)
-        val buffer = ByteBuffer.wrap(encryptedData)
-
-        val headerRead = ByteArray(headerBytes.size)
-        buffer.get(headerRead)
-        if (!headerRead.contentEquals(headerBytes)) {
-            throw BackupException.IntegrityException("Invalid backup file magic header")
+        val minimumSize = headerBytes.size + SALT_SIZE + IV_SIZE + (GCM_TAG_LENGTH / 8)
+        if (encryptedData.size !in minimumSize..MAX_BACKUP_BYTES) {
+            throw BackupException.IntegrityException("Invalid backup file size")
         }
 
+        val buffer = ByteBuffer.wrap(encryptedData)
+        val headerRead = ByteArray(headerBytes.size)
         val salt = ByteArray(SALT_SIZE)
-        buffer.get(salt)
-
         val iv = ByteArray(IV_SIZE)
-        buffer.get(iv)
+        var ciphertext: ByteArray? = null
+        try {
+            buffer.get(headerRead)
+            if (!headerRead.contentEquals(headerBytes)) {
+                throw BackupException.IntegrityException("Invalid backup file magic header")
+            }
 
-        val ciphertext = ByteArray(buffer.remaining())
-        buffer.get(ciphertext)
+            buffer.get(salt)
+            buffer.get(iv)
+            ciphertext = ByteArray(buffer.remaining())
+            buffer.get(ciphertext)
 
-        val key = deriveKey(passphrase, salt)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LENGTH, iv))
+            return decryptCiphertext(ciphertext, passphrase, salt, iv, PBKDF2_ITERATIONS)
+                ?: decryptCiphertext(ciphertext, passphrase, salt, iv, LEGACY_PBKDF2_ITERATIONS)
+                ?: throw BackupException.IntegrityException("Incorrect passphrase or corrupted backup")
+        } finally {
+            headerRead.fill(0)
+            salt.fill(0)
+            iv.fill(0)
+            ciphertext?.fill(0)
+        }
+    }
 
-        return cipher.doFinal(ciphertext)
+    private fun decryptCiphertext(
+        ciphertext: ByteArray,
+        passphrase: String,
+        salt: ByteArray,
+        iv: ByteArray,
+        iterations: Int
+    ): ByteArray? = runCatching {
+        val key = deriveKey(passphrase, salt, iterations)
+        Cipher.getInstance("AES/GCM/NoPadding").run {
+            init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_LENGTH, iv))
+            doFinal(ciphertext)
+        }
+    }.getOrNull()
+
+    private fun requireSecurePassphrase(passphrase: String) {
+        require(passphrase.length >= MIN_PASSPHRASE_LENGTH) {
+            "Backup passphrase must be at least $MIN_PASSPHRASE_LENGTH characters"
+        }
     }
 
     private fun saveMetadata(metadata: BackupMetadata, backupFile: File) {
@@ -209,6 +255,7 @@ class BackupManager(private val context: Context) {
             val tagLenBytes = ByteArray(4)
             if (bais.read(tagLenBytes) != 4) break
             val tagLen = ByteBuffer.wrap(tagLenBytes).int
+            require(tagLen in 1..MAX_TAG_BYTES) { "Invalid backup entry tag length" }
 
             val tagBytes = ByteArray(tagLen)
             if (bais.read(tagBytes) != tagLen) break
@@ -217,6 +264,7 @@ class BackupManager(private val context: Context) {
             val dataLenBytes = ByteArray(4)
             if (bais.read(dataLenBytes) != 4) break
             val dataLen = ByteBuffer.wrap(dataLenBytes).int
+            require(dataLen in 0..MAX_ENTRY_BYTES) { "Invalid backup entry size" }
 
             val payload = ByteArray(dataLen)
             if (bais.read(payload) != dataLen) break

@@ -1,9 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!--
+        GPT Mobile supports user-configured local/Tailscale llama.cpp and Gateway
+        endpoints, which are commonly plain HTTP and cannot be enumerated here.
+        Keep cleartext opt-in for that feature, but do not extend TLS trust to
+        user-installed CAs in release builds.
+    -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
+
+    <!-- User-installed CAs are useful for local HTTPS development only. -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
 </network-security-config>

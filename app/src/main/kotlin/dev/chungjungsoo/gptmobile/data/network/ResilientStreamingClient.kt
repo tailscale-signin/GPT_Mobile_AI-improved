@@ -89,6 +89,9 @@ object ResilientStreamingClient {
      * streaming response without a clean protocol terminator. Walks the cause
      * chain because engines frequently wrap the underlying IOException.
      */
+    fun shouldTreatPrematureCloseAsStreamEnd(receivedPayload: Boolean, throwable: Throwable): Boolean =
+        receivedPayload && isPrematureConnectionClose(throwable)
+
     fun isPrematureConnectionClose(throwable: Throwable): Boolean {
         var current: Throwable? = throwable
         repeat(8) {

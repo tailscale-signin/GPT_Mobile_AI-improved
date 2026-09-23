@@ -272,6 +272,8 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.mockito.core)
     testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

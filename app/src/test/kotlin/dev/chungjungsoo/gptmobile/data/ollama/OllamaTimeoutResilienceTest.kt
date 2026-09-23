@@ -7,7 +7,7 @@ import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChatCompletionResponse
+import dev.chungjungsoo.gptmobile.data.dto.groq.response.GroqChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role
 import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
@@ -129,7 +129,7 @@ class OllamaTimeoutResilienceTest {
             request: GroqChatCompletionRequest,
             timeoutSeconds: Int,
             config: ProviderRequestConfig
-        ): Flow<GroqChatCompletionResponse> = flow { }
+        ): Flow<GroqChatCompletionChunk> = flow { }
     }
 
     private class MockAttachmentEncoder : ProviderAttachmentEncoder(null as android.content.Context?) {
@@ -158,7 +158,9 @@ class OllamaTimeoutResilienceTest {
         )
 
         val turn = ConversationTurn(
-            userMessage = MessageV2(id = 1, chatId = 1, content = "Hello", createdAt = 0L)
+            userMessage = MessageV2(id = 1, chatId = 1, content = "Hello", platformType = null, createdAt = 0L),
+            assistantMessage = null,
+            isCurrentTurn = true
         )
         val session = adapter.openSession(listOf(turn), platform)
         val events = session.streamRound(emptyList(), emptyList()).toList()
@@ -186,7 +188,9 @@ class OllamaTimeoutResilienceTest {
         )
 
         val turn = ConversationTurn(
-            userMessage = MessageV2(id = 1, chatId = 1, content = "Hello", createdAt = 0L)
+            userMessage = MessageV2(id = 1, chatId = 1, content = "Hello", platformType = null, createdAt = 0L),
+            assistantMessage = null,
+            isCurrentTurn = true
         )
         val session = adapter.openSession(listOf(turn), platform)
         val events = session.streamRound(emptyList(), emptyList()).toList()

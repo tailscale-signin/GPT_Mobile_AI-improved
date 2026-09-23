@@ -1,6 +1,8 @@
 name: "CodeQL Advanced"
 
 on:
+  push:
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
     paths-ignore:
@@ -63,8 +65,11 @@ jobs:
 
     - if: matrix.build-mode == 'manual'
       name: Build for CodeQL
+      env:
+        GRADLE_OPTS: "-Dorg.gradle.caching=false -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process"
       run: |
-        ./gradlew :app:assembleDebug --no-daemon
+        ./gradlew :app:clean :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
+          --no-daemon --no-build-cache --rerun-tasks --stacktrace
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

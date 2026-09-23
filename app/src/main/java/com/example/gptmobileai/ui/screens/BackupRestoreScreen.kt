@@ -7,6 +7,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.example.gptmobileai.backup.BackupManager
 import com.example.gptmobileai.backup.BackupPreview
 import com.example.gptmobileai.backup.BackupVersion
@@ -27,7 +28,7 @@ fun BackupRestoreScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedBackupFile by remember { mutableStateOf<File?>(null) }
     var showRestorePreview by remember { mutableStateOf(false) }
-    var passphrase by remember { mutableStateOf("default-passphrase") }
+    var passphrase by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var versions by remember { mutableStateOf<List<BackupVersion>>(emptyList()) }
 
@@ -57,7 +58,20 @@ fun BackupRestoreScreen(
 
                     Spacer(Modifier.height(8.dp))
 
+                    OutlinedTextField(
+                        value = passphrase,
+                        onValueChange = { passphrase = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Backup passphrase") },
+                        supportingText = { Text("Use at least 8 characters. Keep it safe; it cannot be recovered.") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
                     OutlinedButton(
+                        enabled = passphrase.length >= 8,
                         onClick = {
                             coroutineScope.launch {
                                 try {
@@ -99,7 +113,7 @@ fun BackupRestoreScreen(
                             }
                         }
                     ) {
-                        Text(if (selectedBackupFile != null) "Selected: ${selectedBackupFile!!.name}" else "Select Latest Backup File")
+                        Text(selectedBackupFile?.let { "Selected: ${it.name}" } ?: "Select Latest Backup File")
                     }
                 }
             }
@@ -145,13 +159,13 @@ fun BackupRestoreScreen(
     }
 
     // Restore Preview Dialog
-    if (showRestorePreview && selectedBackupFile != null) {
+    selectedBackupFile?.takeIf { showRestorePreview }?.let { backupFile ->
         RestorePreviewDialog(
-            backupFile = selectedBackupFile!!,
+            backupFile = backupFile,
             onConfirm = {
                 coroutineScope.launch {
                     try {
-                        val result = backupManager.restoreAllFromBackup(selectedBackupFile!!, passphrase)
+                        val result = backupManager.restoreAllFromBackup(backupFile, passphrase)
                         if (result.success) {
                             statusMessage = "All data restored successfully!"
                         } else {

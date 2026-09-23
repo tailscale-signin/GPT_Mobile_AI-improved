@@ -50,13 +50,15 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
+import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
+import dev.chungjungsoo.gptmobile.llama.GatewayPerformancePreferences
 import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -169,6 +171,50 @@ class ProviderAdaptersTest {
             .toList()
 
         assertNull(api.chatRequests.single().tools)
+    }
+
+    @Test
+    fun `llama continuation keeps gateway preferences and forwards job id`() = runBlocking {
+        val expectedHeaders = GatewayPerformancePreferences.headersForSettings(AdvancedSettings())
+        var preferenceReads = 0
+        val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+            override fun gatewayPerformanceHeaders(): Map<String, String> {
+                preferenceReads++
+                return expectedHeaders
+            }
+        }
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "job-123"))),
+                    emptyFlow()
+                )
+            )
+        )
+        val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
+            .openSession(turns(), platform(ClientType.LLAMA))
+
+        session.streamRound(listOf(definition), emptyList()).toList()
+        session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
+
+        assertEquals(1, preferenceReads)
+        assertEquals(expectedHeaders, api.configs.first().extraHeaders)
+        assertEquals(expectedHeaders + ("X-Gateway-Job-ID" to "job-123"), api.configs.last().extraHeaders)
+    }
+
+    @Test
+    fun `gateway preferences stay scoped to llama profiles`() = runBlocking {
+        val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+            override fun gatewayPerformanceHeaders(): Map<String, String> = error("Unexpected gateway settings read")
+        }
+        for (type in listOf(ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.OLLAMA)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
+                .openSession(turns(), platform(type))
+                .streamRound(emptyList(), emptyList())
+                .toList()
+            assertFalse(api.configs.single().extraHeaders.keys.any { it.startsWith("X-Gateway-") })
+        }
     }
 
     @Test

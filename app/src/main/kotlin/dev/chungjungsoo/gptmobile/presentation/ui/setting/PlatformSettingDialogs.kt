@@ -47,7 +47,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
-import com.google.gson.Gson
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.llama.LlamaModelInfo
@@ -61,6 +60,7 @@ import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
+import dev.chungjungsoo.gptmobile.llama.AdvancedSettingsJson
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.ui.llama.LlamaModelDropdown
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
@@ -319,22 +319,18 @@ fun LlamaAdvancedSettingsDialog(
         val prefs = remember { context.getSharedPreferences("llama_settings", Context.MODE_PRIVATE) }
         val initialSettings = remember {
             val json = prefs.getString("advanced_settings", null)
-            if (!json.isNullOrBlank()) {
-                runCatching { Gson().fromJson(json, AdvancedSettings::class.java) }.getOrNull() ?: AdvancedSettings()
-            } else {
-                AdvancedSettings()
-            }
+            AdvancedSettingsJson.decode(json)
         }
         LlamaAdvancedSettingsDialog(
             initialSettings = initialSettings,
             onDismissRequest = settingViewModel::closeLlamaAdvancedDialog,
             onConfirmRequest = { updated ->
-                prefs.edit().putString("advanced_settings", Gson().toJson(updated)).apply()
+                prefs.edit().putString("advanced_settings", AdvancedSettingsJson.encode(updated)).apply()
                 settingViewModel.closeLlamaAdvancedDialog()
             },
             onResetRequest = {
                 val defaultSettings = AdvancedSettings()
-                prefs.edit().putString("advanced_settings", Gson().toJson(defaultSettings)).apply()
+                prefs.edit().putString("advanced_settings", AdvancedSettingsJson.encode(defaultSettings)).apply()
                 settingViewModel.closeLlamaAdvancedDialog()
             }
         )
@@ -1890,6 +1886,26 @@ private fun LlamaAdvancedSettingsDialog(
     var useFlashAttn by remember { mutableStateOf(initialSettings.useFlashAttn) }
     var verbose by remember { mutableStateOf(initialSettings.verbose) }
 
+    var gatewayPerformanceProfile by remember { mutableStateOf(initialSettings.gatewayPerformanceProfile) }
+    var gatewayReasoningEffort by remember { mutableStateOf(initialSettings.gatewayReasoningEffort) }
+    var gatewaySlotPinning by remember { mutableStateOf(initialSettings.gatewaySlotPinning) }
+    var gatewayCachePrompt by remember { mutableStateOf(initialSettings.gatewayCachePrompt) }
+    var gatewayToolOptimization by remember { mutableStateOf(initialSettings.gatewayToolOptimization) }
+    var gatewayStableToolSurface by remember { mutableStateOf(initialSettings.gatewayStableToolSurface) }
+    var gatewaySlotCountText by remember { mutableStateOf(initialSettings.gatewaySlotCount.toString()) }
+    var gatewayCacheReuseText by remember { mutableStateOf(initialSettings.gatewayCacheReuse.toString()) }
+    var gatewayToolSurfaceLimitText by remember { mutableStateOf(initialSettings.gatewayToolSurfaceLimit.toString()) }
+    var gatewayIntermediateMaxTokensText by remember { mutableStateOf(initialSettings.gatewayIntermediateMaxTokens.toString()) }
+    var gatewaySoftSynthesisRoundText by remember { mutableStateOf(initialSettings.gatewaySoftSynthesisRound.toString()) }
+    var gatewayResultCharLimitText by remember { mutableStateOf(initialSettings.gatewayResultCharLimit.toString()) }
+    val gatewaySettingsValid =
+        gatewaySlotCountText.toIntOrNull() in 1..64 &&
+            gatewayCacheReuseText.toIntOrNull() in 0..8192 &&
+            gatewayToolSurfaceLimitText.toIntOrNull() in 0..128 &&
+            gatewayIntermediateMaxTokensText.toIntOrNull() in 256..16384 &&
+            gatewaySoftSynthesisRoundText.toIntOrNull() in 4..500 &&
+            gatewayResultCharLimitText.toIntOrNull() in 4000..200000
+
     var routerModels by remember { mutableStateOf<List<LlamaModelInfo>>(emptyList()) }
     var isFetchingRouterModels by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -2146,6 +2162,95 @@ private fun LlamaAdvancedSettingsDialog(
                     )
                 }
 
+                Text(text = "Gateway performance", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = "Applies to all Llama AI profiles using Gateway v10.1. Direct llama.cpp servers ignore these options.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayPerformanceProfile,
+                    onValueChange = { gatewayPerformanceProfile = it },
+                    label = { Text("Gateway performance profile") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = gatewayReasoningEffort,
+                    onValueChange = { gatewayReasoningEffort = it },
+                    label = { Text("Gateway reasoning effort") },
+                    singleLine = true
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Pin gateway slot", modifier = Modifier.weight(1f).padding(end = 8.dp))
+                    Switch(checked = gatewaySlotPinning, onCheckedChange = { gatewaySlotPinning = it })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Cache prompt", modifier = Modifier.weight(1f).padding(end = 8.dp))
+                    Switch(checked = gatewayCachePrompt, onCheckedChange = { gatewayCachePrompt = it })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Optimize tool selection", modifier = Modifier.weight(1f).padding(end = 8.dp))
+                    Switch(checked = gatewayToolOptimization, onCheckedChange = { gatewayToolOptimization = it })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Keep tool surface stable", modifier = Modifier.weight(1f).padding(end = 8.dp))
+                    Switch(checked = gatewayStableToolSurface, onCheckedChange = { gatewayStableToolSurface = it })
+                }
+                GatewayBudgetField(
+                    value = gatewaySlotCountText,
+                    onValueChange = { gatewaySlotCountText = it },
+                    label = "Gateway slots",
+                    range = 1..64
+                )
+                GatewayBudgetField(
+                    value = gatewayCacheReuseText,
+                    onValueChange = { gatewayCacheReuseText = it },
+                    label = "Prompt cache reuse",
+                    range = 0..8192
+                )
+                GatewayBudgetField(
+                    value = gatewayToolSurfaceLimitText,
+                    onValueChange = { gatewayToolSurfaceLimitText = it },
+                    label = "Tool surface limit",
+                    range = 0..128
+                )
+                GatewayBudgetField(
+                    value = gatewayIntermediateMaxTokensText,
+                    onValueChange = { gatewayIntermediateMaxTokensText = it },
+                    label = "Intermediate token budget",
+                    range = 256..16384
+                )
+                GatewayBudgetField(
+                    value = gatewaySoftSynthesisRoundText,
+                    onValueChange = { gatewaySoftSynthesisRoundText = it },
+                    label = "Soft synthesis round",
+                    range = 4..500
+                )
+                GatewayBudgetField(
+                    value = gatewayResultCharLimitText,
+                    onValueChange = { gatewayResultCharLimitText = it },
+                    label = "Tool result character limit",
+                    range = 4000..200000
+                )
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2162,8 +2267,21 @@ private fun LlamaAdvancedSettingsDialog(
         onDismissRequest = onDismissRequest,
         confirmButton = {
             TextButton(
+                enabled = gatewaySettingsValid,
                 onClick = {
                     val updated = initialSettings.copy(
+                        gatewayPerformanceProfile = gatewayPerformanceProfile.trim().lowercase(java.util.Locale.ROOT).ifBlank { initialSettings.gatewayPerformanceProfile },
+                        gatewayReasoningEffort = gatewayReasoningEffort.trim().lowercase(java.util.Locale.ROOT).ifBlank { initialSettings.gatewayReasoningEffort },
+                        gatewaySlotPinning = gatewaySlotPinning,
+                        gatewayCachePrompt = gatewayCachePrompt,
+                        gatewayToolOptimization = gatewayToolOptimization,
+                        gatewayStableToolSurface = gatewayStableToolSurface,
+                        gatewaySlotCount = gatewaySlotCountText.toInt(),
+                        gatewayCacheReuse = gatewayCacheReuseText.toInt(),
+                        gatewayToolSurfaceLimit = gatewayToolSurfaceLimitText.toInt(),
+                        gatewayIntermediateMaxTokens = gatewayIntermediateMaxTokensText.toInt(),
+                        gatewaySoftSynthesisRound = gatewaySoftSynthesisRoundText.toInt(),
+                        gatewayResultCharLimit = gatewayResultCharLimitText.toInt(),
                         serverUrl = serverUrl.trim().ifEmpty { initialSettings.serverUrl },
                         apiTimeout = apiTimeoutText.toIntOrNull() ?: initialSettings.apiTimeout,
                         routerModeEnabled = routerModeEnabled,
@@ -2196,5 +2314,24 @@ private fun LlamaAdvancedSettingsDialog(
                 Text(stringResource(R.string.reset))
             }
         }
+    )
+}
+
+@Composable
+private fun GatewayBudgetField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    range: IntRange
+) {
+    OutlinedTextField(
+        modifier = Modifier.fillMaxWidth(),
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        supportingText = { Text("${range.first}–${range.last}") },
+        isError = value.toIntOrNull() !in range,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+        singleLine = true
     )
 }

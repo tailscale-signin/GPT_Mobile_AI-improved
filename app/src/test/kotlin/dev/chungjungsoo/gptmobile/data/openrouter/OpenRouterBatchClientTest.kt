@@ -4,9 +4,6 @@ import dev.chungjungsoo.gptmobile.domain.model.BatchConfig
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterBatchSettings
 import dev.chungjungsoo.gptmobile.domain.model.PlatformType
-import dev.chungjungsoo.gptmobile.domain.service.BatchManager
-import dev.chungjungsoo.gptmobile.domain.service.BatchResult
-import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,6 +12,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenRouterBatchClientTest {
+
+    @Test
+    fun `oversized saved batch timeout does not fail client creation`() {
+        val client = OpenRouterBatchClient(apiKey = "sk-test", timeoutMs = Long.MAX_VALUE)
+        assertEquals("https://openrouter.ai/api/beta/batches", client.batchesUrl())
+    }
 
     @Test
     fun `OpenRouterBatchSettings has valid defaults`() {

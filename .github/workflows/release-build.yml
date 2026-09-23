@@ -1,13 +1,7 @@
-name: Generate Release Version
+name: Publish Signed Release
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-      - release-*
-      - 0.9.2.3
 
 permissions:
   contents: write
@@ -65,36 +59,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      - name: Set up Keystore
+      - name: Set up release keystore
         id: setup-keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "Using repository secret keystore"
-            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
-            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-            echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
-          else
-            echo "Using deterministic release keystore configuration"
-            keytool -genkeypair -v \
-              -keystore release.keystore \
-              -alias gptmobile \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "gptmobile-deterministic-release-key" \
-              -keypass "gptmobile-deterministic-release-key" \
-              -dname "CN=GPT Mobile Improved, OU=Development, O=OpenSource, L=Global, ST=Global, C=XX"
-            echo "KEYSTORE_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
-            echo "KEY_ALIAS=gptmobile" >> "$GITHUB_ENV"
-            echo "KEY_PASSWORD=gptmobile-deterministic-release-key" >> "$GITHUB_ENV"
-          fi
-          echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
+        run: bash scripts/setup_release_keystore.sh
 
       - name: Build Release APK
         id: build_release
@@ -110,7 +82,7 @@ jobs:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build skipped or non-fatal"
+          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2
 
       - name: Sign APKs with apksigner
         run: |

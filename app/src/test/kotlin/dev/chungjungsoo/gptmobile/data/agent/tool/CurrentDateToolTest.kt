@@ -36,7 +36,7 @@ class CurrentDateToolTest {
         assertFalse(result.isError)
         assertTrue(result.content is ToolResultContent.Json)
 
-        val json = (result.content as ToolResultContent.Json).value
+        val json = (result.content as ToolResultContent.Json).value.jsonObject
         assertEquals("2025-05-18", json["date"]?.jsonPrimitive?.content)
         assertEquals("10:30:45", json["time"]?.jsonPrimitive?.content)
         assertEquals("America/New_York", json["zone"]?.jsonPrimitive?.content)

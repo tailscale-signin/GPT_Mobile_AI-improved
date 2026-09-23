@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentResourceLink
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
+import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -31,7 +32,8 @@ import org.junit.Test
 
 class ToolEventRecorderTest {
     private val dao = FakeAgentPersistenceDao()
-    private val recorder = ToolEventRecorder(dao, eventIdFactory = { "event-${dao.rows.size + 1}" })
+    private val runDao = FakeAgentRunDao()
+    private val recorder = ToolEventRecorder(dao, runDao, eventIdFactory = { "event-${dao.rows.size + 1}" })
 
     @Test
     fun startTool_recordsRunningEventWithStableCallIdAndCallerSequence() = runBlocking {
@@ -324,6 +326,33 @@ class ToolEventRecorderTest {
         status = status,
         completedAt = completedAt
     )
+}
+
+private class FakeAgentRunDao : AgentRunDao {
+    var advancedSequence: Pair<String, Int>? = null
+
+    override suspend fun upsert(run: AgentRun) = Unit
+    override suspend fun getById(runId: String): AgentRun? = null
+    override suspend fun getByChatId(chatId: Int): List<AgentRun> = emptyList()
+    override fun observeByChatId(chatId: Int): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
+    override suspend fun updateStatus(
+        runId: String,
+        status: String,
+        startedAt: Long?,
+        completedAt: Long?,
+        terminalError: String?
+    ) = Unit
+    override suspend fun markRunning(runId: String, startedAt: Long): Int = 0
+    override suspend fun finishRunning(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0
+    override suspend fun finishQueued(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0
+    override suspend fun finishActive(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0
+    override suspend fun interruptActiveRuns(completedAt: Long): Int = 0
+    override suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Int = 0
+    override suspend fun advanceGatewaySequence(runId: String, sequence: Int): Int {
+        advancedSequence = runId to sequence
+        return 1
+    }
+    override suspend fun getRecoverableGatewayRuns(): List<AgentRun> = emptyList()
 }
 
 private class FakeAgentPersistenceDao : AgentPersistenceDao {

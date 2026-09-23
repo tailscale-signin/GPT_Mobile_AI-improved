@@ -1,14 +1,24 @@
-# Persistent Signing Configuration
+# Android release signing
 
-This directory supports persistent release signing for CI builds of GPT_Mobile_AI-improved.
+Android requires every update for an installed application to be signed by the same key.
 
-### Why this exists:
-Android enforces that updates to an installed application must be signed with the exact same cryptographic key.
-When ephemeral/random keys were generated on every CI run, every build had a different certificate, causing Android to reject in-place updates (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) and forcing users to uninstall before upgrading.
+## Required GitHub Actions secrets
 
-### Keystore details:
-- **Default file path**: `.signing/release.jks`
-- **Alias**: `gptmobile`
-- **Storepass / Keypass**: `gptmobile_release_key`
+Official release publication is intentionally **fail-closed**. Configure all four repository secrets before running the `Publish Signed Release` workflow:
 
-If GitHub Actions repository secrets (`APP_KEYSTORE`, `KEY_ALIAS`, `KEY_PASSWORD`) are configured in repository Settings > Secrets and variables > Actions, the workflow uses those secrets with top priority. Otherwise, it will fall back to this consistent keystore so all releases can install seamlessly over each other without uninstallation.
+- `KEYSTORE_BASE64` — base64-encoded persistent JKS/PKCS12 keystore
+- `KEYSTORE_PASSWORD` — keystore password
+- `KEY_ALIAS` — signing-key alias
+- `KEY_PASSWORD` — signing-key password
+
+The private keystore must not be committed to this repository. The release workflow validates the configured keystore and alias before building and refuses to publish if any required secret is missing.
+
+## Signing continuity
+
+Keep an offline backup of the release keystore and its credentials. Losing the signing key prevents Android from installing future updates over builds signed with that key.
+
+Earlier CI revisions generated a new fallback key during each release when secrets were absent. Those artifacts do **not** establish a reliable long-term update-signing chain. After configuring the persistent key, users on an APK signed by a previous ephemeral key may need a one-time uninstall/reinstall before subsequent updates can install normally.
+
+## Local files
+
+If you temporarily place a keystore under `.signing/` for local work, it is ignored by Git. Do not add signing credentials, private keys, or passwords to source control.

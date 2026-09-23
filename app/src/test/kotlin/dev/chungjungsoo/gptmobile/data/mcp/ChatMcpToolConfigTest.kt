@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.mcp
 
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -9,8 +10,9 @@ import org.junit.Test
 class ChatMcpToolConfigTest {
 
     @Test
-    fun testDefaultConfigAllowsAllToolsAndNoLimit() {
+    fun `default config allows all tools and has no execution limits`() {
         val config = ChatMcpToolConfig()
+
         assertTrue(config.allowAllByDefault)
         assertFalse(config.allToolsDisabled)
         assertNull(config.maxToolCalls)
@@ -20,67 +22,61 @@ class ChatMcpToolConfigTest {
     }
 
     @Test
-    fun testWithMaxToolsEnforcesBoundaries() {
-        val config = ChatMcpToolConfig().withMaxTools(5)
-        assertEquals(5, config.maxTools)
+    fun `max tools and max calls clamp negative values and can be cleared`() {
+        val toolsConfig = ChatMcpToolConfig().withMaxTools(5)
+        assertEquals(5, toolsConfig.maxTools)
+        assertEquals(0, ChatMcpToolConfig().withMaxTools(-3).maxTools)
+        assertNull(toolsConfig.withMaxTools(null).maxTools)
 
-        val negativeClamped = ChatMcpToolConfig().withMaxTools(-3)
-        assertEquals(0, negativeClamped.maxTools)
-
-        val cleared = config.withMaxTools(null)
-        assertNull(cleared.maxTools)
+        val callsConfig = ChatMcpToolConfig().withMaxToolCalls(10)
+        assertEquals(10, callsConfig.maxToolCalls)
+        assertEquals(0, ChatMcpToolConfig().withMaxToolCalls(-1).maxToolCalls)
+        assertNull(callsConfig.withMaxToolCalls(null).maxToolCalls)
     }
 
     @Test
-    fun testLimitToolsAppliesMaxToolsSlice() {
-        val tools = listOf("tool1", "tool2", "tool3", "tool4", "tool5", "tool6", "tool7", "tool8")
+    fun `limit tools applies configured cap`() {
+        val tools = (1..8).map { "tool$it" }
 
-        // No limit
-        val noLimitConfig = ChatMcpToolConfig()
-        assertEquals(tools, noLimitConfig.limitTools(tools))
-
-        // Capped at 5
-        val limit5Config = ChatMcpToolConfig().withMaxTools(5)
-        assertEquals(listOf("tool1", "tool2", "tool3", "tool4", "tool5"), limit5Config.limitTools(tools))
-
-        // Capped at 7
-        val limit7Config = ChatMcpToolConfig().withMaxTools(7)
-        assertEquals(7, limit7Config.limitTools(tools).size)
-
-        // Capped at 0
-        val limit0Config = ChatMcpToolConfig().withMaxTools(0)
-        assertTrue(limit0Config.limitTools(tools).isEmpty())
-
-        // Limit larger than list size returns all tools
-        val limit100Config = ChatMcpToolConfig().withMaxTools(100)
-        assertEquals(tools, limit100Config.limitTools(tools))
+        assertEquals(tools, ChatMcpToolConfig().limitTools(tools))
+        assertEquals(tools.take(5), ChatMcpToolConfig(maxTools = 5).limitTools(tools))
+        assertTrue(ChatMcpToolConfig(maxTools = 0).limitTools(tools).isEmpty())
+        assertEquals(tools, ChatMcpToolConfig(maxTools = 100).limitTools(tools))
     }
 
     @Test
-    fun testWithMaxToolCallsEnforcesBoundaries() {
-        val config = ChatMcpToolConfig().withMaxToolCalls(10)
-        assertEquals(10, config.maxToolCalls)
+    fun `default allow list can disable and reenable an individual tool`() {
+        val disabled = ChatMcpToolConfig().withToolDisabled("toolB")
+        assertTrue(disabled.isToolEnabled("toolA"))
+        assertFalse(disabled.isToolEnabled("toolB"))
 
-        val negativeClamped = ChatMcpToolConfig().withMaxToolCalls(-1)
-        assertEquals(0, negativeClamped.maxToolCalls)
-
-        val cleared = config.withMaxToolCalls(null)
-        assertNull(cleared.maxToolCalls)
+        val enabledAgain = disabled.withToolEnabled("toolB")
+        assertTrue(enabledAgain.isToolEnabled("toolB"))
+        assertFalse("toolB" in enabledAgain.disabledToolIds)
     }
 
     @Test
-    fun testDisablingTools() {
-        val config = ChatMcpToolConfig()
-            .withToolDisabled("toolB")
+    fun `explicit allow list denies tools not selected`() {
+        val config = ChatMcpToolConfig(
+            enabledToolIds = setOf("search", "fetch"),
+            allowAllByDefault = false
+        )
 
-        assertTrue(config.isToolEnabled("toolA"))
-        assertFalse(config.isToolEnabled("toolB"))
+        assertTrue(config.isToolEnabled("search"))
+        assertTrue(config.isToolEnabled("fetch"))
+        assertFalse(config.isToolEnabled("other"))
     }
 
     @Test
-    fun testAllToolsDisabled() {
-        val config = ChatMcpToolConfig().withAllToolsDisabled(true)
+    fun `all tools disabled overrides individual enablement`() {
+        val config = ChatMcpToolConfig(
+            enabledToolIds = setOf("toolA"),
+            allowAllByDefault = false,
+            allToolsDisabled = true
+        )
+
         assertFalse(config.isToolEnabled("toolA"))
         assertFalse(config.isToolEnabled("toolB"))
+        assertTrue(config.withToolEnabled("toolA").isToolEnabled("toolA"))
     }
 }

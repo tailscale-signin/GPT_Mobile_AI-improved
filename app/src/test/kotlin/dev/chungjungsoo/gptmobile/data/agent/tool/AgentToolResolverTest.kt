@@ -445,14 +445,14 @@ class AgentToolResolverTest {
 
         // When read_url, github, and web_search are disabled in ChatMcpToolConfig
         val disabledConfig = ChatMcpToolConfig(
-            tools = mapOf("read_url" to false, "github" to false, "web_search" to false)
+            disabledToolIds = setOf("read_url", "github", "web_search")
         )
         val resolvedWithDisabled = resolver.resolve("profile-1", chatToolConfig = disabledConfig)
         assertEquals(listOf("calculate_expression", "current_date", "read_file_slice"), resolvedWithDisabled.map { it.modelToolName })
 
         // When read_url is explicitly enabled and web_search and github are disabled
         val enabledConfig = ChatMcpToolConfig(
-            tools = mapOf("read_url" to true, "github" to false, "web_search" to false)
+            disabledToolIds = setOf("github", "web_search")
         )
         val resolvedWithEnabled = resolver.resolve("profile-1", chatToolConfig = enabledConfig)
         assertEquals(listOf("calculate_expression", "current_date", "read_file_slice", "read_url"), resolvedWithEnabled.map { it.modelToolName })
@@ -487,22 +487,22 @@ class AgentToolResolverTest {
             )
 
             // Filter out by exact candidate ID "mcp-1:echo"
-            val config1 = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to false))
+            val config1 = ChatMcpToolConfig(disabledToolIds = setOf("mcp-1:echo"))
             val resolved1 = resolver.resolve("profile-1", chatToolConfig = config1)
             assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved1.map { it.modelToolName })
 
             // Filter out by modelToolName "mcp__mcp-1__echo"
-            val config2 = ChatMcpToolConfig(tools = mapOf("mcp__mcp-1__echo" to false))
+            val config2 = ChatMcpToolConfig(disabledToolIds = setOf("mcp__mcp-1__echo"))
             val resolved2 = resolver.resolve("profile-1", chatToolConfig = config2)
             assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved2.map { it.modelToolName })
 
             // Filter out by entire connection uid "mcp-1"
-            val config3 = ChatMcpToolConfig(tools = mapOf("mcp-1" to false))
+            val config3 = ChatMcpToolConfig(disabledToolIds = setOf("mcp-1"))
             val resolved3 = resolver.resolve("profile-1", chatToolConfig = config3)
             assertEquals(listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"), resolved3.map { it.modelToolName })
 
             // Allowed when tool is enabled
-            val configEnabled = ChatMcpToolConfig(tools = mapOf("mcp-1:echo" to true))
+            val configEnabled = ChatMcpToolConfig()
             val resolvedEnabled = resolver.resolve("profile-1", chatToolConfig = configEnabled)
             assertEquals(listOf("calculate_expression", "current_date", "github", "mcp__mcp-1__echo", "read_file_slice", "read_url", "web_search"), resolvedEnabled.map { it.modelToolName })
 
@@ -636,6 +636,8 @@ private class ResolverFakeToolConnectionDao : ToolConnectionDao {
     )
 
     override suspend fun getConnection(connectionUid: String): ToolConnection? = connections[connectionUid]
+
+    override suspend fun getAllConnections(): List<ToolConnection> = listConnections()
 
     override suspend fun getConnectionsByUids(connectionUids: List<String>): List<ToolConnection> = connectionUids.mapNotNull(connections::get)
 

@@ -1,11 +1,8 @@
 package dev.chungjungsoo.gptmobile.di
 
-import android.app.ActivityManager
-import android.content.Context
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPIImpl
@@ -25,21 +22,9 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    private fun getDeviceRamGb(context: Context): Long {
-        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return 0L
-        val memoryInfo = ActivityManager.MemoryInfo()
-        am.getMemoryInfo(memoryInfo)
-        return memoryInfo.totalMem / (1024L * 1024L * 1024L)
-    }
-
     @Provides
     @Singleton
-    fun provideNetworkClient(
-        @ApplicationContext context: Context
-    ): NetworkClient {
-        val ramGb = getDeviceRamGb(context)
-        return NetworkClient(OkHttp)
-    }
+    fun provideNetworkClient(): NetworkClient = NetworkClient(OkHttp)
 
     @Provides
     @Singleton

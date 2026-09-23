@@ -169,8 +169,12 @@ class SettingRepositoryImpl @Inject constructor(
         settingDataSource.observeFavoriteMessageGroups()
 
     override suspend fun migrateToPlatformV2() {
-        val leftOverPlatformV2s = fetchPlatformV2s()
-        leftOverPlatformV2s.forEach { deletePlatformV2(it) }
+        // Migration is one-way. Once V2 profiles exist, never replace them with
+        // legacy DataStore state: doing so can destroy user-edited profiles,
+        // credentials, tool bindings, and per-profile settings on a later startup.
+        if (platformV2Dao.getPlatforms().isNotEmpty()) {
+            return
+        }
 
         val platforms = fetchPlatforms()
 

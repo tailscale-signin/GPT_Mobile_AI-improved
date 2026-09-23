@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,9 +46,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
-import com.google.gson.Gson
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.llama.LlamaGatewayPreferences
 import dev.chungjungsoo.gptmobile.data.llama.LlamaModelInfo
 import dev.chungjungsoo.gptmobile.data.llama.LlamaRouterClient
 import dev.chungjungsoo.gptmobile.data.localruntime.AcceleratorOption
@@ -312,29 +311,23 @@ fun OllamaAdvancedSettingsDialog(
 @Composable
 fun LlamaAdvancedSettingsDialog(
     dialogState: PlatformSettingViewModel.DialogState,
+    platform: PlatformV2,
     settingViewModel: PlatformSettingViewModel
 ) {
     if (dialogState.isLlamaAdvancedDialogOpen) {
         val context = LocalContext.current
-        val prefs = remember { context.getSharedPreferences("llama_settings", Context.MODE_PRIVATE) }
-        val initialSettings = remember {
-            val json = prefs.getString("advanced_settings", null)
-            if (!json.isNullOrBlank()) {
-                runCatching { Gson().fromJson(json, AdvancedSettings::class.java) }.getOrNull() ?: AdvancedSettings()
-            } else {
-                AdvancedSettings()
-            }
+        val initialSettings = remember(platform.uid) {
+            LlamaGatewayPreferences.load(context, platform.uid)
         }
         LlamaAdvancedSettingsDialog(
             initialSettings = initialSettings,
             onDismissRequest = settingViewModel::closeLlamaAdvancedDialog,
             onConfirmRequest = { updated ->
-                prefs.edit().putString("advanced_settings", Gson().toJson(updated)).apply()
+                LlamaGatewayPreferences.save(context, platform.uid, updated)
                 settingViewModel.closeLlamaAdvancedDialog()
             },
             onResetRequest = {
-                val defaultSettings = AdvancedSettings()
-                prefs.edit().putString("advanced_settings", Gson().toJson(defaultSettings)).apply()
+                LlamaGatewayPreferences.reset(context, platform.uid)
                 settingViewModel.closeLlamaAdvancedDialog()
             }
         )

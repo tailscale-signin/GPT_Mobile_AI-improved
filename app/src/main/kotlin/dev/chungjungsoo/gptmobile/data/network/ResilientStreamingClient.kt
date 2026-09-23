@@ -75,11 +75,38 @@ object ResilientStreamingClient {
             message.contains("504") ||
             message.contains("stream reset") ||
             message.contains("timeout") ||
-            message.contains("connection closed")
+            message.contains("connection closed") ||
+            isPrematureConnectionClose(throwable)
         ) {
             return true
         }
 
+        return false
+    }
+
+    /**
+     * Detects HTTP/TCP disconnects reported by Ktor/OkHttp when a peer closes a
+     * streaming response without a clean protocol terminator. Walks the cause
+     * chain because engines frequently wrap the underlying IOException.
+     */
+    fun isPrematureConnectionClose(throwable: Throwable): Boolean {
+        var current: Throwable? = throwable
+        repeat(8) {
+            val message = current?.message?.lowercase().orEmpty()
+            if (message.contains("prematurely closed") ||
+                message.contains("failed to parse http response") ||
+                message.contains("unexpected eof") ||
+                message.contains("unexpected end of stream") ||
+                message.contains("end of stream") ||
+                message.contains("stream was reset") ||
+                message.contains("connection reset") ||
+                message.contains("reset by peer")
+            ) {
+                return true
+            }
+            current = current?.cause
+            if (current == null) return false
+        }
         return false
     }
 }

@@ -144,7 +144,7 @@ object AppBackupCrypto {
         outputStream: OutputStream,
         passphrase: String
     ) {
-        require(payloadType in PAYLOAD_CONFIG..PAYLOAD_FAVORITES) { "Unsupported backup payload type." }
+        require(payloadType.toInt() in PAYLOAD_CONFIG.toInt()..PAYLOAD_FAVORITES.toInt()) { "Unsupported backup payload type." }
 
         val random = SecureRandom()
         val salt = ByteArray(SALT_SIZE_BYTES).also(random::nextBytes)

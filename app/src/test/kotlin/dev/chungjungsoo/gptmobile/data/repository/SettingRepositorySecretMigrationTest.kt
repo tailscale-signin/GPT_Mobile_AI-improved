@@ -5,7 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
-import dev.chungjungsoo.gptmobile.data.dto.ThemeMode
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
@@ -33,7 +33,7 @@ class SettingRepositorySecretMigrationTest {
         val settingDataSource = FakeSettingDataSource(
             tokens = mutableMapOf(
                 ApiType.OPENAI to "legacy-openai-token",
-                ApiType.CLAUDE to "legacy-claude-token"
+                ApiType.ANTHROPIC to "legacy-claude-token"
             )
         )
         val repository = SettingRepositoryImpl(
@@ -58,9 +58,9 @@ class SettingRepositorySecretMigrationTest {
         assertEquals("existing-ref", p2?.secretRef)
 
         assertNull(settingDataSource.getToken(ApiType.OPENAI))
-        assertNull(settingDataSource.getToken(ApiType.CLAUDE))
+        assertNull(settingDataSource.getToken(ApiType.ANTHROPIC))
         assertEquals("legacy-openai-token", secretVault.read("setting_token_OPENAI")?.decodeToString())
-        assertEquals("legacy-claude-token", secretVault.read("setting_token_CLAUDE")?.decodeToString())
+        assertEquals("legacy-claude-token", secretVault.read("setting_token_ANTHROPIC")?.decodeToString())
     }
 
     @Test
@@ -166,6 +166,16 @@ private class FakePlatformV2Dao(
         return persisted.id.toLong()
     }
 
+    override suspend fun updateFavorite(platformId: Int, isFavorite: Boolean) {
+        val index = platforms.indexOfFirst { it.id == platformId }
+        if (index >= 0) platforms[index] = platforms[index].copy(isFavorite = isFavorite)
+    }
+
+    override suspend fun updateLabels(platformId: Int, labels: String?) {
+        val index = platforms.indexOfFirst { it.id == platformId }
+        if (index >= 0) platforms[index] = platforms[index].copy(labels = labels)
+    }
+
     override suspend fun editPlatform(platform: PlatformV2) {
         check(!failEdits) { "Database update failed." }
         val index = platforms.indexOfFirst { it.id == platform.id }
@@ -181,7 +191,9 @@ private class FakePlatformV2Dao(
 
 private class FakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
     override suspend fun getByChatId(chatId: Int): List<ChatPlatformModelV2> = emptyList()
+    override suspend fun getChatPlatformModels(): List<ChatPlatformModelV2> = emptyList()
     override suspend fun upsertAll(vararg models: ChatPlatformModelV2) = Unit
+    override suspend fun upsertChatPlatformModel(model: ChatPlatformModelV2) = Unit
     override suspend fun deleteByChatId(chatId: Int) = Unit
     override suspend fun deleteByPlatformUid(platformUid: String) = Unit
 }

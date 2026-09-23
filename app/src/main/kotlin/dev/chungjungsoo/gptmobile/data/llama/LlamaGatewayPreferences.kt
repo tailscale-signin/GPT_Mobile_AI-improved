@@ -54,7 +54,7 @@ object LlamaGatewayPreferences {
         val routing = settings.gatewayToolRouting.takeIf { it in setOf("auto", "local", "remote") } ?: "auto"
         val progressDetail = settings.gatewayProgressDetail.takeIf { it in setOf("compact", "normal", "debug") } ?: "normal"
 
-        return linkedMapOf(
+        val headers = linkedMapOf(
             "X-Gateway-Client" to "gpt-mobile-android",
             "X-Gateway-Client-Version" to BuildConfig.VERSION_NAME,
             "X-Gateway-Performance-Profile" to profile,
@@ -62,7 +62,6 @@ object LlamaGatewayPreferences {
             "X-Gateway-Cache-Prompt" to settings.gatewayCachePrompt.toString(),
             "X-Gateway-Cache-Reuse" to settings.gatewayCacheReuse.coerceIn(0, 8192).toString(),
             "X-Gateway-Slot-Affinity" to settings.gatewaySlotAffinity.toString(),
-            "X-Gateway-Slot-Count" to settings.gatewaySlotCount.coerceIn(1, 64).toString(),
             "X-Gateway-Max-Rounds" to settings.gatewayMaxRounds.coerceIn(4, 500).toString(),
             "X-Gateway-Adaptive-Reasoning" to settings.gatewayAdaptiveReasoning.toString(),
             "X-Gateway-Thinking-Budget" to settings.gatewayThinkingBudget.coerceIn(-1, 131072).toString(),
@@ -74,6 +73,10 @@ object LlamaGatewayPreferences {
             "X-Gateway-Tool-Routing" to routing,
             "X-Gateway-Progress-Detail" to progressDetail
         )
+        if (settings.gatewaySlotCount > 0) {
+            headers["X-Gateway-Slot-Count"] = settings.gatewaySlotCount.coerceIn(1, 64).toString()
+        }
+        return headers
     }
 
     internal fun affinityKey(platformUid: String, chatId: Int): String {

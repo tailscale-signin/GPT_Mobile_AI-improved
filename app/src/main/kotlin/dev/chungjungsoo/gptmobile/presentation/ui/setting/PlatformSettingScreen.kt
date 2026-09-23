@@ -611,7 +611,7 @@ fun PlatformSettingScreen(
                 GeminiSafetySettingsDialog(dialogState, platformData, settingViewModel)
                 OpenRouterAdvancedSettingsDialog(dialogState, platformData.openRouterRouting, settingViewModel)
                 OllamaAdvancedSettingsDialog(dialogState, platformData.ollamaOptions, settingViewModel)
-                LlamaAdvancedSettingsDialog(dialogState, settingViewModel)
+                LlamaAdvancedSettingsDialog(dialogState, platformData, settingViewModel)
                 DeletePlatformDialog(dialogState, settingViewModel)
                 SearchBackendDialog(toolBindingState, settingViewModel)
                 LegacyMcpToolsDialog(toolBindingState, settingViewModel)

@@ -32,7 +32,7 @@ class OpenRouterOptionsTest {
         assertEquals(42, options.seed)
         assertEquals("price-asc", options.provider?.sort)
         assertEquals(true, options.provider?.allowFallbacks)
-        assertEquals(listOf("Mancer"), options.provider?.skip)
+        assertEquals(null, options.provider?.ignore)
     }
 
     @Test
@@ -40,7 +40,7 @@ class OpenRouterOptionsTest {
         val routing = OpenRouterProviderRouting(
             sort = "price-asc",
             allowFallbacks = true,
-            skip = listOf("Mancer")
+            ignore = listOf("Mancer")
         )
         val request = ChatCompletionRequest(
             model = "anthropic/claude-3.5-sonnet",
@@ -71,6 +71,6 @@ class OpenRouterOptionsTest {
         assertTrue(encoded.contains("\"provider\":{"))
         assertTrue(encoded.contains("\"sort\":\"price-asc\""))
         assertTrue(encoded.contains("\"allow_fallbacks\":true"))
-        assertTrue(encoded.contains("\"skip\":[\"Mancer\"]"))
+        assertTrue(encoded.contains("\"ignore\":[\"Mancer\"]"))
     }
 }

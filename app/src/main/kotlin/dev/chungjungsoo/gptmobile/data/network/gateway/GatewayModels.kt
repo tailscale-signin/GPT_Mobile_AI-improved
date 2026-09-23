@@ -13,7 +13,8 @@ data class GatewayResponseMetadata(
     val requestId: String? = null,
     val version: String? = null,
     val progressProtocol: String? = null,
-    val singleflightRole: String? = null
+    val singleflightRole: String? = null,
+    val performanceProfile: String? = null
 )
 
 /**
@@ -30,7 +31,9 @@ data class GatewayCapabilities(
     val supportsResultRecovery: Boolean = false,
     @SerialName("progress_protocol_version")
     val progressProtocolVersion: String? = null,
-    val protocols: List<String> = emptyList()
+    val protocols: List<String> = emptyList(),
+    @SerialName("performance_profiles")
+    val performanceProfiles: List<String> = emptyList()
 )
 
 /**

@@ -2093,7 +2093,7 @@ private fun LlamaAdvancedSettingsDialog(
                     onValueChange = { gatewaySlotCountText = it },
                     enabled = gatewayIntegrationEnabled && gatewaySlotAffinity,
                     label = { Text("Maximum Slot Count") },
-                    supportingText = { Text("Gateway probes /slots and safely clamps this value.") },
+                    supportingText = { Text("0 = Auto detect from llama.cpp /slots. Otherwise 1-64.") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     singleLine = true
                 )
@@ -2521,7 +2521,7 @@ private fun LlamaAdvancedSettingsDialog(
                         gatewayCacheReuse = gatewayCacheReuseText.toIntOrNull()?.coerceIn(0, 8192)
                             ?: initialSettings.gatewayCacheReuse,
                         gatewaySlotAffinity = gatewaySlotAffinity,
-                        gatewaySlotCount = gatewaySlotCountText.toIntOrNull()?.coerceIn(1, 64)
+                        gatewaySlotCount = gatewaySlotCountText.toIntOrNull()?.coerceIn(0, 64)
                             ?: initialSettings.gatewaySlotCount,
                         gatewayMaxRounds = gatewayMaxRoundsText.toIntOrNull()?.coerceIn(4, 500)
                             ?: initialSettings.gatewayMaxRounds,

@@ -28,6 +28,10 @@ appauth = "0.11.1"
 litertlm = "0.16.1"
 qnn = "2.47.0"
 playServicesLocation = "21.3.0"
+mockk = "1.14.11"
+mockito = "5.23.0"
+robolectric = "4.16.1"
+androidxTestCore = "1.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -81,6 +85,11 @@ qnn-runtime = { group = "com.qualcomm.qti", name = "qnn-runtime", version.ref = 
 qnn-litert-delegate = { group = "com.qualcomm.qti", name = "qnn-litert-delegate", version.ref = "qnn" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

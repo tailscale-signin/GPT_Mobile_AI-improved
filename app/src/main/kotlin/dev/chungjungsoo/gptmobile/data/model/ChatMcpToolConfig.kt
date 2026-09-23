@@ -59,6 +59,9 @@ data class ChatMcpToolConfig(
         }
     }
 
+    fun withAllToolsDisabled(disabled: Boolean): ChatMcpToolConfig =
+        copy(allToolsDisabled = disabled)
+
     fun withMaxTools(limit: Int?): ChatMcpToolConfig {
         return copy(maxTools = limit?.coerceAtLeast(0))
     }

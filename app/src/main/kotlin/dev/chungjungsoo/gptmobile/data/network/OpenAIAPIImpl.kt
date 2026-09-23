@@ -135,6 +135,7 @@ class OpenAIAPIImpl @Inject constructor(
                 val gatewayVersion = response.headers["X-Gateway-Version"]
                 val gatewayProgressProtocol = response.headers["X-Gateway-Progress-Protocol"]
                 val gatewaySingleflight = response.headers["X-Gateway-Singleflight"]
+                val gatewayPerformanceProfile = response.headers["X-Gateway-Performance-Profile"]
 
                 val gatewayMetadata = if (gatewayJobId != null || gatewayRequestId != null || gatewayVersion != null) {
                     GatewayResponseMetadata(
@@ -142,7 +143,8 @@ class OpenAIAPIImpl @Inject constructor(
                         requestId = gatewayRequestId,
                         version = gatewayVersion,
                         progressProtocol = gatewayProgressProtocol,
-                        singleflightRole = gatewaySingleflight
+                        singleflightRole = gatewaySingleflight,
+                        performanceProfile = gatewayPerformanceProfile
                     )
                 } else {
                     null

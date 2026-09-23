@@ -589,10 +589,18 @@ internal fun toolTraceStatusSummary(
     val count = events.size
     if (events.isEmpty()) return "0 ${labels.calls}"
 
+    val derivedState = when {
+        events.any { it.toToolCallState() is ToolCallState.Running } -> ToolCallState.Running
+        events.any { it.toToolCallState() is ToolCallState.Failed } -> ToolCallState.Failed(true)
+        events.any { it.toToolCallState() is ToolCallState.Canceled } -> ToolCallState.Canceled
+        else -> ToolCallState.Completed
+    }
+    val effectiveState = if (overallState == ToolCallState.Completed) derivedState else overallState
+
     val distinctToolNames = events.map { it.toolName.ifBlank { it.modelToolName } }.distinct()
     if (distinctToolNames.size == 1) {
         val toolName = distinctToolNames.single()
-        return when (overallState) {
+        return when (effectiveState) {
             ToolCallState.Running -> "${smartToolVerb(toolName)}..."
             ToolCallState.Completed -> completedToolVerb(toolName)
             is ToolCallState.Failed -> {
@@ -607,7 +615,7 @@ internal fun toolTraceStatusSummary(
     }
 
     val noun = if (count == 1) labels.call else labels.calls
-    return when (overallState) {
+    return when (effectiveState) {
         ToolCallState.Running -> "${labels.running.replaceFirstChar { it.uppercase(Locale.ROOT) }} $count $noun..."
         is ToolCallState.Failed -> {
             val failedCount = events.count { it.toToolCallState() is ToolCallState.Failed }

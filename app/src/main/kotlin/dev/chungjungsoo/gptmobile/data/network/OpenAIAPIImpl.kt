@@ -181,7 +181,7 @@ class OpenAIAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
-            if (receivedAssistantPayload && ResilientStreamingClient.isPrematureConnectionClose(e)) {
+            if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedAssistantPayload, e)) {
                 return@flow
             }
             val errorMessage = when (e) {
@@ -259,7 +259,7 @@ class OpenAIAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
-            if (receivedResponsePayload && ResilientStreamingClient.isPrematureConnectionClose(e)) {
+            if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedResponsePayload, e)) {
                 return@flow
             }
             val errorMessage = when (e) {

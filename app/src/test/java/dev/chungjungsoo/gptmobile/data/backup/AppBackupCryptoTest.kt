@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 
 class AppBackupCryptoTest {
 
@@ -89,4 +96,85 @@ class AppBackupCryptoTest {
         assertEquals("QUALCOMM_QNN", decryptedPayload.uiPreferences?.localRuntimeBackend)
         assertEquals(listOf("Pinned"), decryptedPayload.favoriteGroups)
     }
+
+    @Test
+    fun newBackupsRequireAUserPassphrase() {
+        val payload = FavoritesBackupPayload(
+            version = 1,
+            exportedAt = 1L,
+            favoriteIds = emptyList(),
+            favoriteGroups = emptyList(),
+            messageGroups = emptyMap(),
+            favoriteMessages = emptyList()
+        )
+
+        val error = runCatching {
+            AppBackupCrypto.encryptFavorites(payload, ByteArrayOutputStream(), passphrase = null)
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message?.contains("passphrase", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun v2BackupRejectsWrongPassphrase() {
+        val payload = ConfigBackupPayload(version = 2, exportedAt = 123L)
+        val output = ByteArrayOutputStream()
+        AppBackupCrypto.encryptConfig(payload, output, "correct-password")
+
+        val encrypted = output.toByteArray()
+        assertEquals(2, encrypted[7].toInt())
+
+        val error = runCatching {
+            AppBackupCrypto.decryptConfig(ByteArrayInputStream(encrypted), "wrong-password")
+        }.exceptionOrNull()
+
+        assertNotNull(error)
+    }
+
+    @Test
+    fun legacyV1BackupWithPassphraseRemainsReadable() {
+        val payload = ConfigBackupPayload(version = 2, exportedAt = 456L)
+        val serialized = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }.encodeToString(ConfigBackupPayload.serializer(), payload)
+        val legacy = legacyV1Encrypt(payloadType = 1, plaintext = serialized.encodeToByteArray(), passphrase = "legacy-password")
+
+        val restored = AppBackupCrypto.decryptConfig(ByteArrayInputStream(legacy), "legacy-password")
+
+        assertEquals(payload.version, restored.version)
+        assertEquals(payload.exportedAt, restored.exportedAt)
+    }
+
+    private fun legacyV1Encrypt(payloadType: Byte, plaintext: ByteArray, passphrase: String): ByteArray {
+        val magic = byteArrayOf(0x47, 0x50, 0x54, 0x42, 0x4B, 0x55, 0x50)
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+        val spec = PBEKeySpec(passphrase.toCharArray(), salt, 65_536, 256)
+        val keyBytes = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
+        val key = SecretKeySpec(keyBytes, "AES")
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
+        cipher.updateAAD(byteArrayOf(payloadType))
+        val ciphertext = cipher.doFinal(plaintext)
+
+        return ByteArrayOutputStream().use { out ->
+            out.write(magic)
+            out.write(byteArrayOf(1, payloadType))
+            out.write(salt)
+            out.write(iv)
+            out.write(ByteBuffer.allocate(4).putInt(ciphertext.size).array())
+            out.write(ciphertext)
+            out.toByteArray()
+        }.also {
+            spec.clearPassword()
+            keyBytes.fill(0)
+            salt.fill(0)
+            iv.fill(0)
+            ciphertext.fill(0)
+            plaintext.fill(0)
+        }
+    }
+
 }

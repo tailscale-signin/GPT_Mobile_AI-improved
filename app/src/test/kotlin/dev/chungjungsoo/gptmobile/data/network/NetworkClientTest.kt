@@ -23,6 +23,9 @@ class NetworkClientTest {
         assertTrue(NetworkClient.isSensitiveHeader("X-API-KEY"))
         assertTrue(NetworkClient.isSensitiveHeader("Mcp-Session-Id"))
         assertTrue(NetworkClient.isSensitiveHeader("mcp-session-id"))
+        assertTrue(NetworkClient.isSensitiveHeader("Proxy-Authorization"))
+        assertTrue(NetworkClient.isSensitiveHeader("Cookie"))
+        assertTrue(NetworkClient.isSensitiveHeader("Set-Cookie"))
         assertFalse(NetworkClient.isSensitiveHeader("Content-Type"))
     }
 

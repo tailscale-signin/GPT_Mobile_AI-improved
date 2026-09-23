@@ -239,7 +239,7 @@ Modifier
 object NetworkModule {
     @Provides
     @Singleton
-    fun provideNetworkClient(): NetworkClient = NetworkClient(CIO)
+    fun provideNetworkClient(): NetworkClient = NetworkClient(OkHttp)
 }
 ```
 
@@ -255,11 +255,11 @@ fun provideChatRepository(...): ChatRepository = ChatRepositoryImpl(...)
 
 - **Min SDK**: 31 (Android 12)
 - **Target SDK**: 36
-- **Java**: 17
+- **Java**: 21
 - **Pattern**: MVVM with Repository layer
 - **DI**: Hilt
-- **Database**: Room with schema versioning
-- **Network**: Ktor with CIO engine
+- **Database**: Room (`ChatDatabaseV2`, schema v23) with explicit migrations
+- **Network**: Ktor with OkHttp engine on Android
 - **Serialization**: kotlinx.serialization
 - **UI**: Material 3 with dynamic theming
 

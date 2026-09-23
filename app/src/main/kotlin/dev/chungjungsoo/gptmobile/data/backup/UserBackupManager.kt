@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.backup
 
 import android.content.Context
 import android.net.Uri
+import androidx.room.withTransaction
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
@@ -157,54 +158,42 @@ class UserBackupManager(
     private suspend fun restoreBackupData(
         data: UserBackupData,
         clearExisting: Boolean
-    ): BackupImportResult {
+    ): BackupImportResult = database.withTransaction {
         if (clearExisting) {
             database.clearAllTables()
         }
 
-        var platformsCount = 0
         data.platforms.forEach { platform ->
             database.platformDao().addPlatform(platform)
-            platformsCount++
         }
 
-        var modelsCount = 0
         data.models.forEach { model ->
             database.chatPlatformModelDao().upsertChatPlatformModel(model)
-            modelsCount++
         }
 
-        var localModelsCount = 0
         data.localModels.forEach { localModel ->
             database.localModelDao().upsert(localModel)
-            localModelsCount++
         }
 
-        var chatRoomsCount = 0
         data.chatRooms.forEach { room ->
             database.chatRoomDao().addChatRoom(room)
-            chatRoomsCount++
         }
 
-        var messagesCount = 0
         if (data.messages.isNotEmpty()) {
             database.messageDao().insertMessageList(data.messages)
-            messagesCount = data.messages.size
         }
 
-        var toolConnectionsCount = 0
         data.toolConnections.forEach { connection ->
             database.toolConnectionDao().upsertConnection(connection)
-            toolConnectionsCount++
         }
 
-        return BackupImportResult(
-            chatRoomsImported = chatRoomsCount,
-            messagesImported = messagesCount,
-            platformsImported = platformsCount,
-            modelsImported = modelsCount,
-            toolConnectionsImported = toolConnectionsCount,
-            localModelsImported = localModelsCount
+        BackupImportResult(
+            chatRoomsImported = data.chatRooms.size,
+            messagesImported = data.messages.size,
+            platformsImported = data.platforms.size,
+            modelsImported = data.models.size,
+            toolConnectionsImported = data.toolConnections.size,
+            localModelsImported = data.localModels.size
         )
     }
 }

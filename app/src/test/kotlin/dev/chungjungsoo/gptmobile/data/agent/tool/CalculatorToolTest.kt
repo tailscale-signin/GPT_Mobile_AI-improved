@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -23,7 +24,7 @@ class CalculatorToolTest {
         )
         assertFalse(result.isError)
         val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
-        assertEquals("14", json.value["formatted"]?.jsonPrimitive?.content)
+        assertEquals("14", json.value.jsonObject["formatted"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -36,7 +37,7 @@ class CalculatorToolTest {
         )
         assertFalse(result.isError)
         val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
-        assertEquals("40", json.value["formatted"]?.jsonPrimitive?.content)
+        assertEquals("40", json.value.jsonObject["formatted"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -49,7 +50,7 @@ class CalculatorToolTest {
         )
         assertFalse(result.isError)
         val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
-        assertEquals("9", json.value["formatted"]?.jsonPrimitive?.content)
+        assertEquals("9", json.value.jsonObject["formatted"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -62,7 +63,7 @@ class CalculatorToolTest {
         )
         assertTrue(result.isError)
         val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
-        assertTrue(json.value["error"]?.jsonPrimitive?.content?.contains("Division by zero") == true)
+        assertTrue(json.value.jsonObject["error"]?.jsonPrimitive?.content?.contains("Division by zero") == true)
     }
 
     @Test
@@ -75,6 +76,6 @@ class CalculatorToolTest {
         )
         assertTrue(result.isError)
         val json = result.content as dev.chungjungsoo.gptmobile.data.agent.ToolResultContent.Json
-        assertTrue(json.value.containsKey("error"))
+        assertTrue(json.value.jsonObject.containsKey("error"))
     }
 }

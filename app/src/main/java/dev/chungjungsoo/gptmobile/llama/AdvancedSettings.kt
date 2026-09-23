@@ -73,6 +73,16 @@ data class AdvancedSettings(
     var useVllm: Boolean = false,
     var useFlashAttn: Boolean = false,
 
+    // Gateway v10 / llama.cpp performance
+    var gatewayPerformanceProfile: String = "turbo",
+    var gatewaySlotPinning: Boolean = true,
+    var gatewaySlotCount: Int = 1,
+    var gatewayCachePrompt: Boolean = true,
+    var gatewayCacheReuse: Int = 512,
+    var gatewayReasoningEffort: String = "low",
+    var gatewayToolOptimization: Boolean = true,
+    var gatewayToolSurfaceLimit: Int = 12,
+
     // Logging & Debug
     var logLevel: String = "info",
     var verbose: Boolean = false,

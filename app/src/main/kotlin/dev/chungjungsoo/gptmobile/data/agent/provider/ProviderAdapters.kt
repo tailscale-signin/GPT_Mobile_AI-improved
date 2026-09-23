@@ -175,7 +175,8 @@ class OpenAIResponsesAdapter @Inject constructor(
 class OpenAICompatibleAdapter @Inject constructor(
     private val openAIAPI: OpenAIAPI,
     private val groqAPI: GroqAPI,
-    private val attachmentEncoder: ProviderAttachmentEncoder
+    private val attachmentEncoder: ProviderAttachmentEncoder,
+    private val llamaGatewayHeadersProvider: (PlatformV2, Int) -> Map<String, String> = { _, _ -> emptyMap() }
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -187,6 +188,12 @@ class OpenAICompatibleAdapter @Inject constructor(
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
         val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
         val keyIndexCounter = AtomicInteger(0)
+        val chatId = turns.firstOrNull()?.userMessage?.chatId ?: 0
+        val llamaPerformanceHeaders = if (platform.compatibleType == ClientType.LLAMA) {
+            llamaGatewayHeadersProvider(platform, chatId)
+        } else {
+            emptyMap()
+        }
         var capturedGatewayJobId: String? = null
 
         return object : AgentProviderSession {
@@ -259,7 +266,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
                         token = activeKey,
-                        extraHeaders = openRouterHeaders + llamaGatewayHeaders
+                        extraHeaders = openRouterHeaders + llamaPerformanceHeaders + llamaGatewayHeaders
                     )
                     var roundFailed = false
                     var canRotate = false

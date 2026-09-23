@@ -4,7 +4,9 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCreatedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseInProgressEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.UnknownEvent
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
@@ -92,6 +94,7 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
+        var receivedAssistantPayload = false
         try {
             val endpoint = config.buildEndpoint("chat/completions")
 
@@ -159,6 +162,7 @@ class OpenAIAPIImpl @Inject constructor(
 
                     try {
                         val chunk = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                        receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
                         if (firstChunk && gatewayMetadata != null) {
                             firstChunk = false
                             emit(chunk.copy(gatewayMetadata = gatewayMetadata))
@@ -177,6 +181,9 @@ class OpenAIAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+            if (receivedAssistantPayload && ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                return@flow
+            }
             val errorMessage = when (e) {
                 is java.net.UnknownHostException -> "Network error: Unable to resolve host."
                 is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
@@ -184,7 +191,11 @@ class OpenAIAPIImpl @Inject constructor(
                 is HttpRequestTimeoutException -> "Request timed out."
                 is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
                 is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                else -> e.message ?: "Unknown network error"
+                else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                    "Connection closed before the response started. Please retry."
+                } else {
+                    e.message ?: "Unknown network error"
+                }
             }
             emit(
                 ChatCompletionChunk(
@@ -202,6 +213,7 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ResponsesStreamEvent> = flow {
+        var receivedResponsePayload = false
         try {
             val endpoint = config.buildEndpoint("responses")
 
@@ -238,6 +250,7 @@ class OpenAIAPIImpl @Inject constructor(
 
                     try {
                         val streamEvent = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
+                        receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
                         emit(streamEvent)
                     } catch (_: Exception) {
                         emit(UnknownEvent)
@@ -246,6 +259,9 @@ class OpenAIAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+            if (receivedResponsePayload && ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                return@flow
+            }
             val errorMessage = when (e) {
                 is java.net.UnknownHostException -> "Network error: Unable to resolve host."
                 is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
@@ -253,7 +269,11 @@ class OpenAIAPIImpl @Inject constructor(
                 is HttpRequestTimeoutException -> "Request timed out."
                 is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
                 is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                else -> e.message ?: "Unknown network error"
+                else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                    "Connection closed before the response started. Please retry."
+                } else {
+                    e.message ?: "Unknown network error"
+                }
             }
             emit(
                 ResponseErrorEvent(
@@ -263,6 +283,23 @@ class OpenAIAPIImpl @Inject constructor(
             )
         }
     }.flowOn(Dispatchers.IO)
+}
+
+private fun ChatCompletionChunk.hasAssistantStreamPayload(): Boolean =
+    choices.orEmpty().any { choice ->
+        val delta = choice.delta
+        !delta.content.isNullOrEmpty() ||
+            !delta.effectiveReasoning.isNullOrEmpty() ||
+            !delta.toolCalls.isNullOrEmpty() ||
+            choice.finishReason != null
+    }
+
+private fun ResponsesStreamEvent.hasResponseStreamPayload(): Boolean = when (this) {
+    is ResponseCreatedEvent,
+    is ResponseInProgressEvent,
+    UnknownEvent -> false
+
+    else -> true
 }
 
 @Serializable

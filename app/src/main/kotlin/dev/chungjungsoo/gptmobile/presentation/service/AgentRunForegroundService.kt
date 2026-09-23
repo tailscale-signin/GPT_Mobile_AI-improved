@@ -263,7 +263,7 @@ class AgentRunForegroundService : Service() {
     }
 
     private fun buildCompletionNotification(title: String, chatId: Int?): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_ai_notification) // NEW: Fancy AI notification icon
+        .setSmallIcon(R.drawable.ic_ai_notification)
         .setContentTitle(title)
         .setContentText(getString(R.string.agent_completion_notification_text))
         .setContentIntent(buildOpenAppPendingIntent(2, chatId))
@@ -276,7 +276,7 @@ class AgentRunForegroundService : Service() {
         val openAppIntent = Intent().setClass(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (chatId != null && chatId > 0) {
-                putExtra("chatRoomId", chatId)
+                putExtra(MainActivity.EXTRA_CHAT_ROOM_ID, chatId)
             }
         }
         return PendingIntent.getActivity(

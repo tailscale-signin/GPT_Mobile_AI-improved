@@ -153,8 +153,8 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 
 - **UI**: Jetpack Compose, Material Design 3 (fully optimized with stability contracts)
 - **Language**: Kotlin 2.x, Coroutines, StateFlow
-- **Networking**: Ktor Client with CIO and OkHttp engines, Server-Sent Events (SSE)
-- **Persistence**: Room Database (`ChatDatabaseV2`, Schema v19), DataStore Preferences
+- **Networking**: Ktor Client with OkHttp on Android, Server-Sent Events (SSE)
+- **Persistence**: Room Database (`ChatDatabaseV2`, Schema v23), DataStore Preferences
 - **Dependency Injection**: Hilt / Dagger with KSP
 - **Security**: Android Keystore AES-256-GCM credential encryption (`SecretVault`)
 - **Inference**: Qualcomm QNN SDK & Google LiteRT-LM with dynamic hardware governor
@@ -166,7 +166,7 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 
 ### Prerequisites
 - Android Studio Ladybug (2024.2.1) or newer
-- JDK 21 (JDK 17 minimum)
+- JDK 21
 - Android SDK 36 (target/compile) / Min SDK 31
 
 ### Building from Source
@@ -189,4 +189,4 @@ cd GPT_Mobile_AI-improved
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0) - see the [LICENSE](LICENSE) file for details.

@@ -29,6 +29,10 @@ object GatewayPerformancePreferences {
             put("X-Gateway-Reasoning-Effort", settings.gatewayReasoningEffort)
             put("X-Gateway-Tool-Optimization", settings.gatewayToolOptimization.toString())
             put("X-Gateway-Tool-Surface-Limit", settings.gatewayToolSurfaceLimit.coerceIn(0, 128).toString())
+            put("X-Gateway-Stable-Tool-Surface", settings.gatewayStableToolSurface.toString())
+            put("X-Gateway-Intermediate-Max-Tokens", settings.gatewayIntermediateMaxTokens.coerceIn(256, 16384).toString())
+            put("X-Gateway-Soft-Synthesis-Round", settings.gatewaySoftSynthesisRound.coerceIn(4, 500).toString())
+            put("X-Gateway-Result-Char-Limit", settings.gatewayResultCharLimit.coerceIn(4000, 200000).toString())
         }
     }
 }

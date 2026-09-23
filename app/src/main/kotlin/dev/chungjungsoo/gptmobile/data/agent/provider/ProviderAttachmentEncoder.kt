@@ -24,6 +24,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseContentPart
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage
 import dev.chungjungsoo.gptmobile.data.model.AttachmentRemoteType
+import dev.chungjungsoo.gptmobile.llama.GatewayPerformancePreferences
 import dev.chungjungsoo.gptmobile.data.repository.sendableAssistantContent
 import dev.chungjungsoo.gptmobile.data.repository.validateResponseInputPartsOrThrow
 import dev.chungjungsoo.gptmobile.util.AttachmentPayloadCache
@@ -35,6 +36,9 @@ import kotlinx.coroutines.withContext
 open class ProviderAttachmentEncoder @Inject constructor(
     @param:ApplicationContext private val context: Context?
 ) {
+    open fun gatewayPerformanceHeaders(): Map<String, String> =
+        GatewayPerformancePreferences.headers(context)
+
     open suspend fun openAIChatMessages(
         turns: List<ConversationTurn>,
         systemPrompt: String?

@@ -212,7 +212,7 @@ class ChatRepositoryImplTest {
             modelCatalogRepository = FakeModelCatalogRepository(
                 listOf(CatalogEntry(id = "gemma3-1b-it", capabilities = CatalogCapabilities(tools = true)))
             ),
-            toolEventRecorder = ToolEventRecorder(traceDao.asDao())
+            toolEventRecorder = ToolEventRecorder(traceDao.asDao(), proxy())
         )
 
         val states = repository.completeChat(
@@ -542,7 +542,7 @@ class ChatRepositoryImplTest {
         val repository = createRepository(
             openAIAPI = openAIAPI,
             agentToolResolver = toolResolver(toolDao, vault),
-            toolEventRecorder = ToolEventRecorder(traceDao.asDao())
+            toolEventRecorder = ToolEventRecorder(traceDao.asDao(), proxy())
         )
 
         val states = repository.completeChat(
@@ -610,7 +610,7 @@ class ChatRepositoryImplTest {
         openAIAPI: OpenAIAPI = RecordingOpenAIAPI(),
         googleAPI: GoogleAPI = FakeGoogleAPI(),
         agentToolResolver: AgentToolResolver = emptyToolResolver(),
-        toolEventRecorder: ToolEventRecorder = ToolEventRecorder(proxy()),
+        toolEventRecorder: ToolEventRecorder = ToolEventRecorder(proxy(), proxy()),
         localRuntime: LocalRuntime = FakeLocalRuntime(),
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
         modelCatalogRepository: ModelCatalogRepository = FakeModelCatalogRepository()
@@ -836,6 +836,8 @@ private class SingleToolConnectionDao(
     private val bindings = listOfNotNull(binding)
 
     override suspend fun listConnections(): List<ToolConnection> = connections
+
+    override suspend fun getAllConnections(): List<ToolConnection> = connections
 
     override suspend fun getConnection(connectionUid: String): ToolConnection? = connections.firstOrNull { it.connectionUid == connectionUid }
 

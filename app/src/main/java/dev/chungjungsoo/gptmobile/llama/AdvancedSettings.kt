@@ -79,6 +79,24 @@ data class AdvancedSettings(
     var showMetrics: Boolean = true,
     var enableCORS: Boolean = false,
 
+    // Gateway v10 / GPT Mobile integration
+    var gatewayIntegrationEnabled: Boolean = true,
+    var gatewayPerformanceProfile: String = "high_performance",
+    var gatewayToolRouting: String = "auto",
+    var gatewayCachePrompt: Boolean = true,
+    var gatewayCacheReuse: Int = 512,
+    var gatewaySlotAffinity: Boolean = true,
+    var gatewaySlotCount: Int = 1,
+    var gatewayMaxRounds: Int = 160,
+    var gatewayAdaptiveReasoning: Boolean = true,
+    var gatewayThinkingBudget: Int = -1,
+    var gatewayStreamHeartbeatSeconds: Int = 4,
+    var gatewayProgressPollMs: Int = 250,
+    var gatewayModelWaitAfterSeconds: Int = 10,
+    var gatewayModelWaitIntervalSeconds: Int = 15,
+    var gatewayJobTimeoutSeconds: Int = 5400,
+    var gatewayProgressDetail: String = "normal",
+
     // Advanced
     var useCache: Boolean = true,
     var cacheDir: String = "",

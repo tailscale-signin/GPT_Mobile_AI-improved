@@ -188,7 +188,9 @@ class OllamaTimeoutResilienceTest {
         )
 
         val turn = ConversationTurn(
-            userMessage = MessageV2(id = 1, chatId = 1, content = "Hello", createdAt = 0L)
+            userMessage = MessageV2(id = 1, chatId = 1, content = "Hello", platformType = null, createdAt = 0L),
+            assistantMessage = null,
+            isCurrentTurn = true
         )
         val session = adapter.openSession(listOf(turn), platform)
         val events = session.streamRound(emptyList(), emptyList()).toList()

@@ -86,6 +86,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
+import dev.chungjungsoo.gptmobile.util.AnimationUtil
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -876,17 +877,24 @@ private fun AssistantAnswerContent(
             }
         }
     }
-    textItems.forEach { (index, item) ->
+    val totalSegments = textItems.size
+    textItems.forEachIndexed { segmentIndex, (index, item) ->
         val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
         val isLastTextItem = index == textItems.lastOrNull()?.first
         val display = parsed.response + if (isLoading && isLastTextItem) "●" else ""
         if (display.isNotBlank() || (isLoading && isLastTextItem)) {
+            val staggeredModifier = AnimationUtil.StaggeredFadeInModifier(
+                index = segmentIndex,
+                totalSegments = totalSegments
+            )
             ChatMarkdown(
                 content = display,
                 contentIdentity = "$contentIdentity:text:$index",
                 highlightSentence = highlightSentence,
                 highlightProgress = highlightProgress,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier
+                    .then(staggeredModifier)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
     }

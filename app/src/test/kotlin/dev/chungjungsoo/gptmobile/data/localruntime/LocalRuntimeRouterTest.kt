@@ -38,7 +38,7 @@ class LocalRuntimeRouterTest {
     @Test
     fun loadEngine_whenQnnSelected_delegatesToQnnRuntime() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        val spec = LocalEngineSpec(modelPath = "/path/to/model.bin")
+        val spec = testEngineSpec()
 
         router.loadEngine(spec)
 
@@ -49,7 +49,7 @@ class LocalRuntimeRouterTest {
     @Test
     fun loadEngine_whenLiteRtSelected_delegatesToLiteRtRuntime() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.LITERT_LM
-        val spec = LocalEngineSpec(modelPath = "/path/to/model.bin")
+        val spec = testEngineSpec()
 
         router.loadEngine(spec)
 
@@ -61,7 +61,7 @@ class LocalRuntimeRouterTest {
     fun loadEngine_whenQnnFails_fallsBackToLiteRtRuntime() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
         qnnRuntime.failLoadEngineIf = { _ -> RuntimeException("QNN native load error") }
-        val spec = LocalEngineSpec(modelPath = "/path/to/model.bin")
+        val spec = testEngineSpec()
 
         router.loadEngine(spec)
 
@@ -74,9 +74,9 @@ class LocalRuntimeRouterTest {
     fun createConversationAndSendMessage_afterFallback_delegatesToLiteRtRuntime() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
         qnnRuntime.failLoadEngineIf = { _ -> RuntimeException("QNN load error") }
-        val spec = LocalEngineSpec(modelPath = "/path/to/model.bin")
+        val spec = testEngineSpec()
         router.loadEngine(spec)
-        router.createConversation(LocalConversationConfig())
+        router.createConversation(testConversationConfig())
 
         val events = router.sendMessage("Fallback test", emptyList()).toList()
 
@@ -90,9 +90,9 @@ class LocalRuntimeRouterTest {
     @Test
     fun sendMessage_routesToActiveConversationRuntime() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        val spec = LocalEngineSpec(modelPath = "/path/to/model.bin")
+        val spec = testEngineSpec()
         router.loadEngine(spec)
-        router.createConversation(LocalConversationConfig())
+        router.createConversation(testConversationConfig())
 
         val events = router.sendMessage("Hello NPU", emptyList()).toList()
 
@@ -129,13 +129,25 @@ class LocalRuntimeRouterTest {
     fun hasOpenConversation_reflectsAnyRuntimeWithOpenConversation() = runTest {
         assertFalse(router.hasOpenConversation())
 
-        qnnRuntime.createConversation(LocalConversationConfig())
+        qnnRuntime.createConversation(testConversationConfig())
         assertTrue(router.hasOpenConversation())
 
         qnnRuntime.closeConversation()
-        liteRtRuntime.createConversation(LocalConversationConfig())
+        liteRtRuntime.createConversation(testConversationConfig())
         assertTrue(router.hasOpenConversation())
     }
+
+    private fun testEngineSpec() = LocalEngineSpec(
+        modelPath = "/path/to/model.bin",
+        accelerator = "test",
+        maxTokens = 512
+    )
+
+    private fun testConversationConfig() = LocalConversationConfig(
+        sampler = LocalSamplerConfig(topK = 40, topP = 0.95f, temperature = 0.8f),
+        systemPrompt = null,
+        initialMessages = emptyList()
+    )
 
     private class FakeRouterSettingRepository : SettingRepository {
         var backend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
@@ -151,6 +163,15 @@ class LocalRuntimeRouterTest {
         override fun observePlatformV2s(): Flow<List<PlatformV2>> = emptyFlow()
         override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = emptyFlow()
         override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()
+        override suspend fun getDebugMode(): Boolean = false
+        override suspend fun updateDebugMode(enabled: Boolean) = Unit
+        override fun observeDebugMode(): Flow<Boolean> = emptyFlow()
+        override suspend fun getFavoriteGroups(): List<String> = emptyList()
+        override suspend fun saveFavoriteGroups(groups: List<String>) = Unit
+        override fun observeFavoriteGroups(): Flow<List<String>> = emptyFlow()
+        override suspend fun getFavoriteMessageGroups(): Map<Int, String> = emptyMap()
+        override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) = Unit
+        override fun observeFavoriteMessageGroups(): Flow<Map<Int, String>> = emptyFlow()
         override suspend fun migrateToPlatformV2() = Unit
         override suspend fun migrateSecrets(): List<SecretMigrationError> = emptyList()
         override suspend fun updatePlatforms(platforms: List<Platform>) = Unit

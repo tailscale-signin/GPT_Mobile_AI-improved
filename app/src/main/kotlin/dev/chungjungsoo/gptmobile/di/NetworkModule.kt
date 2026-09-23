@@ -18,7 +18,7 @@ import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPIImpl
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPIImpl
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
 import javax.inject.Singleton
 
 @Module
@@ -38,7 +38,7 @@ object NetworkModule {
         @ApplicationContext context: Context
     ): NetworkClient {
         val ramGb = getDeviceRamGb(context)
-        return NetworkClient(CIO)
+        return NetworkClient(OkHttp)
     }
 
     @Provides

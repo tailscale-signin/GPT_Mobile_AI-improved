@@ -44,8 +44,15 @@ object LlamaGatewayPreferences {
             .apply()
     }
 
-    fun headers(context: Context, platformUid: String, chatId: Int): Map<String, String> {
-        val settings = load(context, platformUid)
+    fun headers(context: Context, platformUid: String, chatId: Int): Map<String, String> =
+        headers(load(context, platformUid), platformUid, chatId)
+
+    internal fun headers(
+        settings: AdvancedSettings,
+        platformUid: String,
+        chatId: Int,
+        clientVersion: String = BuildConfig.VERSION_NAME
+    ): Map<String, String> {
         if (!settings.gatewayIntegrationEnabled) return emptyMap()
 
         val profile = settings.gatewayPerformanceProfile.takeIf {
@@ -56,7 +63,7 @@ object LlamaGatewayPreferences {
 
         val headers = linkedMapOf(
             "X-Gateway-Client" to "gpt-mobile-android",
-            "X-Gateway-Client-Version" to BuildConfig.VERSION_NAME,
+            "X-Gateway-Client-Version" to clientVersion,
             "X-Gateway-Performance-Profile" to profile,
             "X-Gateway-Affinity-Key" to affinityKey(platformUid, chatId),
             "X-Gateway-Cache-Prompt" to settings.gatewayCachePrompt.toString(),

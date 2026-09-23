@@ -5,7 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
-import dev.chungjungsoo.gptmobile.data.dto.ThemeMode
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
@@ -142,6 +142,16 @@ private class BackupFakePlatformV2Dao(
         return persisted.id.toLong()
     }
 
+    override suspend fun updateFavorite(platformId: Int, isFavorite: Boolean) {
+        val index = platforms.indexOfFirst { it.id == platformId }
+        if (index >= 0) platforms[index] = platforms[index].copy(isFavorite = isFavorite)
+    }
+
+    override suspend fun updateLabels(platformId: Int, labels: String?) {
+        val index = platforms.indexOfFirst { it.id == platformId }
+        if (index >= 0) platforms[index] = platforms[index].copy(labels = labels)
+    }
+
     override suspend fun editPlatform(platform: PlatformV2) {
         val index = platforms.indexOfFirst { it.id == platform.id }
         if (index >= 0) platforms[index] = platform
@@ -156,7 +166,9 @@ private class BackupFakePlatformV2Dao(
 
 private class BackupFakeChatPlatformModelV2Dao : ChatPlatformModelV2Dao {
     override suspend fun getByChatId(chatId: Int): List<ChatPlatformModelV2> = emptyList()
+    override suspend fun getChatPlatformModels(): List<ChatPlatformModelV2> = emptyList()
     override suspend fun upsertAll(vararg models: ChatPlatformModelV2) = Unit
+    override suspend fun upsertChatPlatformModel(model: ChatPlatformModelV2) = Unit
     override suspend fun deleteByChatId(chatId: Int) = Unit
     override suspend fun deleteByPlatformUid(platformUid: String) = Unit
 }

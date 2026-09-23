@@ -31,6 +31,8 @@ import dev.chungjungsoo.gptmobile.presentation.common.SetupNavGraph
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeSettingProvider
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private var lastOAuthCallback: String? = null
     private var lastOAuthLaunchUri: String? = null
     private var lastOAuthLaunchTime: Long = 0L
+    private val pendingDeepLinkEvents = MutableSharedFlow<Intent>(replay = 1)
 
     @Volatile
     private var keepSplashOnScreen = true
@@ -76,6 +79,7 @@ class MainActivity : ComponentActivity() {
                         )
                         LaunchedEffect(navController) {
                             navController.checkForExistingSettings()
+                            navController.observeNotificationDeepLinks()
                             keepSplashOnScreen = false
                         }
                     }
@@ -83,12 +87,49 @@ class MainActivity : ComponentActivity() {
             }
         }
         dispatchOAuthIntent(intent)
+        handleNotificationIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         dispatchOAuthIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        if (intent == null) return
+        val hasChatRoom = intent.hasExtra(EXTRA_CHAT_ROOM_ID) || intent.hasExtra("conversation_id")
+        if (hasChatRoom) {
+            pendingDeepLinkEvents.tryEmit(intent)
+        }
+    }
+
+    private fun NavHostController.observeNotificationDeepLinks() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                pendingDeepLinkEvents.collectLatest { intent ->
+                    val chatRoomId = when {
+                        intent.hasExtra(EXTRA_CHAT_ROOM_ID) -> intent.getIntExtra(EXTRA_CHAT_ROOM_ID, 0)
+                        intent.hasExtra("conversation_id") -> intent.getStringExtra("conversation_id")?.toIntOrNull() ?: 0
+                        else -> 0
+                    }
+                    val targetMessageId = when {
+                        intent.hasExtra(EXTRA_TARGET_MESSAGE_ID) -> intent.getIntExtra(EXTRA_TARGET_MESSAGE_ID, -1)
+                        intent.hasExtra("message_id") -> intent.getStringExtra("message_id")?.toIntOrNull() ?: -1
+                        else -> -1
+                    }
+
+                    if (chatRoomId > 0) {
+                        val targetSuffix = if (targetMessageId > 0) "&targetMessageId=$targetMessageId" else ""
+                        val route = "chat_room/$chatRoomId?enabled=$targetSuffix"
+                        navigate(route) {
+                            launchSingleTop = true
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun launchOAuth(authorizationUri: String) {
@@ -147,6 +188,8 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        const val EXTRA_CHAT_ROOM_ID = "chatRoomId"
+        const val EXTRA_TARGET_MESSAGE_ID = "targetMessageId"
         private const val OAUTH_LAUNCH_DEBOUNCE_MS = 1000L
     }
 }

@@ -39,6 +39,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.llama.LlamaGatewayPreferences
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -85,7 +86,14 @@ class ChatRepositoryImpl(
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
-    private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder)
+    private val openAICompatibleAdapter = OpenAICompatibleAdapter(
+        openAIAPI = openAIAPI,
+        groqAPI = groqAPI,
+        attachmentEncoder = providerAttachmentEncoder,
+        llamaGatewayHeadersProvider = { platform, chatId ->
+            LlamaGatewayPreferences.headers(context, platform.uid, chatId)
+        }
+    )
     private val anthropicMessagesAdapter = AnthropicMessagesAdapter(anthropicAPI, providerAttachmentEncoder)
     private val geminiAdapter = GeminiAdapter(googleAPI, providerAttachmentEncoder)
     private val liteRtLmAdapter = LiteRtLmAdapter(

@@ -71,7 +71,10 @@ class AgentRunForegroundService : Service() {
                         ActiveRunSummary(
                             runId = it.runId,
                             profileUid = it.profileUid,
-                            phase = it.phase
+                            phase = it.phase,
+                            gatewayStage = it.gatewayStage,
+                            gatewayMessage = it.gatewayMessage,
+                            gatewayCheckpoint = it.gatewayCheckpoint
                         )
                     }
                     val active = runs.isNotEmpty()
@@ -154,7 +157,7 @@ class AgentRunForegroundService : Service() {
         lastNotificationText = contentText
         lastNotificationUpdateTime = now
 
-        val notification = buildNotification(contentText)
+        val notification = buildNotification(contentText, activeRuns)
         if (!isForeground) {
             ServiceCompat.startForeground(
                 this,
@@ -169,7 +172,7 @@ class AgentRunForegroundService : Service() {
         }
     }
 
-    private fun buildNotification(contentText: String): Notification {
+    private fun buildNotification(contentText: String, activeRuns: List<ActiveAgentRun>): Notification {
         // Use the new fancy AI notification icon
         val openApp = buildOpenAppPendingIntent(1, lastActiveChatId)
 
@@ -183,17 +186,38 @@ class AgentRunForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_ai_notification) // NEW: Fancy AI notification icon
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_ai_notification)
             .setContentTitle(getString(R.string.agent_notification_title))
             .setContentText(contentText)
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setProgress(0, 0, true)
             .addAction(0, getString(R.string.cancel_agent_runs), cancelRuns)
-            .build()
+
+        val run = activeRuns.singleOrNull()
+        val gatewayProgress = run?.let(::resolveGatewayProgressPercent)
+
+        if (Build.VERSION.SDK_INT >= 36 && run != null) {
+            val progressStyle = NotificationCompat.ProgressStyle()
+                .addProgressSegment(NotificationCompat.ProgressStyle.Segment(20))
+                .addProgressSegment(NotificationCompat.ProgressStyle.Segment(20))
+                .addProgressSegment(NotificationCompat.ProgressStyle.Segment(20))
+                .addProgressSegment(NotificationCompat.ProgressStyle.Segment(20))
+                .addProgressSegment(NotificationCompat.ProgressStyle.Segment(20))
+
+            if (gatewayProgress != null) {
+                progressStyle.setProgress(gatewayProgress)
+            } else {
+                progressStyle.setProgressIndeterminate(true)
+            }
+            builder.setStyle(progressStyle)
+        } else {
+            builder.setProgress(0, 0, true)
+        }
+
+        return builder.build()
     }
 
     private fun showCompletionNotification() {
@@ -239,7 +263,7 @@ class AgentRunForegroundService : Service() {
     }
 
     private fun buildCompletionNotification(title: String, chatId: Int?): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_ai_notification) // NEW: Fancy AI notification icon
+        .setSmallIcon(R.drawable.ic_ai_notification)
         .setContentTitle(title)
         .setContentText(getString(R.string.agent_completion_notification_text))
         .setContentIntent(buildOpenAppPendingIntent(2, chatId))
@@ -252,7 +276,7 @@ class AgentRunForegroundService : Service() {
         val openAppIntent = Intent().setClass(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (chatId != null && chatId > 0) {
-                putExtra("chatRoomId", chatId)
+                putExtra(MainActivity.EXTRA_CHAT_ROOM_ID, chatId)
             }
         }
         return PendingIntent.getActivity(
@@ -305,13 +329,20 @@ class AgentRunForegroundService : Service() {
 private data class ActiveRunSummary(
     val runId: String,
     val profileUid: String,
-    val phase: LocalInferencePhase?
+    val phase: LocalInferencePhase?,
+    val gatewayStage: String?,
+    val gatewayMessage: String?,
+    val gatewayCheckpoint: Int?
 )
 
 internal fun resolveNotificationContentText(context: Context, activeRuns: List<ActiveAgentRun>): String {
     val count = activeRuns.size.coerceAtLeast(1)
     if (activeRuns.size == 1) {
         val singleRun = activeRuns.first()
+        singleRun.gatewayMessage?.takeIf { it.isNotBlank() }?.let { return it.take(120) }
+        singleRun.gatewayStage?.takeIf { it.isNotBlank() }?.let {
+            return it.replace('_', ' ').replaceFirstChar(Char::uppercase)
+        }
         when (singleRun.phase) {
             LocalInferencePhase.PREFILL -> return context.getString(R.string.agent_run_phase_prefill)
             LocalInferencePhase.GENERATING -> return context.getString(R.string.agent_run_phase_generating)
@@ -319,6 +350,20 @@ internal fun resolveNotificationContentText(context: Context, activeRuns: List<A
         }
     }
     return context.resources.getQuantityString(R.plurals.agent_runs_active, count, count)
+}
+
+internal fun resolveGatewayProgressPercent(run: ActiveAgentRun): Int? {
+    val stage = run.gatewayStage?.lowercase()?.replace('-', '_') ?: return null
+    return when {
+        stage.contains("complete") -> 100
+        stage.contains("final") || stage.contains("synth") -> 90
+        stage.contains("verify") || stage.contains("test") || stage.contains("review") -> 75
+        stage.contains("tool") || stage.contains("research") || stage.contains("prefetch") -> 55
+        stage.contains("model") || stage.contains("reason") || stage.contains("generat") -> 35
+        stage.contains("memory") || stage.contains("context") || stage.contains("plan") || stage.contains("preflight") -> 20
+        stage.contains("start") || stage.contains("resum") -> 5
+        else -> null
+    }
 }
 
 internal fun shouldNotifyAgentRunsCompleted(

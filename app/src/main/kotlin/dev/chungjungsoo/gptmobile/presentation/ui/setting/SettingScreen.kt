@@ -47,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
@@ -106,35 +108,47 @@ fun SettingScreen(
     val context = LocalContext.current
 
     var selectedExportOptions by remember { mutableStateOf(GranularBackupOptions()) }
+    var pendingBackupPassphrase by remember { mutableStateOf<String?>(null) }
 
     val exportConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
-        uri?.let { settingViewModel.exportConfigurationToFile(it, options = selectedExportOptions) }
+        uri?.let {
+            settingViewModel.exportConfigurationToFile(
+                uri = it,
+                passphrase = pendingBackupPassphrase,
+                options = selectedExportOptions
+            )
+        }
+        pendingBackupPassphrase = null
     }
 
     val restoreConfigLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { settingViewModel.restoreConfigurationFromFile(it) }
+        uri?.let { settingViewModel.restoreConfigurationFromFile(it, pendingBackupPassphrase) }
+        pendingBackupPassphrase = null
     }
 
     val exportFavoritesLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
-        uri?.let { settingViewModel.exportFavoritesToFile(it) }
+        uri?.let { settingViewModel.exportFavoritesToFile(it, pendingBackupPassphrase) }
+        pendingBackupPassphrase = null
     }
 
     val restoreFavoritesLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { settingViewModel.restoreFavoritesFromFile(it) }
+        uri?.let { settingViewModel.restoreFavoritesFromFile(it, pendingBackupPassphrase) }
+        pendingBackupPassphrase = null
     }
 
     val exportDatabaseLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
-        uri?.let { settingViewModel.exportDatabaseToFile(it) }
+        uri?.let { settingViewModel.exportDatabaseToFile(it, pendingBackupPassphrase) }
+        pendingBackupPassphrase = null
     }
 
     var pendingRestoreDatabaseUri by remember { mutableStateOf<Uri?>(null) }
@@ -535,28 +549,34 @@ fun SettingScreen(
         BackupRestoreOptionsDialog(
             backupStatus = backupStatus,
             onDismiss = settingViewModel::closeBackupRestoreDialog,
-            onExportConfig = { options ->
+            onExportConfig = { options, passphrase ->
                 selectedExportOptions = options
+                pendingBackupPassphrase = passphrase
                 settingViewModel.closeBackupRestoreDialog()
                 exportConfigLauncher.launch("gpt_mobile_config_${System.currentTimeMillis()}.enc")
             },
-            onRestoreConfig = {
+            onRestoreConfig = { passphrase ->
+                pendingBackupPassphrase = passphrase
                 settingViewModel.closeBackupRestoreDialog()
                 restoreConfigLauncher.launch(arrayOf("*/*"))
             },
-            onExportFavorites = {
+            onExportFavorites = { passphrase ->
+                pendingBackupPassphrase = passphrase
                 settingViewModel.closeBackupRestoreDialog()
                 exportFavoritesLauncher.launch("gpt_mobile_favorites_${System.currentTimeMillis()}.enc")
             },
-            onRestoreFavorites = {
+            onRestoreFavorites = { passphrase ->
+                pendingBackupPassphrase = passphrase
                 settingViewModel.closeBackupRestoreDialog()
                 restoreFavoritesLauncher.launch(arrayOf("*/*"))
             },
-            onExportDatabase = {
+            onExportDatabase = { passphrase ->
+                pendingBackupPassphrase = passphrase
                 settingViewModel.closeBackupRestoreDialog()
                 exportDatabaseLauncher.launch("gpt_mobile_database_${System.currentTimeMillis()}.enc")
             },
-            onRestoreDatabase = {
+            onRestoreDatabase = { passphrase ->
+                pendingBackupPassphrase = passphrase
                 settingViewModel.closeBackupRestoreDialog()
                 confirmRestoreDatabaseLauncher.launch(arrayOf("*/*"))
             }
@@ -567,19 +587,28 @@ fun SettingScreen(
         AlertDialog(
             title = { Text(stringResource(R.string.restore_database_dialog_title)) },
             text = { Text(stringResource(R.string.restore_database_dialog_description)) },
-            onDismissRequest = { pendingRestoreDatabaseUri = null },
+            onDismissRequest = {
+                pendingRestoreDatabaseUri = null
+                pendingBackupPassphrase = null
+            },
             confirmButton = {
                 Button(
                     onClick = {
-                        settingViewModel.restoreDatabaseFromFile(restoreUri)
+                        settingViewModel.restoreDatabaseFromFile(restoreUri, pendingBackupPassphrase)
                         pendingRestoreDatabaseUri = null
+                        pendingBackupPassphrase = null
                     }
                 ) {
                     Text(stringResource(R.string.confirm))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRestoreDatabaseUri = null }) {
+                TextButton(
+                    onClick = {
+                        pendingRestoreDatabaseUri = null
+                        pendingBackupPassphrase = null
+                    }
+                ) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -591,17 +620,23 @@ fun SettingScreen(
 fun BackupRestoreOptionsDialog(
     backupStatus: BackupStatus = BackupStatus(),
     onDismiss: () -> Unit,
-    onExportConfig: (GranularBackupOptions) -> Unit,
-    onRestoreConfig: () -> Unit,
-    onExportFavorites: () -> Unit,
-    onRestoreFavorites: () -> Unit,
-    onExportDatabase: () -> Unit,
-    onRestoreDatabase: () -> Unit
+    onExportConfig: (GranularBackupOptions, String) -> Unit,
+    onRestoreConfig: (String?) -> Unit,
+    onExportFavorites: (String) -> Unit,
+    onRestoreFavorites: (String?) -> Unit,
+    onExportDatabase: (String) -> Unit,
+    onRestoreDatabase: (String?) -> Unit
 ) {
     var includeFavorites by remember { mutableStateOf(true) }
     var includePlatforms by remember { mutableStateOf(true) }
     var includeTools by remember { mutableStateOf(true) }
     var includeUiPreferences by remember { mutableStateOf(true) }
+    var backupPassphrase by remember { mutableStateOf("") }
+    var confirmPassphrase by remember { mutableStateOf("") }
+    val isSecurePassphrase = backupPassphrase.length >= 8
+    val passphrasesMatch = backupPassphrase == confirmPassphrase
+    val canExport = isSecurePassphrase && passphrasesMatch
+    val restorePassphrase = backupPassphrase.takeIf { it.isNotBlank() }
 
     AlertDialog(
         title = {
@@ -655,6 +690,54 @@ fun BackupRestoreOptionsDialog(
                         }
                     }
                 }
+
+                Text(
+                    text = "Backup encryption",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "New backups require a passphrase of at least 8 characters. Keep it safe: it cannot be recovered by the app. Leave it blank only when restoring a legacy backup created before v0.9.7.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = backupPassphrase,
+                    onValueChange = { backupPassphrase = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Backup passphrase") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = confirmPassphrase,
+                    onValueChange = { confirmPassphrase = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Confirm passphrase for export") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    isError = confirmPassphrase.isNotEmpty() && !passphrasesMatch
+                )
+                if (backupPassphrase.isNotEmpty() && !isSecurePassphrase) {
+                    Text(
+                        text = "Use at least 8 characters for new backups.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else if (confirmPassphrase.isNotEmpty() && !passphrasesMatch) {
+                    Text(
+                        text = "Passphrases do not match.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Granular Configuration Backup Section
                 Text(
@@ -717,6 +800,7 @@ fun BackupRestoreOptionsDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = canExport,
                     onClick = {
                         val options = GranularBackupOptions(
                             includeFavorites = includeFavorites,
@@ -724,7 +808,7 @@ fun BackupRestoreOptionsDialog(
                             includeTools = includeTools,
                             includeUiPreferences = includeUiPreferences
                         )
-                        onExportConfig(options)
+                        onExportConfig(options, backupPassphrase)
                     }
                 ) {
                     Text(stringResource(R.string.export_configuration))
@@ -732,7 +816,7 @@ fun BackupRestoreOptionsDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onRestoreConfig
+                    onClick = { onRestoreConfig(restorePassphrase) }
                 ) {
                     Text(stringResource(R.string.restore_configuration))
                 }
@@ -757,14 +841,15 @@ fun BackupRestoreOptionsDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onExportFavorites
+                    enabled = canExport,
+                    onClick = { onExportFavorites(backupPassphrase) }
                 ) {
                     Text("Export Favorites (.enc)")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onRestoreFavorites
+                    onClick = { onRestoreFavorites(restorePassphrase) }
                 ) {
                     Text("Restore Favorites (.enc)")
                 }
@@ -789,14 +874,15 @@ fun BackupRestoreOptionsDialog(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onExportDatabase
+                    enabled = canExport,
+                    onClick = { onExportDatabase(backupPassphrase) }
                 ) {
                     Text(stringResource(R.string.export_database))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = onRestoreDatabase
+                    onClick = { onRestoreDatabase(restorePassphrase) }
                 ) {
                     Text(stringResource(R.string.restore_database))
                 }

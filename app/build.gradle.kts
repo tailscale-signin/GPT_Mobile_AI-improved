@@ -96,9 +96,12 @@ extensions.configure<ApplicationExtension> {
         buildConfig = true
     }
     testOptions {
-        unitTests.all {
-            it.testLogging {
-                events("passed", "skipped", "failed", "standardError")
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.testLogging {
+                    events("passed", "skipped", "failed", "standardError")
+                }
             }
         }
     }
@@ -171,9 +174,12 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     val debugTree = fileTree("$buildDir/tmp/kotlin-classes/debug") {
         exclude(fileFilter)
     }
-    val mainSrc = "$projectDir/src/main/java"
+    val mainSources = files(
+        "$projectDir/src/main/java",
+        "$projectDir/src/main/kotlin"
+    )
 
-    sourceDirectories.setFrom(files(mainSrc))
+    sourceDirectories.setFrom(mainSources)
     classDirectories.setFrom(files(debugTree))
     executionData.setFrom(fileTree(buildDir) {
         include(
@@ -214,10 +220,6 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.work.runtime.ktx)
-
-    // Location & Play Services
-    implementation(libs.play.services.location)
-    implementation(libs.kotlinx.coroutines.play.services)
 
     // Ktor
     implementation(libs.ktor.content.negotiation)
@@ -269,6 +271,11 @@ dependencies {
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockk)
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

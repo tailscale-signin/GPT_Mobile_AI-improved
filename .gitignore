@@ -35,3 +35,10 @@ app/build/**
 # MCP Server
 mcp/node_modules/
 node_modules/
+
+# Release signing
+*.jks
+*.keystore
+*.p12
+*.pfx
+release.keystore

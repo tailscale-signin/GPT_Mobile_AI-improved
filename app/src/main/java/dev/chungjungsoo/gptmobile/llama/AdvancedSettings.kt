@@ -82,6 +82,10 @@ data class AdvancedSettings(
     var gatewayReasoningEffort: String = "low",
     var gatewayToolOptimization: Boolean = true,
     var gatewayToolSurfaceLimit: Int = 12,
+    var gatewayStableToolSurface: Boolean = true,
+    var gatewayIntermediateMaxTokens: Int = 1024,
+    var gatewaySoftSynthesisRound: Int = 24,
+    var gatewayResultCharLimit: Int = 24000,
 
     // Logging & Debug
     var logLevel: String = "info",

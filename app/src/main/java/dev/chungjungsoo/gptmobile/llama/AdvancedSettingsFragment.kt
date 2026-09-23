@@ -96,6 +96,18 @@ class AdvancedSettingsFragment : Fragment() {
             binding.cbUseMlock.isChecked = settings.useMlock
             binding.cbUseVllm.isChecked = settings.useVllm
             binding.cbUseFlashAttn.isChecked = settings.useFlashAttn
+            binding.etGatewayPerformanceProfile.setText(settings.gatewayPerformanceProfile)
+            binding.cbGatewaySlotPinning.isChecked = settings.gatewaySlotPinning
+            binding.etGatewaySlotCount.setText(settings.gatewaySlotCount.toString())
+            binding.cbGatewayCachePrompt.isChecked = settings.gatewayCachePrompt
+            binding.etGatewayCacheReuse.setText(settings.gatewayCacheReuse.toString())
+            binding.etGatewayReasoningEffort.setText(settings.gatewayReasoningEffort)
+            binding.cbGatewayToolOptimization.isChecked = settings.gatewayToolOptimization
+            binding.etGatewayToolSurfaceLimit.setText(settings.gatewayToolSurfaceLimit.toString())
+            binding.cbGatewayStableToolSurface.isChecked = settings.gatewayStableToolSurface
+            binding.etGatewayIntermediateMaxTokens.setText(settings.gatewayIntermediateMaxTokens.toString())
+            binding.etGatewaySoftSynthesisRound.setText(settings.gatewaySoftSynthesisRound.toString())
+            binding.etGatewayResultCharLimit.setText(settings.gatewayResultCharLimit.toString())
             binding.etLogLevel.setText(settings.logLevel)
             binding.cbVerbose.isChecked = settings.verbose
             binding.cbShowMetrics.isChecked = settings.showMetrics
@@ -199,6 +211,18 @@ class AdvancedSettingsFragment : Fragment() {
                 useMlock = binding.cbUseMlock.isChecked
                 useVllm = binding.cbUseVllm.isChecked
                 useFlashAttn = binding.cbUseFlashAttn.isChecked
+                gatewayPerformanceProfile = binding.etGatewayPerformanceProfile.text.toString().trim().lowercase().ifBlank { "turbo" }
+                gatewaySlotPinning = binding.cbGatewaySlotPinning.isChecked
+                gatewaySlotCount = binding.etGatewaySlotCount.text.toString().toIntOrNull() ?: 1
+                gatewayCachePrompt = binding.cbGatewayCachePrompt.isChecked
+                gatewayCacheReuse = binding.etGatewayCacheReuse.text.toString().toIntOrNull() ?: 512
+                gatewayReasoningEffort = binding.etGatewayReasoningEffort.text.toString().trim().lowercase().ifBlank { "low" }
+                gatewayToolOptimization = binding.cbGatewayToolOptimization.isChecked
+                gatewayToolSurfaceLimit = binding.etGatewayToolSurfaceLimit.text.toString().toIntOrNull() ?: 12
+                gatewayStableToolSurface = binding.cbGatewayStableToolSurface.isChecked
+                gatewayIntermediateMaxTokens = binding.etGatewayIntermediateMaxTokens.text.toString().toIntOrNull() ?: 1024
+                gatewaySoftSynthesisRound = binding.etGatewaySoftSynthesisRound.text.toString().toIntOrNull() ?: 24
+                gatewayResultCharLimit = binding.etGatewayResultCharLimit.text.toString().toIntOrNull() ?: 24000
                 logLevel = binding.etLogLevel.text.toString()
                 verbose = binding.cbVerbose.isChecked
                 showMetrics = binding.cbShowMetrics.isChecked

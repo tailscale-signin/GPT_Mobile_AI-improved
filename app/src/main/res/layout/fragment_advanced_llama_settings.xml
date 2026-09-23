@@ -835,6 +835,149 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Card: Gateway v10 Performance -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Gateway / Llama Performance"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Request-level tuning for Gateway v10. Turbo is optimized for low-latency local llama.cpp tool loops."
+                    android:textSize="13sp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="Performance Profile (eco/balanced/turbo/quality)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewayPerformanceProfile"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/cbGatewaySlotPinning"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Pin Gateway jobs to a stable llama.cpp slot" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="llama.cpp Slot Count">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewaySlotCount"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/cbGatewayCachePrompt"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Enable llama.cpp prompt cache" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Cache Reuse Tokens (n_cache_reuse)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewayCacheReuse"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Reasoning Effort (auto/low/medium/high)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewayReasoningEffort"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/cbGatewayToolOptimization"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Optimize and cap model-facing MCP tool surface" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Maximum Model-facing Tools">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewayToolSurfaceLimit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/cbGatewayStableToolSurface"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Keep tool schema stable across rounds for KV-cache reuse" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Intermediate Tool-round Token Budget">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewayIntermediateMaxTokens"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Soft Synthesis Round">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewaySoftSynthesisRound"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Maximum Tool Result Characters">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etGatewayResultCharLimit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Card: Logging & Debug -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"

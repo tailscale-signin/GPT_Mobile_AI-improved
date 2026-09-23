@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.backup
 
 import android.content.Context
 import android.net.Uri
+import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
@@ -363,22 +364,25 @@ class AppBackupManager @Inject constructor(
                 AppBackupCrypto.decryptDatabase(inStream, passphrase)
             } ?: throw IllegalStateException("Could not read database backup.")
 
-            // Overwrite and replace database cleanly
-            val existingChats = chatRoomV2Dao.getChatRooms()
-            if (existingChats.isNotEmpty()) {
-                chatRoomV2Dao.deleteChatRooms(*existingChats.toTypedArray())
-            }
+            // Replace relational chat data atomically. Foreign-key or disk failures
+            // roll back the whole restore instead of leaving a half-empty database.
+            database.withTransaction {
+                val existingChats = chatRoomV2Dao.getChatRooms()
+                if (existingChats.isNotEmpty()) {
+                    chatRoomV2Dao.deleteChatRooms(*existingChats.toTypedArray())
+                }
 
-            payload.chatRooms.forEach { room ->
-                chatRoomV2Dao.addChatRoom(room)
-            }
+                payload.chatRooms.forEach { room ->
+                    chatRoomV2Dao.addChatRoom(room)
+                }
 
-            if (payload.messages.isNotEmpty()) {
-                messageV2Dao.addMessages(*payload.messages.toTypedArray())
-            }
+                if (payload.messages.isNotEmpty()) {
+                    messageV2Dao.addMessages(*payload.messages.toTypedArray())
+                }
 
-            if (payload.chatPlatformModels.isNotEmpty()) {
-                chatPlatformModelV2Dao.upsertAll(*payload.chatPlatformModels.toTypedArray())
+                if (payload.chatPlatformModels.isNotEmpty()) {
+                    chatPlatformModelV2Dao.upsertAll(*payload.chatPlatformModels.toTypedArray())
+                }
             }
 
             if (payload.favoriteGroups.isNotEmpty()) {

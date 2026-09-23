@@ -41,7 +41,7 @@ class SettingRepositoryImpl @Inject constructor(
     // High-performance thread-safe in-memory cache for resolved PlatformV2 list
     private val platformV2Cache = AtomicReference<List<PlatformV2>?>(null)
 
-    private fun invalidatePlatformCache() {
+    override fun invalidatePlatformCache() {
         platformV2Cache.set(null)
     }
 
@@ -125,16 +125,12 @@ class SettingRepositoryImpl @Inject constructor(
         return resolved
     }
 
-    override fun observePlatformV2s(): Flow<List<PlatformV2>> {
-        return platformV2Dao.observePlatforms().map { list ->
-            list.map { resolvePlatformToken(it) }
-        }
+    override fun observePlatformV2s(): Flow<List<PlatformV2>> = platformV2Dao.observePlatforms().map { list ->
+        list.map { resolvePlatformToken(it) }
     }
 
-    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> {
-        return platformV2Dao.observePlatformByUid(uid).map { platform ->
-            platform?.let { resolvePlatformToken(it) }
-        }
+    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = platformV2Dao.observePlatformByUid(uid).map { platform ->
+        platform?.let { resolvePlatformToken(it) }
     }
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(

@@ -1,54 +1,73 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
-import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
-import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
 
 @Singleton
 class OpenRouterSettingsRepositoryImpl @Inject constructor(
-    private val settingDataSource: SettingDataSource,
-    private val platformV2Dao: PlatformV2Dao
+    private val dataStore: DataStore<Preferences>,
+    private val settingRepository: SettingRepository,
+    private val secretVault: SecretVault
 ) : OpenRouterSettingsRepository {
-
-    private var inMemorySettings = OpenRouterSettings(apiKey = "")
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     override suspend fun loadSettings(): OpenRouterSettings {
-        // Find existing OpenRouter platform from DB if available
-        val openRouterPlatform = platformV2Dao.getPlatforms().firstOrNull {
-            it.compatibleType == ClientType.OPENAI && (
-                it.name.contains("OpenRouter", ignoreCase = true) ||
-                    it.apiUrl.contains("openrouter", ignoreCase = true)
-            )
-        }
-
-        val key = openRouterPlatform?.token ?: inMemorySettings.apiKey
-        val baseUrl = openRouterPlatform?.apiUrl?.takeIf { it.isNotBlank() } ?: inMemorySettings.baseUrl
-
-        return inMemorySettings.copy(
-            apiKey = key,
-            baseUrl = baseUrl
-        )
+        val saved = dataStore.data.first()[SETTINGS]?.let { encoded ->
+            runCatching { json.decodeFromString<OpenRouterSettings>(encoded) }.getOrNull()
+        } ?: OpenRouterSettings(apiKey = "")
+        val platform = findPlatform()
+        val key = platform?.token ?: secretVault.read(SECRET_REF)?.let { bytes ->
+            try {
+                bytes.decodeToString()
+            } finally {
+                bytes.fill(0)
+            }
+        }.orEmpty()
+        return saved.copy(apiKey = key, baseUrl = platform?.apiUrl?.takeIf(String::isNotBlank) ?: saved.baseUrl)
     }
 
     override suspend fun saveSettings(settings: OpenRouterSettings) {
-        inMemorySettings = settings
-        // Update database if matching platform exists
-        val openRouterPlatform = platformV2Dao.getPlatforms().firstOrNull {
-            it.compatibleType == ClientType.OPENAI && (
-                it.name.contains("OpenRouter", ignoreCase = true) ||
-                    it.apiUrl.contains("openrouter", ignoreCase = true)
-            )
+        val platform = findPlatform()
+        if (platform != null) {
+            settingRepository.updatePlatformV2(platform.copy(token = settings.apiKey.takeIf(String::isNotBlank), apiUrl = settings.baseUrl))
+            secretVault.delete(SECRET_REF)
+        } else if (settings.apiKey.isBlank()) {
+            secretVault.delete(SECRET_REF)
+        } else {
+            val bytes = settings.apiKey.encodeToByteArray()
+            try {
+                secretVault.put(SECRET_REF, bytes)
+            } finally {
+                bytes.fill(0)
+            }
         }
+        // The API key stays in the device vault; ordinary preferences are portable.
+        dataStore.edit { it[SETTINGS] = json.encodeToString(settings.copy(apiKey = "")) }
+    }
 
-        if (openRouterPlatform != null) {
-            val updated = openRouterPlatform.copy(
-                token = settings.apiKey.takeIf { it.isNotBlank() },
-                apiUrl = settings.baseUrl
-            )
-            platformV2Dao.editPlatform(updated)
-        }
+    private suspend fun findPlatform(): PlatformV2? = settingRepository.fetchPlatformV2s().firstOrNull {
+        it.compatibleType == ClientType.OPENROUTER ||
+            (
+                it.compatibleType == ClientType.OPENAI &&
+                    (it.name.contains("OpenRouter", ignoreCase = true) || it.apiUrl.contains("openrouter", ignoreCase = true))
+                )
+    }
+
+    private companion object {
+        val SETTINGS = stringPreferencesKey("openrouter_batch_settings")
+        const val SECRET_REF = "openrouter-settings"
     }
 }

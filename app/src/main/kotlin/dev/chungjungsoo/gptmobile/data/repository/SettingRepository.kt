@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import kotlinx.coroutines.flow.Flow
 
 interface SettingRepository {
+    fun invalidatePlatformCache() {}
+
     suspend fun fetchPlatforms(): List<Platform>
     suspend fun fetchPlatformV2s(): List<PlatformV2>
     fun observePlatformV2s(): Flow<List<PlatformV2>>

@@ -17,14 +17,10 @@ import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
-import java.io.File
-import java.io.InputStream
-import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 data class BackupRestoreResult(
@@ -50,7 +46,10 @@ class AppBackupManager @Inject constructor(
     private val settingRepository: SettingRepository,
     private val secretVault: SecretVault
 ) {
-    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        prettyPrint = true
+    }
 
     /**
      * Exports favorites and their custom groups as an encrypted backup file.
@@ -418,7 +417,7 @@ class AppBackupManager @Inject constructor(
         )
     }
 
-    private fun recordBackupMetadata() {
+    internal fun recordBackupMetadata() {
         val prefs = context.getSharedPreferences(PREFS_BACKUP_METADATA, Context.MODE_PRIVATE)
         val count = prefs.getInt(KEY_BACKUP_COUNT, 0) + 1
         prefs.edit()

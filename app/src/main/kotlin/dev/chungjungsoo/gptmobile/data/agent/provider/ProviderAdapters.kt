@@ -217,8 +217,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                 }
 
                 // If on Llama AI platform and a gateway job ID was captured from previous rounds, propagate it
-                val llamaGatewayHeaders = if (isLlama && capturedGatewayJobId != null) {
-                    mapOf("X-Gateway-Job-ID" to capturedGatewayJobId!!)
+                val llamaGatewayHeaders = if (isLlama) {
+                    attachmentEncoder.gatewayPerformanceHeaders() +
+                        if (capturedGatewayJobId != null) {
+                            mapOf("X-Gateway-Job-ID" to capturedGatewayJobId!!)
+                        } else {
+                            emptyMap()
+                        }
                 } else {
                     emptyMap()
                 }

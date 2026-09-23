@@ -86,7 +86,7 @@ data class AdvancedSettings(
     var gatewayCachePrompt: Boolean = true,
     var gatewayCacheReuse: Int = 512,
     var gatewaySlotAffinity: Boolean = true,
-    var gatewaySlotCount: Int = 1,
+    var gatewaySlotCount: Int = 0,
     var gatewayMaxRounds: Int = 160,
     var gatewayAdaptiveReasoning: Boolean = true,
     var gatewayThinkingBudget: Int = -1,

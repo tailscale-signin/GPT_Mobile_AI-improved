@@ -31,7 +31,7 @@ class ReadFileSliceToolTest {
 
         val result = tool.execute("call-1", args)
         assertFalse(result.isError)
-        val text = (result.content as ToolResultContent.Text).value
+        val text = (result.content as ToolResultContent.Text).text
         val expected = """
             Lines 2-4 of 5:
             2: line 2
@@ -52,7 +52,7 @@ class ReadFileSliceToolTest {
 
         val result = tool.execute("call-2", args)
         assertFalse(result.isError)
-        val text = (result.content as ToolResultContent.Text).value
+        val text = (result.content as ToolResultContent.Text).text
         val expected = """
             Lines 2-3 of 3:
             2: beta
@@ -72,7 +72,7 @@ class ReadFileSliceToolTest {
 
         val result = tool.execute("call-3", args)
         assertFalse(result.isError)
-        val text = (result.content as ToolResultContent.Text).value
+        val text = (result.content as ToolResultContent.Text).text
         val expected = """
             Line 1 of 3:
             1: first
@@ -90,7 +90,7 @@ class ReadFileSliceToolTest {
 
         val result = tool.execute("call-4", args)
         assertTrue(result.isError)
-        val text = (result.content as ToolResultContent.Text).value
+        val text = (result.content as ToolResultContent.Text).text
         assertEquals("Provided content cannot be empty.", text)
     }
 
@@ -104,7 +104,7 @@ class ReadFileSliceToolTest {
 
         val result = tool.execute("call-5", args)
         assertTrue(result.isError)
-        val text = (result.content as ToolResultContent.Text).value
+        val text = (result.content as ToolResultContent.Text).text
         assertEquals("start_line must be >= 1, received: 0", text)
     }
 
@@ -118,7 +118,7 @@ class ReadFileSliceToolTest {
 
         val result = tool.execute("call-6", args)
         assertTrue(result.isError)
-        val text = (result.content as ToolResultContent.Text).value
+        val text = (result.content as ToolResultContent.Text).text
         assertEquals("start_line cannot be greater than end_line (2 > 1).", text)
     }
 
@@ -132,7 +132,7 @@ class ReadFileSliceToolTest {
 
         val result = tool.execute("call-7", args)
         assertTrue(result.isError)
-        val text = (result.content as ToolResultContent.Text).value
+        val text = (result.content as ToolResultContent.Text).text
         assertEquals("start_line (5) exceeds total line count (2).", text)
     }
 }

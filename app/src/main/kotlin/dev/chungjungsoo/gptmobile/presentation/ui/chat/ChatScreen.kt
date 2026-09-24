@@ -375,6 +375,7 @@ fun ChatScreen(
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             debugMode = debugMode,
                             combinedMode = chatRoom.conversationMode == ConversationMode.COMBINED,
+                            smartSuggestionsEnabled = featureSettings.smartSuggestions,
                             isUserTyping = chatViewModel.question.text.isNotEmpty(),
                             targetMessageId = chatViewModel.targetMessageId,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
@@ -551,6 +552,7 @@ private fun ChatMessagePair(
     maximumOpponentChatBubbleWidth: Dp,
     debugMode: Boolean = false,
     combinedMode: Boolean = false,
+    smartSuggestionsEnabled: Boolean = true,
     isUserTyping: Boolean = false,
     targetMessageId: Int = -1,
     onEditQuestion: (MessageV2) -> Unit,
@@ -796,8 +798,8 @@ private fun ChatMessagePair(
                     onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
                     isUserTyping = isUserTyping,
                     isLastMessage = isActiveMessage,
-                    onContinueClick = onContinueClick,
-                    onActionClick = onActionClick
+                    onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled },
+                    onActionClick = onActionClick.takeIf { smartSuggestionsEnabled }
                 )
 
                 if (isCombinedConversation && combinedSources.isNotEmpty()) {

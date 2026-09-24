@@ -20,6 +20,11 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.localSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
+import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
+import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
+import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
+import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.OllamaServerRepository
@@ -45,6 +50,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -78,6 +84,11 @@ class PlatformSettingViewModel @Inject constructor(
             connections.firstOrNull { it.uid == uid }
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val reusableLabels: StateFlow<List<ProfileLabel>> =
+        settingRepository.observePlatformV2s()
+            .map { profiles -> collectReusableProfileLabels(profiles.map { it.labels }) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     val catalogEntries = _catalogEntries.asStateFlow()
@@ -399,6 +410,40 @@ class PlatformSettingViewModel @Inject constructor(
         closeTopPDialog()
     }
 
+    fun updateCreativity(value: Float) {
+        val platform = platformState.value ?: return
+        val sampling = SamplingCreativity.toSampling(value)
+        updatePlatform(
+            platform.copy(
+                temperature = sampling.temperature,
+                topP = sampling.topP
+            )
+        )
+    }
+
+    fun saveProfileLabels(labels: List<ProfileLabel>) {
+        val current = platformState.value ?: return
+        viewModelScope.launch {
+            val desiredColors = labels.associateBy(ProfileLabel::key)
+            val profiles = settingRepository.fetchPlatformV2s()
+            profiles.forEach { profile ->
+                val linked = parseProfileLabels(profile.labels)
+                val recolored = linked.map { existing ->
+                    desiredColors[existing.key]
+                        ?.colorHex
+                        ?.let { existing.copy(colorHex = it) }
+                        ?: existing
+                }
+                val targetLabels = if (profile.uid == current.uid) labels else recolored
+                val encoded = encodeProfileLabels(targetLabels)
+                if (encoded != profile.labels) {
+                    settingRepository.updatePlatformV2(profile.copy(labels = encoded))
+                }
+            }
+            closeLabelsDialog()
+        }
+    }
+
     fun updateTopK(topK: Int?) {
         val platform = platformState.value ?: return
         updatePlatform(platform.copy(topK = topK))
@@ -478,6 +523,14 @@ class PlatformSettingViewModel @Inject constructor(
 
     fun closePlatformNameDialog() {
         _dialogState.update { it.copy(isPlatformNameDialogOpen = false) }
+    }
+
+    fun openLabelsDialog() {
+        _dialogState.update { it.copy(isLabelsDialogOpen = true) }
+    }
+
+    fun closeLabelsDialog() {
+        _dialogState.update { it.copy(isLabelsDialogOpen = false) }
     }
 
     fun openApiUrlDialog() {
@@ -754,6 +807,7 @@ class PlatformSettingViewModel @Inject constructor(
 
     data class DialogState(
         val isPlatformNameDialogOpen: Boolean = false,
+        val isLabelsDialogOpen: Boolean = false,
         val isApiUrlDialogOpen: Boolean = false,
         val isApiTokenDialogOpen: Boolean = false,
         val isApiModelDialogOpen: Boolean = false,

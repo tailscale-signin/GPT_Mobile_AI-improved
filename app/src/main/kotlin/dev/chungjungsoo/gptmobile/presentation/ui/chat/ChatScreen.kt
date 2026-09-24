@@ -128,6 +128,7 @@ import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -340,6 +341,7 @@ fun ChatScreen(
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             debugMode = debugMode,
                             combinedMode = chatRoom.conversationMode == ConversationMode.COMBINED,
+                            isUserTyping = chatViewModel.question.text.isNotEmpty(),
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                             onCopyText = { copiedText ->
@@ -514,6 +516,7 @@ private fun ChatMessagePair(
     maximumOpponentChatBubbleWidth: Dp,
     debugMode: Boolean = false,
     combinedMode: Boolean = false,
+    isUserTyping: Boolean = false,
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -735,6 +738,8 @@ private fun ChatMessagePair(
                     onFavoriteLongPress = onFavoriteLongPress,
                     onShowPreviousRevision = { onShowPreviousRevision(messageIndex, displayPlatformIndex) },
                     onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
+                    isUserTyping = isUserTyping,
+                    isLastMessage = isActiveMessage,
                     onContinueClick = onContinueClick,
                     onActionClick = onActionClick
                 )
@@ -873,11 +878,15 @@ internal fun ChatBottomAutoScroller(
     LaunchedEffect(listState, isEnabled) {
         if (!isEnabled) return@LaunchedEffect
 
-        snapshotFlow { listState.layoutInfo }
-            .collectLatest { layoutInfo ->
-                val latestItemIndex = layoutInfo.totalItemsCount - 1
-                if (latestItemIndex >= 0 && listState.canScrollForward) {
-                    listState.requestScrollToItem(latestItemIndex)
+        // Only react when a new list item is added. Streaming tokens change the height of
+        // the current response many times per second; force-scrolling on every layout pass
+        // causes visible jumping and fights the user's own scrolling.
+        snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .distinctUntilChanged()
+            .collectLatest { totalItems ->
+                val latestItemIndex = totalItems - 1
+                if (latestItemIndex >= 0 && listState.canScrollForward && !listState.isScrollInProgress) {
+                    listState.animateScrollToItem(latestItemIndex)
                 }
             }
     }

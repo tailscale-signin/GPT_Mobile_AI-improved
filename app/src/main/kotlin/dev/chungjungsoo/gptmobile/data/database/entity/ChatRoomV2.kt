@@ -52,7 +52,10 @@ data class ChatRoomV2(
     val draftUpdatedAt: Long? = null,
 
     @ColumnInfo(name = "is_title_customized", defaultValue = "0")
-    val isTitleCustomized: Boolean = false
+    val isTitleCustomized: Boolean = false,
+
+    @ColumnInfo(name = "is_combined", defaultValue = "0")
+    val isCombined: Boolean = false
 ) : Parcelable
 
 class StringListConverter {

@@ -13,6 +13,13 @@ data class AppFeatureSettings(
     val deviceLocationTool: Boolean = true,
     val providerModelDiscovery: Boolean = true,
     val diagnosticsCollection: Boolean = false,
+    val debugShowToolCalls: Boolean = true,
+    val debugShowTotalTokens: Boolean = true,
+    val debugShowTokenSpeed: Boolean = true,
+    val debugShowTimeToFirstToken: Boolean = true,
+    val debugShowRuntime: Boolean = true,
+    val debugShowHardware: Boolean = true,
+    val debugShowNetwork: Boolean = false,
     val openRouterBatchProcessing: Boolean = false,
     val qnnAutomaticFallback: Boolean = true
 ) {
@@ -29,6 +36,26 @@ data class AppFeatureSettings(
         AppFeature.OPENROUTER_BATCH -> copy(openRouterBatchProcessing = enabled)
         AppFeature.QNN_AUTO_FALLBACK -> copy(qnnAutomaticFallback = enabled)
     }
+
+    fun withDebugMetric(metric: DebugMetric, enabled: Boolean): AppFeatureSettings = when (metric) {
+        DebugMetric.TOOL_CALLS -> copy(debugShowToolCalls = enabled)
+        DebugMetric.TOTAL_TOKENS -> copy(debugShowTotalTokens = enabled)
+        DebugMetric.TOKEN_SPEED -> copy(debugShowTokenSpeed = enabled)
+        DebugMetric.TIME_TO_FIRST_TOKEN -> copy(debugShowTimeToFirstToken = enabled)
+        DebugMetric.RUNTIME -> copy(debugShowRuntime = enabled)
+        DebugMetric.HARDWARE -> copy(debugShowHardware = enabled)
+        DebugMetric.NETWORK -> copy(debugShowNetwork = enabled)
+    }
+}
+
+enum class DebugMetric(val title: String, val description: String) {
+    TOOL_CALLS("Tool calls", "Show tool names, durations, status and failures."),
+    TOTAL_TOKENS("Token totals", "Show prompt, completion and combined token counts."),
+    TOKEN_SPEED("Token speed", "Show live and average tokens generated per second."),
+    TIME_TO_FIRST_TOKEN("Time to first token", "Show latency before the first generated token."),
+    RUNTIME("Runtime", "Show active provider, model, local backend and fallback state."),
+    HARDWARE("Hardware", "Show memory, thermal and accelerator information."),
+    NETWORK("Network", "Show provider latency and connection diagnostics.")
 }
 
 enum class AppFeature(

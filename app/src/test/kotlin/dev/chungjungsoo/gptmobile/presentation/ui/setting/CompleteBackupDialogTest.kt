@@ -12,7 +12,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import org.junit.Assert.assertEquals
@@ -38,8 +37,6 @@ class CompleteBackupDialogTest {
                     CompleteBackupDialog(
                         state.value,
                         BackupStatus(),
-                        onPasswordChange = { state.value = state.value.copy(password = it) },
-                        onConfirmationChange = { state.value = state.value.copy(confirmation = it) },
                         onBackup = { backups++ },
                         onRestore = { restores++ },
                         onDismiss = {}
@@ -48,13 +45,9 @@ class CompleteBackupDialogTest {
             }
         }
         scroll("backup_all")
-        compose.onNodeWithTag("backup_all").assertIsNotEnabled()
-        scroll("backup_password")
-        compose.onNodeWithTag("backup_password").performTextInput("test-password")
-        scroll("backup_confirmation")
-        compose.onNodeWithTag("backup_confirmation").performTextInput("test-password")
-        scroll("backup_all")
         compose.onNodeWithTag("backup_all").assertIsDisplayed().performClick()
+        scroll("backup_contents")
+        compose.onNodeWithTag("backup_contents").assertIsDisplayed().performClick()
         scroll("restore_all")
         compose.onNodeWithTag("restore_all").assertIsDisplayed().performClick()
         assertEquals(1, backups)
@@ -67,10 +60,8 @@ class CompleteBackupDialogTest {
         compose.setContent {
             MaterialTheme {
                 CompleteBackupDialog(
-                    SettingViewModelV2.BackupUiState(password = "test-password", confirmation = "test-password", isBusy = true, isWorking = true),
+                    SettingViewModelV2.BackupUiState(isBusy = true, isWorking = true),
                     BackupStatus(),
-                    {},
-                    {},
                     {},
                     {},
                     {}

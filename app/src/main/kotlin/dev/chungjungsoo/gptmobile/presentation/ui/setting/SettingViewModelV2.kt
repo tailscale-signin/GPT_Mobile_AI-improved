@@ -43,7 +43,6 @@ class SettingViewModelV2 @Inject constructor(
 
     private val _backupUi = MutableStateFlow(BackupUiState())
     val backupUi: StateFlow<BackupUiState> = _backupUi.asStateFlow()
-    private var pendingPassword: String? = null
 
     private val _dialogState = MutableStateFlow(DialogState())
     val dialogState: StateFlow<DialogState> = _dialogState.asStateFlow()
@@ -155,32 +154,40 @@ class SettingViewModelV2 @Inject constructor(
 
     fun closeBackupRestoreDialog() {
         if (_backupUi.value.isBusy) return
-        pendingPassword = null
         _backupUi.value = BackupUiState()
         _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
     }
 
-    fun updateBackupPassword(value: String) {
-        if (!_backupUi.value.isBusy) _backupUi.update { it.copy(password = value, message = null) }
+    fun updateLegacyBackupPassword(value: String) {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update { it.copy(legacyPassword = value, message = null, isError = false) }
+        }
     }
 
-    fun updateBackupConfirmation(value: String) {
-        if (!_backupUi.value.isBusy) _backupUi.update { it.copy(confirmation = value, message = null) }
-    }
-
-    // Keep picker state in the ViewModel so rotation does not lose the password.
-    // Never persist passwords in a SavedStateHandle or a Bundle.
     fun prepareBackupPicker(restoring: Boolean): Boolean {
         val state = _backupUi.value
-        if (state.isBusy || (!restoring && !state.canBackup)) return false
-        pendingPassword = state.password
-        _backupUi.update { it.copy(isBusy = true, message = null, isError = false) }
+        if (state.isBusy || state.isWorking) return false
+        _backupUi.update {
+            it.copy(
+                isBusy = true,
+                message = null,
+                isError = false,
+                restoreUri = null,
+                requiresLegacyPassword = false
+            )
+        }
         return true
     }
 
     fun cancelBackupPicker() {
-        pendingPassword = null
-        _backupUi.update { it.copy(isBusy = false, isWorking = false, restoreUri = null) }
+        _backupUi.update {
+            it.copy(
+                isBusy = false,
+                isWorking = false,
+                restoreUri = null,
+                requiresLegacyPassword = false
+            )
+        }
     }
 
     fun backupDestinationSelected(uri: Uri?) {
@@ -188,26 +195,52 @@ class SettingViewModelV2 @Inject constructor(
             cancelBackupPicker()
             return
         }
-        val password = pendingPassword ?: run {
-            cancelBackupPicker()
-            return
-        }
-        runBackupOperation { completeBackupManager.backup(uri, password) }
+        runBackupOperation { completeBackupManager.backup(uri) }
     }
 
     fun restoreSourceSelected(uri: Uri?) {
-        if (uri == null || pendingPassword == null) {
+        if (uri == null) {
             cancelBackupPicker()
             return
         }
-        _backupUi.update { it.copy(restoreUri = uri) }
+        viewModelScope.launch {
+            try {
+                val requiresPassword = completeBackupManager.requiresPassword(uri)
+                _backupUi.update {
+                    it.copy(
+                        isBusy = false,
+                        restoreUri = uri,
+                        requiresLegacyPassword = requiresPassword,
+                        message = null,
+                        isError = false
+                    )
+                }
+            } catch (error: Exception) {
+                _backupUi.update {
+                    it.copy(
+                        isBusy = false,
+                        restoreUri = null,
+                        message = error.localizedMessage ?: "Could not inspect the backup file.",
+                        isError = true
+                    )
+                }
+            }
+        }
     }
 
     fun confirmRestore() {
-        val uri = _backupUi.value.restoreUri ?: return
-        val password = pendingPassword ?: return
-        _backupUi.update { it.copy(restoreUri = null) }
-        runBackupOperation { completeBackupManager.restore(uri, password) }
+        val state = _backupUi.value
+        val uri = state.restoreUri ?: return
+        if (state.requiresLegacyPassword && state.legacyPassword.isBlank()) {
+            _backupUi.update {
+                it.copy(message = "Enter the password used by this older encrypted backup.", isError = true)
+            }
+            return
+        }
+        _backupUi.update { it.copy(restoreUri = null, isBusy = true) }
+        runBackupOperation {
+            completeBackupManager.restore(uri, state.legacyPassword.takeIf(String::isNotBlank))
+        }
     }
 
     private fun runBackupOperation(operation: suspend () -> BackupRestoreResult) {
@@ -220,8 +253,7 @@ class SettingViewModelV2 @Inject constructor(
                     it.copy(
                         message = result.message,
                         isError = !result.success,
-                        password = if (result.success) "" else it.password,
-                        confirmation = if (result.success) "" else it.confirmation
+                        legacyPassword = if (result.success) "" else it.legacyPassword
                     )
                 }
                 refreshBackupStatus()
@@ -240,15 +272,15 @@ class SettingViewModelV2 @Inject constructor(
     }
 
     data class BackupUiState(
-        val password: String = "",
-        val confirmation: String = "",
+        val legacyPassword: String = "",
+        val requiresLegacyPassword: Boolean = false,
         val isBusy: Boolean = false,
         val isWorking: Boolean = false,
         val restoreUri: Uri? = null,
         val message: String? = null,
         val isError: Boolean = false
     ) {
-        val canBackup: Boolean get() = !isBusy && password.length >= 8 && password == confirmation
+        val canBackup: Boolean get() = !isBusy && !isWorking
     }
 
     sealed interface UiEvent {

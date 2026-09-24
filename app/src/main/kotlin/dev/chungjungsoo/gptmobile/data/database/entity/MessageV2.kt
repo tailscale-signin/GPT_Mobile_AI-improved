@@ -67,7 +67,18 @@ data class MessageV2(
     val isFavorite: Boolean = false,
 
     @ColumnInfo(name = "timestamp", defaultValue = "0")
-    val timestamp: Long = 0
+    val timestamp: Long = 0,
+
+    @ColumnInfo(name = "combined_sources", defaultValue = "'[]'")
+    val combinedSources: List<CombinedModelResponse> = emptyList()
+)
+
+@Serializable
+data class CombinedModelResponse(
+    val platformUid: String,
+    val platformName: String,
+    val modelName: String = "",
+    val content: String
 )
 
 @Serializable

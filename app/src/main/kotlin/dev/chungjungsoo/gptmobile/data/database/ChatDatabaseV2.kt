@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineListConv
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatAttachmentListConverter
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponseListConverter
 import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity
@@ -40,14 +41,15 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         LocalModel::class,
         OpenRouterBatchCacheEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = false
 )
 @TypeConverters(
     StringListConverter::class,
     ChatAttachmentListConverter::class,
     AssistantRevisionListConverter::class,
-    AssistantTimelineListConverter::class
+    AssistantTimelineListConverter::class,
+    CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
     abstract fun platformDao(): PlatformV2Dao

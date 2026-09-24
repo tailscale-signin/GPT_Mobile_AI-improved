@@ -4,6 +4,9 @@ import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevisionListConverter
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponseListConverter
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
@@ -86,7 +89,7 @@ class ChatDatabaseV2MigrationsTest {
         }
 
         assertEquals(10, ChatDatabaseV2Migrations.ALL_MIGRATIONS.first().startVersion)
-        assertEquals(22, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
+        assertEquals(24, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
 
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
@@ -123,6 +126,12 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(21, ChatDatabaseV2Migrations.MIGRATION_21_22.startVersion)
         assertEquals(22, ChatDatabaseV2Migrations.MIGRATION_21_22.endVersion)
+
+        assertEquals(22, ChatDatabaseV2Migrations.MIGRATION_22_23.startVersion)
+        assertEquals(23, ChatDatabaseV2Migrations.MIGRATION_22_23.endVersion)
+
+        assertEquals(23, ChatDatabaseV2Migrations.MIGRATION_23_24.startVersion)
+        assertEquals(24, ChatDatabaseV2Migrations.MIGRATION_23_24.endVersion)
     }
 
     @Test
@@ -183,6 +192,34 @@ class ChatDatabaseV2MigrationsTest {
         assertNull(platform.topK)
         assertNull(platform.maxTokens)
         assertNull(platform.accelerator)
+    }
+
+    @Test
+    fun `combined conversation defaults to standard and normalizes values`() {
+        val chatRoom = ChatRoomV2(title = "Test Room")
+        assertEquals(ConversationMode.STANDARD, chatRoom.conversationMode)
+        assertEquals(ConversationMode.COMBINED, ConversationMode.normalize("combined"))
+        assertEquals(ConversationMode.STANDARD, ConversationMode.normalize("anything-else"))
+    }
+
+    @Test
+    fun `combined response converter preserves model identity and content`() {
+        val converter = CombinedModelResponseListConverter()
+        val encoded = converter.fromList(
+            listOf(
+                CombinedModelResponse(
+                    platformUid = "openai",
+                    platformName = "OpenAI",
+                    modelName = "gpt",
+                    content = "Candidate answer"
+                )
+            )
+        )
+        val decoded = converter.fromString(encoded).single()
+        assertEquals("openai", decoded.platformUid)
+        assertEquals("OpenAI", decoded.platformName)
+        assertEquals("gpt", decoded.modelName)
+        assertEquals("Candidate answer", decoded.content)
     }
 
     @Test

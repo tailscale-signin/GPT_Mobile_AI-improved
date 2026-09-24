@@ -16,7 +16,7 @@ import kotlinx.coroutines.delay
  */
 object AnimationUtil {
 
-    const val DEFAULT_DURATION_MS: Long = 1000L
+    const val DEFAULT_DURATION_MS: Long = 1500L
     const val SEGMENT_DELAY_MS: Long = 50L
 
     /**

@@ -10,6 +10,11 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -85,6 +90,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -107,6 +113,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -331,6 +339,7 @@ fun ChatScreen(
                             maximumUserChatBubbleWidth = maximumUserChatBubbleWidth,
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             debugMode = debugMode,
+                            combinedMode = chatRoom.conversationMode == ConversationMode.COMBINED,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                             onCopyText = { copiedText ->
@@ -504,6 +513,7 @@ private fun ChatMessagePair(
     maximumUserChatBubbleWidth: Dp,
     maximumOpponentChatBubbleWidth: Dp,
     debugMode: Boolean = false,
+    combinedMode: Boolean = false,
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -517,25 +527,71 @@ private fun ChatMessagePair(
     onContinueClick: () -> Unit = {},
     onActionClick: (String) -> Unit = {}
 ) {
-    val selectedAssistantMessage = assistantMessages.getOrNull(platformIndexState)
-    val assistantContent = selectedAssistantMessage?.effectiveContent() ?: ""
-    val assistantThoughts = selectedAssistantMessage?.effectiveThoughts() ?: ""
-    val assistantTimeline = selectedAssistantMessage?.effectiveTimeline().orEmpty()
+    val isCombinedConversation = combinedMode && enabledPlatformsInChat.size > 1
+    val displayPlatformIndex = if (isCombinedConversation) 0 else platformIndexState
+    val selectedAssistantMessage = assistantMessages.getOrNull(displayPlatformIndex)
+    val synthesisStarted =
+        isCombinedConversation &&
+            selectedAssistantMessage?.currentRunId?.startsWith(ChatViewModel.COMBINED_RUN_PREFIX) == true
+    val assistantContent = when {
+        selectedAssistantMessage == null -> ""
+        isCombinedConversation && !synthesisStarted -> ""
+        else -> selectedAssistantMessage.effectiveContent()
+    }
+    val assistantThoughts = if (isCombinedConversation && !synthesisStarted) {
+        ""
+    } else {
+        selectedAssistantMessage?.effectiveThoughts().orEmpty()
+    }
+    val assistantTimeline = if (isCombinedConversation && !synthesisStarted) {
+        emptyList()
+    } else {
+        selectedAssistantMessage?.effectiveTimeline().orEmpty()
+    }
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
-    val activeAgentRun = selectedRunId?.let(activeAgentRuns::get)
+    val activeAgentRun = if (isCombinedConversation) {
+        assistantMessages
+            .take(enabledPlatformsInChat.size)
+            .asSequence()
+            .mapNotNull { it.currentRunId?.let(activeAgentRuns::get) }
+            .firstOrNull()
+    } else {
+        selectedRunId?.let(activeAgentRuns::get)
+    }
     val toolEvents = selectedRunId?.let(toolEventsByRun::get).orEmpty()
-    val canShowPreviousRevision = selectedAssistantMessage?.let { assistantMessage ->
+    val canShowPreviousRevision = !isCombinedConversation && (selectedAssistantMessage?.let { assistantMessage ->
         assistantMessage.revisions.isNotEmpty() &&
             assistantMessage.activeRevisionIndex < assistantMessage.revisions.lastIndex
-    } ?: false
-    val canShowNextRevision = selectedAssistantMessage?.let { assistantMessage ->
+    } ?: false)
+    val canShowNextRevision = !isCombinedConversation && (selectedAssistantMessage?.let { assistantMessage ->
         assistantMessage.revisions.isNotEmpty() &&
             assistantMessage.activeRevisionIndex != ACTIVE_REVISION_LATEST
-    } ?: false
-    val selectedPlatformUid = enabledPlatformsInChat.getOrElse(platformIndexState) { "" }
-    val isCurrentPlatformLoading =
-        loadingStates.getOrElse(platformIndexState) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
+    } ?: false)
+    val selectedPlatformUid = enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
+    val isCurrentPlatformLoading = if (isCombinedConversation) {
+        loadingStates.any { it == ChatViewModel.LoadingState.Loading }
+    } else {
+        loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } ==
+            ChatViewModel.LoadingState.Loading
+    }
+    val combinedSources = if (isCombinedConversation) {
+        selectedAssistantMessage?.combinedSources
+            ?.takeIf { it.isNotEmpty() }
+            ?: assistantMessages.take(enabledPlatformsInChat.size).mapIndexedNotNull { index, response ->
+                val content = response.effectiveContent().trim()
+                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapIndexedNotNull null
+                val uid = enabledPlatformsInChat.getOrNull(index) ?: return@mapIndexedNotNull null
+                CombinedModelResponse(
+                    platformUid = uid,
+                    platformName = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
+                    modelName = enabledPlatformLookup[uid]?.model.orEmpty(),
+                    content = content
+                )
+            }
+    } else {
+        emptyList()
+    }
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -579,7 +635,23 @@ private fun ChatMessagePair(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
-                    if (enabledPlatformsInChat.size > 1) {
+                    if (isCombinedConversation) {
+                        Surface(
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    R.string.combined_models_label,
+                                    enabledPlatformsInChat.size
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    } else if (enabledPlatformsInChat.size > 1) {
                         Row(
                             modifier = Modifier
                                 .padding(horizontal = 8.dp)
@@ -598,11 +670,23 @@ private fun ChatMessagePair(
                         }
                     }
                 }
-                if (isActiveMessage && isCurrentPlatformLoading && activeAgentRun != null) {
-                    AgentFlightRecorderCard(
-                        run = activeAgentRun,
-                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
-                    )
+                if (isActiveMessage && isCurrentPlatformLoading) {
+                    if (debugMode && activeAgentRun != null) {
+                        AgentFlightRecorderCard(
+                            run = activeAgentRun,
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
+                        )
+                    } else if (!debugMode) {
+                        CompactAgentActivityBar(
+                            run = activeAgentRun,
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
+                            overrideText = if (isCombinedConversation && synthesisStarted) {
+                                stringResource(R.string.combined_synthesizing)
+                            } else {
+                                null
+                            }
+                        )
+                    }
                 }
                 OpponentChatBubble(
                     modifier = Modifier
@@ -610,7 +694,7 @@ private fun ChatMessagePair(
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle,
-                    canRetry = canUseChat && isActiveMessage && !isCurrentPlatformLoading,
+                    canRetry = !isCombinedConversation && canUseChat && isActiveMessage && !isCurrentPlatformLoading,
                     isLoading = isActiveMessage && isCurrentPlatformLoading,
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
@@ -644,15 +728,103 @@ private fun ChatMessagePair(
                     canShowNextRevision = canShowNextRevision,
                     onCopyClick = { onCopyText(assistantContent) },
                     onSelectClick = { onSelectText(assistantContent) },
-                    onRetryClick = { onRetry(messageIndex, platformIndexState) },
-                    onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
+                    onRetryClick = { onRetry(messageIndex, displayPlatformIndex) },
+                    onEditClick = { onEditAssistant(messageIndex, displayPlatformIndex) },
                     onFavoriteClick = onFavoriteClick,
                     onFavoriteLongPress = onFavoriteLongPress,
-                    onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
-                    onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) },
+                    onShowPreviousRevision = { onShowPreviousRevision(messageIndex, displayPlatformIndex) },
+                    onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
                     onContinueClick = onContinueClick,
                     onActionClick = onActionClick
                 )
+
+                if (isCombinedConversation && combinedSources.isNotEmpty()) {
+                    CombinedResponsesPanel(
+                        responses = combinedSources,
+                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CombinedResponsesPanel(
+    responses: List<CombinedModelResponse>,
+    modifier: Modifier = Modifier
+) {
+    var expanded by rememberSaveable(responses.map { it.platformUid }) { mutableStateOf(false) }
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { expanded = !expanded },
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.82f)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = stringResource(R.string.combined_model_responses),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = responses.size.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 6.dp)
+                )
+                Icon(
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .graphicsLayer {
+                            rotationZ = if (expanded) 180f else 0f
+                        }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(260)) + expandVertically(),
+                exit = fadeOut(tween(180)) + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    responses.forEach { response ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.62f)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = buildString {
+                                        append(response.platformName)
+                                        if (response.modelName.isNotBlank()) {
+                                            append(" · ")
+                                            append(response.modelName)
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                ChatMarkdown(
+                                    content = response.content,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

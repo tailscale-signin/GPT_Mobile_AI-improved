@@ -20,6 +20,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.LEGACY_ORDER_NOTICE
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
@@ -52,6 +54,7 @@ import dev.chungjungsoo.gptmobile.util.ChatToolUtils
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.determineLocalNetworkAccessRequirement
+import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
 import java.util.UUID
 import javax.inject.Inject
@@ -110,13 +113,21 @@ class ChatViewModel @Inject constructor(
 
     private val chatRoomId: Int = checkNotNull(savedStateHandle["chatRoomId"])
     private val enabledPlatformString: String = checkNotNull(savedStateHandle["enabledPlatforms"])
-    val enabledPlatformsInChat = enabledPlatformString.split(',')
+    private val requestedConversationMode = ConversationMode.normalize(savedStateHandle["conversationMode"])
+    val enabledPlatformsInChat = enabledPlatformString.split(',').filter(String::isNotBlank)
     val targetMessageId: Int = savedStateHandle.get<Int>("targetMessageId") ?: -1
 
     private val currentTimeStamp: Long
         get() = System.currentTimeMillis() / 1000
 
-    private val _chatRoom = MutableStateFlow(ChatRoomV2(id = -1, title = "", enabledPlatform = enabledPlatformsInChat))
+    private val _chatRoom = MutableStateFlow(
+        ChatRoomV2(
+            id = -1,
+            title = "",
+            enabledPlatform = enabledPlatformsInChat,
+            conversationMode = requestedConversationMode
+        )
+    )
     val chatRoom = _chatRoom.asStateFlow()
 
     private val _isChatTitleDialogOpen = MutableStateFlow(false)
@@ -215,6 +226,7 @@ class ChatViewModel @Inject constructor(
 
     private var pendingQuestionText: String? = null
     private var hasTriggeredAiTitle = false
+    private val combinedSynthesisTurns = mutableSetOf<Int>()
 
     init {
         fetchChatRoom()
@@ -1096,7 +1108,12 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             _chatRoom.update {
                 if (chatRoomId == 0) {
-                    ChatRoomV2(id = 0, title = "Untitled Chat", enabledPlatform = enabledPlatformsInChat)
+                    ChatRoomV2(
+                        id = 0,
+                        title = "Untitled Chat",
+                        enabledPlatform = enabledPlatformsInChat,
+                        conversationMode = requestedConversationMode
+                    )
                 } else {
                     chatRepository.fetchChatListV2().first { it.id == chatRoomId }
                 }
@@ -1202,8 +1219,159 @@ class ChatViewModel @Inject constructor(
                         )
                     }
                     syncLoadingStates(runsById)
+                    maybeStartCombinedSynthesis(runsById)
                     checkAndGenerateAiTitle(runsById)
                 }
+        }
+    }
+
+    private fun maybeStartCombinedSynthesis(runsById: Map<String, AgentRun>) {
+        val room = _chatRoom.value
+        if (room.conversationMode != ConversationMode.COMBINED || enabledPlatformsInChat.size < 2) return
+
+        val grouped = _groupedMessages.value
+        grouped.userMessages.indices.forEach { turnIndex ->
+            if (turnIndex in combinedSynthesisTurns) return@forEach
+            val row = grouped.assistantMessages.getOrNull(turnIndex)
+                ?.take(enabledPlatformsInChat.size)
+                .orEmpty()
+            if (row.size < 2) return@forEach
+
+            val runIds = row.map { it.currentRunId }
+            if (runIds.any { it.isNullOrBlank() }) return@forEach
+            if (runIds.any { it?.startsWith(COMBINED_RUN_PREFIX) == true }) {
+                combinedSynthesisTurns += turnIndex
+                return@forEach
+            }
+
+            val statuses = runIds.map { runId -> runsById[runId] ?: return@forEach }
+            if (statuses.any { it.status == AgentRunStatus.QUEUED || it.status == AgentRunStatus.RUNNING }) {
+                return@forEach
+            }
+
+            val sources = row.mapIndexedNotNull { index, message ->
+                val content = message.effectiveContent().trim()
+                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapIndexedNotNull null
+                val uid = enabledPlatformsInChat.getOrNull(index)
+                    ?: message.platformType
+                    ?: return@mapIndexedNotNull null
+                val platform = _platformsInApp.value.firstOrNull { it.uid == uid }
+                CombinedModelResponse(
+                    platformUid = uid,
+                    platformName = platform?.name ?: "AI " + (index + 1),
+                    modelName = _chatPlatformModels.value[uid].orEmpty(),
+                    content = content
+                )
+            }
+            if (sources.isEmpty()) return@forEach
+
+            combinedSynthesisTurns += turnIndex
+            viewModelScope.launch {
+                try {
+                    startCombinedSynthesis(turnIndex, sources)
+                } catch (error: CancellationException) {
+                    combinedSynthesisTurns -= turnIndex
+                    throw error
+                } catch (error: Throwable) {
+                    combinedSynthesisTurns -= turnIndex
+                    _attachmentNotice.update {
+                        error.message?.takeIf(String::isNotBlank)
+                            ?: "Could not combine the model responses."
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun startCombinedSynthesis(
+        turnIndex: Int,
+        sources: List<CombinedModelResponse>
+    ) {
+        val grouped = _groupedMessages.value
+        val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
+        val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.firstOrNull() ?: return
+        if (leadMessage.id <= 0) return
+
+        val leadUid = enabledPlatformsInChat.firstOrNull() ?: return
+        val leadPlatform = _platformsInApp.value
+            .firstOrNull { it.uid == leadUid && it.enabled }
+            ?.let(::resolvePlatformModel)
+            ?: return
+
+        val synthesisRunId = COMBINED_RUN_PREFIX + UUID.randomUUID().toString()
+        val run = AgentRunDraft(
+            runId = synthesisRunId,
+            profileUid = leadPlatform.uid,
+            providerSnapshot = leadPlatform.compatibleType.name,
+            modelSnapshot = leadPlatform.model,
+            createdAt = currentTimeStamp
+        )
+
+        val persisted = chatRepository.persistAgentRetry(
+            PersistAgentRetryRequest(
+                userMessage = userMessage,
+                assistantMessage = leadMessage.copy(combinedSources = sources),
+                run = run
+            )
+        )
+
+        _groupedMessages.update { current ->
+            updateAssistantSlot(current, turnIndex, 0) { persisted.assistantMessage }
+        }
+        _loadingStates.update {
+            List(enabledPlatformsInChat.size) { index ->
+                if (index == 0) LoadingState.Loading else LoadingState.Idle
+            }
+        }
+
+        val prompt = buildCombinedSynthesisPrompt(userMessage.content, sources)
+        val synthesisUserMessage = userMessage.copy(
+            id = 0,
+            content = prompt,
+            attachments = emptyList(),
+            createdAt = currentTimeStamp
+        )
+
+        agentRunCoordinator.start(
+            listOf(
+                AgentRunRequest(
+                    runId = synthesisRunId,
+                    chatId = userMessage.chatId,
+                    assistantMessage = persisted.assistantMessage,
+                    platform = leadPlatform,
+                    userMessages = listOf(synthesisUserMessage),
+                    assistantMessages = listOf(emptyList()),
+                    chatToolConfig = _chatToolConfig.value.copy(allToolsDisabled = true)
+                )
+            )
+        )
+    }
+
+    private fun buildCombinedSynthesisPrompt(
+        originalQuestion: String,
+        sources: List<CombinedModelResponse>
+    ): String = buildString {
+        appendLine("You are the lead AI in Combined Mode.")
+        appendLine("Create the single final response to the user's original request by synthesizing the candidate model responses below.")
+        appendLine("Use the strongest accurate details from all candidates, resolve disagreements carefully, remove duplication, and produce one coherent answer.")
+        appendLine("Do not mention the multi-model process unless the user explicitly asks about it.")
+        appendLine()
+        appendLine("Original user request:")
+        appendLine(originalQuestion)
+        appendLine()
+        sources.forEachIndexed { index, source ->
+            append("Candidate ")
+            append(index + 1)
+            append(" — ")
+            append(source.platformName)
+            if (source.modelName.isNotBlank()) {
+                append(" (")
+                append(source.modelName)
+                append(")")
+            }
+            appendLine(":")
+            appendLine(source.content.take(MAX_COMBINED_SOURCE_CHARS))
+            appendLine()
         }
     }
 
@@ -1211,6 +1379,17 @@ class ChatViewModel @Inject constructor(
         if (hasTriggeredAiTitle) return
         val room = _chatRoom.value
         if (room.id <= 0 || room.isTitleCustomized) return
+        if (room.conversationMode == ConversationMode.COMBINED) {
+            val leadRunId = _groupedMessages.value.assistantMessages
+                .firstOrNull()
+                ?.firstOrNull()
+                ?.currentRunId
+            if (leadRunId?.startsWith(COMBINED_RUN_PREFIX) != true ||
+                runsById[leadRunId]?.status != AgentRunStatus.COMPLETED
+            ) {
+                return
+            }
+        }
 
         val grouped = _groupedMessages.value
         // Only trigger on the first turn
@@ -1312,6 +1491,11 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
+    companion object {
+        internal const val COMBINED_RUN_PREFIX = "combined-synthesis:"
+        private const val MAX_COMBINED_SOURCE_CHARS = 24_000
+    }
+
 }
 
 data class ChatRunNotice(

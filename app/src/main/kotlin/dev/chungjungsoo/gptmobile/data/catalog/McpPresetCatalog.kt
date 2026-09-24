@@ -4,9 +4,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class McpTransportType {
-    SSE,
+    STREAMABLE_HTTP,
     STDIO,
-    WEBSOCKET
+    SSE
 }
 
 @Serializable
@@ -36,7 +36,7 @@ data class McpPreset(
     val description: String,
     val category: McpCategory,
     val commandOrUrl: String,
-    val transportType: McpTransportType = McpTransportType.SSE,
+    val transportType: McpTransportType = McpTransportType.STREAMABLE_HTTP,
     val headers: Map<String, String> = emptyMap(),
     val iconName: String = "extension",
     val author: String = "Community",
@@ -123,8 +123,8 @@ object McpPresetCatalog {
             name = "GitHub",
             description = "Official Model Context Protocol integration for GitHub: inspect repos, review PRs, file issues, and search code.",
             category = McpCategory.DEVELOPMENT,
-            commandOrUrl = "https://api.github.com/mcp",
-            transportType = McpTransportType.SSE,
+            commandOrUrl = "https://api.githubcopilot.com/mcp/",
+            transportType = McpTransportType.STREAMABLE_HTTP,
             iconName = "github",
             author = "GitHub / MCP",
             alias = "github",

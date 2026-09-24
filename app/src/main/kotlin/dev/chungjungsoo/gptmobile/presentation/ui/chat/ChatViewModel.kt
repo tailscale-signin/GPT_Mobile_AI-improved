@@ -1,28 +1,20 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
-import dev.chungjungsoo.gptmobile.data.agent.AgentExecutionException
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.model.AgentRunRequest
 import dev.chungjungsoo.gptmobile.data.agent.model.AgentRunType
-import dev.chungjungsoo.gptmobile.data.agent.model.AgentRunUiNotice
 import dev.chungjungsoo.gptmobile.data.agent.model.NoticeSeverity
-import dev.chungjungsoo.gptmobile.data.agent.model.ReasoningUpdate
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomDao
 import dev.chungjungsoo.gptmobile.data.database.dao.LocalModelDao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageDao
@@ -32,56 +24,28 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.Attachment
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoom
-import dev.chungjungsoo.gptmobile.data.database.entity.ClientType
-import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
-import dev.chungjungsoo.gptmobile.data.database.entity.contentForActiveRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
-import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
-import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
-import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
-import dev.chungjungsoo.gptmobile.data.database.entity.thoughtsForActiveRevision
-import dev.chungjungsoo.gptmobile.data.database.entity.timelineForActiveRevision
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.GroupedMessages
-import dev.chungjungsoo.gptmobile.data.model.NetworkProbeResult
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import dev.chungjungsoo.gptmobile.presentation.ui.common.ExportFormat
-import dev.chungjungsoo.gptmobile.util.formatDate
-import dev.chungjungsoo.gptmobile.util.formatFullDate
-import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
-import java.io.FileOutputStream
 import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -309,8 +273,11 @@ class ChatViewModel @Inject constructor(
 
     private fun isLocalEndpoint(url: String): Boolean {
         val host = runCatching { URI(url).host }.getOrNull() ?: return false
-        return host == "localhost" || host == "127.0.0.1" || host.startsWith("192.168.") ||
-            host.startsWith("10.") || host.startsWith("172.")
+        return host == "localhost" ||
+            host == "127.0.0.1" ||
+            host.startsWith("192.168.") ||
+            host.startsWith("10.") ||
+            host.startsWith("172.")
     }
 
     fun updateChatPlatformIndex(turnIndex: Int, platformIndex: Int) {

@@ -451,6 +451,7 @@
     <string name="combined_synthesizing">Combining model responses…</string>
     <string name="combined_lead_label">Combined · Lead: %1$s</string>
     <string name="combined_response_pending">Waiting for this model…</string>
+    <string name="combined_all_models_failed">No combined answer could be created because all selected models failed.</string>
 
     <string name="select_platform_description">Choose platforms to include in this conversation</string>
     <string name="enable_at_leat_one_platform">Enable at least one platform in Settings</string>

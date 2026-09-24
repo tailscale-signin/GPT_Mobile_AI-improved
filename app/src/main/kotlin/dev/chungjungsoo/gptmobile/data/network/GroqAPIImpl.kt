@@ -34,6 +34,7 @@ class GroqAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<GroqChatCompletionChunk> = flow {
+        var receivedPayload = false
         try {
             val resolvedApiUrl = config.apiUrl.ifBlank { ModelConstants.GROQ_API_URL }
             val endpoint = config.copy(apiUrl = resolvedApiUrl).buildEndpoint("chat/completions")
@@ -68,7 +69,9 @@ class GroqAPIImpl @Inject constructor(
                 }
 
                 if (!request.stream) {
-                    emit(NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(response.body()))
+                    val chunk = NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(response.body())
+                    receivedPayload = true
+                    emit(chunk)
                     return@execute
                 }
 
@@ -80,7 +83,9 @@ class GroqAPIImpl @Inject constructor(
                     if (data == "[DONE]") break
 
                     try {
-                        emit(NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(data))
+                        val chunk = NetworkClient.openAIJson.decodeFromString<GroqChatCompletionChunk>(data)
+                        receivedPayload = true
+                        emit(chunk)
                     } catch (e: Exception) {
                         Log.w("GroqAPI", "Skipping malformed Groq chunk: $data", e)
                     }
@@ -88,6 +93,9 @@ class GroqAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+            if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
+                return@flow
+            }
             val errorMessage = when (e) {
                 is java.net.UnknownHostException -> "Network error: Unable to resolve host."
                 is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."

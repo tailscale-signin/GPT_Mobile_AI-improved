@@ -67,7 +67,7 @@ data class PlatformV2(
     val reasoning: Boolean = false,
 
     @ColumnInfo(name = "timeout")
-    val timeout: Int = 30,
+    val timeout: Int = 300,
 
     @ColumnInfo(name = "max_tool_calls", defaultValue = "2147483647")
     val maxToolCalls: Int = Int.MAX_VALUE,

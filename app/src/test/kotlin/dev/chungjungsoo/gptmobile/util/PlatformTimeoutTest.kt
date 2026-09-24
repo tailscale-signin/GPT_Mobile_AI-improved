@@ -17,6 +17,16 @@ class PlatformTimeoutTest {
     }
 
     @Test
+    fun `streaming timeout raises short values to five minute stability floor`() {
+        val request = HttpRequestBuilder().apply { applyPlatformStreamingTimeout(30) }
+        val config = checkNotNull(request.getCapabilityOrNull(HttpTimeoutCapability))
+
+        assertEquals(300_000L, config.socketTimeoutMillis)
+        assertEquals(60_000L, config.connectTimeoutMillis)
+        assertEquals(HttpTimeoutConfig.INFINITE_TIMEOUT_MS, config.requestTimeoutMillis)
+    }
+
+    @Test
     fun `zero platform timeout disables socket timeout`() {
         assertNull(platformTimeoutSecondsToSocketTimeoutMillis(0))
     }
@@ -33,7 +43,7 @@ class PlatformTimeoutTest {
 
         assertEquals(Int.MAX_VALUE, client.readTimeoutMillis)
         assertEquals(Int.MAX_VALUE, client.writeTimeoutMillis)
-        assertEquals(30_000, client.connectTimeoutMillis)
+        assertEquals(60_000, client.connectTimeoutMillis)
         assertEquals(HttpTimeoutConfig.INFINITE_TIMEOUT_MS, config.requestTimeoutMillis)
     }
 
@@ -44,11 +54,11 @@ class PlatformTimeoutTest {
     }
 
     @Test
-    fun `disabled or negative timeout retains idle detection and unlimited generation time`() {
+    fun `disabled or negative timeout uses five minute idle floor and unlimited generation time`() {
         for (seconds in listOf(0, -1, Int.MIN_VALUE)) {
             val request = HttpRequestBuilder().apply { applyPlatformStreamingTimeout(seconds) }
             val config = checkNotNull(request.getCapabilityOrNull(HttpTimeoutCapability))
-            assertEquals(90_000L, config.socketTimeoutMillis)
+            assertEquals(300_000L, config.socketTimeoutMillis)
             assertEquals(HttpTimeoutConfig.INFINITE_TIMEOUT_MS, config.requestTimeoutMillis)
         }
     }

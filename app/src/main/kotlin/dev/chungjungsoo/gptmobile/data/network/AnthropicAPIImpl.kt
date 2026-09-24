@@ -102,6 +102,7 @@ class AnthropicAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<MessageResponseChunk> = flow {
+        var receivedPayload = false
         try {
             val endpoint = config.buildEndpoint("messages")
 
@@ -142,6 +143,7 @@ class AnthropicAPIImpl @Inject constructor(
 
                     try {
                         val chunk = json.decodeFromString<MessageResponseChunk>(data)
+                        receivedPayload = true
                         emit(chunk)
                     } catch (_: Exception) {
                         // Skip malformed chunks
@@ -150,6 +152,9 @@ class AnthropicAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+            if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
+                return@flow
+            }
             val errorMessage = when (e) {
                 is java.net.UnknownHostException -> "Network error: Unable to resolve host."
                 is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."

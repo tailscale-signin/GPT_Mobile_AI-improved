@@ -60,6 +60,7 @@ fun AiPlatformsScreen(
     onNavigationClick: () -> Unit,
     onNavigateToAddPlatform: () -> Unit,
     onNavigateToOpenRouterSettings: () -> Unit = {},
+    onNavigateToProviderSettings: (String) -> Unit = {},
     onNavigateToPlatformSetting: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -141,10 +142,12 @@ fun AiPlatformsScreen(
                         },
                         onEdit = { platform -> onNavigateToPlatformSetting(platform.uid) },
                         onDelete = { platform -> settingViewModel.openDeleteDialog(platform.id) },
-                        onProviderSettings = if (connection.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER) {
-                            onNavigateToOpenRouterSettings
-                        } else {
-                            null
+                        onProviderSettings = {
+                            if (connection.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER) {
+                                onNavigateToOpenRouterSettings()
+                            } else {
+                                onNavigateToProviderSettings(connection.uid)
+                            }
                         }
                     )
                 }

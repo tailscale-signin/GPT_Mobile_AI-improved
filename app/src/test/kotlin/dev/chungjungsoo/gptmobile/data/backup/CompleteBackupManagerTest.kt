@@ -55,7 +55,7 @@ class CompleteBackupManagerTest {
     private val legacy = mockk<AppBackupManager>(relaxed = true)
     private lateinit var preferences: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>
     private lateinit var manager: CompleteBackupManager
-    private val password = "test-password"
+    private val legacyPassword = "test-password"
 
     @Before
     fun setup() {
@@ -85,7 +85,7 @@ class CompleteBackupManagerTest {
         vault.put("provider", "provider-token".toByteArray())
         vault.put("tool", "tool-token".toByteArray())
         val archive = File(context.cacheDir, "complete.gptbackup")
-        val saved = manager.backup(Uri.fromFile(archive), password)
+        val saved = manager.backup(Uri.fromFile(archive))
         assertTrue(saved.message, saved.success)
         // Simulate changed data and a different attachment location/device.
         database.chatRoomDao().updateTitle(7, "changed", true)
@@ -99,7 +99,7 @@ class CompleteBackupManagerTest {
         vault.put("extra", "extra-token".toByteArray())
         attachment.delete()
         File(context.filesDir, "remove.txt").writeText("newer data")
-        val restored = manager.restore(Uri.fromFile(archive), password)
+        val restored = manager.restore(Uri.fromFile(archive))
         assertTrue(restored.message, restored.success)
         val chat = database.chatRoomDao().getChatRooms().single()
         assertEquals("saved", chat.title)
@@ -137,23 +137,42 @@ class CompleteBackupManagerTest {
     }
 
     @Test
-    fun wrongPasswordAndCredentialWriteFailureLeaveExistingStateIntact() = runBlocking {
+    fun credentialWriteFailureLeavesExistingStateIntact() = runBlocking {
         seed(File(context.cacheDir, "file").apply { writeText("old attachment") })
         vault.put("provider", "saved-token".toByteArray())
         val archive = File(context.cacheDir, "complete.gptbackup")
-        assertTrue(manager.backup(Uri.fromFile(archive), password).success)
+        assertTrue(manager.backup(Uri.fromFile(archive)).success)
         database.agentRunDao().updateStatus("run", "COMPLETED", null, null, null)
         database.chatRoomDao().updateTitle(7, "current", true)
         preferences.edit { it[intPreferencesKey("current")] = 7 }
         vault.put("provider", "current-token".toByteArray())
         File(context.filesDir, "current.txt").writeText("current file")
-        assertFalse(manager.restore(Uri.fromFile(archive), "wrong-password").success)
+
         vault.failNextPut = true
-        assertFalse(manager.restore(Uri.fromFile(archive), password).success)
+        assertFalse(manager.restore(Uri.fromFile(archive)).success)
+
         assertEquals("current", database.chatRoomDao().getChatRooms().single().title)
         assertEquals(7, preferences.data.first()[intPreferencesKey("current")])
         assertEquals("current-token", vault.read("provider")!!.decodeToString())
         assertEquals("current file", File(context.filesDir, "current.txt").readText())
+    }
+
+    @Test
+    fun olderEncryptedCompleteBackupStillRequestsAndAcceptsOriginalPassword() = runBlocking {
+        seed(File(context.cacheDir, "legacy-file").apply { writeText("legacy attachment") })
+        val plainArchive = File(context.cacheDir, "plain.gptbackup")
+        val encryptedArchive = File(context.cacheDir, "encrypted.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(plainArchive)).success)
+
+        CompleteBackupCrypto.encrypt(
+            source = plainArchive,
+            output = encryptedArchive.outputStream(),
+            password = legacyPassword
+        )
+
+        assertTrue(manager.requiresPassword(Uri.fromFile(encryptedArchive)))
+        assertFalse(manager.restore(Uri.fromFile(encryptedArchive), "wrong-password").success)
+        assertTrue(manager.restore(Uri.fromFile(encryptedArchive), legacyPassword).success)
     }
 
     private suspend fun seed(attachment: File) {

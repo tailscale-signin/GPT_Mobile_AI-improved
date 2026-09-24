@@ -1459,6 +1459,46 @@ class ChatViewModel @Inject constructor(
     }
 }
 
+internal const val COMBINED_SYNTHESIS_PROVIDER_PREFIX = "COMBINED_SYNTHESIS:"
+
+internal data class CombinedModelResponse(
+    val platformUid: String,
+    val platformName: String,
+    val content: String
+)
+
+internal fun buildCombinedSynthesisPrompt(
+    originalRequest: String,
+    responses: List<CombinedModelResponse>,
+    maxCandidateChars: Int = 48_000
+): String {
+    val safeResponses = responses.filter { it.content.isNotBlank() }
+    val perResponseLimit = if (safeResponses.isEmpty()) {
+        maxCandidateChars
+    } else {
+        minOf(12_000, (maxCandidateChars / safeResponses.size).coerceAtLeast(2_000))
+    }
+
+    return buildString {
+        appendLine("You are the lead AI for a Combined conversation.")
+        appendLine("Create the single final answer shown to the user by synthesizing the candidate responses below.")
+        appendLine("Preserve the strongest accurate and useful points, resolve conflicts when possible, remove duplication, and keep the answer coherent.")
+        appendLine("Do not mention this synthesis process, candidate labels, or hidden/internal reasoning unless the user explicitly asked about them.")
+        appendLine("Do not blindly concatenate responses. Produce one polished answer in your own voice.")
+        appendLine()
+        appendLine("ORIGINAL USER REQUEST:")
+        appendLine(originalRequest)
+        appendLine()
+        appendLine("CANDIDATE RESPONSES:")
+        safeResponses.forEachIndexed { index, response ->
+            appendLine("--- Candidate ${index + 1}: ${response.platformName} ---")
+            appendLine(response.content.take(perResponseLimit))
+            appendLine()
+        }
+        appendLine("FINAL RESPONSE:")
+    }
+}
+
 data class ChatRunNotice(
     val message: String,
     val persistent: Boolean

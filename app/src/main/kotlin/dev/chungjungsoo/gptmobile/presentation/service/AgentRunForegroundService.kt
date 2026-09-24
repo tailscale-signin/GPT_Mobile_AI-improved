@@ -250,7 +250,7 @@ class AgentRunForegroundService : Service() {
 
             val title = room?.title?.takeIf { it.isNotBlank() }
                 ?: platformName?.takeIf { it.isNotBlank() }
-                ?.let { getString(R.string.agent_completion_platform_title, it) }
+                    ?.let { getString(R.string.agent_completion_platform_title, it) }
                 ?: getString(R.string.agent_completion_notification_title)
 
             val preview = completedMessage?.content

@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import kotlinx.coroutines.flow.Flow
 
@@ -20,6 +21,9 @@ interface SettingRepository {
     suspend fun getDebugMode(): Boolean
     suspend fun updateDebugMode(enabled: Boolean)
     fun observeDebugMode(): Flow<Boolean>
+    suspend fun getFeatureSettings(): AppFeatureSettings
+    suspend fun updateFeatureSettings(settings: AppFeatureSettings)
+    fun observeFeatureSettings(): Flow<AppFeatureSettings>
     suspend fun migrateToPlatformV2()
     suspend fun migrateSecrets(): List<SecretMigrationError>
     suspend fun updatePlatforms(platforms: List<Platform>)

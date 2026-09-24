@@ -121,6 +121,10 @@ internal fun ActiveAgentRun.withGatewayProgress(progress: GatewayProgress): Acti
         gatewayCurrentTool = nextTool,
         gatewayRoute = nextRoute,
         gatewayResultQuality = progress.resultQuality?.takeIf { it.isNotBlank() } ?: gatewayResultQuality,
+        gatewayWorkflowProfile = progress.workflowProfile?.takeIf { it.isNotBlank() } ?: gatewayWorkflowProfile,
+        gatewayFullToolCount = progress.fullToolCount ?: gatewayFullToolCount,
+        gatewaySelectedToolCount = progress.selectedToolCount ?: gatewaySelectedToolCount,
+        gatewayRecoveryAttempt = progress.recoveryAttempt ?: gatewayRecoveryAttempt,
         gatewayWorkState = resolveGatewayWorkState(
             stage = nextStage,
             event = nextEvent,

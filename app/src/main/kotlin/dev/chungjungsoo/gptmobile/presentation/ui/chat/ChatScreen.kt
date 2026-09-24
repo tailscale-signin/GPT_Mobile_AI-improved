@@ -43,6 +43,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -128,6 +130,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -371,6 +374,7 @@ fun ChatScreen(
                             debugMode = debugMode,
                             combinedMode = chatRoom.conversationMode == ConversationMode.COMBINED,
                             isUserTyping = chatViewModel.question.text.isNotEmpty(),
+                            targetMessageId = chatViewModel.targetMessageId,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                             onCopyText = { copiedText ->
@@ -546,6 +550,7 @@ private fun ChatMessagePair(
     debugMode: Boolean = false,
     combinedMode: Boolean = false,
     isUserTyping: Boolean = false,
+    targetMessageId: Int = -1,
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -562,6 +567,18 @@ private fun ChatMessagePair(
     val isCombinedConversation = combinedMode && enabledPlatformsInChat.size > 1
     val displayPlatformIndex = if (isCombinedConversation) 0 else platformIndexState
     val selectedAssistantMessage = assistantMessages.getOrNull(displayPlatformIndex)
+    val responseBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val isTargetAssistantResponse = targetMessageId > 0 && selectedAssistantMessage?.id == targetMessageId
+
+    LaunchedEffect(isTargetAssistantResponse, selectedAssistantMessage?.id) {
+        if (isTargetAssistantResponse) {
+            // The parent turn is first brought into the LazyColumn, then the assistant
+            // response itself is brought into view so notification taps land at the
+            // generated answer rather than the user prompt above it.
+            delay(80)
+            responseBringIntoViewRequester.bringIntoView()
+        }
+    }
     val synthesisStarted =
         isCombinedConversation &&
             selectedAssistantMessage?.currentRunId?.startsWith(ChatViewModel.COMBINED_RUN_PREFIX) == true
@@ -658,7 +675,15 @@ private fun ChatMessagePair(
         ) {
             OpponentResponseContainer(
                 isFavorite = selectedAssistantMessage?.isFavorite ?: false,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (isTargetAssistantResponse) {
+                            Modifier.bringIntoViewRequester(responseBringIntoViewRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 Row(
                     modifier = Modifier

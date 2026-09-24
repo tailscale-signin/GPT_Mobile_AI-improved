@@ -438,6 +438,15 @@
     <string name="delete_chat_dialog_message">Are you sure you want to delete \"%1$s\"? This cannot be undone.</string>
     <string name="using_certain_platform">Using: %1$s</string>
     <string name="select_platform">Select Platform</string>
+    <string name="chat_mode_separate">Separate</string>
+    <string name="chat_mode_combined">Combined</string>
+    <string name="chat_mode_separate_description">Each selected AI keeps its own response tab.</string>
+    <string name="chat_mode_combined_description">All selected AIs answer the same turn, then the first selected AI merges their responses into one final answer.</string>
+    <string name="chat_mode_lead_model">Lead synthesizer</string>
+    <string name="combined_model_responses">Model responses</string>
+    <string name="combined_final_answer">Combined answer</string>
+    <string name="combined_synthesizing">Combining model responses…</string>
+
     <string name="select_platform_description">Choose platforms to include in this conversation</string>
     <string name="enable_at_leat_one_platform">Enable at least one platform in Settings</string>
     <string name="delete_selected_chats">Delete Selected Chats</string>

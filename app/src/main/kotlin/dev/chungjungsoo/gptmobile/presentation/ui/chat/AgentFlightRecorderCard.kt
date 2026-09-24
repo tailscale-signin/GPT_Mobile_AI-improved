@@ -105,7 +105,7 @@ internal fun CompactAgentActivityBar(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(
@@ -135,7 +135,7 @@ internal fun CompactAgentActivityBar(
                         text = text,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 1
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -266,7 +266,7 @@ internal fun AgentFlightRecorderCard(
                         run = run,
                         totalToolCalls = totalToolCalls,
                         usefulToolCalls = usefulToolCalls,
-                        fallbackFailures = failedTools,
+                        fallbackFailures = failedTools
                     )
                     run.gatewayWorkflowProfile?.takeIf(String::isNotBlank)?.let { profile ->
                         val selected = run.gatewaySelectedToolCount
@@ -329,7 +329,7 @@ private fun AgentMetricRow(
     run: ActiveAgentRun,
     totalToolCalls: Int?,
     usefulToolCalls: Int?,
-    fallbackFailures: Int,
+    fallbackFailures: Int
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -417,7 +417,7 @@ private fun AgentToolActivityLine(event: ToolEvent) {
         toolName = event.toolName,
         modelToolName = event.modelToolName,
         connectionNameSnapshot = event.connectionNameSnapshot,
-        connectionUidSnapshot = event.connectionUidSnapshot,
+        connectionUidSnapshot = event.connectionUidSnapshot
     )
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -431,7 +431,7 @@ private fun AgentToolActivityLine(event: ToolEvent) {
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                overflow = TextOverflow.Ellipsis
             )
             if (info.serviceName.isNotBlank()) {
                 Text(

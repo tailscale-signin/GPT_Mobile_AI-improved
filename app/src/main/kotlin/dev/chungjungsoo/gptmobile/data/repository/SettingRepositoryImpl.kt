@@ -121,19 +121,27 @@ class SettingRepositoryImpl @Inject constructor(
         val cached = platformV2Cache.get()
         if (cached != null) return cached
 
+        val connections = providerConnectionDao.getConnections().associateBy { it.uid }
         val resolved = platformV2Dao.getPlatforms().map { platform ->
-            resolvePlatformToken(platform)
+            resolvePlatformToken(platform, connections)
         }
         platformV2Cache.set(resolved)
         return resolved
     }
 
-    override fun observePlatformV2s(): Flow<List<PlatformV2>> = platformV2Dao.observePlatforms().map { list ->
-        list.map { resolvePlatformToken(it) }
+    override fun observePlatformV2s(): Flow<List<PlatformV2>> = combine(
+        platformV2Dao.observePlatforms(),
+        providerConnectionDao.observeConnections()
+    ) { platforms, connections ->
+        val byUid = connections.associateBy { it.uid }
+        platforms.map { resolvePlatformToken(it, byUid) }
     }
 
-    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = platformV2Dao.observePlatformByUid(uid).map { platform ->
-        platform?.let { resolvePlatformToken(it) }
+    override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = combine(
+        platformV2Dao.observePlatformByUid(uid),
+        providerConnectionDao.observeConnections()
+    ) { platform, connections ->
+        platform?.let { resolvePlatformToken(it, connections.associateBy(ProviderConnection::uid)) }
     }
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(
@@ -512,10 +520,14 @@ class SettingRepositoryImpl @Inject constructor(
         return platform.copy(token = null, secretRef = secretRef)
     }
 
-    private suspend fun resolvePlatformToken(platform: PlatformV2): PlatformV2 {
+    private suspend fun resolvePlatformToken(
+        platform: PlatformV2,
+        connections: Map<String, ProviderConnection>? = null
+    ): PlatformV2 {
         val connectionUid = platform.providerConnectionUid
         if (connectionUid != null) {
-            val connection = providerConnectionDao.getConnection(connectionUid)
+            val connection = connections?.get(connectionUid)
+                ?: providerConnectionDao.getConnection(connectionUid)
             if (connection != null) {
                 return platform.copy(
                     apiUrl = connection.apiUrl,

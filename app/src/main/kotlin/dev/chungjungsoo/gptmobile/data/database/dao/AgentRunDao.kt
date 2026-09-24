@@ -20,6 +20,9 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     fun observeByChatId(chatId: Int): Flow<List<AgentRun>>
 
+    @Query("SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 100): Flow<List<AgentRun>>
+
     @Query(
         "UPDATE agent_runs SET status = :status, started_at = :startedAt, " +
             "completed_at = :completedAt, terminal_error = :terminalError WHERE run_id = :runId"

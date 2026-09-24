@@ -13,7 +13,6 @@ import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2Migrations
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
-import java.io.DataInputStream
 import java.io.File
 import java.util.Base64
 import java.util.UUID

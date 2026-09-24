@@ -85,7 +85,13 @@ fun CompleteBackupDialog(
                     text = stringResource(R.string.complete_backup_passwordless_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+                Text(
+                    text = stringResource(R.string.complete_backup_sensitive_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
 
                 LazyColumn(

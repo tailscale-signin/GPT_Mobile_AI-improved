@@ -17,7 +17,8 @@ fun CreativitySlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    onValueChangeFinished: (() -> Unit)? = null
 ) {
     val normalized = value.coerceIn(0f, 1f)
     val descriptor = when {
@@ -48,6 +49,7 @@ fun CreativitySlider(
         Slider(
             value = normalized,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             enabled = enabled,
             valueRange = 0f..1f,
             steps = 9

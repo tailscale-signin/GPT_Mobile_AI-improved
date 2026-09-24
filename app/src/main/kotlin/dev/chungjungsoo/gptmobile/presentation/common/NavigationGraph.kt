@@ -18,6 +18,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpMarketplaceScreen
@@ -239,9 +240,14 @@ fun NavGraphBuilder.settingNavigation(
             }
             val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
             val providerConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
+            val profiles by settingViewModel.platformState.collectAsStateWithLifecycle()
+            val reusableLabels = remember(profiles) {
+                collectReusableProfileLabels(profiles.map { it.labels })
+            }
             AddPlatformScreen(
                 onNavigationClick = { navController.navigateUp() },
                 savedConnections = providerConnections,
+                reusableLabels = reusableLabels,
                 onSave = { platform, newConnection, credential ->
                     settingViewModel.addPlatform(platform, newConnection, credential)
                     navController.navigateUp()

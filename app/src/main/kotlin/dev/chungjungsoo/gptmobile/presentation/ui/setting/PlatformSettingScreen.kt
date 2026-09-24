@@ -22,6 +22,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -67,6 +69,7 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -89,6 +92,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
+import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
+import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
+import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
@@ -111,6 +118,7 @@ fun PlatformSettingScreen(
     )
     val platform by settingViewModel.platformState.collectAsStateWithLifecycle()
     val providerConnection by settingViewModel.providerConnectionState.collectAsStateWithLifecycle()
+    val reusableLabels by settingViewModel.reusableLabels.collectAsStateWithLifecycle()
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()
     val isDeleted by settingViewModel.isDeleted.collectAsStateWithLifecycle()
     val toolBindingState by settingViewModel.toolBindingState.collectAsStateWithLifecycle()
@@ -147,6 +155,7 @@ fun PlatformSettingScreen(
     }
 
     platform?.let { platformData ->
+        val profileLabels = remember(platformData.labels) { parseProfileLabels(platformData.labels) }
         Scaffold(
             modifier = modifier
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -201,6 +210,47 @@ fun PlatformSettingScreen(
                         )
                     }
                 )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            enabled = platformData.enabled,
+                            onClick = settingViewModel::openLabelsDialog
+                        )
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Labels",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = if (profileLabels.isEmpty()) "Add" else "Manage",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Text(
+                        text = "Reusable colored labels organize profiles and filter the model picker.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                    if (profileLabels.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(top = 8.dp),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                        ) {
+                            profileLabels.forEach { label ->
+                                BeveledProfileLabel(label = label)
+                            }
+                        }
+                    }
+                }
                 if (!isLocalPlatform) {
                     SettingItem(
                         modifier = Modifier.height(64.dp),
@@ -277,35 +327,25 @@ fun PlatformSettingScreen(
                 ProfileSectionTitle(title = stringResource(R.string.advanced_settings))
                 val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
                 val notSetText = stringResource(R.string.not_set)
-                SettingItem(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.temperature),
-                    description = platformData.temperature?.toString() ?: notSetText,
-                    enabled = platformData.enabled && !isReasoningDisabled,
-                    onItemClick = settingViewModel::openTemperatureDialog,
-                    showTrailingIcon = false,
-                    showLeadingIcon = true,
-                    leadingIcon = {
-                        Icon(
-                            ImageVector.vectorResource(id = R.drawable.ic_temperature),
-                            contentDescription = stringResource(R.string.temperature)
+                var creativityDraft by remember(
+                    platformData.uid,
+                    platformData.temperature,
+                    platformData.topP
+                ) {
+                    mutableFloatStateOf(
+                        SamplingCreativity.fromSampling(
+                            platformData.temperature,
+                            platformData.topP
                         )
-                    }
-                )
-                SettingItem(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.top_p),
-                    description = platformData.topP?.toString() ?: notSetText,
-                    enabled = platformData.enabled && !isReasoningDisabled,
-                    onItemClick = settingViewModel::openTopPDialog,
-                    showTrailingIcon = false,
-                    showLeadingIcon = true,
-                    leadingIcon = {
-                        Icon(
-                            ImageVector.vectorResource(id = R.drawable.ic_chart),
-                            contentDescription = stringResource(R.string.top_p)
-                        )
-                    }
+                    )
+                }
+                CreativitySlider(
+                    value = creativityDraft,
+                    onValueChange = { creativityDraft = it },
+                    onValueChangeFinished = {
+                        settingViewModel.updateCreativity(creativityDraft)
+                    },
+                    enabled = platformData.enabled && !isReasoningDisabled
                 )
                 if (isLocalPlatform) {
                     SettingItem(
@@ -594,6 +634,14 @@ fun PlatformSettingScreen(
                 PlatformMaxToolCallsSettingHost(settingViewModel)
 
                 PlatformNameDialog(dialogState, platformData.name, settingViewModel)
+                if (dialogState.isLabelsDialogOpen) {
+                    ProfileLabelEditorDialog(
+                        currentLabels = profileLabels,
+                        reusableLabels = reusableLabels,
+                        onDismiss = settingViewModel::closeLabelsDialog,
+                        onSave = settingViewModel::saveProfileLabels
+                    )
+                }
                 if (!isLocalPlatform) {
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
                     APIKeyDialog(dialogState, platformData.token, settingViewModel)
@@ -626,8 +674,6 @@ fun PlatformSettingScreen(
                     MaxTokensDialog(dialogState, platformData.maxTokens, settingViewModel)
                     AcceleratorDialog(dialogState, platformData.accelerator, acceleratorOptions, settingViewModel)
                 }
-                TemperatureDialog(dialogState, platformData.temperature, settingViewModel)
-                TopPDialog(dialogState, platformData.topP, settingViewModel)
                 SystemPromptDialog(dialogState, platformData.systemPrompt ?: "", settingViewModel)
                 GeminiSafetySettingsDialog(dialogState, platformData, settingViewModel)
                 OpenRouterAdvancedSettingsDialog(dialogState, platformData.openRouterRouting, settingViewModel)

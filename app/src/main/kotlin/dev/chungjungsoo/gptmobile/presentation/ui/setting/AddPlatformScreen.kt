@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -57,9 +58,14 @@ import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
+import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
+import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
+import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
+import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelCatalogPicker
@@ -76,6 +82,7 @@ fun AddPlatformScreen(
     viewModel: AddPlatformViewModel = hiltViewModel(),
     onNavigationClick: () -> Unit,
     savedConnections: List<ProviderConnection> = emptyList(),
+    reusableLabels: List<ProfileLabel> = emptyList(),
     onSave: (PlatformV2, ProviderConnection?, String?) -> Unit,
     onNavigateToLocalModels: () -> Unit = {}
 ) {
@@ -91,8 +98,9 @@ fun AddPlatformScreen(
     var connectionName by remember { mutableStateOf("") }
     var showAdvancedSettings by remember { mutableStateOf(false) }
     var systemPrompt by remember { mutableStateOf(ModelConstants.DEFAULT_PROMPT) }
-    var temperatureText by remember { mutableStateOf("1.0") }
-    var topPText by remember { mutableStateOf("1.0") }
+    var creativity by remember { mutableStateOf(SamplingCreativity.DEFAULT) }
+    var profileLabels by remember { mutableStateOf<List<ProfileLabel>>(emptyList()) }
+    var showLabelsDialog by remember { mutableStateOf(false) }
     var maxToolCallsText by remember { mutableStateOf("") }
     var showSuggestedModels by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
@@ -149,6 +157,7 @@ fun AddPlatformScreen(
                     } else {
                         null
                     }
+                    val sampling = SamplingCreativity.toSampling(creativity)
                     val newConnection = if (!isLocalPlatform && createNewConnection) {
                         ProviderConnection(
                             name = connectionName.trim().ifBlank {
@@ -171,8 +180,8 @@ fun AddPlatformScreen(
                         apiUrl = "",
                         token = null,
                         model = selectedModel,
-                        temperature = defaults?.temperature ?: temperatureText.toFloatOrNull()?.coerceIn(0f, 2f),
-                        topP = defaults?.topP ?: topPText.toFloatOrNull()?.coerceIn(0f, 1f),
+                        temperature = sampling.temperature,
+                        topP = sampling.topP,
                         topK = defaults?.topK,
                         maxTokens = defaults?.maxTokens,
                         accelerator = defaults?.accelerator,
@@ -182,6 +191,7 @@ fun AddPlatformScreen(
                         timeout = 300,
                         maxToolCalls = maxToolCallsText.toIntOrNull()?.coerceAtLeast(1) ?: Int.MAX_VALUE,
                         ollamaOptions = defaultOllamaOptions,
+                        labels = encodeProfileLabels(profileLabels),
                         providerConnectionUid = if (createNewConnection) null else selectedConnectionUid
                     )
                     apiTokens.clear()
@@ -230,8 +240,8 @@ fun AddPlatformScreen(
                             apiTokens.clear()
                             apiTokens.add("")
                             systemPrompt = ModelConstants.DEFAULT_PROMPT
-                            temperatureText = "1.0"
-                            topPText = "1.0"
+                            creativity = SamplingCreativity.DEFAULT
+                            profileLabels = emptyList()
                             maxToolCallsText = ""
                             showAdvancedSettings = false
                             isReasoningEnabled = false
@@ -256,6 +266,35 @@ fun AddPlatformScreen(
                     singleLine = true,
                     supportingText = { Text(stringResource(R.string.platform_name_supporting)) }
                 )
+                Text(
+                    text = "Labels",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
+                )
+                Text(
+                    text = "Colored labels organize AI profiles and become filters when starting a conversation.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (profileLabels.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        profileLabels.forEach { label ->
+                            BeveledProfileLabel(label = label)
+                        }
+                    }
+                }
+                OutlinedButton(
+                    onClick = { showLabelsDialog = true },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Text(if (profileLabels.isEmpty()) "Add labels" else "Manage labels")
+                }
                 if (clientType != ClientType.LITERT_LM) {
                     val providerConnections = savedConnections.filter { it.compatibleType == clientType }
                     Text(
@@ -464,19 +503,11 @@ fun AddPlatformScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 minLines = 3
                             )
-                            OutlinedTextField(
-                                value = temperatureText,
-                                onValueChange = { temperatureText = it },
-                                label = { Text(stringResource(R.string.temperature)) },
-                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = topPText,
-                                onValueChange = { topPText = it },
-                                label = { Text(stringResource(R.string.top_p)) },
-                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                                singleLine = true
+                            CreativitySlider(
+                                value = creativity,
+                                onValueChange = { creativity = it },
+                                enabled = !(clientType == ClientType.OPENAI && isReasoningEnabled),
+                                modifier = Modifier.padding(top = 6.dp)
                             )
                             OutlinedTextField(
                                 value = maxToolCallsText,
@@ -525,10 +556,27 @@ fun AddPlatformScreen(
                         },
                         onNavigateToLocalModels = onNavigateToLocalModels
                     )
+                    CreativitySlider(
+                        value = creativity,
+                        onValueChange = { creativity = it },
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showLabelsDialog) {
+        ProfileLabelEditorDialog(
+            currentLabels = profileLabels,
+            reusableLabels = reusableLabels,
+            onDismiss = { showLabelsDialog = false },
+            onSave = { labels ->
+                profileLabels = labels
+                showLabelsDialog = false
+            }
+        )
     }
 
     if (showOpenRouterPicker) {

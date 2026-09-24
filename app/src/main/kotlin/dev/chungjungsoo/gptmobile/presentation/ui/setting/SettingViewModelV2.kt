@@ -10,6 +10,9 @@ import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
+import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
+import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -107,14 +110,34 @@ class SettingViewModelV2 @Inject constructor(
             val connection = newConnection?.let {
                 settingRepository.addProviderConnection(it, credential)
             }
-            settingRepository.addPlatformV2(
-                platform.copy(
-                    providerConnectionUid = connection?.uid ?: platform.providerConnectionUid,
-                    apiUrl = if (connection != null || platform.providerConnectionUid != null) "" else platform.apiUrl,
-                    token = if (connection != null || platform.providerConnectionUid != null) null else platform.token,
-                    secretRef = if (connection != null || platform.providerConnectionUid != null) null else platform.secretRef
-                )
+            val profileToSave = platform.copy(
+                providerConnectionUid = connection?.uid ?: platform.providerConnectionUid,
+                apiUrl = if (connection != null || platform.providerConnectionUid != null) "" else platform.apiUrl,
+                token = if (connection != null || platform.providerConnectionUid != null) null else platform.token,
+                secretRef = if (connection != null || platform.providerConnectionUid != null) null else platform.secretRef
             )
+            synchronizeLinkedLabelColors(profileToSave)
+            settingRepository.addPlatformV2(profileToSave)
+        }
+    }
+
+    private suspend fun synchronizeLinkedLabelColors(profile: PlatformV2) {
+        val desiredColors = parseProfileLabels(profile.labels)
+            .associateBy(ProfileLabel::key)
+        if (desiredColors.isEmpty()) return
+
+        settingRepository.fetchPlatformV2s().forEach { existing ->
+            val currentLabels = parseProfileLabels(existing.labels)
+            val linked = currentLabels.map { current ->
+                desiredColors[current.key]
+                    ?.colorHex
+                    ?.let { current.copy(colorHex = it) }
+                    ?: current
+            }
+            val encoded = encodeProfileLabels(linked)
+            if (encoded != existing.labels) {
+                settingRepository.updatePlatformV2(existing.copy(labels = encoded))
+            }
         }
     }
 

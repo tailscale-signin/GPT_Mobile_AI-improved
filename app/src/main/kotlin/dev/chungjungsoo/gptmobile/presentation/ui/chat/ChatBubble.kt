@@ -374,13 +374,14 @@ fun OpponentChatBubble(
         mutableStateOf(isLoading)
     }
 
-    val hasDetails = debugMode && remember(contentTimeline, thoughts, toolEvents) {
+    val processDetailsAvailable = remember(contentTimeline, thoughts, toolEvents) {
         hasAssistantProcessDetails(
             timeline = contentTimeline,
             fallbackThoughts = thoughts,
             hasToolEvents = toolEvents.isNotEmpty()
         )
     }
+    val hasDetails = debugMode && processDetailsAvailable
 
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
@@ -405,7 +406,7 @@ fun OpponentChatBubble(
         AnimatedVisibility(
             visible = shouldShowBubble,
             enter = fadeIn(animationSpec = tween(1500)),
-            exit = fadeOut(animationSpec = tween(300))
+            exit = fadeOut(animationSpec = tween(600))
         ) {
             Column(
                 modifier = Modifier

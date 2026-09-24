@@ -154,10 +154,15 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
             settingOnClick = { navController.navigate(Route.SETTING_ROUTE) },
             onExistingChatClick = { chatRoom, targetMessageId ->
                 val targetSuffix = if (targetMessageId != null) "&targetMessageId=$targetMessageId" else ""
-                navController.navigate("chat_room/${chatRoom.id}?enabled=${chatRoom.enabledPlatform.joinToString(",")}$targetSuffix")
+                navController.navigate(
+                    "chat_room/${chatRoom.id}?enabled=${chatRoom.enabledPlatform.joinToString(",")}" +
+                        "&combined=${chatRoom.isCombined}$targetSuffix"
+                )
             },
-            navigateToNewChat = { enabledPlatforms ->
-                navController.navigate("chat_room/0?enabled=${enabledPlatforms.joinToString(",")}")
+            navigateToNewChat = { enabledPlatforms, combinedMode ->
+                navController.navigate(
+                    "chat_room/0?enabled=${enabledPlatforms.joinToString(",")}&combined=$combinedMode"
+                )
             }
         )
     }
@@ -169,6 +174,10 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
         arguments = listOf(
             navArgument("chatRoomId") { type = NavType.IntType },
             navArgument("enabledPlatforms") { defaultValue = "" },
+            navArgument("combinedMode") {
+                type = NavType.BoolType
+                defaultValue = false
+            },
             navArgument("targetMessageId") {
                 type = NavType.IntType
                 defaultValue = -1

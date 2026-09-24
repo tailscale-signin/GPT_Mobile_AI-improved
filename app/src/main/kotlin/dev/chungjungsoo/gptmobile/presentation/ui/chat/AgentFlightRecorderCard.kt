@@ -51,8 +51,8 @@ internal fun CompactAgentActivityBar(
     val liveText = statusOverride?.takeIf(String::isNotBlank)
         ?: run.gatewayMessage?.takeIf(String::isNotBlank)
         ?: when (run.phase) {
-        LocalInferencePhase.PREFILL -> stringResource(R.string.agent_live_local_prefill)
-        LocalInferencePhase.GENERATING -> stringResource(R.string.agent_live_local_generating)
+            LocalInferencePhase.PREFILL -> stringResource(R.string.agent_live_local_prefill)
+            LocalInferencePhase.GENERATING -> stringResource(R.string.agent_live_local_generating)
             null -> when (run.gatewayWorkState) {
                 GatewayWorkState.STARTING -> stringResource(R.string.agent_live_preparing)
                 GatewayWorkState.EXPLORING -> stringResource(R.string.agent_live_exploring)

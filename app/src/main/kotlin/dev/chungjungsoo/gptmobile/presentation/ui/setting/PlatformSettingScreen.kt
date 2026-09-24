@@ -16,6 +16,7 @@
 
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.AllInbox
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Numbers
@@ -139,6 +141,18 @@ fun PlatformSettingScreen(
             Toast.makeText(context, R.string.local_network_permission_required, Toast.LENGTH_SHORT).show()
         }
         openMcpToolsAfterPermission = false
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            settingViewModel.toggleDeviceLocation(true)
+        } else {
+            Toast.makeText(context, "Location permission is required for the device location tool.", Toast.LENGTH_LONG).show()
+        }
     }
 
     LaunchedEffect(isDeleted) {
@@ -606,6 +620,38 @@ fun PlatformSettingScreen(
                     enabled = !platformData.disableAllTools && !platformData.disableRemoteTools,
                     isChecked = toolBindingState.readUrlEnabled,
                     onCheckedChange = settingViewModel::toggleReadUrl
+                )
+                PreferenceListSwitch(
+                    modifier = Modifier.height(72.dp),
+                    title = "Device location",
+                    description = "Allow this AI profile to request the phone's current GPS location when needed.",
+                    icon = Icons.Default.LocationOn,
+                    enabled = platformData.enabled && !platformData.disableAllTools && !platformData.disableLocalTools,
+                    isChecked = toolBindingState.deviceLocationEnabled,
+                    onCheckedChange = { enabled ->
+                        if (!enabled) {
+                            settingViewModel.toggleDeviceLocation(false)
+                        } else {
+                            val fineGranted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.ACCESS_FINE_LOCATION
+                            ) == PackageManager.PERMISSION_GRANTED
+                            val coarseGranted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (fineGranted || coarseGranted) {
+                                settingViewModel.toggleDeviceLocation(true)
+                            } else {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+                            }
+                        }
+                    }
                 )
                 SettingItem(
                     modifier = Modifier.height(64.dp),

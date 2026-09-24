@@ -86,7 +86,7 @@ class ChatDatabaseV2MigrationsTest {
         }
 
         assertEquals(10, ChatDatabaseV2Migrations.ALL_MIGRATIONS.first().startVersion)
-        assertEquals(22, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
+        assertEquals(24, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
 
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
@@ -123,6 +123,12 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(21, ChatDatabaseV2Migrations.MIGRATION_21_22.startVersion)
         assertEquals(22, ChatDatabaseV2Migrations.MIGRATION_21_22.endVersion)
+
+        assertEquals(22, ChatDatabaseV2Migrations.MIGRATION_22_23.startVersion)
+        assertEquals(23, ChatDatabaseV2Migrations.MIGRATION_22_23.endVersion)
+
+        assertEquals(23, ChatDatabaseV2Migrations.MIGRATION_23_24.startVersion)
+        assertEquals(24, ChatDatabaseV2Migrations.MIGRATION_23_24.endVersion)
     }
 
     @Test
@@ -189,5 +195,6 @@ class ChatDatabaseV2MigrationsTest {
     fun `default favorite state is false`() {
         val chatRoom = ChatRoomV2(title = "Test Room")
         assertFalse(chatRoom.isFavorite)
+        assertFalse(chatRoom.isCombined)
     }
 }

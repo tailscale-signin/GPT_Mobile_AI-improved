@@ -233,7 +233,7 @@ class ToolConnectionsViewModel @Inject constructor(
                 viewModelScope.launch {
                     val checkedAt = System.currentTimeMillis()
                     val health = runCatching { resolver.discoverMcpTools(connection) }
-                            .fold(
+                        .fold(
                             onSuccess = { tools ->
                                 if (tools.isEmpty()) {
                                     ToolConnectionHealth(
@@ -252,13 +252,22 @@ class ToolConnectionsViewModel @Inject constructor(
                                 }
                             },
                             onFailure = { error ->
+                                val message = error.message ?: "Failed to reach server"
+                                val limited = message.contains("401") ||
+                                    message.contains("403") ||
+                                    message.contains("auth", ignoreCase = true) ||
+                                    message.contains("permission", ignoreCase = true)
                                 ToolConnectionHealth(
-                                    status = ToolConnectionHealthStatus.OFFLINE,
-                                    message = error.message ?: "Failed to reach server",
+                                    status = if (limited) {
+                                        ToolConnectionHealthStatus.LIMITED
+                                    } else {
+                                        ToolConnectionHealthStatus.OFFLINE
+                                    },
+                                    message = message,
                                     checkedAt = checkedAt
                                 )
                             }
-                            )
+                        )
                     _uiState.update { state ->
                         state.copy(
                             connectionHealth = state.connectionHealth + (

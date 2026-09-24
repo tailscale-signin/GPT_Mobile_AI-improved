@@ -1,16 +1,25 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Icon
@@ -24,6 +33,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.stringResource
@@ -35,6 +46,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.GatewayActivitySample
 import dev.chungjungsoo.gptmobile.data.agent.GatewayWorkState
 import dev.chungjungsoo.gptmobile.data.agent.gatewayEfficiencyPercent
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 
 
 @Composable
@@ -42,40 +54,118 @@ internal fun CompactAgentActivityBar(
     run: ActiveAgentRun,
     modifier: Modifier = Modifier
 ) {
-    val liveText = when (run.gatewayWorkState) {
-        GatewayWorkState.STARTING -> stringResource(R.string.agent_live_preparing)
-        GatewayWorkState.EXPLORING -> run.gatewayMessage?.takeIf(String::isNotBlank)
-            ?: stringResource(R.string.agent_live_exploring)
-        GatewayWorkState.FOCUSED -> run.gatewayMessage?.takeIf(String::isNotBlank)
-            ?: stringResource(R.string.agent_live_focused)
-        GatewayWorkState.ACTING -> run.gatewayCurrentTool?.takeIf(String::isNotBlank)?.let {
-            stringResource(R.string.agent_live_using_tool, it)
-        } ?: stringResource(R.string.agent_live_acting)
-        GatewayWorkState.RECOVERING -> stringResource(R.string.agent_live_recovering)
-        GatewayWorkState.SYNTHESIZING -> stringResource(R.string.agent_live_synthesizing)
-        GatewayWorkState.FINALIZING -> stringResource(R.string.agent_live_finalizing)
+    val liveText = when {
+        run.phase == LocalInferencePhase.PREFILL ->
+            stringResource(R.string.agent_live_prefill)
+
+        run.phase == LocalInferencePhase.GENERATING && run.gatewayStage.isNullOrBlank() ->
+            stringResource(R.string.agent_live_generating)
+
+        run.gatewayWorkState == GatewayWorkState.STARTING ->
+            stringResource(R.string.agent_live_preparing)
+
+        run.gatewayWorkState == GatewayWorkState.EXPLORING ->
+            friendlyGatewayActivity(run.gatewayStage, run.gatewayMessage, run.gatewayCurrentTool)
+
+        run.gatewayWorkState == GatewayWorkState.FOCUSED ->
+            stringResource(R.string.agent_live_focused)
+
+        run.gatewayWorkState == GatewayWorkState.ACTING ->
+            friendlyGatewayActivity(run.gatewayStage, run.gatewayMessage, run.gatewayCurrentTool)
+
+        run.gatewayWorkState == GatewayWorkState.RECOVERING ->
+            stringResource(R.string.agent_live_recovering)
+
+        run.gatewayWorkState == GatewayWorkState.SYNTHESIZING ->
+            stringResource(R.string.agent_live_synthesizing)
+
+        else ->
+            stringResource(R.string.agent_live_finalizing)
     }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.88f),
+        tonalElevation = 1.dp
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
-            Text(
-                text = liveText,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Spacer(Modifier.width(9.dp))
+                AnimatedContent(
+                    targetState = liveText,
+                    transitionSpec = {
+                        fadeIn(tween(280)) togetherWith fadeOut(tween(180))
+                    },
+                    label = "agentLiveActivity",
+                    modifier = Modifier.weight(1f)
+                ) { text ->
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
             LinearProgressIndicator(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 7.dp),
+                    .padding(start = 37.dp, top = 6.dp)
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(99.dp)),
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
             )
         }
+    }
+}
+
+@Composable
+private fun friendlyGatewayActivity(
+    stage: String?,
+    message: String?,
+    toolName: String?
+): String {
+    val signal = listOf(stage, message, toolName)
+        .filterNotNull()
+        .joinToString(" ")
+        .lowercase()
+    return when {
+        "memory" in signal || "context" in signal ->
+            stringResource(R.string.agent_live_memory)
+        "github" in signal || "repository" in signal || "repo_" in signal ->
+            stringResource(R.string.agent_live_repository)
+        "search" in signal || "find" in signal ->
+            stringResource(R.string.agent_live_searching)
+        "file" in signal || "read" in signal ->
+            stringResource(R.string.agent_live_files)
+        "tool" in signal || !toolName.isNullOrBlank() ->
+            stringResource(R.string.agent_live_acting)
+        "reason" in signal || "plan" in signal ->
+            stringResource(R.string.agent_live_planning)
+        else ->
+            stringResource(R.string.agent_live_exploring)
     }
 }
 

@@ -164,11 +164,13 @@ class CompleteBackupManagerTest {
         val encryptedArchive = File(context.cacheDir, "encrypted.gptbackup")
         assertTrue(manager.backup(Uri.fromFile(plainArchive)).success)
 
-        CompleteBackupCrypto.encrypt(
-            source = plainArchive,
-            output = encryptedArchive.outputStream(),
-            password = legacyPassword
-        )
+        encryptedArchive.outputStream().use { output ->
+            CompleteBackupCrypto.encrypt(
+                source = plainArchive,
+                output = output,
+                password = legacyPassword
+            )
+        }
 
         assertTrue(manager.requiresPassword(Uri.fromFile(encryptedArchive)))
         assertFalse(manager.restore(Uri.fromFile(encryptedArchive), "wrong-password").success)

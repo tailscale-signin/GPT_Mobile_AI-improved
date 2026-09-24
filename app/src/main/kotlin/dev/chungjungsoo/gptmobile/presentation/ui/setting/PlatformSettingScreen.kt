@@ -70,6 +70,7 @@ import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -327,12 +328,24 @@ fun PlatformSettingScreen(
                 ProfileSectionTitle(title = stringResource(R.string.advanced_settings))
                 val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
                 val notSetText = stringResource(R.string.not_set)
+                var creativityDraft by remember(
+                    platformData.uid,
+                    platformData.temperature,
+                    platformData.topP
+                ) {
+                    mutableFloatStateOf(
+                        SamplingCreativity.fromSampling(
+                            platformData.temperature,
+                            platformData.topP
+                        )
+                    )
+                }
                 CreativitySlider(
-                    value = SamplingCreativity.fromSampling(
-                        platformData.temperature,
-                        platformData.topP
-                    ),
-                    onValueChange = settingViewModel::updateCreativity,
+                    value = creativityDraft,
+                    onValueChange = { creativityDraft = it },
+                    onValueChangeFinished = {
+                        settingViewModel.updateCreativity(creativityDraft)
+                    },
                     enabled = platformData.enabled && !isReasoningDisabled
                 )
                 if (isLocalPlatform) {

@@ -16,7 +16,7 @@ class OpenRouterBatchClientTest {
     @Test
     fun `oversized saved batch timeout does not fail client creation`() {
         val client = OpenRouterBatchClient(apiKey = "sk-test", timeoutMs = Long.MAX_VALUE)
-        assertEquals("https://openrouter.ai/api/beta/batches", client.batchesUrl())
+        assertEquals("https://openrouter.ai/api/v1/batches", client.batchesUrl())
     }
 
     @Test
@@ -59,7 +59,7 @@ class OpenRouterBatchClientTest {
     @Test
     fun `batchesUrl constructs correct beta batches endpoint`() {
         val client = OpenRouterBatchClient(apiKey = "sk-test", baseUrl = "https://openrouter.ai/api/v1")
-        assertEquals("https://openrouter.ai/api/beta/batches", client.batchesUrl())
+        assertEquals("https://openrouter.ai/api/v1/batches", client.batchesUrl())
     }
 
     @Test

@@ -184,26 +184,34 @@ class SettingRepositoryImpl @Inject constructor(
             } else {
                 null
             }
+            val profileName = when (platform.name) {
+                ApiType.OPENAI -> "OpenAI"
+                ApiType.ANTHROPIC -> "Anthropic"
+                ApiType.GOOGLE -> "Google"
+                ApiType.GROQ -> "Groq"
+                ApiType.OLLAMA -> "Ollama"
+            }
+            val clientType = when (platform.name) {
+                ApiType.OPENAI -> ClientType.OPENAI
+                ApiType.ANTHROPIC -> ClientType.ANTHROPIC
+                ApiType.GOOGLE -> ClientType.GOOGLE
+                ApiType.GROQ -> ClientType.GROQ
+                ApiType.OLLAMA -> ClientType.OLLAMA
+            }
+            val connection = addProviderConnection(
+                ProviderConnection(
+                    name = "$profileName connection",
+                    compatibleType = clientType,
+                    apiUrl = ModelConstants.normalizeLegacyAPIUrl(platform.apiUrl)
+                ),
+                platform.token
+            )
 
             addPlatformV2(
                 PlatformV2(
-                    name = when (platform.name) {
-                        ApiType.OPENAI -> "OpenAI"
-                        ApiType.ANTHROPIC -> "Anthropic"
-                        ApiType.GOOGLE -> "Google"
-                        ApiType.GROQ -> "Groq"
-                        ApiType.OLLAMA -> "Ollama"
-                    },
-                    compatibleType = when (platform.name) {
-                        ApiType.OPENAI -> ClientType.OPENAI
-                        ApiType.ANTHROPIC -> ClientType.ANTHROPIC
-                        ApiType.GOOGLE -> ClientType.GOOGLE
-                        ApiType.GROQ -> ClientType.GROQ
-                        ApiType.OLLAMA -> ClientType.OLLAMA
-                    },
+                    name = profileName,
+                    compatibleType = clientType,
                     enabled = platform.enabled,
-                    apiUrl = ModelConstants.normalizeLegacyAPIUrl(platform.apiUrl),
-                    token = platform.token,
                     model = platform.model ?: "",
                     temperature = if (isOllama) OllamaOptions.DEFAULT_TEMPERATURE else platform.temperature,
                     topP = if (isOllama) OllamaOptions.DEFAULT_TOP_P else platform.topP,
@@ -211,7 +219,8 @@ class SettingRepositoryImpl @Inject constructor(
                     stream = true,
                     reasoning = false,
                     disableAllTools = false,
-                    ollamaOptions = defaultOllamaOptionsJson
+                    ollamaOptions = defaultOllamaOptionsJson,
+                    providerConnectionUid = connection.uid
                 )
             )
         }
@@ -223,9 +232,18 @@ class SettingRepositoryImpl @Inject constructor(
             val plaintext = platform.token ?: return@forEach
             val source = "profile:${platform.uid}"
             try {
-                val secretRef = platform.secretRef ?: migratedProfileSecretRef(platform)
-                storeVerified(secretRef, plaintext)
-                platformV2Dao.editPlatform(platform.copy(token = null, secretRef = secretRef))
+                val connectionUid = platform.providerConnectionUid
+                if (connectionUid != null) {
+                    val connection = providerConnectionDao.getConnection(connectionUid)
+                    if (connection != null) {
+                        updateProviderConnection(connection, plaintext)
+                        platformV2Dao.editPlatform(platform.copy(token = null, secretRef = null))
+                    }
+                } else {
+                    val secretRef = platform.secretRef ?: migratedProfileSecretRef(platform)
+                    storeVerified(secretRef, plaintext)
+                    platformV2Dao.editPlatform(platform.copy(token = null, secretRef = secretRef))
+                }
             } catch (error: Exception) {
                 add(SecretMigrationError(source, error.message ?: "Credential migration failed."))
             }

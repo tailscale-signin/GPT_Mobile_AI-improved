@@ -33,6 +33,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpToolsSelectionScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.OpenRouterSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.ProviderConnectionSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
@@ -253,11 +254,30 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigationClick = { navController.navigateUp() },
                 onNavigateToAddPlatform = { navController.navigate(Route.ADD_PLATFORM) },
                 onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
+                onNavigateToProviderSettings = { connectionUid ->
+                    navController.navigate(
+                        Route.PROVIDER_CONNECTION_SETTINGS.replace("{connectionUid}", connectionUid)
+                    )
+                },
                 onNavigateToPlatformSetting = { platformUid ->
                     navController.navigate(
                         Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid)
                     )
                 }
+            )
+        }
+        composable(
+            Route.PROVIDER_CONNECTION_SETTINGS,
+            arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val parentEntry = remember(backStackEntry) {
+                navController.getBackStackEntry(Route.SETTING_ROUTE)
+            }
+            val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
+            ProviderConnectionSettingsScreen(
+                connectionUid = backStackEntry.arguments?.getString("connectionUid").orEmpty(),
+                settingViewModel = settingViewModel,
+                onNavigationClick = { navController.navigateUp() }
             )
         }
         composable(Route.ADD_PLATFORM) {

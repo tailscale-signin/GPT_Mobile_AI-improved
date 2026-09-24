@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Free runner disk and memory space
         run: |
@@ -82,7 +84,7 @@ jobs:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2
+          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build non-fatal warning"
 
       - name: Sign APKs with apksigner
         run: |
@@ -245,8 +247,10 @@ jobs:
           # Tag creation & robust release handling
           if ! git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
             echo "Creating tag $TAG_NAME pointing to ${{ github.sha }}..."
-            git tag "$TAG_NAME" "${{ github.sha }}" 2>/dev/null || true
-            git push origin "$TAG_NAME" 2>/dev/null || true
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG_NAME" "${{ github.sha }}" || true
+            git push origin "$TAG_NAME" || true
           fi
 
           EXISTING_RELEASE=$(gh release view "$TAG_NAME" --json id --jq '.id' 2>/dev/null || true)

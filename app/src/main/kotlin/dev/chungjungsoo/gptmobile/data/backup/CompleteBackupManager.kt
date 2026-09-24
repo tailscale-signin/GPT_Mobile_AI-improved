@@ -46,8 +46,7 @@ class CompleteBackupManager @Inject constructor(
     private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)))
     fun getBackupStatus() = legacy.getBackupStatus()
 
-    suspend fun backup(uri: Uri, password: String): BackupRestoreResult = operation { work ->
-        require(password.length >= 8) { "Use a backup password with at least 8 characters." }
+    suspend fun backup(uri: Uri): BackupRestoreResult = operation { work ->
         val storage = files()
         val sources = storage.collect()
         val dbFile = File(work, "database.sqlite")
@@ -71,30 +70,46 @@ class CompleteBackupManager @Inject constructor(
         )
         val archive = File(work, "archive.zip")
         CompleteBackupArchive.write(archive, manifest, sources)
-        context.contentResolver.openOutputStream(uri, "wt")?.use { CompleteBackupCrypto.encrypt(archive, it, password) }
-            ?: error("Could not open the backup destination.")
+        context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+            archive.inputStream().buffered().use { input -> input.copyTo(output) }
+        } ?: error("Could not open the backup destination.")
         legacy.recordBackupMetadata()
         BackupRestoreResult(true, "Complete backup saved.")
     }
 
-    suspend fun restore(uri: Uri, password: String): BackupRestoreResult = operation { work ->
+    suspend fun restore(uri: Uri, legacyPassword: String? = null): BackupRestoreResult = operation { work ->
         ensureIdle(restoring = true)
         val archive = File(work, "archive.zip")
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
-            input.mark(16)
-            val header = ByteArray(9).also { DataInputStream(input).readFully(it) }
+            input.mark(64)
+            val header = ByteArray(9)
+            val headerBytes = input.read(header)
             input.reset()
-            if (header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
+            if (headerBytes >= 9 && header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
                 val result = when (header[8].toInt()) {
-                    1 -> legacy.restoreConfiguration(uri, password.takeIf(String::isNotEmpty))
-                    2 -> legacy.restoreDatabase(uri, password.takeIf(String::isNotEmpty))
-                    4 -> legacy.importFavorites(uri, password.takeIf(String::isNotEmpty))
+                    1 -> legacy.restoreConfiguration(uri, legacyPassword?.takeIf(String::isNotEmpty))
+                    2 -> legacy.restoreDatabase(uri, legacyPassword?.takeIf(String::isNotEmpty))
+                    4 -> legacy.importFavorites(uri, legacyPassword?.takeIf(String::isNotEmpty))
                     else -> error("Unsupported legacy backup type.")
                 }
                 settings.invalidatePlatformCache()
                 return@operation result.copy(message = "Legacy backup: ${result.message}")
             }
-            CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE)
+            val isEncryptedComplete = headerBytes >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL1"
+            val isZip = headerBytes >= 4 &&
+                header[0] == 0x50.toByte() &&
+                header[1] == 0x4B.toByte() &&
+                header[2] == 0x03.toByte() &&
+                header[3] == 0x04.toByte()
+            when {
+                isEncryptedComplete -> {
+                    val password = legacyPassword?.takeIf(String::isNotBlank)
+                        ?: error("This older backup is encrypted. Enter its original password.")
+                    CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE)
+                }
+                isZip -> copyArchiveWithLimit(input, archive, work.usableSpace - RESERVE)
+                else -> error("Select a GPT Mobile backup file.")
+            }
         } ?: error("Could not read the backup file.")
         val staging = File(work, "files").apply { mkdirs() }
         val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE)
@@ -150,6 +165,29 @@ class CompleteBackupManager @Inject constructor(
             snapshot.close()
         }
         BackupRestoreResult(true, "Everything restored successfully.")
+    }
+
+    suspend fun requiresPassword(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+            val header = ByteArray(8)
+            val count = input.read(header)
+            count >= 8 && header.decodeToString() == "GPTFULL1"
+        } ?: false
+    }
+
+    private fun copyArchiveWithLimit(input: java.io.InputStream, target: File, maxBytes: Long) {
+        require(maxBytes > 0) { "Insufficient free space to restore the backup." }
+        target.outputStream().buffered().use { output ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0L
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= maxBytes) { "Backup is too large for the available storage." }
+                output.write(buffer, 0, count)
+            }
+        }
     }
 
     private fun openSnapshot(file: File): ChatDatabaseV2 = Room.databaseBuilder(context, ChatDatabaseV2::class.java, file.absolutePath)

@@ -1399,10 +1399,11 @@ class ChatViewModel @Inject constructor(
         val activeRunIds = agentRunCoordinator.activeRuns.value.keys
         val hasActiveLatestRun = latestAssistantMessages.any { message ->
             val runId = message.currentRunId
-            runId != null && (
-                runId in activeRunIds ||
-                    runsById[runId]?.status == AgentRunStatus.RUNNING ||
-                    runsById[runId]?.status == AgentRunStatus.QUEUED
+            runId != null &&
+                (
+                    runId in activeRunIds ||
+                        runsById[runId]?.status == AgentRunStatus.RUNNING ||
+                        runsById[runId]?.status == AgentRunStatus.QUEUED
                 )
         }
         if (hasActiveLatestRun) return
@@ -1416,7 +1417,7 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val recentTurns = grouped.userMessages.indices
+        val recentTurns = grouped.userMessages.indices.toList()
             .takeLast(TITLE_CONTEXT_TURNS)
 
         val userContext = recentTurns.joinToString("\n") { index ->

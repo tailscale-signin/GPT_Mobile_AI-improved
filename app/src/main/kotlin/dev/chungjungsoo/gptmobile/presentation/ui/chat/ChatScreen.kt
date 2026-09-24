@@ -674,6 +674,7 @@ private fun ChatMessagePair(
                     if (debugMode && activeAgentRun != null) {
                         AgentFlightRecorderCard(
                             run = activeAgentRun,
+                            toolEvents = toolEvents,
                             modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
                         )
                     } else if (!debugMode) {

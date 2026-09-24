@@ -12,7 +12,9 @@ data class OpenRouterSettings(
     val maxRetries: Int = 3,
     val retryDelayMs: Long = 1000,
     val cacheEnabled: Boolean = true,
-    val cacheTtlSeconds: Int = 300
+    val cacheTtlSeconds: Int = 300,
+    val stickySessionRoutingEnabled: Boolean = true,
+    val responseCachingEnabled: Boolean = false
 )
 
 data class CacheKey(

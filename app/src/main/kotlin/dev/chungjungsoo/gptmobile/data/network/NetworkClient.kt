@@ -19,7 +19,9 @@ import io.ktor.client.request.header
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import okhttp3.ConnectionPool
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
 
@@ -40,9 +42,9 @@ class NetworkClient @Inject constructor(
                         endpoint {
                             maxConnectionsPerRoute = 100
                             pipelineMaxSize = 20
-                            keepAliveTime = 60_000L
-                            connectTimeout = 30_000L
-                            connectAttempts = 3
+                            keepAliveTime = 300_000L
+                            connectTimeout = 60_000L
+                            connectAttempts = 5
                         }
                     }
                 }
@@ -50,6 +52,12 @@ class NetworkClient @Inject constructor(
                 engine {
                     (this as? OkHttpConfig)?.config {
                         retryOnConnectionFailure(true)
+                        connectTimeout(60, TimeUnit.SECONDS)
+                        readTimeout(5, TimeUnit.MINUTES)
+                        writeTimeout(5, TimeUnit.MINUTES)
+                        callTimeout(0, TimeUnit.MILLISECONDS)
+                        pingInterval(30, TimeUnit.SECONDS)
+                        connectionPool(ConnectionPool(32, 10, TimeUnit.MINUTES))
                     }
                 }
             }
@@ -61,9 +69,11 @@ class NetworkClient @Inject constructor(
             install(SSE)
 
             install(HttpTimeout) {
-                requestTimeoutMillis = 180_000L
-                connectTimeoutMillis = 30_000L
-                socketTimeoutMillis = 90_000L
+                // Non-streaming calls get a generous ceiling. Streaming requests override
+                // this with an unlimited request deadline and a five-minute idle timeout.
+                requestTimeoutMillis = 900_000L
+                connectTimeoutMillis = 60_000L
+                socketTimeoutMillis = 300_000L
             }
 
             install(Logging) {

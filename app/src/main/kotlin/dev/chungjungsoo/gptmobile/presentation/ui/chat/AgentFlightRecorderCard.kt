@@ -46,6 +46,8 @@ import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.GatewayActivitySample
 import dev.chungjungsoo.gptmobile.data.agent.GatewayWorkState
 import dev.chungjungsoo.gptmobile.data.agent.gatewayEfficiencyPercent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 
 
@@ -182,14 +184,23 @@ private fun friendlyGatewayActivity(
 @Composable
 internal fun AgentFlightRecorderCard(
     run: ActiveAgentRun,
+    toolEvents: List<ToolEvent> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var expanded by remember(run.runId) { mutableStateOf(false) }
-    val efficiency = gatewayEfficiencyPercent(run.gatewayToolCalls, run.gatewayUsefulToolCalls)
+    val completedTools = toolEvents.count { it.status == ToolEventStatus.COMPLETED && !it.isError }
+    val failedTools = toolEvents.count { it.status == ToolEventStatus.FAILED || it.isError }
+    val runningTool = toolEvents.lastOrNull {
+        it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING
+    }
+    val totalToolCalls = run.gatewayToolCalls ?: toolEvents.size.takeIf { it > 0 }
+    val usefulToolCalls = run.gatewayUsefulToolCalls ?: completedTools.takeIf { toolEvents.isNotEmpty() }
+    val efficiency = gatewayEfficiencyPercent(totalToolCalls, usefulToolCalls)
     val stateLabel = gatewayWorkStateLabel(run.gatewayWorkState)
     val stage = run.gatewayStage?.takeIf(String::isNotBlank)
     val summary = when {
         !run.gatewayMessage.isNullOrBlank() -> run.gatewayMessage!!
+        runningTool != null -> "Running ${runningTool.modelToolName.ifBlank { runningTool.toolName }}…"
         stage != null -> stage
         else -> stateLabel
     }
@@ -251,7 +262,12 @@ internal fun AgentFlightRecorderCard(
                         .padding(top = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AgentMetricRow(run)
+                    AgentMetricRow(
+                        run = run,
+                        totalToolCalls = totalToolCalls,
+                        usefulToolCalls = usefulToolCalls,
+                        fallbackFailures = failedTools,
+                    )
                     run.gatewayWorkflowProfile?.takeIf(String::isNotBlank)?.let { profile ->
                         val selected = run.gatewaySelectedToolCount
                         val full = run.gatewayFullToolCount
@@ -292,6 +308,16 @@ internal fun AgentFlightRecorderCard(
                             AgentActivityLine(sample)
                         }
                     }
+                    if (toolEvents.isNotEmpty()) {
+                        Text(
+                            text = stringResource(R.string.agent_recent_tools),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        toolEvents.takeLast(4).reversed().forEach { event ->
+                            AgentToolActivityLine(event)
+                        }
+                    }
                 }
             }
         }
@@ -299,7 +325,12 @@ internal fun AgentFlightRecorderCard(
 }
 
 @Composable
-private fun AgentMetricRow(run: ActiveAgentRun) {
+private fun AgentMetricRow(
+    run: ActiveAgentRun,
+    totalToolCalls: Int?,
+    usefulToolCalls: Int?,
+    fallbackFailures: Int,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -311,17 +342,17 @@ private fun AgentMetricRow(run: ActiveAgentRun) {
         )
         AgentMetric(
             label = stringResource(R.string.agent_metric_tools_short),
-            value = run.gatewayToolCalls?.toString() ?: "—",
+            value = totalToolCalls?.toString() ?: "—",
             modifier = Modifier.weight(1f)
         )
         AgentMetric(
             label = stringResource(R.string.agent_metric_useful_short),
-            value = run.gatewayUsefulToolCalls?.toString() ?: "—",
+            value = usefulToolCalls?.toString() ?: "—",
             modifier = Modifier.weight(1f)
         )
         AgentMetric(
             label = stringResource(R.string.agent_metric_stall_short),
-            value = run.gatewayNoProgress?.toString() ?: "—",
+            value = (run.gatewayNoProgress ?: fallbackFailures.takeIf { it > 0 })?.toString() ?: "—",
             modifier = Modifier.weight(1f)
         )
     }
@@ -377,6 +408,41 @@ private fun AgentActivityLine(sample: GatewayActivitySample) {
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+private fun AgentToolActivityLine(event: ToolEvent) {
+    val info = resolveToolServiceInfo(
+        toolName = event.toolName,
+        modelToolName = event.modelToolName,
+        connectionNameSnapshot = event.connectionNameSnapshot,
+        connectionUidSnapshot = event.connectionUidSnapshot,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ToolServiceCircleIcon(info, sizeDp = 20)
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = info.toolDisplayName,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (info.serviceName.isNotBlank()) {
+                Text(
+                    text = info.serviceName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+        ToolStatusIndicator(event.toToolCallState())
     }
 }
 

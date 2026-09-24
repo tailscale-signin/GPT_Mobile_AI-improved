@@ -60,7 +60,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
-import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
@@ -181,8 +180,8 @@ fun AddPlatformScreen(
                         apiUrl = "",
                         token = null,
                         model = selectedModel,
-                        temperature = defaults?.temperature ?: sampling.temperature,
-                        topP = defaults?.topP ?: sampling.topP,
+                        temperature = sampling.temperature,
+                        topP = sampling.topP,
                         topK = defaults?.topK,
                         maxTokens = defaults?.maxTokens,
                         accelerator = defaults?.accelerator,

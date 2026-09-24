@@ -51,15 +51,38 @@ class LocalModelsViewModel @Inject constructor(
     private val _listState = MutableStateFlow(LocalModelsListState())
     private val customDialogState = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
     private val hasHuggingFaceToken = MutableStateFlow(false)
+    private val searchQuery = MutableStateFlow("")
+    private val modelFilter = MutableStateFlow(LocalModelFilter.ALL)
 
     val uiState: StateFlow<LocalModelsUiState> = combine(
         _listState,
         downloadActions.uiState,
         customDialogState,
-        hasHuggingFaceToken
-    ) { list, download, customDialog, hasToken ->
+        hasHuggingFaceToken,
+        combine(searchQuery, modelFilter) { query, filter -> query to filter }
+    ) { list, download, customDialog, hasToken, search ->
+        val (query, filter) = search
+        val normalized = query.trim().lowercase()
+        val visible = list.items.filter { item ->
+            val matchesQuery = normalized.isBlank() ||
+                item.entry.displayName.lowercase().contains(normalized) ||
+                item.entry.id.lowercase().contains(normalized) ||
+                item.entry.downloadUrl.lowercase().contains(normalized) ||
+                item.entry.supportedAccelerators.any { it.lowercase().contains(normalized) }
+            val matchesFilter = when (filter) {
+                LocalModelFilter.ALL -> true
+                LocalModelFilter.READY -> item.status == LocalModelItemStatus.READY
+                LocalModelFilter.AVAILABLE -> item.status == LocalModelItemStatus.NOT_DOWNLOADED
+                LocalModelFilter.DOWNLOADING -> item.status == LocalModelItemStatus.DOWNLOADING
+                LocalModelFilter.FAILED -> item.status == LocalModelItemStatus.FAILED
+            }
+            matchesQuery && matchesFilter
+        }
         LocalModelsUiState(
-            items = list.items,
+            items = visible,
+            totalItemCount = list.items.size,
+            searchQuery = query,
+            filter = filter,
             isLoading = list.isLoading,
             totalStorageBytes = list.totalStorageBytes,
             checkingAccessEntryId = download.checkingAccessEntryId,
@@ -101,6 +124,14 @@ class LocalModelsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun updateSearchQuery(value: String) {
+        searchQuery.value = value
+    }
+
+    fun updateFilter(filter: LocalModelFilter) {
+        modelFilter.value = filter
     }
 
     fun onDownloadClick(entry: CatalogEntry) {

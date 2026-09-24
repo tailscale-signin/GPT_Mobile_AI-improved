@@ -108,6 +108,19 @@ internal fun AgentFlightRecorderCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AgentMetricRow(run)
+                    run.gatewayWorkflowProfile?.takeIf(String::isNotBlank)?.let { profile ->
+                        val selected = run.gatewaySelectedToolCount
+                        val full = run.gatewayFullToolCount
+                        Text(
+                            text = if (selected != null && full != null && full > 0) {
+                                stringResource(R.string.agent_workflow_surface, profile, selected, full)
+                            } else {
+                                stringResource(R.string.agent_workflow_profile, profile)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     run.gatewayCurrentTool?.takeIf(String::isNotBlank)?.let { tool ->
                         Text(
                             text = stringResource(

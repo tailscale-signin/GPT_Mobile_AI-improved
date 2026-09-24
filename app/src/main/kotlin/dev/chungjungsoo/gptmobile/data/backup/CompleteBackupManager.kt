@@ -48,29 +48,43 @@ class CompleteBackupManager @Inject constructor(
 
     suspend fun backup(
         uri: Uri,
-        options: CompleteBackupOptions = CompleteBackupOptions(),
+        selection: CompleteBackupSelection = CompleteBackupSelection.ALL,
         password: String? = null
     ): BackupRestoreResult = operation { work ->
-        require(options.hasAnySelection) { "Select at least one backup section." }
-        val storage = files()
-        val sources = if (options.appFiles) storage.collect() else mutableMapOf()
+        val selected = selection.normalized()
+        require(selected.sections.isNotEmpty()) { "Select at least one backup section." }
 
-        if (options.database) {
+        val storage = files()
+        val sources = linkedMapOf<String, File>()
+        val databaseSelected = selected.sections.any(::isDatabaseSection)
+
+        if (databaseSelected) {
             val dbFile = File(work, "database.sqlite")
             database.withTransaction {
                 ensureIdle(restoring = false)
                 CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
             }
+
             val snapshot = openSnapshot(dbFile)
             try {
-                if (options.appFiles) {
-                    validateModels(snapshot.openHelper.writableDatabase, sources.keys)
-                    rewriteAttachments(snapshot.openHelper.writableDatabase) { storage.archivePath(it, sources) }
-                } else {
-                    // Avoid restoring database rows that point at files deliberately omitted
-                    // from this backup.
-                    snapshot.openHelper.writableDatabase.execSQL("UPDATE messages_v2 SET attachments = '[]'")
-                    snapshot.openHelper.writableDatabase.execSQL("DELETE FROM local_models")
+                val snapshotDb = snapshot.openHelper.writableDatabase
+                CompleteBackupDatabase.retainSections(snapshotDb, selected)
+
+                if (CompleteBackupSection.CONVERSATIONS in selected.sections) {
+                    if (CompleteBackupSection.ATTACHMENTS in selected.sections) {
+                        rewriteAttachments(snapshotDb) { path ->
+                            storage.archivePath(path, sources)
+                        }
+                    } else {
+                        snapshotDb.execSQL("UPDATE messages_v2 SET attachments = '[]'")
+                    }
+                }
+
+                if (CompleteBackupSection.LOCAL_MODELS in selected.sections) {
+                    storage.collect()
+                        .filterKeys(::isModelArchivePath)
+                        .forEach { (archivePath, source) -> sources.putIfAbsent(archivePath, source) }
+                    validateModels(snapshotDb, sources.keys)
                 }
             } finally {
                 snapshot.close()
@@ -79,12 +93,13 @@ class CompleteBackupManager @Inject constructor(
         }
 
         val manifest = CompleteBackupManifest(
-            preferences = if (options.settings) preferences.read() else emptyMap(),
-            sharedPreferences = if (options.settings) preferences.readShared() else emptyMap(),
-            secrets = if (options.credentials) readSecrets() else emptyMap(),
+            preferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.read() else emptyMap(),
+            sharedPreferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.readShared() else emptyMap(),
+            secrets = if (CompleteBackupSection.CREDENTIALS in selected.sections) readSecrets() else emptyMap(),
             files = sources.mapValues { it.value.length() },
-            sections = options.sections()
+            sections = selected.sections.mapTo(linkedSetOf()) { it.name }
         )
+
         val archive = File(work, "archive.zip")
         CompleteBackupArchive.write(archive, manifest, sources)
 
@@ -100,23 +115,30 @@ class CompleteBackupManager @Inject constructor(
         legacy.recordBackupMetadata()
         BackupRestoreResult(
             true,
-            if (password.isNullOrBlank()) "Backup saved." else "Password-encrypted backup saved."
+            if (password.isNullOrBlank()) {
+                "Backup saved."
+            } else {
+                "Password-encrypted backup saved."
+            }
         )
     }
 
     suspend fun restore(
         uri: Uri,
         legacyPassword: String? = null,
-        options: CompleteBackupOptions = CompleteBackupOptions()
+        selection: CompleteBackupSelection = CompleteBackupSelection.ALL
     ): BackupRestoreResult = operation { work ->
-        require(options.hasAnySelection) { "Select at least one restore section." }
+        val requested = selection.normalized()
+        require(requested.sections.isNotEmpty()) { "Select at least one restore section." }
         ensureIdle(restoring = true)
+
         val archive = File(work, "archive.zip")
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
             input.mark(64)
             val header = ByteArray(9)
             val headerBytes = input.read(header)
             input.reset()
+
             if (headerBytes >= 9 && header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
                 val result = when (header[8].toInt()) {
                     1 -> legacy.restoreConfiguration(uri, legacyPassword?.takeIf(String::isNotEmpty))
@@ -127,13 +149,17 @@ class CompleteBackupManager @Inject constructor(
                 settings.invalidatePlatformCache()
                 return@operation result.copy(message = "Legacy backup: ${result.message}")
             }
-            val isLegacyComplete = headerBytes >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL1"
-            val isPasswordlessComplete = headerBytes >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL2"
+
+            val isLegacyComplete = headerBytes >= 8 &&
+                header.copyOfRange(0, 8).decodeToString() == "GPTFULL1"
+            val isPasswordlessComplete = headerBytes >= 8 &&
+                header.copyOfRange(0, 8).decodeToString() == "GPTFULL2"
             val isZip = headerBytes >= 4 &&
                 header[0] == 0x50.toByte() &&
                 header[1] == 0x4B.toByte() &&
                 header[2] == 0x03.toByte() &&
                 header[3] == 0x04.toByte()
+
             when {
                 isPasswordlessComplete -> {
                     val backupKey = requireExistingBackupKey()
@@ -145,33 +171,31 @@ class CompleteBackupManager @Inject constructor(
                 }
                 isLegacyComplete -> {
                     val password = legacyPassword?.takeIf(String::isNotBlank)
-                        ?: error("This older backup is encrypted. Enter its original password.")
+                        ?: error("This backup is password protected. Enter its password.")
                     CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE)
                 }
-                // Transitional development builds briefly wrote a plain ZIP.
-                // Keep it readable so those backups are not stranded; all new
-                // backups are GPTFULL2 encrypted.
                 isZip -> copyArchiveWithLimit(input, archive, work.usableSpace - RESERVE)
                 else -> error("Select a GPT Mobile backup file.")
             }
         } ?: error("Could not read the backup file.")
+
         val staging = File(work, "files").apply { mkdirs() }
         val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE)
-        val availableSections = if (manifest.version == 1 || manifest.sections.isEmpty()) {
-            CompleteBackupOptions().sections()
-        } else {
-            manifest.sections
+        val available = manifestSelection(manifest)
+        val effective = CompleteBackupSelection(
+            requested.sections.intersect(available.sections)
+        ).normalized()
+
+        if (effective.sections.isEmpty()) {
+            return@operation BackupRestoreResult(true, "None of the selected sections exist in this backup.")
         }
 
-        val restoreDatabase = options.database &&
-            CompleteBackupOptions.SECTION_DATABASE in availableSections &&
+        val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
+        val restoreCredentials = CompleteBackupSection.CREDENTIALS in effective.sections
+        val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
+        val restoreModels = CompleteBackupSection.LOCAL_MODELS in effective.sections
+        val restoreDatabase = effective.sections.any(::isDatabaseSection) &&
             "database.sqlite" in manifest.files
-        val restoreSettings = options.settings &&
-            CompleteBackupOptions.SECTION_SETTINGS in availableSections
-        val restoreCredentials = options.credentials &&
-            CompleteBackupOptions.SECTION_CREDENTIALS in availableSections
-        val restoreFiles = options.appFiles &&
-            CompleteBackupOptions.SECTION_APP_FILES in availableSections
 
         if (restoreSettings) {
             preferences.validate(manifest.preferences, manifest.sharedPreferences)
@@ -181,69 +205,90 @@ class CompleteBackupManager @Inject constructor(
         }
 
         val storage = files()
-        val paths = if (restoreFiles) manifest.files.keys - "database.sqlite" else emptySet()
-        require(paths.map(storage::target).toSet().size == paths.size) { "Conflicting backup file locations." }
+        val selectedPaths = manifest.files.keys
+            .asSequence()
+            .filterNot { it == "database.sqlite" }
+            .filter { path ->
+                (restoreModels && isModelArchivePath(path)) ||
+                    (restoreAttachments && !isModelArchivePath(path))
+            }
+            .toSet()
+        require(selectedPaths.map(storage::target).toSet().size == selectedPaths.size) {
+            "Conflicting backup file locations."
+        }
 
-        val snapshot = if (restoreDatabase) openSnapshot(File(staging, "database.sqlite")) else null
+        val snapshot = if (restoreDatabase) {
+            openSnapshot(File(staging, "database.sqlite"))
+        } else {
+            null
+        }
+
         try {
             val source = snapshot?.openHelper?.writableDatabase
             if (source != null) {
                 CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
-                if (restoreFiles) {
-                    validateModels(source, paths)
-                    rewriteAttachments(source) { path ->
-                        if (path.isBlank()) {
-                            path
-                        } else {
-                            require(path in paths) { "The backup is missing an attachment." }
-                            storage.target(path).absolutePath
+
+                if (CompleteBackupSection.CONVERSATIONS in effective.sections) {
+                    if (restoreAttachments) {
+                        rewriteAttachments(source) { path ->
+                            if (path.isBlank()) {
+                                path
+                            } else {
+                                require(path in selectedPaths) { "The backup is missing a selected attachment." }
+                                storage.target(path).absolutePath
+                            }
                         }
+                    } else {
+                        source.execSQL("UPDATE messages_v2 SET attachments = '[]'")
                     }
-                } else {
-                    source.execSQL("UPDATE messages_v2 SET attachments = '[]'")
-                    source.execSQL("DELETE FROM local_models")
+                }
+
+                if (restoreModels) {
+                    validateModels(source, selectedPaths)
                 }
             }
 
             val oldPreferences = if (restoreSettings) preferences.read() else emptyMap()
             val oldShared = if (restoreSettings) preferences.readShared() else emptyMap()
             val oldSecrets = if (restoreCredentials) readSecrets() else emptyMap()
-            val replacement = storage.replacement(staging, paths)
+            val replacement = storage.replacement(staging, selectedPaths)
 
             try {
                 database.withTransaction {
                     ensureIdle(restoring = true)
                     if (source != null) {
-                        CompleteBackupDatabase.restore(source, database.openHelper.writableDatabase)
+                        CompleteBackupDatabase.restoreSections(
+                            source,
+                            database.openHelper.writableDatabase,
+                            effective
+                        )
                     }
-                    if (restoreFiles) replacement.apply()
+                    if (selectedPaths.isNotEmpty()) replacement.apply()
                     if (restoreCredentials) replaceSecrets(manifest.secrets)
-                    if (restoreSettings) preferences.replace(manifest.preferences, manifest.sharedPreferences)
+                    if (restoreSettings) {
+                        preferences.replace(manifest.preferences, manifest.sharedPreferences)
+                    }
                 }
             } catch (error: Throwable) {
                 withContext(NonCancellable) {
-                    if (restoreFiles) runCatching { replacement.rollback() }
+                    if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
                     if (restoreCredentials) runCatching { replaceSecrets(oldSecrets) }
                     if (restoreSettings) runCatching { preferences.replace(oldPreferences, oldShared) }
                 }
                 throw error
             }
-            if (restoreFiles) replacement.cleanup()
+
+            if (selectedPaths.isNotEmpty()) replacement.cleanup()
             settings.invalidatePlatformCache()
         } finally {
             snapshot?.close()
         }
 
-        val restored = buildList {
-            if (restoreDatabase) add("conversations & app data")
-            if (restoreSettings) add("settings")
-            if (restoreCredentials) add("credentials")
-            if (restoreFiles) add("app files")
-        }
         BackupRestoreResult(
             true,
-            if (restored.isEmpty()) "None of the selected sections exist in this backup."
-            else "Restored: ${restored.joinToString()}."
+            "Restored: " + effective.sections
+                .sortedBy { it.ordinal }
+                .joinToString { section -> section.displayName() } + "."
         )
     }
 
@@ -376,6 +421,61 @@ class CompleteBackupManager @Inject constructor(
             error("The passwordless backup encryption key is invalid.")
         }
         return key
+    }
+
+    private fun isDatabaseSection(section: CompleteBackupSection): Boolean = when (section) {
+        CompleteBackupSection.SETTINGS,
+        CompleteBackupSection.CONVERSATIONS,
+        CompleteBackupSection.PLATFORMS,
+        CompleteBackupSection.TOOLS,
+        CompleteBackupSection.LOCAL_MODELS,
+        CompleteBackupSection.AGENT_HISTORY -> true
+
+        CompleteBackupSection.CREDENTIALS,
+        CompleteBackupSection.ATTACHMENTS -> false
+    }
+
+    private fun manifestSelection(manifest: CompleteBackupManifest): CompleteBackupSelection {
+        if (manifest.version <= 1 || manifest.sections.isEmpty()) {
+            return CompleteBackupSelection.ALL
+        }
+
+        val modern = manifest.sections.mapNotNull { raw ->
+            runCatching { CompleteBackupSection.valueOf(raw) }.getOrNull()
+        }.toSet()
+        if (modern.isNotEmpty()) return CompleteBackupSelection(modern).normalized()
+
+        // Compatibility with brief v2 development builds that used four broad section names.
+        val legacySections = buildSet {
+            if ("database" in manifest.sections) {
+                add(CompleteBackupSection.CONVERSATIONS)
+                add(CompleteBackupSection.PLATFORMS)
+                add(CompleteBackupSection.TOOLS)
+                add(CompleteBackupSection.LOCAL_MODELS)
+                add(CompleteBackupSection.AGENT_HISTORY)
+            }
+            if ("settings" in manifest.sections) add(CompleteBackupSection.SETTINGS)
+            if ("credentials" in manifest.sections) add(CompleteBackupSection.CREDENTIALS)
+            if ("app_files" in manifest.sections) {
+                add(CompleteBackupSection.ATTACHMENTS)
+                add(CompleteBackupSection.LOCAL_MODELS)
+            }
+        }
+        return CompleteBackupSelection(legacySections).normalized()
+    }
+
+    private fun isModelArchivePath(path: String): Boolean =
+        path.substringAfter('/', missingDelimiterValue = path).startsWith("models/")
+
+    private fun CompleteBackupSection.displayName(): String = when (this) {
+        CompleteBackupSection.SETTINGS -> "settings"
+        CompleteBackupSection.CONVERSATIONS -> "conversations"
+        CompleteBackupSection.PLATFORMS -> "AI platforms"
+        CompleteBackupSection.TOOLS -> "tool connections"
+        CompleteBackupSection.CREDENTIALS -> "credentials"
+        CompleteBackupSection.LOCAL_MODELS -> "local models"
+        CompleteBackupSection.ATTACHMENTS -> "attachments"
+        CompleteBackupSection.AGENT_HISTORY -> "agent history"
     }
 
     private fun ensureIdle(restoring: Boolean) {

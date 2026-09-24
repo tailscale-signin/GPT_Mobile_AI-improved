@@ -222,7 +222,7 @@ class ToolConnectionsViewModel @Inject constructor(
                 }
                 _uiState.update { state ->
                     state.copy(
-                        connectionHealth = state.connectionHealth + (
+                        connectionHealth = state.connectionHealth + mapOf(
                             connection.connectionUid to ToolConnectionHealth(
                                 status = ToolConnectionHealthStatus.CHECKING,
                                 message = "Checking Streamable HTTP server…"
@@ -270,7 +270,7 @@ class ToolConnectionsViewModel @Inject constructor(
                         )
                     _uiState.update { state ->
                         state.copy(
-                            connectionHealth = state.connectionHealth + (
+                            connectionHealth = state.connectionHealth + mapOf(
                                 connection.connectionUid to health
                             )
                         )

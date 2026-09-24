@@ -53,6 +53,7 @@ import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.determineLocalNetworkAccessRequirement
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
+import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -110,13 +111,21 @@ class ChatViewModel @Inject constructor(
 
     private val chatRoomId: Int = checkNotNull(savedStateHandle["chatRoomId"])
     private val enabledPlatformString: String = checkNotNull(savedStateHandle["enabledPlatforms"])
-    val enabledPlatformsInChat = enabledPlatformString.split(',')
+    val enabledPlatformsInChat = enabledPlatformString.split(',').filter(String::isNotBlank)
+    private val requestedCombinedMode: Boolean = savedStateHandle.get<Boolean>("combinedMode") ?: false
     val targetMessageId: Int = savedStateHandle.get<Int>("targetMessageId") ?: -1
 
     private val currentTimeStamp: Long
         get() = System.currentTimeMillis() / 1000
 
-    private val _chatRoom = MutableStateFlow(ChatRoomV2(id = -1, title = "", enabledPlatform = enabledPlatformsInChat))
+    private val _chatRoom = MutableStateFlow(
+        ChatRoomV2(
+            id = -1,
+            title = "",
+            enabledPlatform = enabledPlatformsInChat,
+            isCombined = requestedCombinedMode
+        )
+    )
     val chatRoom = _chatRoom.asStateFlow()
 
     private val _isChatTitleDialogOpen = MutableStateFlow(false)
@@ -215,6 +224,7 @@ class ChatViewModel @Inject constructor(
 
     private var pendingQuestionText: String? = null
     private var hasTriggeredAiTitle = false
+    private val combinedSynthesisStartedForUserIds = mutableSetOf<Int>()
 
     init {
         fetchChatRoom()
@@ -1096,7 +1106,12 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             _chatRoom.update {
                 if (chatRoomId == 0) {
-                    ChatRoomV2(id = 0, title = "Untitled Chat", enabledPlatform = enabledPlatformsInChat)
+                    ChatRoomV2(
+                        id = 0,
+                        title = "Untitled Chat",
+                        enabledPlatform = enabledPlatformsInChat,
+                        isCombined = requestedCombinedMode
+                    )
                 } else {
                     chatRepository.fetchChatListV2().first { it.id == chatRoomId }
                 }
@@ -1176,6 +1191,7 @@ class ChatViewModel @Inject constructor(
                         List(groupedMessages.assistantMessages.size) { index -> current.getOrElse(index) { 0 } }
                     }
                     syncLoadingStates(_agentRunsById.value)
+                    maybeStartCombinedSynthesis(_agentRunsById.value)
                     _isLoaded.update { true }
                 }
         }
@@ -1202,8 +1218,137 @@ class ChatViewModel @Inject constructor(
                         )
                     }
                     syncLoadingStates(runsById)
+                    maybeStartCombinedSynthesis(runsById)
                     checkAndGenerateAiTitle(runsById)
                 }
+        }
+    }
+
+    private fun maybeStartCombinedSynthesis(runsById: Map<String, AgentRun>) {
+        val room = _chatRoom.value
+        if (!room.isCombined || room.id <= 0 || enabledPlatformsInChat.size < 2) return
+
+        val grouped = _groupedMessages.value
+        val turnIndex = grouped.userMessages.lastIndex
+        if (turnIndex < 0) return
+        val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
+        if (userMessage.id <= 0 || userMessage.id in combinedSynthesisStartedForUserIds) return
+
+        val assistantRow = grouped.assistantMessages.getOrNull(turnIndex).orEmpty()
+        if (assistantRow.isEmpty()) return
+
+        val synthesisAlreadyPersisted = runsById.values.any { run ->
+            run.userMessageId == userMessage.id &&
+                run.providerSnapshot.startsWith(COMBINED_SYNTHESIS_PROVIDER_PREFIX)
+        }
+        if (synthesisAlreadyPersisted) {
+            combinedSynthesisStartedForUserIds += userMessage.id
+            return
+        }
+
+        val activeRunIds = agentRunCoordinator.activeRuns.value.keys
+        val initialRuns = enabledPlatformsInChat.mapNotNull { uid ->
+            assistantRow.firstOrNull { it.platformType == uid }
+                ?.currentRunId
+                ?.let(runsById::get)
+        }
+        if (initialRuns.size < enabledPlatformsInChat.size) return
+        if (initialRuns.any { run ->
+                run.runId in activeRunIds ||
+                    run.status == AgentRunStatus.QUEUED ||
+                    run.status == AgentRunStatus.RUNNING
+            }
+        ) {
+            return
+        }
+
+        val candidates = enabledPlatformsInChat.mapNotNull { uid ->
+            val message = assistantRow.firstOrNull { it.platformType == uid } ?: return@mapNotNull null
+            val content = stripAssistantErrorNote(message.effectiveContent()).trim()
+            if (content.isBlank()) return@mapNotNull null
+            CombinedModelResponse(
+                platformUid = uid,
+                platformName = _platformsInApp.value.firstOrNull { it.uid == uid }?.name ?: uid,
+                content = content
+            )
+        }
+        if (candidates.isEmpty()) return
+
+        val leadUid = enabledPlatformsInChat.first()
+        val leadIndex = enabledPlatformsInChat.indexOf(leadUid)
+        val leadMessage = assistantRow.firstOrNull { it.platformType == leadUid } ?: return
+        val leadPlatform = _platformsInApp.value.firstOrNull { it.uid == leadUid } ?: return
+        val leadPlatformWithChatModel = resolvePlatformModel(leadPlatform)
+        val runId = UUID.randomUUID().toString()
+        val synthesisPrompt = buildCombinedSynthesisPrompt(userMessage.content, candidates)
+
+        combinedSynthesisStartedForUserIds += userMessage.id
+        _loadingStates.update { states ->
+            states.toMutableList().apply {
+                if (leadIndex in indices) this[leadIndex] = LoadingState.Loading
+            }
+        }
+
+        viewModelScope.launch {
+            var started = false
+            try {
+                persistBeforeProvider(
+                    persist = {
+                        chatRepository.persistAgentRetry(
+                            PersistAgentRetryRequest(
+                                userMessage = userMessage,
+                                assistantMessage = leadMessage,
+                                run = AgentRunDraft(
+                                    runId = runId,
+                                    profileUid = leadPlatformWithChatModel.uid,
+                                    providerSnapshot = COMBINED_SYNTHESIS_PROVIDER_PREFIX +
+                                        leadPlatformWithChatModel.compatibleType.name,
+                                    modelSnapshot = leadPlatformWithChatModel.model,
+                                    createdAt = currentTimeStamp
+                                )
+                            )
+                        )
+                    },
+                    startProvider = { persisted ->
+                        _groupedMessages.update { current ->
+                            updateAssistantSlot(current, turnIndex, leadIndex) { persisted.assistantMessage }
+                        }
+                        val contextMessages = groupedMessagesThroughTurn(_groupedMessages.value, turnIndex)
+                        val synthesisUsers = contextMessages.userMessages.toMutableList().apply {
+                            if (isNotEmpty()) {
+                                this[lastIndex] = userMessage.copy(
+                                    content = synthesisPrompt,
+                                    attachments = emptyList()
+                                )
+                            }
+                        }
+                        started = true
+                        agentRunCoordinator.start(
+                            listOf(
+                                AgentRunRequest(
+                                    runId = runId,
+                                    chatId = persisted.assistantMessage.chatId,
+                                    assistantMessage = persisted.assistantMessage,
+                                    platform = leadPlatformWithChatModel,
+                                    userMessages = synthesisUsers,
+                                    assistantMessages = contextMessages.assistantMessages,
+                                    chatToolConfig = ChatMcpToolConfig(
+                                        allowAllByDefault = false,
+                                        allToolsDisabled = true
+                                    )
+                                )
+                            )
+                        )
+                    },
+                    onFailure = { error ->
+                        showPersistenceFailure(turnIndex, listOf(leadIndex), error)
+                    }
+                )
+            } finally {
+                if (!started) {
+                    combinedSynthesisStartedForUserIds -= userMessage.id
+                }
+            }
         }
     }
 

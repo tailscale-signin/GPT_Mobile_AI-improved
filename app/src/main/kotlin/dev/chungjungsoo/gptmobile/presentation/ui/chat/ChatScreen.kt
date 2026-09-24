@@ -670,13 +670,13 @@ private fun ChatMessagePair(
                         }
                     }
                 }
-                if (isActiveMessage && isCurrentPlatformLoading && activeAgentRun != null) {
-                    if (debugMode) {
+                if (isActiveMessage && isCurrentPlatformLoading) {
+                    if (debugMode && activeAgentRun != null) {
                         AgentFlightRecorderCard(
                             run = activeAgentRun,
                             modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
                         )
-                    } else {
+                    } else if (!debugMode) {
                         CompactAgentActivityBar(
                             run = activeAgentRun,
                             modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp),

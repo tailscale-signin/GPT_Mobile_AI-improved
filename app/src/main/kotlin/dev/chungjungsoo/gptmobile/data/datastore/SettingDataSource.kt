@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 interface SettingDataSource {
     suspend fun getPreferencesSnapshot(): Preferences
@@ -14,9 +15,9 @@ interface SettingDataSource {
     suspend fun updateThemeMode(themeMode: ThemeMode)
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
     suspend fun updateDebugMode(enabled: Boolean)
-    suspend fun updateFeatureSettings(settings: AppFeatureSettings)
-    suspend fun getFeatureSettings(): AppFeatureSettings
-    fun observeFeatureSettings(): Flow<AppFeatureSettings>
+    suspend fun updateFeatureSettings(settings: AppFeatureSettings) = Unit
+    suspend fun getFeatureSettings(): AppFeatureSettings = AppFeatureSettings()
+    fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
     suspend fun getDebugMode(): Boolean
     fun observeDebugMode(): Flow<Boolean>
     suspend fun updateStatus(apiType: ApiType, status: Boolean)

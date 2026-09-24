@@ -396,11 +396,6 @@ fun OpponentChatBubble(
         if (debugMode) {
             RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
             AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
-            GatewayActivityBar(
-                isLoading = isLoading,
-                toolEvents = toolEvents,
-                modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
-            )
         }
 
         AnimatedVisibility(
@@ -843,7 +838,8 @@ private fun AssistantProcessContent(
                         }
                     }
                 }
-                AssistantTimelineItemType.TOOL -> item.toolSequence?.let(events::get)?.let { event ->
+                AssistantTimelineItemType.TOOL -> if (!isLoading) {
+                    item.toolSequence?.let(events::get)?.let { event ->
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -854,6 +850,7 @@ private fun AssistantProcessContent(
                             modifier = Modifier.fillMaxWidth(),
                             contentIdentity = "$contentIdentity:tool:${event.sequence}"
                         )
+                    }
                     }
                 }
                 AssistantTimelineItemType.NOTICE,
@@ -938,7 +935,7 @@ private fun LegacyAssistantProcessContent(
                 )
             }
         }
-        if (toolEvents.isNotEmpty()) {
+        if (toolEvents.isNotEmpty() && !isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

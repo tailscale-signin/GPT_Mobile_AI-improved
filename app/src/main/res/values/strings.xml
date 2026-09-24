@@ -494,6 +494,9 @@
     <string name="mcp_tools">MCP Tools</string>
     <string name="mcp_tools_after_save">MCP Tools are assigned per AI profile after saving, so different profiles can use different tool sets.</string>
     <string name="provider_profiles_count">%1$d AI profiles</string>
+    <string name="ai_profile_name">AI profile name</string>
+    <string name="local_and_legacy_profiles">Local &amp; standalone profiles</string>
+    <string name="no_profiles_for_connection">No AI profiles use this connection yet. Add a profile to reuse it.</string>
     <string name="saved_provider_connection">Saved provider connection</string>
     <string name="profile_settings">Profile settings</string>
     <string name="connection_settings">Connection</string>

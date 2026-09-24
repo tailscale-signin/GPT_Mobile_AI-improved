@@ -659,7 +659,12 @@ private fun ChatMessagePair(
                     } else {
                         CompactAgentActivityBar(
                             run = activeAgentRun,
-                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
+                            statusOverride = if (isCombinedSynthesis) {
+                                stringResource(R.string.combined_synthesizing)
+                            } else {
+                                null
+                            }
                         )
                     }
                 }

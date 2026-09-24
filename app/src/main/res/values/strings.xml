@@ -439,6 +439,7 @@
     <string name="delete_chat_dialog_title">Delete Chat?</string>
     <string name="delete_chat_dialog_message">Are you sure you want to delete \"%1$s\"? This cannot be undone.</string>
     <string name="using_certain_platform">Using: %1$s</string>
+    <string name="using_combined_platforms">Combined: %1$s</string>
     <string name="select_platform">Select Platform</string>
     <string name="chat_mode_separate">Separate</string>
     <string name="chat_mode_combined">Combined</string>
@@ -618,6 +619,7 @@
     <string name="debug_mode_export">📥 Export Diagnostics</string>
     <string name="complete_backup_description">One complete file contains your settings, chats, favourites, AI platforms, tool connections, credentials, attachments, downloaded models, and agent history.</string>
     <string name="complete_backup_passwordless_description">Save or restore the complete app state in one file. New backups do not require a password.</string>
+    <string name="complete_backup_sensitive_warning">The backup includes saved credentials. Store the file somewhere private and trusted.</string>
     <string name="complete_backup_show_contents">Backup contents</string>
     <string name="complete_backup_hide_contents">Hide backup contents</string>
     <string name="complete_backup_legacy_password_note">Older encrypted backups are still supported. A password is requested only when one of those files is selected.</string>

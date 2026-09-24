@@ -128,7 +128,26 @@ data class GatewayProgress(
     val noProgress: Int? = null,
 
     @SerialName("checkpoint")
-    val checkpoint: Int? = null
+    val checkpoint: Int? = null,
+
+    @SerialName("workflow_profile")
+    val workflowProfile: String? = null,
+
+    @SerialName("full_tool_count")
+    val fullToolCount: Int? = null,
+
+    @SerialName("selected_tool_count")
+    val selectedToolCount: Int? = null,
+
+    @SerialName("recovery_attempt")
+    val recoveryAttempt: Int? = null,
+
+    @SerialName("empty_count")
+    val emptyCount: Int? = null,
+
+    @SerialName("consecutive_failures")
+    val consecutiveFailures: Int? = null,
+
 )
 
 @Serializable

@@ -181,6 +181,7 @@ class ChatViewModel @Inject constructor(
 
     private val _runNoticesById = MutableStateFlow<Map<String, List<ChatRunNotice>>>(emptyMap())
     val runNoticesById = _runNoticesById.asStateFlow()
+    val activeAgentRuns = agentRunCoordinator.activeRuns
 
     private val _needsLocalNetworkAccess = MutableStateFlow(false)
     val needsLocalNetworkAccess = _needsLocalNetworkAccess.asStateFlow()

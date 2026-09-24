@@ -379,6 +379,29 @@
     <string name="search_tool_trace">Search tool trace</string>
     <string name="no_matching_tool_calls">No matching tool calls</string>
 
+    <!-- Agent Flight Recorder -->
+    <string name="agent_flight_recorder_title">Agent Flight Recorder</string>
+    <string name="agent_state_starting">Starting</string>
+    <string name="agent_state_exploring">Exploring</string>
+    <string name="agent_state_focused">Focused</string>
+    <string name="agent_state_acting">Using tools</string>
+    <string name="agent_state_recovering">Recovering</string>
+    <string name="agent_state_synthesizing">Synthesizing</string>
+    <string name="agent_state_finalizing">Finalizing</string>
+    <string name="agent_metric_efficiency">%1$d%% signal</string>
+    <string name="agent_metric_round_short">Round</string>
+    <string name="agent_metric_tools_short">Tools</string>
+    <string name="agent_metric_useful_short">Useful</string>
+    <string name="agent_metric_stall_short">Stall</string>
+    <string name="agent_metric_checkpoint">Checkpoint %1$d</string>
+    <string name="agent_current_tool">%1$s · %2$s</string>
+    <string name="agent_workflow_profile">Workflow: %1$s</string>
+    <string name="agent_workflow_surface">Workflow: %1$s · %2$d/%3$d tool schemas</string>
+    <string name="agent_route_local">local route</string>
+    <string name="agent_recovering_message">The gateway is changing strategy after repeated low-novelty work.</string>
+    <string name="agent_recent_activity">Recent activity</string>
+    <string name="agent_activity_update">Gateway update</string>
+
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>
     <string name="favorite">Favorite</string>

@@ -1,0 +1,96 @@
+package dev.chungjungsoo.gptmobile.data.agent
+
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class GatewayEfficiencyTest {
+
+    @Test
+    fun `efficiency is useful calls divided by total calls`() {
+        assertEquals(30, gatewayEfficiencyPercent(10, 3))
+        assertEquals(100, gatewayEfficiencyPercent(2, 4))
+        assertNull(gatewayEfficiencyPercent(0, 0))
+    }
+
+    @Test
+    fun `recovery outranks ordinary exploration when no progress accumulates`() {
+        assertEquals(
+            GatewayWorkState.RECOVERING,
+            resolveGatewayWorkState(
+                stage = "research",
+                event = "progress",
+                totalToolCalls = 10,
+                usefulToolCalls = 3,
+                noProgress = 3,
+                currentTool = null
+            )
+        )
+    }
+
+    @Test
+    fun `tool completed event stays tool activity instead of finalizing the run`() {
+        assertEquals(
+            GatewayWorkState.ACTING,
+            resolveGatewayWorkState("researching", "tool_completed", 4, 2, 0, "get_file")
+        )
+    }
+
+    @Test
+    fun `synthesis and finalization are surfaced explicitly`() {
+        assertEquals(
+            GatewayWorkState.SYNTHESIZING,
+            resolveGatewayWorkState("hard synthesis", null, 10, 3, 2, null)
+        )
+        assertEquals(
+            GatewayWorkState.FINALIZING,
+            resolveGatewayWorkState("final response", null, 10, 3, 2, null)
+        )
+    }
+
+    @Test
+    fun `active run merges workflow profile and tool surface telemetry`() {
+        val run = ActiveAgentRun(runId = "run", chatId = 1, profileUid = "profile")
+            .withGatewayProgress(
+                GatewayProgress(
+                    workflowProfile = "repo_change_pr",
+                    fullToolCount = 107,
+                    selectedToolCount = 12,
+                    recoveryAttempt = 1
+                )
+            )
+
+        assertEquals("repo_change_pr", run.gatewayWorkflowProfile)
+        assertEquals(107, run.gatewayFullToolCount)
+        assertEquals(12, run.gatewaySelectedToolCount)
+        assertEquals(1, run.gatewayRecoveryAttempt)
+    }
+
+    @Test
+    fun `activity history deduplicates consecutive repeats and keeps newest samples`() {
+        var history = emptyList<GatewayActivitySample>()
+        repeat(8) { index ->
+            history = appendGatewayActivity(
+                history,
+                GatewayProgress(
+                    sequence = index,
+                    stage = "round-$index",
+                    message = "message-$index"
+                ),
+                limit = 3
+            )
+        }
+        history = appendGatewayActivity(
+            history,
+            GatewayProgress(
+                sequence = 99,
+                stage = "round-7",
+                message = "message-7"
+            ),
+            limit = 3
+        )
+
+        assertEquals(listOf(5, 6, 7), history.mapNotNull { it.sequence })
+    }
+}

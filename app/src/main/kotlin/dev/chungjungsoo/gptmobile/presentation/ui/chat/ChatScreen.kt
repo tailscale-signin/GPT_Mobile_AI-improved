@@ -10,8 +10,13 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -783,7 +788,11 @@ private fun CombinedResponsesPanel(
                 )
             }
 
-            if (expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(240)) + expandVertically(),
+                exit = fadeOut(tween(180)) + shrinkVertically()
+            ) {
                 Column(
                     modifier = Modifier.padding(top = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -815,16 +824,20 @@ private fun CombinedResponsesPanel(
                                         )
                                     }
                                 }
-                                Text(
-                                    text = raw.ifBlank { stringResource(R.string.combined_response_pending) },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (raw.isBlank()) {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
-                                    modifier = Modifier.padding(top = 6.dp)
-                                )
+                                SelectionContainer {
+                                    Text(
+                                        text = raw.ifBlank {
+                                            stringResource(R.string.combined_response_pending)
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (raw.isBlank()) {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface
+                                        },
+                                        modifier = Modifier.padding(top = 6.dp)
+                                    )
+                                }
                             }
                         }
                     }

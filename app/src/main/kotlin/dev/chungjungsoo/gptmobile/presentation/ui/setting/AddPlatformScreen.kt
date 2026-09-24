@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +20,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
@@ -70,7 +75,8 @@ fun AddPlatformScreen(
     modifier: Modifier = Modifier,
     viewModel: AddPlatformViewModel = hiltViewModel(),
     onNavigationClick: () -> Unit,
-    onSave: (PlatformV2) -> Unit,
+    savedConnections: List<ProviderConnection> = emptyList(),
+    onSave: (PlatformV2, ProviderConnection?, String?) -> Unit,
     onNavigateToLocalModels: () -> Unit = {}
 ) {
     var step by remember { mutableStateOf(AddPlatformStep.API_TYPE) }
@@ -80,6 +86,15 @@ fun AddPlatformScreen(
     val apiTokens = remember { mutableStateListOf("") }
     var model by remember { mutableStateOf("") }
     var isReasoningEnabled by remember { mutableStateOf(false) }
+    var selectedConnectionUid by remember { mutableStateOf<String?>(null) }
+    var createNewConnection by remember { mutableStateOf(true) }
+    var connectionName by remember { mutableStateOf("") }
+    var showAdvancedSettings by remember { mutableStateOf(false) }
+    var systemPrompt by remember { mutableStateOf(ModelConstants.DEFAULT_PROMPT) }
+    var temperatureText by remember { mutableStateOf("1.0") }
+    var topPText by remember { mutableStateOf("1.0") }
+    var maxToolCallsText by remember { mutableStateOf("") }
+    var showSuggestedModels by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
     var showLlamaPicker by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
@@ -96,11 +111,12 @@ fun AddPlatformScreen(
     }
     val isLocalPlatform = selectedClientType == ClientType.LITERT_LM
     val title = stringResource(if (step == AddPlatformStep.API_TYPE) R.string.choose_platform_type else R.string.platform_details)
+    val hasProviderConnection = selectedConnectionUid != null || (createNewConnection && apiUrl.isNotBlank())
     val isSaveEnabled = platformName.isNotBlank() &&
         if (isLocalPlatform) {
             canSave
         } else {
-            model.isNotBlank() && apiUrl.isNotBlank()
+            model.isNotBlank() && hasProviderConnection
         }
     val navigateBack = { if (step == AddPlatformStep.DETAILS) step = AddPlatformStep.API_TYPE else onNavigationClick() }
     BackHandler(enabled = step == AddPlatformStep.DETAILS) { step = AddPlatformStep.API_TYPE }
@@ -133,6 +149,17 @@ fun AddPlatformScreen(
                     } else {
                         null
                     }
+                    val newConnection = if (!isLocalPlatform && createNewConnection) {
+                        ProviderConnection(
+                            name = connectionName.trim().ifBlank {
+                                "${ModelConstants.defaultPlatformName(clientType)} connection"
+                            },
+                            compatibleType = clientType,
+                            apiUrl = apiUrl.trim()
+                        )
+                    } else {
+                        null
+                    }
                     val platform = PlatformV2(
                         name = platformName.trim(),
                         compatibleType = clientType,
@@ -141,23 +168,29 @@ fun AddPlatformScreen(
                         } else {
                             true
                         },
-                        apiUrl = if (clientType == ClientType.LITERT_LM) "" else apiUrl.trim(),
-                        token = formattedApiKey.takeIf { it.isNotEmpty() && clientType != ClientType.LITERT_LM },
+                        apiUrl = "",
+                        token = null,
                         model = selectedModel,
-                        temperature = defaults?.temperature ?: 1.0f,
-                        topP = defaults?.topP ?: 1.0f,
+                        temperature = defaults?.temperature ?: temperatureText.toFloatOrNull()?.coerceIn(0f, 2f),
+                        topP = defaults?.topP ?: topPText.toFloatOrNull()?.coerceIn(0f, 1f),
                         topK = defaults?.topK,
                         maxTokens = defaults?.maxTokens,
                         accelerator = defaults?.accelerator,
-                        systemPrompt = ModelConstants.DEFAULT_PROMPT,
+                        systemPrompt = systemPrompt,
                         stream = true,
                         reasoning = isReasoningEnabled && clientType != ClientType.LITERT_LM,
-                        timeout = 30,
-                        ollamaOptions = defaultOllamaOptions
+                        timeout = 300,
+                        maxToolCalls = maxToolCallsText.toIntOrNull()?.coerceAtLeast(1) ?: Int.MAX_VALUE,
+                        ollamaOptions = defaultOllamaOptions,
+                        providerConnectionUid = if (createNewConnection) null else selectedConnectionUid
                     )
                     apiTokens.clear()
                     apiTokens.add("")
-                    onSave(platform)
+                    onSave(
+                        platform,
+                        newConnection,
+                        formattedApiKey.takeIf { newConnection != null && it.isNotEmpty() }
+                    )
                 }
             )
         }
@@ -185,10 +218,22 @@ fun AddPlatformScreen(
                         onClick = {
                             selectedClientType = clientType
                             platformName = ModelConstants.defaultPlatformName(clientType)
-                            apiUrl = ModelConstants.defaultApiUrl(clientType)
                             model = ModelConstants.defaultModel(clientType)
+                            val existingConnection = savedConnections.firstOrNull {
+                                it.compatibleType == clientType
+                            }
+                            selectedConnectionUid = existingConnection?.uid
+                            createNewConnection = existingConnection == null
+                            connectionName = existingConnection?.name
+                                ?: "${ModelConstants.defaultPlatformName(clientType)} connection"
+                            apiUrl = existingConnection?.apiUrl ?: ModelConstants.defaultApiUrl(clientType)
                             apiTokens.clear()
                             apiTokens.add("")
+                            systemPrompt = ModelConstants.DEFAULT_PROMPT
+                            temperatureText = "1.0"
+                            topPText = "1.0"
+                            maxToolCallsText = ""
+                            showAdvancedSettings = false
                             isReasoningEnabled = false
                             step = AddPlatformStep.DETAILS
                         }

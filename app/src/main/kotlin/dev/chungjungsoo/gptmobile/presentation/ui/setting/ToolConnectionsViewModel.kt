@@ -233,7 +233,7 @@ class ToolConnectionsViewModel @Inject constructor(
                 viewModelScope.launch {
                     val checkedAt = System.currentTimeMillis()
                     val health = runCatching { resolver.discoverMcpTools(connection) }
-                        .fold(
+                            .fold(
                             onSuccess = { tools ->
                                 if (tools.isEmpty()) {
                                     ToolConnectionHealth(
@@ -258,7 +258,7 @@ class ToolConnectionsViewModel @Inject constructor(
                                     checkedAt = checkedAt
                                 )
                             }
-                        )
+                            )
                     _uiState.update { state ->
                         state.copy(
                             connectionHealth = state.connectionHealth + (

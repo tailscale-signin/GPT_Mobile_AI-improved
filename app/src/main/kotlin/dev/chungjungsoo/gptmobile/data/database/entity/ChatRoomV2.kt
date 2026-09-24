@@ -52,7 +52,10 @@ data class ChatRoomV2(
     val draftUpdatedAt: Long? = null,
 
     @ColumnInfo(name = "is_title_customized", defaultValue = "0")
-    val isTitleCustomized: Boolean = false
+    val isTitleCustomized: Boolean = false,
+
+    @ColumnInfo(name = "conversation_mode", defaultValue = "'STANDARD'")
+    val conversationMode: String = ConversationMode.STANDARD
 ) : Parcelable
 
 class StringListConverter {
@@ -61,4 +64,13 @@ class StringListConverter {
 
     @TypeConverter
     fun fromList(value: List<String>): String = if (value.isEmpty()) "" else value.joinToString(",")
+}
+
+
+object ConversationMode {
+    const val STANDARD = "STANDARD"
+    const val COMBINED = "COMBINED"
+
+    fun normalize(value: String?): String =
+        if (value.equals(COMBINED, ignoreCase = true)) COMBINED else STANDARD
 }

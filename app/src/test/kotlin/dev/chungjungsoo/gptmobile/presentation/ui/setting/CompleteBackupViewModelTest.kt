@@ -49,37 +49,61 @@ class CompleteBackupViewModelTest {
 
     @Test
     fun pickerCancellationUnlocksActionsAndNeverRunsBackup() = runTest(dispatcher) {
-        viewModel.updateBackupPassword("test-password")
-        viewModel.updateBackupConfirmation("test-password")
         assertTrue(viewModel.prepareBackupPicker(restoring = false))
         assertFalse(viewModel.prepareBackupPicker(restoring = true))
         viewModel.backupDestinationSelected(null)
         assertTrue(viewModel.backupUi.value.canBackup)
-        coVerify(exactly = 0) { manager.backup(any(), any()) }
+        coVerify(exactly = 0) { manager.backup(any()) }
     }
 
     @Test
-    fun backupAndConfirmedRestoreUseSameManagerAndClearPasswordAfterSuccess() = runTest(dispatcher) {
+    fun passwordlessBackupAndRestoreUseSameManager() = runTest(dispatcher) {
         val uri = mockk<Uri>()
-        coEvery { manager.backup(uri, "test-password") } returns BackupRestoreResult(true, "Saved")
-        coEvery { manager.restore(uri, "test-password") } returns BackupRestoreResult(true, "Restored")
-        viewModel.updateBackupPassword("test-password")
-        viewModel.updateBackupConfirmation("test-password")
+        coEvery { manager.backup(uri) } returns BackupRestoreResult(true, "Saved")
+        coEvery { manager.requiresPassword(uri) } returns false
+        coEvery { manager.restore(uri, null) } returns BackupRestoreResult(true, "Restored")
+
         assertTrue(viewModel.prepareBackupPicker(restoring = false))
         viewModel.backupDestinationSelected(uri)
         advanceUntilIdle()
-        coVerify(exactly = 1) { manager.backup(uri, "test-password") }
-        assertEquals("", viewModel.backupUi.value.password)
+
+        coVerify(exactly = 1) { manager.backup(uri) }
         assertEquals("Saved", viewModel.backupUi.value.message)
-        viewModel.updateBackupPassword("test-password")
+
         assertTrue(viewModel.prepareBackupPicker(restoring = true))
         viewModel.restoreSourceSelected(uri)
-        coVerify(exactly = 0) { manager.restore(any(), any()) }
+        advanceUntilIdle()
+        assertFalse(viewModel.backupUi.value.requiresLegacyPassword)
         assertEquals(uri, viewModel.backupUi.value.restoreUri)
+
         viewModel.confirmRestore()
         advanceUntilIdle()
-        coVerify(exactly = 1) { manager.restore(uri, "test-password") }
+
+        coVerify(exactly = 1) { manager.restore(uri, null) }
         assertFalse(viewModel.backupUi.value.isBusy)
+        assertEquals("Restored", viewModel.backupUi.value.message)
+    }
+
+    @Test
+    fun encryptedLegacyBackupPromptsForPasswordBeforeRestore() = runTest(dispatcher) {
+        val uri = mockk<Uri>()
+        coEvery { manager.requiresPassword(uri) } returns true
+        coEvery { manager.restore(uri, "old-password") } returns BackupRestoreResult(true, "Restored")
+
+        assertTrue(viewModel.prepareBackupPicker(restoring = true))
+        viewModel.restoreSourceSelected(uri)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.backupUi.value.requiresLegacyPassword)
+        viewModel.confirmRestore()
+        advanceUntilIdle()
+        coVerify(exactly = 0) { manager.restore(any(), any()) }
+
+        viewModel.updateLegacyBackupPassword("old-password")
+        viewModel.confirmRestore()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { manager.restore(uri, "old-password") }
         assertEquals("Restored", viewModel.backupUi.value.message)
     }
 }

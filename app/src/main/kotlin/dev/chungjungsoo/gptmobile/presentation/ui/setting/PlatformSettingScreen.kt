@@ -265,7 +265,9 @@ fun PlatformSettingScreen(
                         }
                     }
                 }
-                if (!isLocalPlatform) {
+                // Endpoint and credentials belong to the parent provider connection.
+                // Standalone/legacy profiles keep their own connection fields for compatibility.
+                if (!isLocalPlatform && providerConnection == null) {
                     SettingItem(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.api_url),

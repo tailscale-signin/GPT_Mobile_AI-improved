@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
@@ -37,6 +38,14 @@ interface SettingRepository {
     suspend fun updatePlatformV2(platform: PlatformV2)
     suspend fun deletePlatformV2(platform: PlatformV2)
     suspend fun getPlatformV2ById(id: Int): PlatformV2?
+
+    // Reusable provider connections. Credentials remain in SecretVault.
+    suspend fun fetchProviderConnections(): List<ProviderConnection>
+    fun observeProviderConnections(): Flow<List<ProviderConnection>>
+    suspend fun getProviderConnection(uid: String): ProviderConnection?
+    suspend fun addProviderConnection(connection: ProviderConnection, credential: String? = null): ProviderConnection
+    suspend fun updateProviderConnection(connection: ProviderConnection, credential: String? = null): ProviderConnection
+    suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean
 
     // Backup & Restore
     suspend fun exportConfigurationJson(): String

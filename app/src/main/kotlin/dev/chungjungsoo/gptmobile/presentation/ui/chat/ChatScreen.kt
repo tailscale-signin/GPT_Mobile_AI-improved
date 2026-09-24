@@ -330,6 +330,7 @@ fun ChatScreen(
                             isActiveMessage = index == lastMessageIndex,
                             maximumUserChatBubbleWidth = maximumUserChatBubbleWidth,
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
+                            combinedMode = chatRoom.isCombined,
                             debugMode = debugMode,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
@@ -503,6 +504,7 @@ private fun ChatMessagePair(
     isActiveMessage: Boolean,
     maximumUserChatBubbleWidth: Dp,
     maximumOpponentChatBubbleWidth: Dp,
+    combinedMode: Boolean = false,
     debugMode: Boolean = false,
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
@@ -517,13 +519,34 @@ private fun ChatMessagePair(
     onContinueClick: () -> Unit = {},
     onActionClick: (String) -> Unit = {}
 ) {
-    val selectedAssistantMessage = assistantMessages.getOrNull(platformIndexState)
-    val assistantContent = selectedAssistantMessage?.effectiveContent() ?: ""
-    val assistantThoughts = selectedAssistantMessage?.effectiveThoughts() ?: ""
-    val assistantTimeline = selectedAssistantMessage?.effectiveTimeline().orEmpty()
+    val displayedPlatformIndex = if (combinedMode) 0 else platformIndexState
+    val selectedAssistantMessage = assistantMessages.getOrNull(displayedPlatformIndex)
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
-    val activeAgentRun = selectedRunId?.let(activeAgentRuns::get)
+    val isCombinedSynthesis = combinedMode &&
+        agentRun?.providerSnapshot?.startsWith(COMBINED_SYNTHESIS_PROVIDER_PREFIX) == true
+    val assistantContent = if (combinedMode && !isCombinedSynthesis) {
+        ""
+    } else {
+        selectedAssistantMessage?.effectiveContent() ?: ""
+    }
+    val assistantThoughts = if (combinedMode && !isCombinedSynthesis) {
+        ""
+    } else {
+        selectedAssistantMessage?.effectiveThoughts() ?: ""
+    }
+    val assistantTimeline = if (combinedMode && !isCombinedSynthesis) {
+        emptyList()
+    } else {
+        selectedAssistantMessage?.effectiveTimeline().orEmpty()
+    }
+    val activeAgentRun = if (combinedMode) {
+        assistantMessages.asSequence()
+            .mapNotNull { message -> message.currentRunId?.let(activeAgentRuns::get) }
+            .firstOrNull()
+    } else {
+        selectedRunId?.let(activeAgentRuns::get)
+    }
     val toolEvents = selectedRunId?.let(toolEventsByRun::get).orEmpty()
     val canShowPreviousRevision = selectedAssistantMessage?.let { assistantMessage ->
         assistantMessage.revisions.isNotEmpty() &&
@@ -533,9 +556,16 @@ private fun ChatMessagePair(
         assistantMessage.revisions.isNotEmpty() &&
             assistantMessage.activeRevisionIndex != ACTIVE_REVISION_LATEST
     } ?: false
-    val selectedPlatformUid = enabledPlatformsInChat.getOrElse(platformIndexState) { "" }
-    val isCurrentPlatformLoading =
-        loadingStates.getOrElse(platformIndexState) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
+    val selectedPlatformUid = enabledPlatformsInChat.getOrElse(displayedPlatformIndex) { "" }
+    val isCurrentPlatformLoading = if (combinedMode) {
+        isActiveMessage && (
+            !isCombinedSynthesis ||
+                loadingStates.any { it == ChatViewModel.LoadingState.Loading }
+            )
+    } else {
+        loadingStates.getOrElse(displayedPlatformIndex) { ChatViewModel.LoadingState.Idle } ==
+            ChatViewModel.LoadingState.Loading
+    }
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -579,7 +609,24 @@ private fun ChatMessagePair(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
-                    if (enabledPlatformsInChat.size > 1) {
+                    if (combinedMode) {
+                        val leadName = enabledPlatformsInChat.firstOrNull()
+                            ?.let(enabledPlatformLookup::get)
+                            ?.name
+                            ?: stringResource(R.string.unknown)
+                        Surface(
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Text(
+                                text = stringResource(R.string.combined_lead_label, leadName),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    } else if (enabledPlatformsInChat.size > 1) {
                         Row(
                             modifier = Modifier
                                 .padding(horizontal = 8.dp)
@@ -651,18 +698,146 @@ private fun ChatMessagePair(
                     canShowNextRevision = canShowNextRevision,
                     onCopyClick = { onCopyText(assistantContent) },
                     onSelectClick = { onSelectText(assistantContent) },
-                    onRetryClick = { onRetry(messageIndex, platformIndexState) },
-                    onEditClick = { onEditAssistant(messageIndex, platformIndexState) },
+                    onRetryClick = { onRetry(messageIndex, displayedPlatformIndex) },
+                    onEditClick = { onEditAssistant(messageIndex, displayedPlatformIndex) },
                     onFavoriteClick = onFavoriteClick,
                     onFavoriteLongPress = onFavoriteLongPress,
-                    onShowPreviousRevision = { onShowPreviousRevision(messageIndex, platformIndexState) },
-                    onShowNextRevision = { onShowNextRevision(messageIndex, platformIndexState) },
+                    onShowPreviousRevision = { onShowPreviousRevision(messageIndex, displayedPlatformIndex) },
+                    onShowNextRevision = { onShowNextRevision(messageIndex, displayedPlatformIndex) },
                     onContinueClick = onContinueClick,
                     onActionClick = onActionClick
                 )
+                if (combinedMode && assistantMessages.size > 1) {
+                    CombinedResponsesPanel(
+                        assistantMessages = assistantMessages,
+                        enabledPlatformsInChat = enabledPlatformsInChat,
+                        enabledPlatformLookup = enabledPlatformLookup,
+                        agentRunsById = agentRunsById,
+                        loadingStates = loadingStates,
+                        contentIdentity = message.id.takeIf { it > 0 } ?: messageIndex,
+                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun CombinedResponsesPanel(
+    assistantMessages: List<MessageV2>,
+    enabledPlatformsInChat: List<String>,
+    enabledPlatformLookup: Map<String, PlatformV2>,
+    agentRunsById: Map<String, AgentRun>,
+    loadingStates: List<ChatViewModel.LoadingState>,
+    contentIdentity: Any,
+    modifier: Modifier = Modifier
+) {
+    var expanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
+    val responses = remember(assistantMessages, agentRunsById, enabledPlatformsInChat) {
+        enabledPlatformsInChat.mapIndexedNotNull { index, uid ->
+            val message = assistantMessages.firstOrNull { it.platformType == uid } ?: return@mapIndexedNotNull null
+            val raw = combinedRawResponse(message, agentRunsById)
+            Triple(index, uid, raw)
+        }
+    }
+    val readyCount = responses.count { it.third.isNotBlank() }
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.combined_model_responses),
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "$readyCount/${enabledPlatformsInChat.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (expanded) "▴" else "▾",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (expanded) {
+                Column(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    responses.forEach { (index, uid, raw) ->
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = enabledPlatformLookup[uid]?.name ?: uid,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    if (index == 0) {
+                                        Text(
+                                            text = " · " + stringResource(R.string.chat_mode_lead_model),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (loadingStates.getOrNull(index) == ChatViewModel.LoadingState.Loading) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(12.dp),
+                                            strokeWidth = 1.5.dp
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = raw.ifBlank { stringResource(R.string.combined_response_pending) },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (raw.isBlank()) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun combinedRawResponse(
+    message: MessageV2,
+    agentRunsById: Map<String, AgentRun>
+): String {
+    val currentRun = message.currentRunId?.let(agentRunsById::get)
+    if (currentRun?.providerSnapshot?.startsWith(COMBINED_SYNTHESIS_PROVIDER_PREFIX) == true) {
+        val rawRevision = message.revisions.firstOrNull { revision ->
+            val revisionRun = revision.runId?.let(agentRunsById::get)
+            revision.content.isNotBlank() &&
+                revisionRun?.providerSnapshot?.startsWith(COMBINED_SYNTHESIS_PROVIDER_PREFIX) != true
+        }
+        if (rawRevision != null) return rawRevision.content
+    }
+    return message.content
 }
 
 private fun chatMessagePairKey(message: MessageV2, index: Int): String = if (message.id > 0) {

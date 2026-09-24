@@ -42,7 +42,6 @@ import dev.chungjungsoo.gptmobile.data.agent.GatewayWorkState
 import dev.chungjungsoo.gptmobile.data.agent.gatewayEfficiencyPercent
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 
-
 @Composable
 internal fun CompactAgentActivityBar(
     run: ActiveAgentRun,

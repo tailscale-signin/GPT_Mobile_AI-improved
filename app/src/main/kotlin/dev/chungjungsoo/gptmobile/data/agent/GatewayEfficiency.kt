@@ -22,7 +22,6 @@ data class GatewayActivitySample(
 ) {
     val identity: String
         get() = listOf(
-            sequence?.toString().orEmpty(),
             stage.orEmpty(),
             message.orEmpty(),
             toolName.orEmpty(),
@@ -46,18 +45,27 @@ internal fun resolveGatewayWorkState(
     noProgress: Int?,
     currentTool: String?
 ): GatewayWorkState {
-    val normalized = listOf(stage, event).filterNotNull().joinToString(" ").lowercase()
+    val normalizedStage = stage.orEmpty().lowercase()
+    val normalizedEvent = event.orEmpty().lowercase()
+    val normalized = "$normalizedStage $normalizedEvent"
+
     return when {
-        normalized.contains("final") || normalized.contains("complete") ->
+        normalizedStage.contains("final") ||
+            normalizedEvent in setOf("completed", "job_completed", "final_response", "response_completed") ->
             GatewayWorkState.FINALIZING
 
-        normalized.contains("synth") || normalized.contains("wrap") || normalized.contains("summary") ->
+        normalizedStage.contains("synth") ||
+            normalizedStage.contains("wrap") ||
+            normalizedStage.contains("summary") ||
+            normalizedEvent.contains("synthesis") ->
             GatewayWorkState.SYNTHESIZING
 
         (noProgress ?: 0) >= 3 || normalized.contains("recover") || normalized.contains("strategy") ->
             GatewayWorkState.RECOVERING
 
-        !currentTool.isNullOrBlank() || normalized.contains("tool") || normalized.contains("execut") ->
+        !currentTool.isNullOrBlank() ||
+            normalizedEvent.startsWith("tool_") ||
+            normalizedStage.contains("execut") ->
             GatewayWorkState.ACTING
 
         (totalToolCalls ?: 0) == 0 ->

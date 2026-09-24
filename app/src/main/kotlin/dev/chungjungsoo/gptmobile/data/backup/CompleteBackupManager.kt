@@ -169,9 +169,15 @@ class CompleteBackupManager @Inject constructor(
 
     suspend fun requiresPassword(uri: Uri): Boolean = withContext(Dispatchers.IO) {
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
-            val header = ByteArray(8)
+            val header = ByteArray(9)
             val count = input.read(header)
-            count >= 8 && header.decodeToString() == "GPTFULL1"
+            val encryptedComplete =
+                count >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL1"
+            val passwordProtectedLegacy =
+                count >= 9 &&
+                    header.copyOfRange(0, 7).decodeToString() == "GPTBKUP" &&
+                    header[7].toInt() == 2
+            encryptedComplete || passwordProtectedLegacy
         } ?: false
     }
 

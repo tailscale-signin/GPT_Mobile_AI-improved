@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +35,49 @@ import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.GatewayActivitySample
 import dev.chungjungsoo.gptmobile.data.agent.GatewayWorkState
 import dev.chungjungsoo.gptmobile.data.agent.gatewayEfficiencyPercent
+
+
+@Composable
+internal fun CompactAgentActivityBar(
+    run: ActiveAgentRun,
+    modifier: Modifier = Modifier
+) {
+    val liveText = when (run.gatewayWorkState) {
+        GatewayWorkState.STARTING -> stringResource(R.string.agent_live_preparing)
+        GatewayWorkState.EXPLORING -> run.gatewayMessage?.takeIf(String::isNotBlank)
+            ?: stringResource(R.string.agent_live_exploring)
+        GatewayWorkState.FOCUSED -> run.gatewayMessage?.takeIf(String::isNotBlank)
+            ?: stringResource(R.string.agent_live_focused)
+        GatewayWorkState.ACTING -> run.gatewayCurrentTool?.takeIf(String::isNotBlank)?.let {
+            stringResource(R.string.agent_live_using_tool, it)
+        } ?: stringResource(R.string.agent_live_acting)
+        GatewayWorkState.RECOVERING -> stringResource(R.string.agent_live_recovering)
+        GatewayWorkState.SYNTHESIZING -> stringResource(R.string.agent_live_synthesizing)
+        GatewayWorkState.FINALIZING -> stringResource(R.string.agent_live_finalizing)
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            Text(
+                text = liveText,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 7.dp),
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            )
+        }
+    }
+}
 
 @Composable
 internal fun AgentFlightRecorderCard(

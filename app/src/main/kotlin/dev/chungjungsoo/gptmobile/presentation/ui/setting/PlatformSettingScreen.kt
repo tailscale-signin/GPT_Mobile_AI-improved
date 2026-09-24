@@ -532,10 +532,11 @@ fun PlatformSettingScreen(
                         onCheckedChange = { settingViewModel.toggleReasoning() }
                     )
 
-                    // Batch API Mode for OpenAI, Anthropic, & OpenRouter
+                    // Provider-specific OpenRouter batching lives exclusively in
+                    // OpenRouter Provider Settings. Keep these legacy per-profile controls
+                    // only for providers whose batch configuration is still profile-scoped.
                     if (platformData.compatibleType == ClientType.OPENAI ||
-                        platformData.compatibleType == ClientType.ANTHROPIC ||
-                        platformData.compatibleType == ClientType.OPENROUTER
+                        platformData.compatibleType == ClientType.ANTHROPIC
                     ) {
                         PreferenceListSwitch(
                             modifier = Modifier.height(64.dp),

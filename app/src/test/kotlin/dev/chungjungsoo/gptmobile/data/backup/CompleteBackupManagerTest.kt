@@ -146,7 +146,12 @@ class CompleteBackupManagerTest {
         preferences.edit { it[intPreferencesKey("current")] = 7 }
         vault.put("provider", "current-token".toByteArray())
         File(context.filesDir, "current.txt").writeText("current file")
-        assertFalse(manager.restore(Uri.fromFile(archive), "wrong-password").success)
+        val encryptedBytes = archive.readBytes()
+        archive.writeBytes(encryptedBytes.copyOf().also { bytes ->
+            bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte()
+        })
+        assertFalse(manager.restore(Uri.fromFile(archive)).success)
+        archive.writeBytes(encryptedBytes)
         vault.failNextPut = true
         assertFalse(manager.restore(Uri.fromFile(archive)).success)
         assertEquals("current", database.chatRoomDao().getChatRooms().single().title)

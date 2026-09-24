@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnecti
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
@@ -343,6 +344,18 @@ private class FakeSettingRepository(
     }
     override suspend fun deletePlatformV2(platform: PlatformV2) = Unit
     override suspend fun getPlatformV2ById(id: Int): PlatformV2? = null
+    override suspend fun fetchProviderConnections(): List<ProviderConnection> = emptyList()
+    override fun observeProviderConnections(): Flow<List<ProviderConnection>> = flowOf(emptyList())
+    override suspend fun getProviderConnection(uid: String): ProviderConnection? = null
+    override suspend fun addProviderConnection(
+        connection: ProviderConnection,
+        credential: String?
+    ): ProviderConnection = connection
+    override suspend fun updateProviderConnection(
+        connection: ProviderConnection,
+        credential: String?
+    ): ProviderConnection = connection
+    override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean = true
     override suspend fun exportConfigurationJson(): String = "{}"
     override suspend fun importConfigurationJson(json: String): Result<Int> = Result.success(0)
 }

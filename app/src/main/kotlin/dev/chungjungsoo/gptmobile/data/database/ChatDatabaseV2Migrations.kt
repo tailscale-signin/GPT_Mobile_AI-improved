@@ -113,6 +113,66 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_24_25 = object : Migration(24, 25) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `provider_connections` (
+                    `connection_uid` TEXT NOT NULL,
+                    `name` TEXT NOT NULL,
+                    `compatible_type` TEXT NOT NULL,
+                    `api_url` TEXT NOT NULL,
+                    `secret_ref` TEXT DEFAULT NULL,
+                    `created_at` INTEGER NOT NULL,
+                    `updated_at` INTEGER NOT NULL,
+                    PRIMARY KEY(`connection_uid`)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_provider_connections_compatible_type` " +
+                    "ON `provider_connections` (`compatible_type`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_provider_connections_compatible_type_api_url` " +
+                    "ON `provider_connections` (`compatible_type`, `api_url`)"
+            )
+            db.execSQL(
+                "ALTER TABLE `platform_v2` ADD COLUMN `provider_connection_uid` TEXT DEFAULT NULL"
+            )
+
+            val now = System.currentTimeMillis() / 1000
+            db.execSQL(
+                """
+                INSERT INTO `provider_connections`
+                    (`connection_uid`, `name`, `compatible_type`, `api_url`, `secret_ref`, `created_at`, `updated_at`)
+                SELECT
+                    'legacy-provider-' || `platform_id`,
+                    CASE
+                        WHEN TRIM(`name`) = '' THEN `compatible_type` || ' connection'
+                        ELSE `name` || ' connection'
+                    END,
+                    `compatible_type`,
+                    COALESCE(`api_url`, ''),
+                    `secret_ref`,
+                    $now,
+                    $now
+                FROM `platform_v2`
+                WHERE `compatible_type` != 'LITERT_LM'
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                UPDATE `platform_v2`
+                SET `provider_connection_uid` = 'legacy-provider-' || `platform_id`,
+                    `secret_ref` = NULL,
+                    `token` = NULL
+                WHERE `compatible_type` != 'LITERT_LM'
+                """.trimIndent()
+            )
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -127,6 +187,7 @@ object ChatDatabaseV2Migrations {
         MIGRATION_20_21,
         MIGRATION_21_22,
         MIGRATION_22_23,
-        MIGRATION_23_24
+        MIGRATION_23_24,
+        MIGRATION_24_25
     )
 }

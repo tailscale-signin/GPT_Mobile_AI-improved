@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.presentation.common.getBeveledLabelColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +63,7 @@ fun AiPlatformsScreen(
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsStateWithLifecycle()
+    val providerConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()
 
     Scaffold(
@@ -126,14 +128,40 @@ fun AiPlatformsScreen(
                     }
                 }
             } else {
-                items(platforms, key = { it.id }) { platform ->
-                    PlatformItemCard(
-                        platform = platform,
-                        onToggleEnabled = { settingViewModel.togglePlatformEnabled(platform.id) },
-                        onToggleFavorite = { settingViewModel.togglePlatformFavorite(platform.id) },
-                        onEdit = { onNavigateToPlatformSetting(platform.uid) },
-                        onDelete = { settingViewModel.openDeleteDialog(platform.id) }
+                items(providerConnections, key = { "connection:${it.uid}" }) { connection ->
+                    ProviderConnectionGroupCard(
+                        connection = connection,
+                        profiles = platforms.filter { it.providerConnectionUid == connection.uid },
+                        onToggleEnabled = { platform ->
+                            settingViewModel.togglePlatformEnabled(platform.id)
+                        },
+                        onToggleFavorite = { platform ->
+                            settingViewModel.togglePlatformFavorite(platform.id)
+                        },
+                        onEdit = { platform -> onNavigateToPlatformSetting(platform.uid) },
+                        onDelete = { platform -> settingViewModel.openDeleteDialog(platform.id) }
                     )
+                }
+
+                val standaloneProfiles = platforms.filter { it.providerConnectionUid == null }
+                if (standaloneProfiles.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.local_and_legacy_profiles),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                    items(standaloneProfiles, key = { "profile:${it.id}" }) { platform ->
+                        PlatformItemCard(
+                            platform = platform,
+                            onToggleEnabled = { settingViewModel.togglePlatformEnabled(platform.id) },
+                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(platform.id) },
+                            onEdit = { onNavigateToPlatformSetting(platform.uid) },
+                            onDelete = { settingViewModel.openDeleteDialog(platform.id) }
+                        )
+                    }
                 }
             }
         }
@@ -155,6 +183,94 @@ fun AiPlatformsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ProviderConnectionGroupCard(
+    connection: ProviderConnection,
+    profiles: List<PlatformV2>,
+    onToggleEnabled: (PlatformV2) -> Unit,
+    onToggleFavorite: (PlatformV2) -> Unit,
+    onEdit: (PlatformV2) -> Unit,
+    onDelete: (PlatformV2) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = connection.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = buildString {
+                            append(connection.compatibleType.name)
+                            connection.apiUrl.takeIf(String::isNotBlank)?.let {
+                                append(" • ")
+                                append(it)
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = stringResource(R.string.provider_profiles_count, profiles.size),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            if (connection.hasCredential) {
+                Text(
+                    text = stringResource(R.string.credential_saved),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            if (profiles.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.no_profiles_for_connection),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    profiles.forEach { platform ->
+                        PlatformItemCard(
+                            platform = platform,
+                            onToggleEnabled = { onToggleEnabled(platform) },
+                            onToggleFavorite = { onToggleFavorite(platform) },
+                            onEdit = { onEdit(platform) },
+                            onDelete = { onDelete(platform) }
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -180,12 +180,85 @@ class ChatRepositoryImpl(
                 defaultAgentRunner
             }
 
+            var gatewayTelemetrySeen = false
+            var providerToolCalls = 0
+            var providerUsefulToolCalls = 0
+            var providerToolFailures = 0
+            var providerThinkingSeen = false
+            var providerTextSeen = false
+            val providerRoute = platform.compatibleType.name.lowercase()
+
+            fun providerProgress(
+                event: String,
+                stage: String,
+                message: String,
+                toolName: String? = null,
+                status: String? = null,
+                resultQuality: String? = null
+            ): GatewayProgress = GatewayProgress(
+                origin = "provider",
+                event = event,
+                stage = stage,
+                message = message,
+                timestamp = System.currentTimeMillis() / 1000.0,
+                status = status,
+                toolName = toolName,
+                toolSource = "client",
+                server = platform.name,
+                route = providerRoute,
+                resultQuality = resultQuality,
+                totalToolCalls = providerToolCalls,
+                usefulToolCalls = providerUsefulToolCalls,
+                noProgress = providerToolFailures,
+                selectedToolCount = resolvedTools.size
+            )
+
+            if (platform.compatibleType != ClientType.LITERT_LM) {
+                emit(
+                    ApiState.GatewayProgressChanged(
+                        providerProgress(
+                            event = "provider_started",
+                            stage = "requesting",
+                            message = "Connecting to ${platform.name.ifBlank { platform.compatibleType.name }}…"
+                        )
+                    )
+                )
+            }
+
             customRunner.run(session, runnerTools).collect { runEvent ->
                 when (runEvent) {
                     is AgentRunEvent.Provider -> when (val providerEvent = runEvent.event) {
-                        is ProviderEvent.ThinkingDelta -> emit(ApiState.Thinking(providerEvent.text))
+                        is ProviderEvent.ThinkingDelta -> {
+                            if (!gatewayTelemetrySeen && !providerThinkingSeen) {
+                                providerThinkingSeen = true
+                                emit(
+                                    ApiState.GatewayProgressChanged(
+                                        providerProgress(
+                                            event = "reasoning_started",
+                                            stage = "reasoning",
+                                            message = "${platform.name.ifBlank { platform.compatibleType.name }} is reasoning…"
+                                        )
+                                    )
+                                )
+                            }
+                            emit(ApiState.Thinking(providerEvent.text))
+                        }
 
-                        is ProviderEvent.TextDelta -> emit(ApiState.Success(providerEvent.text))
+                        is ProviderEvent.TextDelta -> {
+                            if (!gatewayTelemetrySeen && !providerTextSeen) {
+                                providerTextSeen = true
+                                emit(
+                                    ApiState.GatewayProgressChanged(
+                                        providerProgress(
+                                            event = "response_started",
+                                            stage = "generating",
+                                            message = "Writing the response…"
+                                        )
+                                    )
+                                )
+                            }
+                            emit(ApiState.Success(providerEvent.text))
+                        }
 
                         is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message))
 
@@ -200,6 +273,7 @@ class ChatRepositoryImpl(
                         }
 
                         is ProviderEvent.GatewayProgressUpdate -> {
+                            gatewayTelemetrySeen = true
                             providerEvent.progress.sequence?.let { seq ->
                                 agentRunDao.advanceGatewaySequence(runId, seq)
                             }
@@ -213,6 +287,19 @@ class ChatRepositoryImpl(
                         is ProviderEvent.ToolCall -> {
                             val toolEvent = trace.start(providerEvent)
                             emit(ApiState.ToolCall(toolEvent.sequence))
+                            if (!gatewayTelemetrySeen) {
+                                emit(
+                                    ApiState.GatewayProgressChanged(
+                                        providerProgress(
+                                            event = "tool_formulating",
+                                            stage = "tools",
+                                            message = "Preparing ${providerEvent.name}…",
+                                            toolName = providerEvent.name,
+                                            status = "preparing"
+                                        )
+                                    )
+                                )
+                            }
                         }
 
                         is ProviderEvent.ToolResult -> Unit
@@ -221,10 +308,48 @@ class ChatRepositoryImpl(
                     }
 
                     is AgentRunEvent.ToolStarted -> {
-                        emit(ApiState.Notice("Running tool: ${runEvent.call.name}...", persistent = false))
+                        providerToolCalls += 1
+                        if (!gatewayTelemetrySeen) {
+                            emit(
+                                ApiState.GatewayProgressChanged(
+                                    providerProgress(
+                                        event = "tool_started",
+                                        stage = "executing_tools",
+                                        message = "Running ${runEvent.call.name}…",
+                                        toolName = runEvent.call.name,
+                                        status = "running"
+                                    )
+                                )
+                            )
+                        }
                     }
 
-                    is AgentRunEvent.ToolFinished -> trace.finish(runEvent.call, runEvent.result)
+                    is AgentRunEvent.ToolFinished -> {
+                        trace.finish(runEvent.call, runEvent.result)
+                        if (!gatewayTelemetrySeen) {
+                            if (runEvent.result.isError) {
+                                providerToolFailures += 1
+                            } else {
+                                providerUsefulToolCalls += 1
+                            }
+                            emit(
+                                ApiState.GatewayProgressChanged(
+                                    providerProgress(
+                                        event = if (runEvent.result.isError) "tool_failed" else "tool_completed",
+                                        stage = "tools",
+                                        message = if (runEvent.result.isError) {
+                                            "${runEvent.call.name} failed"
+                                        } else {
+                                            "Completed ${runEvent.call.name}"
+                                        },
+                                        toolName = runEvent.call.name,
+                                        status = if (runEvent.result.isError) "failed" else "completed",
+                                        resultQuality = if (runEvent.result.isError) "error" else "useful"
+                                    )
+                                )
+                            )
+                        }
+                    }
 
                     is AgentRunEvent.Notice -> emit(ApiState.Notice(runEvent.message, runEvent.persistent))
                 }

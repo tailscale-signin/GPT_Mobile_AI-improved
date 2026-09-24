@@ -105,9 +105,19 @@ internal fun ActiveAgentRun.withGatewayProgress(progress: GatewayProgress): Acti
     val nextUseful = progress.usefulToolCalls ?: gatewayUsefulToolCalls
     val nextRepository = progress.repositoryToolCalls ?: gatewayRepositoryToolCalls
     val nextNoProgress = progress.noProgress ?: gatewayNoProgress
-    val nextTool = progress.toolName?.takeIf { it.isNotBlank() } ?: gatewayCurrentTool
-    val nextRoute = progress.route?.takeIf { it.isNotBlank() } ?: gatewayRoute
     val nextEvent = progress.event?.takeIf { it.isNotBlank() }
+    val isToolTerminal = nextEvent?.lowercase() in setOf(
+        "tool_completed",
+        "tool_failed",
+        "tool_blocked",
+        "tool_canceled"
+    )
+    val nextTool = if (isToolTerminal) {
+        null
+    } else {
+        progress.toolName?.takeIf { it.isNotBlank() } ?: gatewayCurrentTool
+    }
+    val nextRoute = progress.route?.takeIf { it.isNotBlank() } ?: gatewayRoute
 
     return copy(
         gatewayStage = nextStage,

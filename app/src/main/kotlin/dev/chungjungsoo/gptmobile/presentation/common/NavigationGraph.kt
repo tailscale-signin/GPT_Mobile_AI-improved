@@ -238,10 +238,12 @@ fun NavGraphBuilder.settingNavigation(
                 navController.getBackStackEntry(Route.SETTING_ROUTE)
             }
             val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
+            val providerConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
             AddPlatformScreen(
                 onNavigationClick = { navController.navigateUp() },
-                onSave = { platform ->
-                    settingViewModel.addPlatform(platform)
+                savedConnections = providerConnections,
+                onSave = { platform, newConnection, credential ->
+                    settingViewModel.addPlatform(platform, newConnection, credential)
                     navController.navigateUp()
                 },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) }

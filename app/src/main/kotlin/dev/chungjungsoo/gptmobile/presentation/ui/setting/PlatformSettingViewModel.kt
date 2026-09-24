@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
@@ -68,6 +69,15 @@ class PlatformSettingViewModel @Inject constructor(
 
     val platformState: StateFlow<PlatformV2?> = settingRepository.observePlatformV2ByUid(platformUid)
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val providerConnectionState: StateFlow<ProviderConnection?> = combine(
+        platformState,
+        settingRepository.observeProviderConnections()
+    ) { platform, connections ->
+        platform?.providerConnectionUid?.let { uid ->
+            connections.firstOrNull { it.uid == uid }
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     val catalogEntries = _catalogEntries.asStateFlow()
@@ -313,17 +323,39 @@ class PlatformSettingViewModel @Inject constructor(
 
     fun updateApiUrl(url: String) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(apiUrl = url))
-        closeApiUrlDialog()
-        if (platform.compatibleType == ClientType.OLLAMA) {
-            checkOllamaServer()
+        val connection = providerConnectionState.value
+        if (connection != null) {
+            viewModelScope.launch {
+                settingRepository.updateProviderConnection(
+                    connection.copy(apiUrl = url.trim()),
+                    credential = null
+                )
+                closeApiUrlDialog()
+                if (platform.compatibleType == ClientType.OLLAMA) {
+                    checkOllamaServer()
+                }
+            }
+        } else {
+            updatePlatform(platform.copy(apiUrl = url))
+            closeApiUrlDialog()
+            if (platform.compatibleType == ClientType.OLLAMA) {
+                checkOllamaServer()
+            }
         }
     }
 
     fun updateApiToken(token: String) {
         val platform = platformState.value ?: return
-        updatePlatform(platform.copy(token = token))
-        closeApiTokenDialog()
+        val connection = providerConnectionState.value
+        if (connection != null) {
+            viewModelScope.launch {
+                settingRepository.updateProviderConnection(connection, credential = token)
+                closeApiTokenDialog()
+            }
+        } else {
+            updatePlatform(platform.copy(token = token))
+            closeApiTokenDialog()
+        }
     }
 
     fun updateApiModel(model: String) {

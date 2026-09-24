@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.LocalModelDao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
+import dev.chungjungsoo.gptmobile.data.database.dao.ProviderConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import javax.inject.Singleton
 
@@ -44,6 +45,10 @@ object DatabaseModule {
 
     @Provides
     fun providePlatformDao(database: ChatDatabaseV2): PlatformV2Dao = database.platformDao()
+
+    @Provides
+    fun provideProviderConnectionDao(database: ChatDatabaseV2): ProviderConnectionDao =
+        database.providerConnectionDao()
 
     @Provides
     fun provideChatPlatformModelDao(database: ChatDatabaseV2): ChatPlatformModelV2Dao = database.chatPlatformModelDao()

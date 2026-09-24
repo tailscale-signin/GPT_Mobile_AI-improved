@@ -110,6 +110,7 @@ fun PlatformSettingScreen(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
     )
     val platform by settingViewModel.platformState.collectAsStateWithLifecycle()
+    val providerConnection by settingViewModel.providerConnectionState.collectAsStateWithLifecycle()
     val dialogState by settingViewModel.dialogState.collectAsStateWithLifecycle()
     val isDeleted by settingViewModel.isDeleted.collectAsStateWithLifecycle()
     val toolBindingState by settingViewModel.toolBindingState.collectAsStateWithLifecycle()
@@ -169,9 +170,25 @@ fun PlatformSettingScreen(
                     title = stringResource(if (isLocalPlatform) R.string.enable_platform else R.string.enable),
                     isChecked = platformData.enabled
                 ) { settingViewModel.toggleEnabled() }
+                ProfileSectionTitle(
+                    title = stringResource(
+                        if (isLocalPlatform) R.string.profile_settings else R.string.connection_settings
+                    )
+                )
+                if (!isLocalPlatform && providerConnection != null) {
+                    SettingItem(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.provider_connection),
+                        description = providerConnection?.name ?: stringResource(R.string.not_set),
+                        enabled = false,
+                        onItemClick = {},
+                        showTrailingIcon = false,
+                        showLeadingIcon = false
+                    )
+                }
                 SettingItem(
                     modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.platform_name),
+                    title = stringResource(R.string.ai_profile_name),
                     description = platformData.name,
                     enabled = platformData.enabled,
                     onItemClick = settingViewModel::openPlatformNameDialog,
@@ -238,6 +255,7 @@ fun PlatformSettingScreen(
                     )
                 }
 
+                ProfileSectionTitle(title = stringResource(R.string.model_behavior))
                 val modelDescription = downloadedLocalModels
                     .firstOrNull { it.catalogEntryId == platformData.model }
                     ?.displayName ?: platformData.model
@@ -256,6 +274,7 @@ fun PlatformSettingScreen(
                         )
                     }
                 )
+                ProfileSectionTitle(title = stringResource(R.string.advanced_settings))
                 val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
                 val notSetText = stringResource(R.string.not_set)
                 SettingItem(
@@ -495,6 +514,8 @@ fun PlatformSettingScreen(
                     }
                 }
 
+                ProfileSectionTitle(title = stringResource(R.string.tools_section))
+
                 // Global Master Tool Disablement
                 PreferenceListSwitch(
                     modifier = Modifier.height(64.dp),
@@ -548,7 +569,7 @@ fun PlatformSettingScreen(
                 )
                 SettingItem(
                     modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.mcp_server),
+                    title = stringResource(R.string.mcp_tools),
                     description = "${toolBindingState.selectedMcpTools.size} assigned",
                     enabled = platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
                     onItemClick = {
@@ -661,6 +682,16 @@ fun PlatformSettingScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ProfileSectionTitle(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp)
+    )
 }
 
 @Composable

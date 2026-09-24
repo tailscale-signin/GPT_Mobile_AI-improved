@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +20,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
@@ -70,7 +75,8 @@ fun AddPlatformScreen(
     modifier: Modifier = Modifier,
     viewModel: AddPlatformViewModel = hiltViewModel(),
     onNavigationClick: () -> Unit,
-    onSave: (PlatformV2) -> Unit,
+    savedConnections: List<ProviderConnection> = emptyList(),
+    onSave: (PlatformV2, ProviderConnection?, String?) -> Unit,
     onNavigateToLocalModels: () -> Unit = {}
 ) {
     var step by remember { mutableStateOf(AddPlatformStep.API_TYPE) }
@@ -80,6 +86,15 @@ fun AddPlatformScreen(
     val apiTokens = remember { mutableStateListOf("") }
     var model by remember { mutableStateOf("") }
     var isReasoningEnabled by remember { mutableStateOf(false) }
+    var selectedConnectionUid by remember { mutableStateOf<String?>(null) }
+    var createNewConnection by remember { mutableStateOf(true) }
+    var connectionName by remember { mutableStateOf("") }
+    var showAdvancedSettings by remember { mutableStateOf(false) }
+    var systemPrompt by remember { mutableStateOf(ModelConstants.DEFAULT_PROMPT) }
+    var temperatureText by remember { mutableStateOf("1.0") }
+    var topPText by remember { mutableStateOf("1.0") }
+    var maxToolCallsText by remember { mutableStateOf("") }
+    var showSuggestedModels by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
     var showLlamaPicker by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
@@ -96,11 +111,12 @@ fun AddPlatformScreen(
     }
     val isLocalPlatform = selectedClientType == ClientType.LITERT_LM
     val title = stringResource(if (step == AddPlatformStep.API_TYPE) R.string.choose_platform_type else R.string.platform_details)
+    val hasProviderConnection = selectedConnectionUid != null || (createNewConnection && apiUrl.isNotBlank())
     val isSaveEnabled = platformName.isNotBlank() &&
         if (isLocalPlatform) {
             canSave
         } else {
-            model.isNotBlank() && apiUrl.isNotBlank()
+            model.isNotBlank() && hasProviderConnection
         }
     val navigateBack = { if (step == AddPlatformStep.DETAILS) step = AddPlatformStep.API_TYPE else onNavigationClick() }
     BackHandler(enabled = step == AddPlatformStep.DETAILS) { step = AddPlatformStep.API_TYPE }
@@ -133,6 +149,17 @@ fun AddPlatformScreen(
                     } else {
                         null
                     }
+                    val newConnection = if (!isLocalPlatform && createNewConnection) {
+                        ProviderConnection(
+                            name = connectionName.trim().ifBlank {
+                                "${ModelConstants.defaultPlatformName(clientType)} connection"
+                            },
+                            compatibleType = clientType,
+                            apiUrl = apiUrl.trim()
+                        )
+                    } else {
+                        null
+                    }
                     val platform = PlatformV2(
                         name = platformName.trim(),
                         compatibleType = clientType,
@@ -141,23 +168,29 @@ fun AddPlatformScreen(
                         } else {
                             true
                         },
-                        apiUrl = if (clientType == ClientType.LITERT_LM) "" else apiUrl.trim(),
-                        token = formattedApiKey.takeIf { it.isNotEmpty() && clientType != ClientType.LITERT_LM },
+                        apiUrl = "",
+                        token = null,
                         model = selectedModel,
-                        temperature = defaults?.temperature ?: 1.0f,
-                        topP = defaults?.topP ?: 1.0f,
+                        temperature = defaults?.temperature ?: temperatureText.toFloatOrNull()?.coerceIn(0f, 2f),
+                        topP = defaults?.topP ?: topPText.toFloatOrNull()?.coerceIn(0f, 1f),
                         topK = defaults?.topK,
                         maxTokens = defaults?.maxTokens,
                         accelerator = defaults?.accelerator,
-                        systemPrompt = ModelConstants.DEFAULT_PROMPT,
+                        systemPrompt = systemPrompt,
                         stream = true,
                         reasoning = isReasoningEnabled && clientType != ClientType.LITERT_LM,
-                        timeout = 30,
-                        ollamaOptions = defaultOllamaOptions
+                        timeout = 300,
+                        maxToolCalls = maxToolCallsText.toIntOrNull()?.coerceAtLeast(1) ?: Int.MAX_VALUE,
+                        ollamaOptions = defaultOllamaOptions,
+                        providerConnectionUid = if (createNewConnection) null else selectedConnectionUid
                     )
                     apiTokens.clear()
                     apiTokens.add("")
-                    onSave(platform)
+                    onSave(
+                        platform,
+                        newConnection,
+                        formattedApiKey.takeIf { newConnection != null && it.isNotEmpty() }
+                    )
                 }
             )
         }
@@ -185,10 +218,22 @@ fun AddPlatformScreen(
                         onClick = {
                             selectedClientType = clientType
                             platformName = ModelConstants.defaultPlatformName(clientType)
-                            apiUrl = ModelConstants.defaultApiUrl(clientType)
                             model = ModelConstants.defaultModel(clientType)
+                            val existingConnection = savedConnections.firstOrNull {
+                                it.compatibleType == clientType
+                            }
+                            selectedConnectionUid = existingConnection?.uid
+                            createNewConnection = existingConnection == null
+                            connectionName = existingConnection?.name
+                                ?: "${ModelConstants.defaultPlatformName(clientType)} connection"
+                            apiUrl = existingConnection?.apiUrl ?: ModelConstants.defaultApiUrl(clientType)
                             apiTokens.clear()
                             apiTokens.add("")
+                            systemPrompt = ModelConstants.DEFAULT_PROMPT
+                            temperatureText = "1.0"
+                            topPText = "1.0"
+                            maxToolCallsText = ""
+                            showAdvancedSettings = false
                             isReasoningEnabled = false
                             step = AddPlatformStep.DETAILS
                         }
@@ -212,137 +257,256 @@ fun AddPlatformScreen(
                     supportingText = { Text(stringResource(R.string.platform_name_supporting)) }
                 )
                 if (clientType != ClientType.LITERT_LM) {
-                    OutlinedTextField(
-                        value = apiUrl,
-                        onValueChange = { apiUrl = it },
-                        label = { Text(stringResource(R.string.api_url)) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
+                    val providerConnections = savedConnections.filter { it.compatibleType == clientType }
                     Text(
-                        text = stringResource(R.string.multi_api_keys_hint),
+                        text = stringResource(R.string.provider_connection),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.provider_connection_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
-                    apiTokens.forEachIndexed { index, tokenValue ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                modifier = Modifier.weight(1f),
-                                value = tokenValue,
-                                onValueChange = { apiTokens[index] = it },
-                                label = {
-                                    Text(
-                                        if (apiTokens.size > 1) {
-                                            stringResource(R.string.api_key_number, index + 1)
-                                        } else {
-                                            stringResource(R.string.api_key)
-                                        }
-                                    )
-                                },
-                                singleLine = true,
-                                visualTransformation = PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                supportingText = if (index == apiTokens.lastIndex && apiTokens.size == 1) {
-                                    { Text(stringResource(R.string.api_key_supporting)) }
-                                } else {
-                                    null
+                    providerConnections.forEach { connection ->
+                        DestinationCard(
+                            title = connection.name,
+                            description = buildString {
+                                append(connection.apiUrl.ifBlank { stringResource(R.string.default_label) })
+                                if (connection.hasCredential) {
+                                    append(" • ")
+                                    append(stringResource(R.string.credential_saved))
                                 }
+                            },
+                            onClick = {
+                                selectedConnectionUid = connection.uid
+                                createNewConnection = false
+                                connectionName = connection.name
+                                apiUrl = connection.apiUrl
+                                apiTokens.clear()
+                                apiTokens.add("")
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            createNewConnection = true
+                            selectedConnectionUid = null
+                            connectionName = "${ModelConstants.defaultPlatformName(clientType)} connection"
+                            apiUrl = ModelConstants.defaultApiUrl(clientType)
+                            apiTokens.clear()
+                            apiTokens.add("")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                        Text(stringResource(R.string.new_provider_connection))
+                    }
+
+                    if (createNewConnection) {
+                        OutlinedTextField(
+                            value = connectionName,
+                            onValueChange = { connectionName = it },
+                            label = { Text(stringResource(R.string.connection_name)) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = apiUrl,
+                            onValueChange = { apiUrl = it },
+                            label = { Text(stringResource(R.string.api_url)) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            singleLine = true
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = stringResource(R.string.multi_api_keys_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        apiTokens.forEachIndexed { index, tokenValue ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    modifier = Modifier.weight(1f),
+                                    value = tokenValue,
+                                    onValueChange = { apiTokens[index] = it },
+                                    label = {
+                                        Text(
+                                            if (apiTokens.size > 1) {
+                                                stringResource(R.string.api_key_number, index + 1)
+                                            } else {
+                                                stringResource(R.string.api_key)
+                                            }
+                                        )
+                                    },
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                                )
+                                if (apiTokens.size > 1) {
+                                    IconButton(onClick = { apiTokens.removeAt(index) }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Delete,
+                                            contentDescription = stringResource(R.string.remove_api_key),
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { apiTokens.add("") }) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                                Text(stringResource(R.string.add_api_key))
+                            }
+                        }
+                    } else {
+                        val selected = providerConnections.firstOrNull { it.uid == selectedConnectionUid }
+                        selected?.let { connection ->
+                            Text(
+                                text = stringResource(
+                                    R.string.using_saved_connection,
+                                    connection.name,
+                                    connection.apiUrl
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 8.dp)
                             )
-                            if (apiTokens.size > 1) {
-                                IconButton(
-                                    onClick = { apiTokens.removeAt(index) },
-                                    modifier = Modifier.padding(start = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = stringResource(R.string.remove_api_key),
-                                        tint = MaterialTheme.colorScheme.error
+                        }
+                    }
+
+                    Text(
+                        text = stringResource(R.string.ai_profile),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 20.dp, bottom = 6.dp)
+                    )
+                    OutlinedTextField(
+                        value = model,
+                        onValueChange = { model = it },
+                        label = { Text(stringResource(R.string.model)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        supportingText = { Text(stringResource(R.string.model_supporting)) }
+                    )
+
+                    val suggestions = suggestedModels(clientType)
+                    if (suggestions.isNotEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { showSuggestedModels = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                Text(stringResource(R.string.choose_model))
+                            }
+                            DropdownMenu(
+                                expanded = showSuggestedModels,
+                                onDismissRequest = { showSuggestedModels = false }
+                            ) {
+                                suggestions.forEach { suggestion ->
+                                    DropdownMenuItem(
+                                        text = { Text(suggestion) },
+                                        onClick = {
+                                            model = suggestion
+                                            showSuggestedModels = false
+                                        }
                                     )
                                 }
                             }
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = { apiTokens.add("") }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Add,
-                                contentDescription = stringResource(R.string.add_api_key),
-                                modifier = Modifier.padding(end = 4.dp)
-                            )
-                            Text(stringResource(R.string.add_api_key))
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = model,
-                        onValueChange = { model = it },
-                        label = { Text(stringResource(R.string.model)) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        singleLine = true,
-                        supportingText = { Text(stringResource(R.string.model_supporting)) }
-                    )
-
-                    // Exclusively enable OpenRouter model picker for OpenRouter API
                     if (clientType == ClientType.OPENROUTER) {
                         OutlinedButton(
                             onClick = { showOpenRouterPicker = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.List,
-                                contentDescription = null,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
+                            Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                             Text(text = stringResource(R.string.openrouter_browse_models))
                         }
                     } else if (clientType == ClientType.LLAMA) {
                         OutlinedButton(
                             onClick = { showLlamaPicker = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.List,
-                                contentDescription = null,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
+                            Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                             Text(text = stringResource(R.string.llama_select_router_model))
                         }
                     }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    OutlinedButton(
+                        onClick = { showAdvancedSettings = !showAdvancedSettings },
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(text = stringResource(R.string.extended_thinking), style = MaterialTheme.typography.bodyLarge)
-                            Text(text = stringResource(R.string.extended_thinking_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(
+                                if (showAdvancedSettings) R.string.hide_advanced_settings
+                                else R.string.advanced_settings
+                            )
+                        )
+                    }
+                    AnimatedVisibility(visible = showAdvancedSettings) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            OutlinedTextField(
+                                value = systemPrompt,
+                                onValueChange = { systemPrompt = it },
+                                label = { Text(stringResource(R.string.system_prompt)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3
+                            )
+                            OutlinedTextField(
+                                value = temperatureText,
+                                onValueChange = { temperatureText = it },
+                                label = { Text(stringResource(R.string.temperature)) },
+                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = topPText,
+                                onValueChange = { topPText = it },
+                                label = { Text(stringResource(R.string.top_p)) },
+                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = maxToolCallsText,
+                                onValueChange = { maxToolCallsText = it.filter(Char::isDigit) },
+                                label = { Text(stringResource(R.string.maximum_tool_calls)) },
+                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                                singleLine = true,
+                                supportingText = { Text(stringResource(R.string.blank_means_unlimited)) }
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.extended_thinking), style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        stringResource(R.string.extended_thinking_description),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(checked = isReasoningEnabled, onCheckedChange = { isReasoningEnabled = it })
+                            }
+                            Text(
+                                text = stringResource(R.string.mcp_tools_after_save),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 12.dp)
+                            )
                         }
-                        Switch(checked = isReasoningEnabled, onCheckedChange = { isReasoningEnabled = it })
                     }
                 } else {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -400,6 +564,16 @@ fun AddPlatformScreen(
         onEnterAccessToken = viewModel::openAccessTokenDialog,
         onSaveAccessToken = viewModel::saveHuggingFaceAccessToken
     )
+}
+
+private fun suggestedModels(clientType: ClientType): List<String> = when (clientType) {
+    ClientType.OPENAI -> ModelConstants.openaiModels.toList()
+    ClientType.ANTHROPIC -> ModelConstants.anthropicModels.toList()
+    ClientType.GOOGLE -> ModelConstants.googleModels.toList()
+    ClientType.GROQ -> ModelConstants.groqModels.toList()
+    ClientType.OLLAMA -> ModelConstants.ollamaModels.toList()
+    ClientType.LLAMA -> ModelConstants.llamaModels.toList()
+    ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LITERT_LM -> emptyList()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

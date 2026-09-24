@@ -109,5 +109,8 @@ data class PlatformV2(
     val batchMode: Boolean = false,
 
     @ColumnInfo(name = "batch_api_url")
-    val batchApiUrl: String? = null
+    val batchApiUrl: String? = null,
+
+    @ColumnInfo(name = "provider_connection_uid")
+    val providerConnectionUid: String? = null
 ) : Parcelable

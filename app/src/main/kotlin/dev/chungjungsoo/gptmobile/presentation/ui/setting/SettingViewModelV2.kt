@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.backup.BackupRestoreResult
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
@@ -31,6 +32,10 @@ class SettingViewModelV2 @Inject constructor(
 
     val platformState: StateFlow<List<PlatformV2>> = settingRepository.observePlatformV2s()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val providerConnections: StateFlow<List<ProviderConnection>> =
+        settingRepository.observeProviderConnections()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _localRuntimeBackend = MutableStateFlow(LocalRuntimeBackend.DEFAULT)
     val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = _localRuntimeBackend.asStateFlow()
@@ -90,6 +95,41 @@ class SettingViewModelV2 @Inject constructor(
     fun addPlatform(platform: PlatformV2) {
         viewModelScope.launch {
             settingRepository.addPlatformV2(platform)
+        }
+    }
+
+    fun addPlatform(
+        platform: PlatformV2,
+        newConnection: ProviderConnection?,
+        credential: String?
+    ) {
+        viewModelScope.launch {
+            val connection = newConnection?.let {
+                settingRepository.addProviderConnection(it, credential)
+            }
+            settingRepository.addPlatformV2(
+                platform.copy(
+                    providerConnectionUid = connection?.uid ?: platform.providerConnectionUid,
+                    apiUrl = if (connection != null || platform.providerConnectionUid != null) "" else platform.apiUrl,
+                    token = if (connection != null || platform.providerConnectionUid != null) null else platform.token,
+                    secretRef = if (connection != null || platform.providerConnectionUid != null) null else platform.secretRef
+                )
+            )
+        }
+    }
+
+    fun updateProviderConnection(connection: ProviderConnection, credential: String? = null) {
+        viewModelScope.launch {
+            settingRepository.updateProviderConnection(connection, credential)
+        }
+    }
+
+    fun deleteProviderConnection(connection: ProviderConnection) {
+        viewModelScope.launch {
+            val deleted = settingRepository.deleteProviderConnection(connection)
+            if (!deleted) {
+                _uiEvent.emit(UiEvent.ShowToast("Remove or move the AI profiles using this connection first."))
+            }
         }
     }
 

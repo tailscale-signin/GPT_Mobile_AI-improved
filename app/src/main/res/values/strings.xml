@@ -400,6 +400,7 @@
     <string name="agent_route_local">local route</string>
     <string name="agent_recovering_message">The gateway is changing strategy after repeated low-novelty work.</string>
     <string name="agent_recent_activity">Recent activity</string>
+    <string name="agent_recent_tools">Recent tools</string>
     <string name="agent_activity_update">Gateway update</string>
     <string name="agent_live_preparing">Preparing model, memory, and tools…</string>
     <string name="agent_live_prefill">Preparing model context…</string>
@@ -478,6 +479,29 @@
 
     <!-- Settings Screen -->
     <string name="ai_platforms">AI Platforms</string>
+    <string name="ai_profile">AI profile</string>
+    <string name="provider_connection">Provider connection</string>
+    <string name="provider_connection_description">Reuse a saved provider connection or create a new one. Credentials are stored securely and shared by profiles using this connection.</string>
+    <string name="new_provider_connection">New provider connection</string>
+    <string name="connection_name">Connection name</string>
+    <string name="credential_saved">credential saved</string>
+    <string name="using_saved_connection">Using %1$s · %2$s</string>
+    <string name="choose_model">Choose model</string>
+    <string name="advanced_settings">Advanced settings</string>
+    <string name="hide_advanced_settings">Hide advanced settings</string>
+    <string name="maximum_tool_calls">Maximum tool calls</string>
+    <string name="blank_means_unlimited">Leave blank for unlimited.</string>
+    <string name="mcp_tools">MCP Tools</string>
+    <string name="mcp_tools_after_save">MCP Tools are assigned per AI profile after saving, so different profiles can use different tool sets.</string>
+    <string name="provider_profiles_count">%1$d AI profiles</string>
+    <string name="ai_profile_name">AI profile name</string>
+    <string name="local_and_legacy_profiles">Local &amp; standalone profiles</string>
+    <string name="no_profiles_for_connection">No AI profiles use this connection yet. Add a profile to reuse it.</string>
+    <string name="saved_provider_connection">Saved provider connection</string>
+    <string name="profile_settings">Profile settings</string>
+    <string name="connection_settings">Connection</string>
+    <string name="model_behavior">Model &amp; behavior</string>
+    <string name="tools_section">Tools</string>
     <string name="ai_platforms_description">Configure and manage AI platforms and models</string>
     <string name="ai_models">AI Models</string>
     <string name="local">Local</string>

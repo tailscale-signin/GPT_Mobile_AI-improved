@@ -303,6 +303,7 @@ fun ChatScreen(
         topBar = {
             ChatTopBar(
                 title = chatRoom.title,
+                isTitleCustomized = chatRoom.isTitleCustomized,
                 isMenuItemEnabled = chatRoom.id > 0,
                 isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
                 onBackAction = onBackAction,
@@ -980,6 +981,7 @@ internal suspend fun LazyListState.animateScrollToLatestChatMessage() {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun ChatTopBar(
     title: String,
+    isTitleCustomized: Boolean,
     isMenuItemEnabled: Boolean,
     isModelItemEnabled: Boolean,
     onBackAction: () -> Unit,
@@ -992,7 +994,18 @@ private fun ChatTopBar(
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
     TopAppBar(
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = {
+            Text(
+                text = title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (isTitleCustomized) Color(0xFF67E8F9) else Color.Unspecified,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(enabled = isMenuItemEnabled, onClick = onChatTitleItemClick)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            )
+        },
         navigationIcon = {
             IconButton(
                 onClick = onBackAction

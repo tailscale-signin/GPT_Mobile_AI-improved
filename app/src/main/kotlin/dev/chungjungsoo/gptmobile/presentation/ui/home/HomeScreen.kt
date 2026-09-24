@@ -170,7 +170,7 @@ fun HomeScreen(
     homeViewModel: HomeViewModel = hiltViewModel(),
     settingOnClick: () -> Unit = {},
     onExistingChatClick: (chatRoom: ChatRoomV2, targetMessageId: Int?) -> Unit = { _, _ -> },
-    navigateToNewChat: (enabledPlatforms: List<String>) -> Unit = {}
+    navigateToNewChat: (enabledPlatforms: List<String>, combinedMode: Boolean) -> Unit = { _, _ -> }
 ) {
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -240,7 +240,7 @@ fun HomeScreen(
                     val enabledApiTypes = platformState.filter { it.enabled }.map { it.uid }
                     if (enabledApiTypes.size == 1) {
                         // Navigate to new chat directly if only one platform is enabled
-                        navigateToNewChat(enabledApiTypes)
+                        navigateToNewChat(enabledApiTypes, false)
                     } else {
                         homeViewModel.openSelectModelDialog()
                     }
@@ -491,9 +491,12 @@ fun HomeScreen(
             SelectPlatformDialog(
                 platformState,
                 selectedPlatforms = chatListState.selectedPlatforms,
+                selectedPlatformOrder = chatListState.selectedPlatformOrder,
+                combinedMode = chatListState.combinedMode,
+                onCombinedModeChange = homeViewModel::setCombinedMode,
                 onDismissRequest = { homeViewModel.closeSelectModelDialog() },
-                onConfirmation = {
-                    navigateToNewChat(it)
+                onConfirmation = { selected, combined ->
+                    navigateToNewChat(selected, combined)
                     homeViewModel.closeSelectModelDialog()
                 },
                 onPlatformSelect = { homeViewModel.updatePlatformCheckedState(it) },
@@ -1081,8 +1084,11 @@ fun FavoriteDetailDialog(
 fun SelectPlatformDialog(
     platforms: List<PlatformV2>,
     selectedPlatforms: List<Boolean>,
+    selectedPlatformOrder: List<String> = emptyList(),
+    combinedMode: Boolean = false,
+    onCombinedModeChange: (Boolean) -> Unit = {},
     onDismissRequest: () -> Unit,
-    onConfirmation: (enabledPlatforms: List<String>) -> Unit,
+    onConfirmation: (enabledPlatforms: List<String>, combinedMode: Boolean) -> Unit,
     onPlatformSelect: (idx: Int) -> Unit,
     onTogglePlatformFavorite: (platformId: Int) -> Unit = {}
 ) {
@@ -1134,6 +1140,32 @@ fun SelectPlatformDialog(
                     text = stringResource(R.string.select_platform_description),
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.bodyMedium
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = !combinedMode,
+                        onClick = { onCombinedModeChange(false) },
+                        label = { Text(stringResource(R.string.chat_mode_separate)) }
+                    )
+                    FilterChip(
+                        selected = combinedMode,
+                        onClick = { onCombinedModeChange(true) },
+                        label = { Text(stringResource(R.string.chat_mode_combined)) }
+                    )
+                }
+                Text(
+                    text = stringResource(
+                        if (combinedMode) R.string.chat_mode_combined_description
+                        else R.string.chat_mode_separate_description
+                    ),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 // Interactive Sort Chips
                 Row(
@@ -1204,7 +1236,11 @@ fun SelectPlatformDialog(
                             selected = selectedPlatforms.getOrElse(originalIndex) { false },
                             isFavorite = platform.isFavorite,
                             labels = platform.labels,
-                            description = null,
+                            description = if (combinedMode && selectedPlatformOrder.firstOrNull() == platform.uid) {
+                                stringResource(R.string.chat_mode_lead_model)
+                            } else {
+                                null
+                            },
                             onLongClickEvent = { onTogglePlatformFavorite(platform.id) },
                             onClickEvent = { onPlatformSelect(originalIndex) }
                         )
@@ -1217,8 +1253,13 @@ fun SelectPlatformDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = selectedPlatforms.any { it },
-                onClick = { onConfirmation(platforms.filterIndexed { i, _ -> selectedPlatforms[i] }.map { it.uid }) }
+                enabled = if (combinedMode) selectedPlatformOrder.size >= 2 else selectedPlatforms.any { it },
+                onClick = {
+                    val selected = selectedPlatformOrder.ifEmpty {
+                        platforms.filterIndexed { i, _ -> selectedPlatforms[i] }.map { it.uid }
+                    }
+                    onConfirmation(selected, combinedMode)
+                }
             ) {
                 Text(stringResource(R.string.confirm))
             }

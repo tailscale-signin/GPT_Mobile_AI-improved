@@ -1,40 +1,38 @@
-# Release Notes - v0.9.7.0
+# Release Notes - v0.9.8.0
 
-Welcome to **GPT Mobile AI (Improved)** v0.9.7.0.
+Welcome to **GPT Mobile AI (Improved)** v0.9.8.0.
 
-This full release introduces the Persistent Mobile Agent foundation: richer Gateway progress on Android, Android 16 progress-centric foreground notifications, and durable Gateway job reconciliation when network connectivity returns.
+This major release introduces the live Agent Flight Recorder, combined multi-model conversation synthesis, encrypted passwordless backups, and remote AI streaming resilience.
 
 ---
 
 ### Key Highlights & Improvements
 
-#### 1. Persistent Mobile Agent Progress
-- Structured Gateway progress now flows through the app's agent runtime instead of being limited to tool-history persistence.
-- Active agent runs track Gateway stage, message, checkpoint, round, and tool-call progress.
-- Foreground notifications can show the current Gateway message or stage while work is running.
+#### 1. Agent Flight Recorder & Gateway Efficiency
+- **Flight Recorder Card**: Live tracking of active Gateway and agent execution state directly within the chat interface.
+- **Adaptive Work States**: Visually displays agent phases: Starting, Exploring, Focused, Using Tools, Recovering, Synthesizing, and Finalizing.
+- **Efficiency Telemetry**: Real-time visibility into tool productivity, round count, useful tool calls, checkpointing, and tool atlas counts.
+- **Streamlined Standard UX**: Flight Recorder details remain cleanly accessible in Debug Mode while keeping standard chat clean and focused.
 
-#### 2. Android 16 Progress-Centric Notifications
-- Added Android 16 progress-style foreground notifications for long-running agent tasks.
-- Gateway stages are mapped into clear progress milestones.
-- Unknown stages retain an indeterminate progress fallback.
-- Earlier Android versions continue using the existing compatible progress notification.
+#### 2. Combined Multi-Model Conversation Mode
+- **Parallel Model Synthesis**: Query multiple AI platforms simultaneously in a single turn.
+- **Unified Merged Response**: Runs all selected models in parallel, using the primary model to perform a clean synthesis pass.
+- **Inspectable Raw Responses**: Expandable model response accordion to inspect individual model outputs side by side.
+- **Persisted Schema (v24)**: Native database support for Separate vs Combined conversation modes.
 
-#### 3. Durable Network Recovery
-- Added validated-network monitoring for Wi-Fi, cellular, and VPN/Tailscale-style network transitions.
-- When validated connectivity returns, the app reconciles persisted Gateway jobs instead of replaying the original prompt.
-- Recovery begins only after startup persistence reconciliation to avoid overwriting recovered results.
-- Network handoffs track the validated Android Network instance to avoid stale disconnect callbacks causing false recovery state.
+#### 3. Encrypted Passwordless Complete Backup & Restore
+- **GPTFULL2 Format**: Seamless AES-256-GCM authenticated archives protected by the Android Keystore/App Credential Vault without mandatory manual password typing.
+- **Full Scope Coverage**: Backs up all 10 Room tables, app preferences, vault credentials, downloaded local models, tool configs, and file attachments.
+- **Legacy Compatibility**: Full backward compatibility for restoring password-protected GPTFULL1 and legacy backups.
 
-#### 4. Architecture & Compatibility
-- Keeps Gateway as the owner of remote execution and tool intelligence.
-- Keeps Android responsible for presentation, lifecycle, cancellation, local durability, and recovery.
-- No Room migration and no new runtime dependency are required.
-- Provides a clean foundation for future MCP Tasks and input-required interactions.
+#### 4. Remote Streaming Longevity & Connection Resilience
+- **Extended Timeouts**: Inactivity socket timeouts extended up to 5 minutes with unlimited request deadlines for reasoning and long-running generation.
+- **Graceful Disconnect Recovery**: Gracefully handles late socket closes as payload completion for Gemini, Anthropic, and Groq providers.
+- **OkHttp Bound Guarding**: Bounds finite timeouts to valid OkHttp ranges, eliminating oversized timeout exceptions.
 
 #### 5. Build & Packaging
-- **Version Code**: `62`
-- **Version Name**: `0.9.7.0`
-- **Target SDK**: 36 (Android 16)
-- **Min SDK**: 31 (Android 12)
+- **Version Code**: `64`
+- **Version Name**: `0.9.8.0`
+- **Target SDK**: 36 (Android 16) | **Min SDK**: 31 (Android 12)
 - **Architectures**: `arm64-v8a`, `x86_64`, Universal APK
-- **Release artifacts**: signed APK variants and release AAB through the repository release workflow.
+- **Release Artifacts**: Signed APK variants (arm64-v8a, x86_64, Universal) and release Android App Bundle (AAB).

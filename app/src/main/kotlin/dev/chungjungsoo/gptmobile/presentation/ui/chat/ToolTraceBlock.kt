@@ -56,6 +56,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
+import dev.chungjungsoo.gptmobile.util.AnimationUtil
 import java.time.Instant
 import java.util.Locale
 
@@ -359,8 +360,15 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
     val traceBlockDescription = stringResource(R.string.tool_trace_block_content_description, summary)
 
     // Make the tool call chat bubble more opaque for better visibility
+    val entrance = AnimationUtil.StaggeredFadeInModifier(
+        index = 0,
+        totalSegments = 1,
+        duration = 1500L
+    )
+
     Column(
         modifier = modifier
+            .then(entrance)
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))

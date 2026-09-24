@@ -103,7 +103,6 @@ import dev.chungjungsoo.gptmobile.data.catalog.McpCategory
 import dev.chungjungsoo.gptmobile.data.catalog.McpPreset
 import dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.McpPricingType
-import dev.chungjungsoo.gptmobile.data.catalog.McpTransportType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
 

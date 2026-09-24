@@ -95,6 +95,7 @@ class GoogleAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<GenerateContentResponse> = flow {
+        var receivedPayload = false
         try {
             val apiUrl = config.apiUrl
             val endpoint = if (apiUrl.endsWith("/")) {
@@ -152,6 +153,7 @@ class GoogleAPIImpl @Inject constructor(
 
                     try {
                         val chunk = NetworkClient.json.decodeFromString<GenerateContentResponse>(data)
+                        receivedPayload = true
                         emit(chunk)
                     } catch (_: Exception) {
                         // Skip malformed chunks
@@ -160,6 +162,9 @@ class GoogleAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+            if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e)) {
+                return@flow
+            }
             val errorMessage = when (e) {
                 is java.net.UnknownHostException -> "Network error: Unable to resolve host."
                 is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."

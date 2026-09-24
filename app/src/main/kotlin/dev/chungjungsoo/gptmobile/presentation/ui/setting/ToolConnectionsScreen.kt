@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -66,6 +68,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -160,6 +163,29 @@ fun ToolConnectionsScreen(
                 .padding(innerPadding)
                 .verticalScroll(scrollState)
         ) {
+            ToolInventorySummaryCard(
+                installedCount = uiState.connections.size,
+                remoteMcpCount = uiState.connections.count { it.type == ToolConnectionType.MCP },
+                onlineMcpCount = uiState.connectionHealth.values.count {
+                    it.status == ToolConnectionHealthStatus.ONLINE
+                }
+            )
+
+            Text(
+                text = "Integrated tools",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+            )
+            IntegratedToolsCard()
+
+            Text(
+                text = "Installed connections",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+            )
+
             // Marketplace Discover Banner
             ListItem(
                 modifier = Modifier
@@ -216,7 +242,9 @@ fun ToolConnectionsScreen(
                             viewModel.startOAuth(connection.connectionUid)
                         }
                     },
-                    onDeleteClick = { deletingConnection = connection }
+                    onDeleteClick = { deletingConnection = connection },
+                    health = uiState.connectionHealth[connection.connectionUid],
+                    onRefreshHealth = { viewModel.probeConnections(listOf(connection)) }
                 )
             }
         }
@@ -291,6 +319,8 @@ private fun CollapsibleToolConnectionCard(
     onEditClick: () -> Unit,
     onOAuthClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    health: ToolConnectionHealth?,
+    onRefreshHealth: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -340,6 +370,10 @@ private fun CollapsibleToolConnectionCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (connection.type == ToolConnectionType.MCP) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        ConnectionHealthLine(health)
+                    }
                 }
 
                 Surface(
@@ -391,6 +425,14 @@ private fun CollapsibleToolConnectionCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (connection.type == ToolConnectionType.MCP) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = health?.message ?: "Health has not been checked yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -399,6 +441,12 @@ private fun CollapsibleToolConnectionCard(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (connection.type == ToolConnectionType.MCP) {
+                            TextButton(onClick = onRefreshHealth) {
+                                Text("Test")
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
                         if (connection.type == ToolConnectionType.MCP && connection.authType == ToolConnectionAuthType.OAUTH) {
                             TextButton(onClick = onOAuthClick) {
                                 Text(stringResource(if (connection.secretRef == null) R.string.connect else R.string.reconnect))
@@ -419,6 +467,121 @@ private fun CollapsibleToolConnectionCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ToolInventorySummaryCard(
+    installedCount: Int,
+    remoteMcpCount: Int,
+    onlineMcpCount: Int
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text("Tool workspace", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "Built-in tools are ready immediately; installed connections extend profiles with remote capabilities.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                InventoryBadge("$installedCount installed", Modifier.weight(1f))
+                InventoryBadge("$remoteMcpCount MCP", Modifier.weight(1f))
+                InventoryBadge("$onlineMcpCount online", Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun InventoryBadge(text: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)
+        )
+    }
+}
+
+@Composable
+private fun IntegratedToolsCard() {
+    val tools = listOf(
+        "Date & time",
+        "Calculator",
+        "Read files",
+        "Read URL",
+        "GitHub",
+        "Device location"
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            tools.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pair.forEach { name ->
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Row(
+                                Modifier.padding(9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                Box(
+                                    Modifier.size(8.dp).background(Color(0xFF2E7D32), CircleShape)
+                                )
+                                Text(name, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionHealthLine(health: ToolConnectionHealth?) {
+    val status = health?.status
+    val dotColor = when (status) {
+        ToolConnectionHealthStatus.ONLINE -> Color(0xFF2E7D32)
+        ToolConnectionHealthStatus.LIMITED -> Color(0xFFF9A825)
+        ToolConnectionHealthStatus.OFFLINE -> Color(0xFFC62828)
+        ToolConnectionHealthStatus.CHECKING -> Color(0xFF1976D2)
+        null -> MaterialTheme.colorScheme.outline
+    }
+    val label = when (status) {
+        ToolConnectionHealthStatus.ONLINE -> "Online"
+        ToolConnectionHealthStatus.LIMITED -> "Limited"
+        ToolConnectionHealthStatus.OFFLINE -> "Disconnected"
+        ToolConnectionHealthStatus.CHECKING -> "Checking"
+        null -> "Not checked"
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(9.dp).background(dotColor, CircleShape))
+        Text(
+            text = buildString {
+                append(label)
+                health?.toolCount?.let { append(" • $it tools") }
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

@@ -31,6 +31,7 @@ interface SettingDataSource {
     suspend fun getDynamicTheme(): DynamicTheme?
     suspend fun getThemeMode(): ThemeMode?
     suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend
+    fun observeLocalRuntimeBackend(): Flow<LocalRuntimeBackend> = flowOf(LocalRuntimeBackend.DEFAULT)
     suspend fun getStatus(apiType: ApiType): Boolean?
     suspend fun getAPIUrl(apiType: ApiType): String?
     suspend fun getToken(apiType: ApiType): String?

@@ -12,53 +12,95 @@ import org.junit.rules.TemporaryFolder
 class CompleteBackupCryptoTest {
     @get:Rule val temp = TemporaryFolder()
     private val password = "test-password"
+    private val rawKey = ByteArray(32) { (it * 7 + 3).toByte() }
 
     @Test
-    fun multipleChunksRoundTrip() {
+    fun legacyPasswordFormatStillRoundTrips() {
         val bytes = ByteArray(2 * 1024 * 1024 + 37) { (it % 239).toByte() }
-        val encrypted = encrypt(bytes)
-        val output = File(temp.root, "decoded")
+        val encrypted = encryptLegacy(bytes)
+        val output = File(temp.root, "decoded-legacy")
         CompleteBackupCrypto.decrypt(encrypted.inputStream(), output, password)
         assertArrayEquals(bytes, output.readBytes())
     }
 
     @Test
-    fun wrongPasswordCorruptionTruncationAndAppendedBytesRejectAndDeleteStaging() {
-        val encrypted = encrypt(ByteArray(1024 * 1024 + 37) { 42 })
+    fun passwordlessFormatRoundTripsAcrossMultipleChunks() {
+        val bytes = ByteArray(2 * 1024 * 1024 + 91) { (it % 251).toByte() }
+        val encrypted = encryptPasswordless(bytes)
+        val output = File(temp.root, "decoded-v2")
+        CompleteBackupCrypto.decryptWithKey(encrypted.inputStream(), output, rawKey)
+        assertArrayEquals(bytes, output.readBytes())
+    }
+
+    @Test
+    fun passwordlessWrongKeyCorruptionTruncationAndAppendAreRejected() {
+        val encrypted = encryptPasswordless(ByteArray(1024 * 1024 + 37) { 42 })
         val corrupt = encrypted.copyOf().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
-        for ((bytes, key) in listOf(
-            encrypted to "wrong-password",
-            corrupt to password,
-            encrypted.copyOf(encrypted.size - 1) to password,
-            (encrypted + byteArrayOf(0)) to password
-        )) {
-            val output = File(temp.root, "decoded")
-            assertThrows(Exception::class.java) { CompleteBackupCrypto.decrypt(bytes.inputStream(), output, key) }
+        val wrongKey = rawKey.copyOf().also { it[0] = (it[0].toInt() xor 1).toByte() }
+
+        val cases = listOf(
+            encrypted to wrongKey,
+            corrupt to rawKey,
+            encrypted.copyOf(encrypted.size - 1) to rawKey,
+            (encrypted + byteArrayOf(0)) to rawKey
+        )
+        cases.forEachIndexed { index, (bytes, key) ->
+            val output = File(temp.root, "decoded-failure-$index")
+            assertThrows(Exception::class.java) {
+                CompleteBackupCrypto.decryptWithKey(bytes.inputStream(), output, key)
+            }
             assertFalse(output.exists())
         }
     }
 
     @Test
-    fun chunkReorderingAndHeaderModificationAreAuthenticated() {
-        val encrypted = encrypt(ByteArray(2 * 1024 * 1024) { (it % 241).toByte() })
+    fun passwordlessHeaderAndChunkOrderingAreAuthenticated() {
+        val encrypted = encryptPasswordless(ByteArray(2 * 1024 * 1024) { (it % 241).toByte() })
+        val header = 24
         val chunk = 1024 * 1024 + 16
-        val reordered = encrypted.copyOfRange(0, 40) + encrypted.copyOfRange(40 + chunk, encrypted.size) + encrypted.copyOfRange(40, 40 + chunk)
-        val modifiedHeader = encrypted.copyOf().also { it[24] = (it[24].toInt() xor 1).toByte() }
-        for (bytes in listOf(reordered, modifiedHeader)) {
-            assertThrows(Exception::class.java) { CompleteBackupCrypto.decrypt(bytes.inputStream(), File(temp.root, "decoded"), password) }
+        val reordered =
+            encrypted.copyOfRange(0, header) +
+                encrypted.copyOfRange(header + chunk, encrypted.size) +
+                encrypted.copyOfRange(header, header + chunk)
+        val modifiedHeader = encrypted.copyOf().also { it[16] = (it[16].toInt() xor 1).toByte() }
+
+        listOf(reordered, modifiedHeader).forEachIndexed { index, bytes ->
+            assertThrows(Exception::class.java) {
+                CompleteBackupCrypto.decryptWithKey(
+                    bytes.inputStream(),
+                    File(temp.root, "decoded-auth-$index"),
+                    rawKey
+                )
+            }
         }
     }
 
     @Test
-    fun freeSpaceLimitIsCheckedBeforeWriting() {
-        val encrypted = encrypt(ByteArray(1024))
-        val output = File(temp.root, "decoded")
-        assertThrows(IllegalArgumentException::class.java) { CompleteBackupCrypto.decrypt(encrypted.inputStream(), output, password, maxBytes = 100) }
+    fun passwordlessFreeSpaceLimitIsCheckedBeforeWriting() {
+        val encrypted = encryptPasswordless(ByteArray(1024))
+        val output = File(temp.root, "decoded-limit")
+        assertThrows(IllegalArgumentException::class.java) {
+            CompleteBackupCrypto.decryptWithKey(
+                encrypted.inputStream(),
+                output,
+                rawKey,
+                maxBytes = 100
+            )
+        }
         assertFalse(output.exists())
     }
 
-    private fun encrypt(bytes: ByteArray): ByteArray {
-        val source = File(temp.root, "source").apply { writeBytes(bytes) }
-        return ByteArrayOutputStream().also { CompleteBackupCrypto.encrypt(source, it, password) }.toByteArray()
+    private fun encryptLegacy(bytes: ByteArray): ByteArray {
+        val source = File(temp.root, "legacy-source").apply { writeBytes(bytes) }
+        return ByteArrayOutputStream().also {
+            CompleteBackupCrypto.encrypt(source, it, password)
+        }.toByteArray()
+    }
+
+    private fun encryptPasswordless(bytes: ByteArray): ByteArray {
+        val source = File(temp.root, "v2-source").apply { writeBytes(bytes) }
+        return ByteArrayOutputStream().also {
+            CompleteBackupCrypto.encryptWithKey(source, it, rawKey)
+        }.toByteArray()
     }
 }

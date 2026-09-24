@@ -401,6 +401,14 @@
     <string name="agent_recovering_message">The gateway is changing strategy after repeated low-novelty work.</string>
     <string name="agent_recent_activity">Recent activity</string>
     <string name="agent_activity_update">Gateway update</string>
+    <string name="agent_live_preparing">Preparing model, memory, and tools…</string>
+    <string name="agent_live_exploring">Checking context and local capabilities…</string>
+    <string name="agent_live_focused">Working through the request…</string>
+    <string name="agent_live_using_tool">Using %1$s…</string>
+    <string name="agent_live_acting">Using local tools…</string>
+    <string name="agent_live_recovering">Refining the approach…</string>
+    <string name="agent_live_synthesizing">Combining results…</string>
+    <string name="agent_live_finalizing">Finishing the response…</string>
 
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>

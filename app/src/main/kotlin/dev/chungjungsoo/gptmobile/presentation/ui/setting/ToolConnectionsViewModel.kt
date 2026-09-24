@@ -14,11 +14,8 @@ import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import java.net.URI
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -40,106 +37,91 @@ data class ToolConnectionHealth(
 data class ToolConnectionsUiState(
     val connections: List<ToolConnection> = emptyList(),
     val bindings: List<AgentToolBinding> = emptyList(),
-    val profiles: List<PlatformV2> = emptyList(),
+    val platforms: List<PlatformV2> = emptyList(),
     val featureSettings: AppFeatureSettings = AppFeatureSettings(),
+    val selectedPlatformUid: String? = null,
+    val selectedConnectionUid: String? = null,
     val connectionHealth: Map<String, ToolConnectionHealth> = emptyMap(),
-    val isCreatingConnection: Boolean = false,
+    val isSaving: Boolean = false,
+    val isTesting: Boolean = false,
+    val lastTestResult: String? = null,
     val errorMessage: String? = null
 )
 
 @HiltViewModel
 class ToolConnectionsViewModel @Inject constructor(
-    private val repository: ToolConnectionRepository,
+    private val toolConnectionRepository: ToolConnectionRepository,
     private val settingRepository: SettingRepository,
     private val agentToolResolver: AgentToolResolver? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ToolConnectionsUiState())
-    val uiState: StateFlow<ToolConnectionsUiState> = _uiState.asStateFlow()
+    val uiState = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
             combine(
-                repository.observeAllConnections(),
-                repository.observeAllBindings(),
-                settingRepository.observePlatformV2s(),
-                settingRepository.observeFeatureSettings()
-            ) { connections, bindings, profiles, featureSettings ->
-                _uiState.update { current ->
-                    current.copy(
-                        connections = connections,
-                        bindings = bindings,
-                        profiles = profiles,
-                        featureSettings = featureSettings
-                    )
+                toolConnectionRepository.observeAllConnections(),
+                toolConnectionRepository.observeAllBindings(),
+                settingRepository.getAllPlatformsFlow(),
+                settingRepository.appFeatureSettingsFlow
+            ) { connections, bindings, platforms, featureSettings ->
+                ToolConnectionsUiState(
+                    connections = connections,
+                    bindings = bindings,
+                    platforms = platforms,
+                    featureSettings = featureSettings,
+                    selectedPlatformUid = _uiState.value.selectedPlatformUid ?: platforms.firstOrNull()?.uid,
+                    selectedConnectionUid = _uiState.value.selectedConnectionUid ?: connections.firstOrNull()?.connectionUid,
+                    connectionHealth = _uiState.value.connectionHealth,
+                    isSaving = _uiState.value.isSaving,
+                    isTesting = _uiState.value.isTesting,
+                    lastTestResult = _uiState.value.lastTestResult,
+                    errorMessage = _uiState.value.errorMessage
+                )
+            }.collect { newState ->
+                val prevConnections = _uiState.value.connections
+                _uiState.value = newState
+                if (prevConnections.isEmpty() && newState.connections.isNotEmpty()) {
+                    probeConnections(newState.connections)
                 }
-            }.collect {
-                probeConnections()
             }
         }
     }
 
-    fun addMcpConnection(
-        name: String,
-        alias: String,
-        endpointUrl: String,
-        authType: String,
-        credential: String,
-        allowCleartext: Boolean = false
-    ) {
-        val trimmedName = name.trim()
-        val trimmedAlias = normalizeAlias(alias)
-        val trimmedUrl = endpointUrl.trim()
+    fun selectPlatform(platformUid: String) {
+        _uiState.update { it.copy(selectedPlatformUid = platformUid) }
+    }
 
-        if (trimmedName.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Connection name cannot be empty.") }
-            return
-        }
-        if (!isValidAlias(trimmedAlias)) {
-            _uiState.update {
-                it.copy(
-                    errorMessage = "Tool alias '$trimmedAlias' is invalid. Use lowercase letters, digits, or underscore, starting with a letter."
-                )
-            }
-            return
-        }
-        if (!isValidMcpEndpoint(trimmedUrl, allowCleartext)) {
-            _uiState.update {
-                it.copy(
-                    errorMessage = "Endpoint URL must be a valid HTTP/HTTPS Streamable HTTP endpoint. Cleartext HTTP requires explicit approval."
-                )
-            }
-            return
-        }
+    fun selectConnection(connectionUid: String?) {
+        _uiState.update { it.copy(selectedConnectionUid = connectionUid) }
+    }
 
+    fun setMasterToolsSwitch(enabled: Boolean) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isCreatingConnection = true, errorMessage = null) }
-            try {
-                repository.createConnection(
-                    name = trimmedName,
-                    type = ToolConnectionType.MCP,
-                    endpointUrl = trimmedUrl,
-                    alias = trimmedAlias,
-                    authType = authType,
-                    credential = credential.trim().takeIf { it.isNotEmpty() }
-                )
-            } catch (t: Throwable) {
-                _uiState.update { it.copy(errorMessage = t.message ?: "Failed to save MCP connection.") }
-            } finally {
-                _uiState.update { it.copy(isCreatingConnection = false) }
-            }
+            val current = _uiState.value.featureSettings
+            settingRepository.setAppFeatureSettings(current.copy(enableAgentTools = enabled))
         }
     }
 
-    fun updateConnection(
-        connection: ToolConnection,
-        credential: String? = null
-    ) {
+    fun setPlatformToolsOverride(platformUid: String, enabled: Boolean) {
         viewModelScope.launch {
+            val platform = _uiState.value.platforms.find { it.uid == platformUid } ?: return@launch
+            val newPlatform = platform.copy(enableAgentTools = enabled)
+            settingRepository.updatePlatform(newPlatform)
+        }
+    }
+
+    fun saveConnection(connection: ToolConnection) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
             try {
-                repository.updateConnection(connection, credential)
-            } catch (t: Throwable) {
-                _uiState.update { it.copy(errorMessage = t.message ?: "Failed to update connection.") }
+                validateConnection(connection)
+                toolConnectionRepository.saveConnection(connection)
+                _uiState.update { it.copy(isSaving = false) }
+                probeConnection(connection)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isSaving = false, errorMessage = e.message) }
             }
         }
     }
@@ -147,24 +129,83 @@ class ToolConnectionsViewModel @Inject constructor(
     fun deleteConnection(connectionUid: String) {
         viewModelScope.launch {
             try {
-                repository.deleteConnection(connectionUid)
-            } catch (t: Throwable) {
-                _uiState.update { it.copy(errorMessage = t.message ?: "Failed to delete connection.") }
+                toolConnectionRepository.deleteConnection(connectionUid)
+                if (_uiState.value.selectedConnectionUid == connectionUid) {
+                    _uiState.update { it.copy(selectedConnectionUid = null) }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message) }
             }
         }
     }
 
-    fun setBindingEnabled(
-        profileUid: String,
-        connectionUid: String?,
-        toolName: String,
-        enabled: Boolean
-    ) {
+    fun toggleConnectionEnabled(connectionUid: String, enabled: Boolean) {
         viewModelScope.launch {
+            val conn = _uiState.value.connections.find { it.connectionUid == connectionUid } ?: return@launch
+            toolConnectionRepository.saveConnection(conn.copy(isEnabled = enabled))
+            if (enabled) {
+                probeConnection(conn.copy(isEnabled = true))
+            }
+        }
+    }
+
+    fun setBindingEnabled(platformUid: String, connectionUid: String, enabled: Boolean) {
+        viewModelScope.launch {
+            val existing = _uiState.value.bindings.find {
+                it.platformUid == platformUid && it.connectionUid == connectionUid
+            }
+            if (existing != null) {
+                toolConnectionRepository.saveBinding(existing.copy(isEnabled = enabled))
+            } else {
+                toolConnectionRepository.saveBinding(
+                    AgentToolBinding(
+                        platformUid = platformUid,
+                        connectionUid = connectionUid,
+                        isEnabled = enabled
+                    )
+                )
+            }
+        }
+    }
+
+    fun setBindingToolFilter(platformUid: String, connectionUid: String, allowedTools: List<String>) {
+        viewModelScope.launch {
+            val existing = _uiState.value.bindings.find {
+                it.platformUid == platformUid && it.connectionUid == connectionUid
+            } ?: AgentToolBinding(platformUid = platformUid, connectionUid = connectionUid)
+            toolConnectionRepository.saveBinding(existing.copy(allowedTools = allowedTools))
+        }
+    }
+
+    fun testConnection(connection: ToolConnection) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isTesting = true, lastTestResult = null, errorMessage = null) }
             try {
-                repository.setBindingEnabled(profileUid, connectionUid, toolName, enabled)
-            } catch (t: Throwable) {
-                _uiState.update { it.copy(errorMessage = t.message ?: "Failed to update tool binding.") }
+                validateConnection(connection)
+                val resolver = agentToolResolver
+                if (resolver == null) {
+                    _uiState.update {
+                        it.copy(
+                            isTesting = false,
+                            lastTestResult = "AgentToolResolver not available in this build."
+                        )
+                    }
+                    return@launch
+                }
+                val tools = resolver.discoverMcpTools(connection)
+                _uiState.update {
+                    it.copy(
+                        isTesting = false,
+                        lastTestResult = "Success: discovered ${tools.size} tool(s): ${tools.joinToString(", ") { t -> t.name }}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isTesting = false,
+                        lastTestResult = "Connection failed: ${e.message}"
+                    )
+                }
             }
         }
     }
@@ -198,27 +239,22 @@ class ToolConnectionsViewModel @Inject constructor(
                                     ToolConnectionHealth(
                                         status = ToolConnectionHealthStatus.LIMITED,
                                         toolCount = 0,
-                                        message = "Connected, but the server reported no tools.",
+                                        message = "Server responded but advertised no tools",
                                         checkedAt = checkedAt
                                     )
                                 } else {
                                     ToolConnectionHealth(
                                         status = ToolConnectionHealthStatus.ONLINE,
                                         toolCount = tools.size,
-                                        message = "${tools.size} remote tool${if (tools.size == 1) "" else "s"} available",
+                                        message = "Online (${tools.size} tool${if (tools.size == 1) "" else "s"})",
                                         checkedAt = checkedAt
                                     )
                                 }
                             },
                             onFailure = { error ->
-                                val text = error.message.orEmpty()
-                                val limited = text.contains("401") ||
-                                    text.contains("403") ||
-                                    text.contains("auth", ignoreCase = true) ||
-                                    text.contains("permission", ignoreCase = true)
                                 ToolConnectionHealth(
-                                    status = if (limited) ToolConnectionHealthStatus.LIMITED else ToolConnectionHealthStatus.OFFLINE,
-                                    message = text.ifBlank { "Unable to reach the MCP server." },
+                                    status = ToolConnectionHealthStatus.OFFLINE,
+                                    message = error.message ?: "Failed to reach server",
                                     checkedAt = checkedAt
                                 )
                             }
@@ -230,40 +266,17 @@ class ToolConnectionsViewModel @Inject constructor(
             }
     }
 
-    companion object {
-        fun normalizeAlias(input: String): String = input.trim().lowercase()
+    fun probeConnection(connection: ToolConnection) = probeConnections(listOf(connection))
 
-        fun isValidAlias(alias: String): Boolean {
-            val normalized = normalizeAlias(alias)
-            return normalized.isNotEmpty() &&
-                normalized.length <= 40 &&
-                normalized.matches(Regex("^[a-z][a-z0-9_]*$"))
-        }
-
-        fun isValidMcpEndpoint(rawUrl: String, allowCleartext: Boolean = false): Boolean {
-            val trimmed = rawUrl.trim()
-            if (trimmed.isEmpty() || trimmed.length > 2000) return false
-            return runCatching {
-                val uri = URI.create(trimmed)
-                val scheme = uri.scheme?.lowercase()
-                val host = uri.host
-                if (host.isNullOrBlank()) return@runCatching false
-                when (scheme) {
-                    "https" -> true
-                    "http" -> allowCleartext || isLoopbackOrPrivateHost(host)
-                    else -> false
-                }
-            }.getOrDefault(false)
-        }
-
-        private fun isLoopbackOrPrivateHost(host: String): Boolean {
-            val normalized = host.lowercase()
-            return normalized == "localhost" ||
-                normalized == "127.0.0.1" ||
-                normalized == "::1" ||
-                normalized.startsWith("192.168.") ||
-                normalized.startsWith("10.") ||
-                normalized.matches(Regex("^172\\.(1[6-9]|2[0-9]|3[0-1])\\..*"))
+    private fun validateConnection(connection: ToolConnection) {
+        require(connection.name.isNotBlank()) { "Connection name cannot be empty." }
+        require(connection.connectionUid.isNotBlank()) { "Connection UID cannot be empty." }
+        if (connection.type == ToolConnectionType.MCP) {
+            val endpoint = connection.endpointUrl?.trim().orEmpty()
+            require(endpoint.isNotBlank()) { "MCP endpoint URL cannot be empty." }
+            val uri = runCatching { URI(endpoint) }.getOrNull()
+            require(uri != null && uri.isAbsolute) { "Invalid MCP endpoint URL: must be an absolute URL (e.g. http://10.0.2.2:8000/mcp)." }
+            require(uri.scheme?.lowercase() in listOf("http", "https")) { "MCP endpoint URL must start with http:// or https://." }
         }
     }
 }

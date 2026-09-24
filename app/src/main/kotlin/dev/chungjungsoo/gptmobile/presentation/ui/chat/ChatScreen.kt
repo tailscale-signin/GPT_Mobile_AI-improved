@@ -567,10 +567,36 @@ private fun ChatMessagePair(
             assistantMessage.activeRevisionIndex != ACTIVE_REVISION_LATEST
     } ?: false
     val selectedPlatformUid = enabledPlatformsInChat.getOrElse(displayedPlatformIndex) { "" }
+    val combinedRuns = if (combinedMode) {
+        enabledPlatformsInChat.mapNotNull { uid ->
+            assistantMessages.firstOrNull { it.platformType == uid }
+                ?.currentRunId
+                ?.let(agentRunsById::get)
+        }
+    } else {
+        emptyList()
+    }
+    val combinedInitialRunsTerminal = combinedMode &&
+        combinedRuns.size >= enabledPlatformsInChat.size &&
+        combinedRuns.all { run ->
+            run.status != AgentRunStatus.QUEUED && run.status != AgentRunStatus.RUNNING
+        }
+    val combinedHasUsableResponse = combinedMode && assistantMessages.any { assistant ->
+        val content = assistant.effectiveContent()
+        content.isNotBlank() && !isAssistantErrorMessage(content)
+    }
+    val combinedSynthesisPending = combinedMode &&
+        !isCombinedSynthesis &&
+        combinedInitialRunsTerminal &&
+        combinedHasUsableResponse
+    val combinedAllFailed = combinedMode &&
+        !isCombinedSynthesis &&
+        combinedInitialRunsTerminal &&
+        !combinedHasUsableResponse
     val isCurrentPlatformLoading = if (combinedMode) {
         isActiveMessage && (
-            !isCombinedSynthesis ||
-                loadingStates.any { it == ChatViewModel.LoadingState.Loading }
+            loadingStates.any { it == ChatViewModel.LoadingState.Loading } ||
+                combinedSynthesisPending
             )
     } else {
         loadingStates.getOrElse(displayedPlatformIndex) { ChatViewModel.LoadingState.Idle } ==
@@ -655,8 +681,8 @@ private fun ChatMessagePair(
                         }
                     }
                 }
-                if (isActiveMessage && isCurrentPlatformLoading && activeAgentRun != null) {
-                    if (debugMode) {
+                if (isActiveMessage && isCurrentPlatformLoading) {
+                    if (debugMode && activeAgentRun != null) {
                         AgentFlightRecorderCard(
                             run = activeAgentRun,
                             modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
@@ -665,7 +691,7 @@ private fun ChatMessagePair(
                         CompactAgentActivityBar(
                             run = activeAgentRun,
                             modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
-                            statusOverride = if (isCombinedSynthesis) {
+                            statusOverride = if (isCombinedSynthesis || combinedSynthesisPending) {
                                 stringResource(R.string.combined_synthesizing)
                             } else {
                                 null
@@ -684,7 +710,11 @@ private fun ChatMessagePair(
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
-                    text = assistantContent,
+                    text = if (combinedAllFailed) {
+                        stringResource(R.string.combined_all_models_failed)
+                    } else {
+                        assistantContent
+                    },
                     timestamp = selectedAssistantMessage?.let { it.createdAt * 1000L },
                     thoughts = assistantThoughts,
                     timeline = assistantTimeline,
@@ -711,8 +741,24 @@ private fun ChatMessagePair(
                     },
                     canShowPreviousRevision = !combinedMode && canShowPreviousRevision,
                     canShowNextRevision = !combinedMode && canShowNextRevision,
-                    onCopyClick = { onCopyText(assistantContent) },
-                    onSelectClick = { onSelectText(assistantContent) },
+                    onCopyClick = {
+                        onCopyText(
+                            if (combinedAllFailed) {
+                                contextStringCombinedFailure()
+                            } else {
+                                assistantContent
+                            }
+                        )
+                    },
+                    onSelectClick = {
+                        onSelectText(
+                            if (combinedAllFailed) {
+                                contextStringCombinedFailure()
+                            } else {
+                                assistantContent
+                            }
+                        )
+                    },
                     onRetryClick = { onRetry(messageIndex, displayedPlatformIndex) },
                     onEditClick = { onEditAssistant(messageIndex, displayedPlatformIndex) },
                     onFavoriteClick = onFavoriteClick,

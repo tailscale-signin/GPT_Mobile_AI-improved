@@ -70,6 +70,10 @@ data class ActiveAgentRun(
     val gatewayCurrentTool: String? = null,
     val gatewayRoute: String? = null,
     val gatewayResultQuality: String? = null,
+    val gatewayWorkflowProfile: String? = null,
+    val gatewayFullToolCount: Int? = null,
+    val gatewaySelectedToolCount: Int? = null,
+    val gatewayRecoveryAttempt: Int? = null,
     val gatewayWorkState: GatewayWorkState = GatewayWorkState.STARTING,
     val gatewayActivity: List<GatewayActivitySample> = emptyList()
 )

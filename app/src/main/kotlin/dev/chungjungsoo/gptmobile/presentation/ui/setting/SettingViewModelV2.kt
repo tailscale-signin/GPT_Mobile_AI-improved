@@ -43,8 +43,8 @@ class SettingViewModelV2 @Inject constructor(
         settingRepository.observeProviderConnections()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val _localRuntimeBackend = MutableStateFlow(LocalRuntimeBackend.DEFAULT)
-    val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = _localRuntimeBackend.asStateFlow()
+    val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = settingRepository.observeLocalRuntimeBackend()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, LocalRuntimeBackend.DEFAULT)
 
     val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -66,7 +66,6 @@ class SettingViewModelV2 @Inject constructor(
 
     init {
         fetchPlatforms()
-        loadLocalRuntimeBackend()
         refreshBackupStatus()
     }
 
@@ -74,16 +73,9 @@ class SettingViewModelV2 @Inject constructor(
         _backupStatus.value = completeBackupManager.getBackupStatus()
     }
 
-    private fun loadLocalRuntimeBackend() {
-        viewModelScope.launch {
-            _localRuntimeBackend.value = settingRepository.getLocalRuntimeBackend()
-        }
-    }
-
     fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
         viewModelScope.launch {
             settingRepository.updateLocalRuntimeBackend(backend)
-            _localRuntimeBackend.value = backend
             _uiEvent.emit(UiEvent.ShowToast("Local inference engine set to ${backend.displayName}"))
         }
     }
@@ -342,7 +334,6 @@ class SettingViewModelV2 @Inject constructor(
                 refreshBackupStatus()
                 if (result.success) {
                     fetchPlatforms()
-                    loadLocalRuntimeBackend()
                 }
             } catch (error: CancellationException) {
                 throw error

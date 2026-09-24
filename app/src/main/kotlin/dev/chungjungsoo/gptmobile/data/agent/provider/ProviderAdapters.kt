@@ -239,6 +239,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                         put("X-Title", "GPT Mobile AI Improved")
                         if (openRouterProviderSettings?.responseCachingEnabled == true) {
                             put("X-OpenRouter-Cache", "true")
+                            put(
+                                "X-OpenRouter-Cache-TTL",
+                                openRouterProviderSettings.cacheTtlSeconds.coerceIn(1, 86_400).toString()
+                            )
                         }
                     }
                 } else {

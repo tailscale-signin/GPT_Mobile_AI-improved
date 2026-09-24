@@ -252,6 +252,7 @@ fun NavGraphBuilder.settingNavigation(
                 settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
                 onNavigateToAddPlatform = { navController.navigate(Route.ADD_PLATFORM) },
+                onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
                 onNavigateToPlatformSetting = { platformUid ->
                     navController.navigate(
                         Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid)

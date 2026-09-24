@@ -36,6 +36,8 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 - **In-Chat Hardware Diagnostics HUD**: View live SoC identifier, system RAM metrics, battery status, thermal throttle state, and NPU readiness directly within the chat bubble when Debug Mode is turned on.
 
 ### 3. 🧠 Autonomous Agent Tools, Dedicated MCP Tools Screen & Marketplace
+- **Agent Flight Recorder**: Active Gateway jobs now expose a compact, expandable operational HUD in chat with live stage, round, tool-call productivity, checkpoint, current route/tool, recovery state, and a deduplicated recent-activity trail. It surfaces operational telemetry without exposing private chain-of-thought.
+- **Adaptive Work-State UI**: Gateway telemetry is translated into human-readable states—Starting, Exploring, Focused, Using tools, Recovering, Synthesizing, and Finalizing—so long autonomous jobs communicate what they are doing instead of showing a generic spinner.
 - **Built-in Agent Runtime**: AI models can dynamically run multi-step reasoning, safely invoke tools, handle external errors, and synthesize complete answers.
 - **Visual Agent Plan Cards (`AgentPlanCard`)**: Clean step-by-step progress cards displaying multi-step workflows, tool execution states, and sub-task status.
 - **Dedicated Full-Screen MCP Tools Selection (`McpToolsSelectionScreen`)**: Browse tools by server category, inspect function parameters and capability icons, and independently toggle master, remote, and local tool switches.

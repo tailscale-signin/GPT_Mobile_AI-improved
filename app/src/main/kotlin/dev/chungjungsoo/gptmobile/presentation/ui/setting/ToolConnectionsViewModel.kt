@@ -260,7 +260,11 @@ class ToolConnectionsViewModel @Inject constructor(
                             }
                         )
                     _uiState.update { state ->
-                        state.copy(connectionHealth = state.connectionHealth + (connection.connectionUid to health))
+                        state.copy(
+                            connectionHealth = state.connectionHealth + (
+                                connection.connectionUid to health
+                            )
+                        )
                     }
                 }
             }

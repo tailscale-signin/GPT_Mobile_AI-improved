@@ -76,6 +76,9 @@ interface AgentPersistenceDao {
     @Query("SELECT * FROM tool_events WHERE event_id = :eventId")
     suspend fun getToolEventById(eventId: String): ToolEvent?
 
+    @Query("SELECT * FROM tool_events ORDER BY COALESCE(completed_at, started_at, 0) DESC, sequence DESC LIMIT :limit")
+    fun observeRecentToolEvents(limit: Int = 100): Flow<List<ToolEvent>>
+
     @Query(
         """
         UPDATE tool_events

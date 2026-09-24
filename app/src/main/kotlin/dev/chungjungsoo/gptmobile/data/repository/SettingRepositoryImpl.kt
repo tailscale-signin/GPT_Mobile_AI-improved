@@ -157,6 +157,9 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) =
         settingDataSource.updateLocalRuntimeBackend(backend)
 
+    override fun observeLocalRuntimeBackend(): Flow<LocalRuntimeBackend> =
+        settingDataSource.observeLocalRuntimeBackend()
+
     override suspend fun getDebugMode(): Boolean = settingDataSource.getDebugMode()
 
     override suspend fun updateDebugMode(enabled: Boolean) = settingDataSource.updateDebugMode(enabled)

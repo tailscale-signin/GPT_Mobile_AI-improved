@@ -19,8 +19,17 @@ data class LocalModelsUiState(
     val totalStorageBytes: Long = 0L,
     val checkingAccessEntryId: String? = null,
     val dialog: LocalModelsDialog = LocalModelsDialog.Hidden,
-    val hasHuggingFaceToken: Boolean = false
+    val hasHuggingFaceToken: Boolean = false,
+    val source: LocalModelSource = LocalModelSource.CATALOG,
+    val huggingFaceItems: List<LocalModelListItem> = emptyList(),
+    val isSearchingHuggingFace: Boolean = false,
+    val huggingFaceSearchError: String? = null
 )
+
+enum class LocalModelSource(val title: String) {
+    CATALOG("Curated"),
+    HUGGING_FACE("Hugging Face")
+}
 
 enum class LocalModelFilter(val title: String) {
     ALL("All"),

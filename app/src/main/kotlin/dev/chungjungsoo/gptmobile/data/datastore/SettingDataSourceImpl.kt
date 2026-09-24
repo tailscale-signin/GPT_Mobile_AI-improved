@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chungjungsoo.gptmobile.data.model.ApiType
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
@@ -74,6 +75,7 @@ class SettingDataSourceImpl @Inject constructor(
     val themeModeKey = intPreferencesKey("theme_mode")
     val localRuntimeBackendKey = stringPreferencesKey("local_runtime_backend")
     val debugModeKey = booleanPreferencesKey("debug_mode")
+    val featureSettingsKey = stringPreferencesKey("advanced_feature_settings_json")
     val favoriteGroupsKey = stringPreferencesKey("favorite_groups_json")
     val favoriteMessageGroupsKey = stringPreferencesKey("favorite_message_groups_json")
 
@@ -111,6 +113,24 @@ class SettingDataSourceImpl @Inject constructor(
 
     override fun observeDebugMode(): Flow<Boolean> = dataStore.data.map { pref ->
         pref[debugModeKey] ?: false
+    }
+
+    override suspend fun updateFeatureSettings(settings: AppFeatureSettings) {
+        dataStore.edit { pref ->
+            pref[featureSettingsKey] = json.encodeToString(settings)
+        }
+    }
+
+    override suspend fun getFeatureSettings(): AppFeatureSettings = dataStore.data.map { pref ->
+        pref[featureSettingsKey]
+            ?.let { raw -> runCatching { json.decodeFromString<AppFeatureSettings>(raw) }.getOrNull() }
+            ?: AppFeatureSettings()
+    }.first()
+
+    override fun observeFeatureSettings(): Flow<AppFeatureSettings> = dataStore.data.map { pref ->
+        pref[featureSettingsKey]
+            ?.let { raw -> runCatching { json.decodeFromString<AppFeatureSettings>(raw) }.getOrNull() }
+            ?: AppFeatureSettings()
     }
 
     override suspend fun updateStatus(apiType: ApiType, status: Boolean) {

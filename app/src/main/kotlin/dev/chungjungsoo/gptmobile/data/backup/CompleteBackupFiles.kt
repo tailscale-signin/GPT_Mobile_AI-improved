@@ -53,15 +53,19 @@ internal class CompleteBackupFiles(roots: Map<String, File>) {
 
         fun apply() {
             require(paths.map(::target).toSet().size == paths.size) { "Conflicting backup file locations." }
-            collect().values.distinct().forEach { current ->
-                val root = roots.values.first { current.toPath().startsWith(it.toPath()) }
-                val previous = File(root, "$id/${current.relativeTo(root)}")
-                check(previous.parentFile!!.mkdirs() || previous.parentFile!!.isDirectory)
-                check(current.renameTo(previous)) { "Could not preserve existing app files." }
-                originals[current] = previous
-            }
+
+            // Restore only files explicitly selected from the archive so a partial
+            // restore never deletes unrelated models, attachments or app files.
             paths.forEach { path ->
                 val file = target(path)
+                if (file.exists()) {
+                    val root = roots.values.first { file.toPath().startsWith(it.toPath()) }
+                    val previous = File(root, "$id/${file.relativeTo(root)}")
+                    check(previous.parentFile!!.mkdirs() || previous.parentFile!!.isDirectory)
+                    check(file.renameTo(previous)) { "Could not preserve existing app files." }
+                    originals[file] = previous
+                }
+
                 createParent(file.parentFile!!)
                 if (file.isDirectory && file.list()?.isEmpty() == true) check(file.delete())
                 installed += file

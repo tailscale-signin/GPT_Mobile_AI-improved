@@ -53,6 +53,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Edit
@@ -151,8 +152,20 @@ fun ChatScreen(
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
     val hasTargetMessage = chatViewModel.targetMessageId > 0
+    var revealedArchivedTurns by rememberSaveable(chatRoom.id) { mutableIntStateOf(0) }
+    val shouldCollapseHistory = featureSettings.archiveOlderAssistantReplies &&
+        !hasTargetMessage &&
+        groupedMessages.userMessages.size > RECENT_EXPANDED_TURNS
+    val firstVisibleTurn = if (shouldCollapseHistory) {
+        (groupedMessages.userMessages.size - RECENT_EXPANDED_TURNS - revealedArchivedTurns).coerceAtLeast(0)
+    } else {
+        0
+    }
+    val hiddenTurnCount = firstVisibleTurn
+    val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
+    val historyHeaderCount = if (hiddenTurnCount > 0) 1 else 0
     val listState = rememberChatListState(
-        messageCount = groupedMessages.userMessages.size,
+        messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
     )
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
@@ -178,6 +191,7 @@ fun ChatScreen(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
+    val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
     val canUseChat = (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
@@ -318,10 +332,24 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     state = listState
                 ) {
+                    if (hiddenTurnCount > 0) {
+                        item(key = "archived-history-header") {
+                            ArchivedHistoryHeader(
+                                hiddenTurnCount = hiddenTurnCount,
+                                onExpand = {
+                                    revealedArchivedTurns = (revealedArchivedTurns + ARCHIVE_REVEAL_STEP)
+                                        .coerceAtMost(groupedMessages.userMessages.size)
+                                }
+                            )
+                        }
+                    }
                     itemsIndexed(
-                        items = groupedMessages.userMessages,
-                        key = { index, message -> chatMessagePairKey(message, index) }
-                    ) { index, message ->
+                        items = groupedMessages.userMessages.drop(firstVisibleTurn),
+                        key = { visibleIndex, message ->
+                            chatMessagePairKey(message, firstVisibleTurn + visibleIndex)
+                        }
+                    ) { visibleIndex, message ->
+                        val index = firstVisibleTurn + visibleIndex
                         ChatMessagePair(
                             messageIndex = index,
                             message = message,
@@ -756,6 +784,52 @@ private fun ChatMessagePair(
 }
 
 @Composable
+private fun ArchivedHistoryHeader(
+    hiddenTurnCount: Int,
+    onExpand: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onExpand),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.86f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.History,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Archived conversation history",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "$hiddenTurnCount older response${if (hiddenTurnCount == 1) "" else "s"} hidden",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "Show ${minOf(ARCHIVE_REVEAL_STEP, hiddenTurnCount)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
 private fun CombinedResponsesPanel(
     responses: List<CombinedModelResponse>,
     modifier: Modifier = Modifier
@@ -835,6 +909,9 @@ private fun CombinedResponsesPanel(
         }
     }
 }
+
+private const val RECENT_EXPANDED_TURNS = 3
+private const val ARCHIVE_REVEAL_STEP = 3
 
 private fun chatMessagePairKey(message: MessageV2, index: Int): String = if (message.id > 0) {
     "message-${message.id}"

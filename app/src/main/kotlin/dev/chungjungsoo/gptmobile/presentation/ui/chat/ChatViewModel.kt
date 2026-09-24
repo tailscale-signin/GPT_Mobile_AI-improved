@@ -407,6 +407,10 @@ class ChatViewModel @Inject constructor(
     }
 
     fun retryChat(turnIndex: Int, platformIndex: Int) {
+        if (_chatRoom.value.isCombined && platformIndex == 0) {
+            retryCombinedSynthesis(turnIndex)
+            return
+        }
         if (turnIndex !in _groupedMessages.value.assistantMessages.indices) return
         if (platformIndex >= enabledPlatformsInChat.size || platformIndex < 0) return
         val platform = _platformsInApp.value.firstOrNull { it.uid == enabledPlatformsInChat[platformIndex] } ?: return
@@ -1262,19 +1266,57 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val candidates = enabledPlatformsInChat.mapNotNull { uid ->
-            val message = assistantRow.firstOrNull { it.platformType == uid } ?: return@mapNotNull null
-            val content = stripAssistantErrorNote(message.effectiveContent()).trim()
-            if (content.isBlank()) return@mapNotNull null
-            CombinedModelResponse(
-                platformUid = uid,
-                platformName = _platformsInApp.value.firstOrNull { it.uid == uid }?.name ?: uid,
-                content = content
-            )
-        }
+        val candidates = combinedModelResponses(
+            assistantRow = assistantRow,
+            runsById = runsById,
+            platforms = _platformsInApp.value,
+            orderedPlatformUids = enabledPlatformsInChat
+        )
         if (candidates.isEmpty()) return
 
-        val leadUid = enabledPlatformsInChat.first()
+        combinedSynthesisStartedForUserIds += userMessage.id
+        launchCombinedSynthesis(
+            turnIndex = turnIndex,
+            userMessage = userMessage,
+            assistantRow = assistantRow,
+            candidates = candidates,
+            clearAutoGuardOnFailure = true
+        )
+    }
+
+    private fun retryCombinedSynthesis(turnIndex: Int) {
+        val room = _chatRoom.value
+        if (!room.isCombined || turnIndex !in _groupedMessages.value.userMessages.indices) return
+        if (agentRunCoordinator.hasActiveRuns(room.id)) return
+
+        val grouped = _groupedMessages.value
+        val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
+        val assistantRow = grouped.assistantMessages.getOrNull(turnIndex).orEmpty()
+        val candidates = combinedModelResponses(
+            assistantRow = assistantRow,
+            runsById = _agentRunsById.value,
+            platforms = _platformsInApp.value,
+            orderedPlatformUids = enabledPlatformsInChat
+        )
+        if (candidates.isEmpty()) return
+
+        launchCombinedSynthesis(
+            turnIndex = turnIndex,
+            userMessage = userMessage,
+            assistantRow = assistantRow,
+            candidates = candidates,
+            clearAutoGuardOnFailure = false
+        )
+    }
+
+    private fun launchCombinedSynthesis(
+        turnIndex: Int,
+        userMessage: MessageV2,
+        assistantRow: List<MessageV2>,
+        candidates: List<CombinedModelResponse>,
+        clearAutoGuardOnFailure: Boolean
+    ) {
+        val leadUid = enabledPlatformsInChat.firstOrNull() ?: return
         val leadIndex = enabledPlatformsInChat.indexOf(leadUid)
         val leadMessage = assistantRow.firstOrNull { it.platformType == leadUid } ?: return
         val leadPlatform = _platformsInApp.value.firstOrNull { it.uid == leadUid } ?: return
@@ -1282,7 +1324,6 @@ class ChatViewModel @Inject constructor(
         val runId = UUID.randomUUID().toString()
         val synthesisPrompt = buildCombinedSynthesisPrompt(userMessage.content, candidates)
 
-        combinedSynthesisStartedForUserIds += userMessage.id
         _loadingStates.update { states ->
             states.toMutableList().apply {
                 if (leadIndex in indices) this[leadIndex] = LoadingState.Loading
@@ -1345,7 +1386,7 @@ class ChatViewModel @Inject constructor(
                     }
                 )
             } finally {
-                if (!started) {
+                if (!started && clearAutoGuardOnFailure) {
                     combinedSynthesisStartedForUserIds -= userMessage.id
                 }
             }
@@ -1466,6 +1507,32 @@ internal data class CombinedModelResponse(
     val platformName: String,
     val content: String
 )
+
+internal fun combinedModelResponses(
+    assistantRow: List<MessageV2>,
+    runsById: Map<String, AgentRun>,
+    platforms: List<PlatformV2>,
+    orderedPlatformUids: List<String>
+): List<CombinedModelResponse> = orderedPlatformUids.mapNotNull { uid ->
+    val message = assistantRow.firstOrNull { it.platformType == uid } ?: return@mapNotNull null
+    val currentRun = message.currentRunId?.let(runsById::get)
+    val content = if (currentRun?.providerSnapshot?.startsWith(COMBINED_SYNTHESIS_PROVIDER_PREFIX) == true) {
+        message.revisions.firstOrNull { revision ->
+            val revisionRun = revision.runId?.let(runsById::get)
+            revision.content.isNotBlank() &&
+                revisionRun?.providerSnapshot?.startsWith(COMBINED_SYNTHESIS_PROVIDER_PREFIX) != true
+        }?.content.orEmpty()
+    } else {
+        message.effectiveContent()
+    }
+    val sanitized = stripAssistantErrorNote(content).trim()
+    if (sanitized.isBlank()) return@mapNotNull null
+    CombinedModelResponse(
+        platformUid = uid,
+        platformName = platforms.firstOrNull { it.uid == uid }?.name ?: uid,
+        content = sanitized
+    )
+}
 
 internal fun buildCombinedSynthesisPrompt(
     originalRequest: String,

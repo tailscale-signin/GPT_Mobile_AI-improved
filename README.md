@@ -79,43 +79,43 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 - **High-Priority Heads-Up Alerts (`CHANNEL_AGENT_COMPLETION`)**: Dispatches `IMPORTANCE_HIGH` heads-up notification banners with sound upon task completion so you can multitask freely.
 - **Engineered for Android 14+**: Uses `AgentRunForegroundService` with `dataSync` compliance and temporary partial CPU `WAKE_LOCK` management to prevent battery-optimization process termination.
 
-### 8. 🔑 Multi-Key Round-Robin Rotation, Auto-Failover & Circuit Breaker
+### 10. 🔑 Multi-Key Round-Robin Rotation, Auto-Failover & Circuit Breaker
 - **Never Hit Rate Limits**: Add multiple API keys per provider in the dynamic `+API` credential manager.
 - **Smart Failover & Circuit Breaker**: The `ApiCredentialRotator` automatically distributes load across your keys and instantly switches to backup keys when receiving rate-limit (HTTP 429), quota-exhausted, or payment-required (HTTP 402) errors.
 - **Circuit Breaker Error Classification**: Structured circuit breaker propagation across `ChatRepository` and `AgentRunner` prevents repetitive doomed retries on degraded endpoints.
 
-### 9. 🎛️ Dedicated AI Platforms Hub & Interactive Model Sorting
+### 11. 🎛️ Dedicated AI Platforms Hub & Interactive Model Sorting
 - **Dedicated AI Platforms Management Screen (`AiPlatformsScreen`)**: Manage, toggle, edit, and organize all your cloud and local AI platforms in a clean, dedicated hub situated directly above Local Models in Settings.
 - **Interactive Platform Sorting**: Quickly filter and sort models on the home screen using interactive chips (`DEFAULT`, `NAME`, `PROVIDER`, `ENABLED_FIRST`).
 - **Reactive State Syncing**: Instant synchronization between platform list cards, settings detail toggles, and chat model pickers.
 
-### 10. 🔀 OpenRouter Advanced Routing & Reasoning Options
+### 12. 🔀 OpenRouter Advanced Routing & Reasoning Options
 - **Provider Routing Controls**: Select preferred providers, fallback orders, ignore specific hosts, and control data privacy / logging preferences directly from platform settings.
 - **Custom Reasoning Tokens**: Fine-tune reasoning effort, max thinking tokens, and temperature parameters for models like Claude 3.7 Sonnet Thinking, DeepSeek R1, and OpenAI o-series.
 
-### 11. 🔒 High-Performance Local AI (LiteRT-LM & Remote/Local Ollama)
+### 13. 🔒 High-Performance Local AI (LiteRT-LM & Remote/Local Ollama)
 - **Private On-Device Chat**: Run local models (`.bin`, `.tflite`) entirely offline on your phone with zero data sent to the cloud, or connect to local or remote Ollama servers.
 - **Warm Engine Retention & Phase Scheduling**: Keeps model weights warm across turns to eliminate reload latency, paired with separate `PREFILL` and `GENERATING` phase management.
 - **Resilient Background Model Downloader**: WorkManager-backed downloads with SHA-256 integrity verification, pause/resume support, and notification progress updates.
 
-### 12. ⭐ Rich Favorites Management & Custom Categorization
+### 14. ⭐ Rich Favorites Management & Custom Categorization
 - **Personal Knowledge Hub**: Bookmark important messages, code snippets, and explanations.
 - **Custom Group Filters**: Organize favorites with custom group filter chips ("All", user-defined categories, "+ Add Group").
 - **Full-Screen Reader**: Rich Markdown, LaTeX math equations, syntax-highlighted code blocks, and one-tap deep linking straight back to the original message in the chat thread.
 
-### 13. 🛡️ Rolling Context Window Compactor (No Overflow Crashes)
+### 15. 🛡️ Rolling Context Window Compactor (No Overflow Crashes)
 - **Infinite Conversations**: `RollingContextWindowCompactor` dynamically compacts older chat turns while strictly preserving your initial prompt anchor (Turn 0) and system instructions.
 - **Zero Token Overflow Crashes**: Automatically stays within the model's exact context limit without dropping system rules.
 
-### 14. 🔐 Keystore Encryption & Encrypted Vault Backups
+### 16. 🔐 Keystore Credential Vault & Backup Compatibility
 - **Device Credential Security**: All API keys and secrets are protected using Android Keystore-backed AES-256-GCM encryption (`SecretVault`) stored in secure `noBackupFilesDir`.
 - **Passphrase Vault Backups**: Export and restore your complete database with PBKDF2-HMAC-SHA256 key derivation and authenticated AES-256-GCM encryption.
 
-### 15. 🗄️ Instant Search & Robust Database (`ChatDatabaseV2`)
+### 17. 🗄️ Instant Search & Robust Database (`ChatDatabaseV2`)
 - **Fast Full-Text Search**: Instant search indexing across all conversation histories and tool executions.
 - **Safe Room Migrations**: Powered by `ChatDatabaseV2` (Schema v19) with verified automated migrations guaranteeing zero data loss across updates.
 
-### 16. 📉 Up to 60% Smaller App Download Size
+### 18. 📉 Up to 60% Smaller App Download Size
 - **Native ABI Splits**: Published as targeted `arm64-v8a` and `x86_64` release APK packages alongside universal APKs, saving storage space and cellular download data.
 
 ---

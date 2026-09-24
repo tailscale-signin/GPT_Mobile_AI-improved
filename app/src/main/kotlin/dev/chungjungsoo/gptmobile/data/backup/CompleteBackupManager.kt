@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.io.DataInputStream
 import java.io.File
+import java.security.SecureRandom
 import java.util.Base64
 import java.util.UUID
 import javax.crypto.AEADBadTagException
@@ -46,8 +47,7 @@ class CompleteBackupManager @Inject constructor(
     private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)))
     fun getBackupStatus() = legacy.getBackupStatus()
 
-    suspend fun backup(uri: Uri, password: String): BackupRestoreResult = operation { work ->
-        require(password.length >= 8) { "Use a backup password with at least 8 characters." }
+    suspend fun backup(uri: Uri): BackupRestoreResult = operation { work ->
         val storage = files()
         val sources = storage.collect()
         val dbFile = File(work, "database.sqlite")
@@ -71,30 +71,63 @@ class CompleteBackupManager @Inject constructor(
         )
         val archive = File(work, "archive.zip")
         CompleteBackupArchive.write(archive, manifest, sources)
-        context.contentResolver.openOutputStream(uri, "wt")?.use { CompleteBackupCrypto.encrypt(archive, it, password) }
-            ?: error("Could not open the backup destination.")
+        val backupKey = getOrCreateBackupKey()
+        try {
+            context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                CompleteBackupCrypto.encryptWithKey(archive, output, backupKey)
+            } ?: error("Could not open the backup destination.")
+        } finally {
+            backupKey.fill(0)
+        }
         legacy.recordBackupMetadata()
         BackupRestoreResult(true, "Complete backup saved.")
     }
 
-    suspend fun restore(uri: Uri, password: String): BackupRestoreResult = operation { work ->
+    suspend fun restore(uri: Uri, legacyPassword: String? = null): BackupRestoreResult = operation { work ->
         ensureIdle(restoring = true)
         val archive = File(work, "archive.zip")
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
-            input.mark(16)
-            val header = ByteArray(9).also { DataInputStream(input).readFully(it) }
+            input.mark(64)
+            val header = ByteArray(9)
+            val headerBytes = input.read(header)
             input.reset()
-            if (header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
+            if (headerBytes >= 9 && header.copyOfRange(0, 7).decodeToString() == "GPTBKUP") {
                 val result = when (header[8].toInt()) {
-                    1 -> legacy.restoreConfiguration(uri, password.takeIf(String::isNotEmpty))
-                    2 -> legacy.restoreDatabase(uri, password.takeIf(String::isNotEmpty))
-                    4 -> legacy.importFavorites(uri, password.takeIf(String::isNotEmpty))
+                    1 -> legacy.restoreConfiguration(uri, legacyPassword?.takeIf(String::isNotEmpty))
+                    2 -> legacy.restoreDatabase(uri, legacyPassword?.takeIf(String::isNotEmpty))
+                    4 -> legacy.importFavorites(uri, legacyPassword?.takeIf(String::isNotEmpty))
                     else -> error("Unsupported legacy backup type.")
                 }
                 settings.invalidatePlatformCache()
                 return@operation result.copy(message = "Legacy backup: ${result.message}")
             }
-            CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE)
+            val isLegacyComplete = headerBytes >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL1"
+            val isPasswordlessComplete = headerBytes >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL2"
+            val isZip = headerBytes >= 4 &&
+                header[0] == 0x50.toByte() &&
+                header[1] == 0x4B.toByte() &&
+                header[2] == 0x03.toByte() &&
+                header[3] == 0x04.toByte()
+            when {
+                isPasswordlessComplete -> {
+                    val backupKey = requireExistingBackupKey()
+                    try {
+                        CompleteBackupCrypto.decryptWithKey(input, archive, backupKey, work.usableSpace - RESERVE)
+                    } finally {
+                        backupKey.fill(0)
+                    }
+                }
+                isLegacyComplete -> {
+                    val password = legacyPassword?.takeIf(String::isNotBlank)
+                        ?: error("This older backup is encrypted. Enter its original password.")
+                    CompleteBackupCrypto.decrypt(input, archive, password, work.usableSpace - RESERVE)
+                }
+                // Transitional development builds briefly wrote a plain ZIP.
+                // Keep it readable so those backups are not stranded; all new
+                // backups are GPTFULL2 encrypted.
+                isZip -> copyArchiveWithLimit(input, archive, work.usableSpace - RESERVE)
+                else -> error("Select a GPT Mobile backup file.")
+            }
         } ?: error("Could not read the backup file.")
         val staging = File(work, "files").apply { mkdirs() }
         val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE)
@@ -152,6 +185,35 @@ class CompleteBackupManager @Inject constructor(
         BackupRestoreResult(true, "Everything restored successfully.")
     }
 
+    suspend fun requiresPassword(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+            val header = ByteArray(9)
+            val count = input.read(header)
+            when {
+                count >= 8 && header.copyOfRange(0, 8).decodeToString() == "GPTFULL1" -> true
+                count >= 9 &&
+                    header.copyOfRange(0, 7).decodeToString() == "GPTBKUP" &&
+                    header[7].toInt() == 2 -> true
+                else -> false
+            }
+        } ?: false
+    }
+
+    private fun copyArchiveWithLimit(input: java.io.InputStream, target: File, maxBytes: Long) {
+        require(maxBytes > 0) { "Insufficient free space to restore the backup." }
+        target.outputStream().buffered().use { output ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var total = 0L
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= maxBytes) { "Backup is too large for the available storage." }
+                output.write(buffer, 0, count)
+            }
+        }
+    }
+
     private fun openSnapshot(file: File): ChatDatabaseV2 = Room.databaseBuilder(context, ChatDatabaseV2::class.java, file.absolutePath)
         .addMigrations(*ChatDatabaseV2Migrations.ALL_MIGRATIONS)
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.TRUNCATE)
@@ -183,7 +245,11 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private suspend fun readSecrets(): Map<String, String> {
-        val refs = secretVault.references() + database.platformDao().getPlatforms().mapNotNull { it.secretRef } + database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
+        val refs = (
+            secretVault.references() +
+                database.platformDao().getPlatforms().mapNotNull { it.secretRef } +
+                database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
+            ).filterNot { it == BACKUP_KEY_REF }
         return buildMap {
             refs.forEach { reference ->
                 secretVault.read(reference)?.let { bytes ->
@@ -218,7 +284,36 @@ class CompleteBackupManager @Inject constructor(
                 bytes.fill(0)
             }
         }
-        (secretVault.references() - values.keys).forEach { secretVault.delete(it) }
+        (secretVault.references() - values.keys - BACKUP_KEY_REF).forEach { secretVault.delete(it) }
+    }
+
+    private suspend fun getOrCreateBackupKey(): ByteArray {
+        secretVault.read(BACKUP_KEY_REF)?.let { existing ->
+            if (existing.size == BACKUP_KEY_BYTES) return existing
+            existing.fill(0)
+            secretVault.delete(BACKUP_KEY_REF)
+        }
+
+        val generated = ByteArray(BACKUP_KEY_BYTES).also(SecureRandom()::nextBytes)
+        try {
+            secretVault.put(BACKUP_KEY_REF, generated)
+            return generated.copyOf()
+        } finally {
+            generated.fill(0)
+        }
+    }
+
+    private suspend fun requireExistingBackupKey(): ByteArray {
+        val key = secretVault.read(BACKUP_KEY_REF)
+            ?: error(
+                "This passwordless encrypted backup is protected by another app installation. " +
+                    "Restore it from the installation that created it, or use an older password-based backup."
+            )
+        if (key.size != BACKUP_KEY_BYTES) {
+            key.fill(0)
+            error("The passwordless backup encryption key is invalid.")
+        }
+        return key
     }
 
     private fun ensureIdle(restoring: Boolean) {
@@ -244,7 +339,10 @@ class CompleteBackupManager @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (_: AEADBadTagException) {
-                BackupRestoreResult(false, "The backup password is incorrect or the file is damaged.")
+                BackupRestoreResult(
+                    false,
+                    "The encrypted backup could not be authenticated. It may be damaged, from another installation, or use a different legacy password."
+                )
             } catch (error: Exception) {
                 BackupRestoreResult(false, error.localizedMessage?.takeIf(String::isNotBlank) ?: "The backup could not be read or written.")
             } finally {
@@ -255,5 +353,7 @@ class CompleteBackupManager @Inject constructor(
 
     private companion object {
         const val RESERVE = 16L * 1024 * 1024
+        const val BACKUP_KEY_BYTES = 32
+        const val BACKUP_KEY_REF = "complete_backup_master_v2"
     }
 }

@@ -147,7 +147,11 @@ internal object CompleteBackupDatabase {
                 add("agent_runs")
                 add("tool_events")
             }
-            // Batch cache is transient and intentionally not portable.
+            if (CompleteBackupSection.SETTINGS in sections) {
+                // The queue cache is optional operational state, but keeping it with app
+                // settings preserves existing complete-backup round trips.
+                add("openrouter_batch_cache")
+            }
         }
     }
 

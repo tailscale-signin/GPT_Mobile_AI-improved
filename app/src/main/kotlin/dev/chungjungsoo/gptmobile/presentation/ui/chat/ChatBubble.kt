@@ -354,6 +354,16 @@ fun OpponentChatBubble(
                     targetValue = 1f,
                     animationSpec = tween(durationMillis = duration, easing = LinearEasing)
                 )
+                while (true) {
+                    highlightProgress.animateTo(
+                        targetValue = 0.68f,
+                        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                    )
+                    highlightProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                    )
+                }
             }
         }
     }
@@ -561,6 +571,7 @@ fun OpponentChatBubble(
                     ) {
                         val allInteractionSource = remember { MutableInteractionSource() }
                         val allPressed by allInteractionSource.collectIsPressedAsState()
+                        val allPulse = suggestionHoldPulseAlpha(allPressed)
                         LaunchedEffect(allInteractionSource, dynamicActions) {
                             allInteractionSource.interactions.collect { interaction ->
                                 when (interaction) {
@@ -585,7 +596,7 @@ fun OpponentChatBubble(
                             },
                             interactionSource = allInteractionSource,
                             colors = AssistChipDefaults.assistChipColors(
-                                containerColor = if (allPressed) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primaryContainer,
+                                containerColor = if (allPressed) Color(0xFFFFD54F).copy(alpha = allPulse) else MaterialTheme.colorScheme.primaryContainer,
                                 labelColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
                                 leadingIconContentColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
                             ),
@@ -608,6 +619,7 @@ fun OpponentChatBubble(
 
                             val chipInteractionSource = remember { MutableInteractionSource() }
                             val chipPressed by chipInteractionSource.collectIsPressedAsState()
+                            val chipPulse = suggestionHoldPulseAlpha(chipPressed)
 
                             LaunchedEffect(chipInteractionSource, action) {
                                 chipInteractionSource.interactions.collect { interaction ->
@@ -643,7 +655,7 @@ fun OpponentChatBubble(
                                 },
                                 interactionSource = chipInteractionSource,
                                 colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = if (chipPressed) Color(0xFFFFD54F) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                    containerColor = if (chipPressed) Color(0xFFFFD54F).copy(alpha = chipPulse) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
                                     labelColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer,
                                     leadingIconContentColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer
                                 ),
@@ -694,6 +706,7 @@ fun OpponentChatBubble(
 
                         val continueInteractionSource = remember { MutableInteractionSource() }
                         val continuePressed by continueInteractionSource.collectIsPressedAsState()
+                        val continueHoldPulse = suggestionHoldPulseAlpha(continuePressed)
 
                         LaunchedEffect(continueInteractionSource) {
                             continueInteractionSource.interactions.collect { interaction ->
@@ -723,7 +736,7 @@ fun OpponentChatBubble(
                                 if (continuePressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)
                             ),
                             colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = if (continuePressed) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f),
+                                containerColor = if (continuePressed) Color(0xFFFFD54F).copy(alpha = continueHoldPulse) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f),
                                 labelColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
                                 iconContentColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -769,6 +782,21 @@ fun OpponentChatBubble(
             }
         }
     }
+}
+
+@Composable
+private fun suggestionHoldPulseAlpha(pressed: Boolean): Float {
+    val transition = rememberInfiniteTransition(label = "suggestionHoldPulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.58f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "suggestionHoldPulseAlpha"
+    )
+    return if (pressed) pulse else 1f
 }
 
 @Composable

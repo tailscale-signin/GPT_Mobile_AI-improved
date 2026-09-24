@@ -51,11 +51,14 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 
 @Composable
 internal fun CompactAgentActivityBar(
-    run: ActiveAgentRun,
+    run: ActiveAgentRun?,
     modifier: Modifier = Modifier,
     overrideText: String? = null
 ) {
     val inferredText = when {
+        run == null ->
+            stringResource(R.string.agent_live_preparing)
+
         run.phase == LocalInferencePhase.PREFILL ->
             stringResource(R.string.agent_live_prefill)
 

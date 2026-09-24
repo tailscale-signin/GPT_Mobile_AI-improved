@@ -62,6 +62,10 @@ internal fun CompactAgentActivityBar(
         run.phase == LocalInferencePhase.GENERATING && run.gatewayStage.isNullOrBlank() ->
             stringResource(R.string.agent_live_generating)
 
+        run.gatewayWorkState == GatewayWorkState.STARTING &&
+            (!run.gatewayStage.isNullOrBlank() || !run.gatewayMessage.isNullOrBlank()) ->
+            friendlyGatewayActivity(run.gatewayStage, run.gatewayMessage, run.gatewayCurrentTool)
+
         run.gatewayWorkState == GatewayWorkState.STARTING ->
             stringResource(R.string.agent_live_preparing)
 

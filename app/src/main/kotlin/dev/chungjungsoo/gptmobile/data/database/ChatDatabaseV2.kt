@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.LocalModelDao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
+import dev.chungjungsoo.gptmobile.data.database.dao.ProviderConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -24,6 +25,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.LocalModel
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.StringListConverter
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -39,9 +41,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         AgentRun::class,
         ToolEvent::class,
         LocalModel::class,
-        OpenRouterBatchCacheEntity::class
+        OpenRouterBatchCacheEntity::class,
+        ProviderConnection::class
     ],
-    version = 24,
+    version = 25,
     exportSchema = false
 )
 @TypeConverters(
@@ -53,6 +56,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
     abstract fun platformDao(): PlatformV2Dao
+    abstract fun providerConnectionDao(): ProviderConnectionDao
     abstract fun chatRoomDao(): ChatRoomV2Dao
     abstract fun messageDao(): MessageV2Dao
     abstract fun chatPlatformModelDao(): ChatPlatformModelV2Dao

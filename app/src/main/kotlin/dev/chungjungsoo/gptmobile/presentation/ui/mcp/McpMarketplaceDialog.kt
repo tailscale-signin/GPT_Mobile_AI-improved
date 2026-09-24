@@ -234,7 +234,9 @@ fun McpMarketplaceScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     val filteredPresets = remember(searchQuery, selectedCategory, selectedPricing) {
-        var list = McpPresetCatalog.presets
+        var list = McpPresetCatalog.presets.filter { preset ->
+            preset.isPreinstalled || preset.transportType == dev.chungjungsoo.gptmobile.data.catalog.McpTransportType.STREAMABLE_HTTP
+        }
 
         if (selectedCategory != null) {
             list = list.filter { it.category == selectedCategory }
@@ -452,7 +454,7 @@ private fun McpMarketplaceTopBar(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Discover & connect autonomous protocol tools to your AI",
+                    text = "Install built-ins and connect verified Streamable HTTP MCP servers",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -619,11 +621,11 @@ fun McpMarketplaceDetailCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = "Installed",
+                            contentDescription = if (preset.isPreinstalled) "Built in" else "Installed",
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Installed")
+                        Text(if (preset.isPreinstalled) "Built in" else "Installed")
                     }
                 } else {
                     Button(
@@ -898,13 +900,13 @@ fun McpPresetConfigureDialog(
                 OutlinedTextField(
                     value = endpoint,
                     onValueChange = { endpoint = it },
-                    label = { Text("MCP SSE Endpoint URL *") },
+                    label = { Text("MCP Streamable HTTP URL *") },
                     isError = endpoint.isNotBlank() && !isEndpointValid,
                     supportingText = {
                         if (endpoint.isNotBlank() && !isEndpointValid) {
                             Text("Must be a valid HTTP(S) URL. Cleartext requires explicit approval.")
                         } else {
-                            Text("Server-Sent Events endpoint exposing MCP protocol")
+                            Text("Remote MCP endpoint using Streamable HTTP. Legacy HTTP+SSE is not used for new connections.")
                         }
                     },
                     singleLine = true,

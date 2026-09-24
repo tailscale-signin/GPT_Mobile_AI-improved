@@ -324,7 +324,7 @@ fun OpponentChatBubble(
         extractTelemetryNotice(noticeMessages)
     }
     val diagnosticsHudText = remember(agentRun, telemetryNotice, debugMode) {
-        buildDiagnosticsHudText(agentRun, telemetryNotice, debugMode)
+        if (debugMode) buildDiagnosticsHudText(agentRun, telemetryNotice, true) else null
     }
     val formattedTime = remember(timestamp) { formatMessageTimestamp(timestamp) }
     val showContinueAction = remember(text, isLoading, isLastMessage) { shouldShowContinuePrompt(text, isLoading, isLastMessage) }
@@ -385,7 +385,8 @@ fun OpponentChatBubble(
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
 
-    val hasVisibleText = text.isNotBlank() || (showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
+    val hasVisibleText = text.isNotBlank() ||
+        (debugMode && showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
     val hasVisibleProcess = hasDetails && areDetailsVisible
     val hasVisibleExtras = (debugMode && (nonTelemetryNotices.isNotEmpty() || agentRun != null)) ||
         attachments.isNotEmpty() || (!isLoading && (canRetry || canEdit || isError))
@@ -405,7 +406,7 @@ fun OpponentChatBubble(
         AnimatedVisibility(
             visible = shouldShowBubble,
             enter = fadeIn(animationSpec = tween(1500)),
-            exit = fadeOut(animationSpec = tween(300))
+            exit = fadeOut(animationSpec = tween(650))
         ) {
             Column(
                 modifier = Modifier

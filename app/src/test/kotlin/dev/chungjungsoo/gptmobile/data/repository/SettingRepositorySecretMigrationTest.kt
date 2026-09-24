@@ -39,6 +39,7 @@ class SettingRepositorySecretMigrationTest {
         val repository = SettingRepositoryImpl(
             settingDataSource = settingDataSource,
             platformV2Dao = platformDao,
+            providerConnectionDao = FakeProviderConnectionDao(),
             chatPlatformModelV2Dao = FakeChatPlatformModelV2Dao(),
             secretVault = secretVault
         )
@@ -75,6 +76,7 @@ class SettingRepositorySecretMigrationTest {
         val repository = SettingRepositoryImpl(
             settingDataSource = settingDataSource,
             platformV2Dao = platformDao,
+            providerConnectionDao = FakeProviderConnectionDao(),
             chatPlatformModelV2Dao = FakeChatPlatformModelV2Dao(),
             secretVault = secretVault
         )
@@ -102,6 +104,7 @@ class SettingRepositorySecretMigrationTest {
         val repository = SettingRepositoryImpl(
             settingDataSource = settingDataSource,
             platformV2Dao = platformDao,
+            providerConnectionDao = FakeProviderConnectionDao(),
             chatPlatformModelV2Dao = FakeChatPlatformModelV2Dao(),
             secretVault = secretVault
         )

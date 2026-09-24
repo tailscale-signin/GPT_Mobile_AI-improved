@@ -100,7 +100,7 @@ fun McpToolsSelectionScreen(
             LargeTopAppBar(
                 title = {
                     Text(
-                        text = stringResource(R.string.mcp_server),
+                        text = stringResource(R.string.mcp_tools),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

@@ -147,7 +147,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
+import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.domain.model.SortType
+import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
@@ -1101,10 +1104,7 @@ fun SelectPlatformDialog(
     }
 
     val allLabels = remember(platforms) {
-        platforms.flatMap { it.labels?.split(",") ?: emptyList() }
-            .map { it.trim().substringBefore("#") }
-            .filter { it.isNotBlank() }
-            .distinct()
+        collectReusableProfileLabels(platforms.map { it.labels })
     }
     var selectedLabelFilter by remember { mutableStateOf<String?>(null) }
 
@@ -1112,8 +1112,8 @@ fun SelectPlatformDialog(
     val indexedPlatforms = remember(platforms, sortOrder, selectedLabelFilter) {
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
             .filter { (_, platform) ->
-                if (selectedLabelFilter == null) true
-                else platform.labels?.split(",")?.map { it.trim().substringBefore("#") }?.contains(selectedLabelFilter) == true
+                selectedLabelFilter == null ||
+                    parseProfileLabels(platform.labels).any { it.key == selectedLabelFilter }
             }
         when (sortOrder) {
             PlatformSortOrder.DEFAULT -> list
@@ -1217,12 +1217,13 @@ fun SelectPlatformDialog(
                             label = { Text("All Labels") }
                         )
                         allLabels.forEach { label ->
-                            FilterChip(
-                                selected = selectedLabelFilter == label,
+                            BeveledProfileLabel(
+                                label = label,
+                                selected = selectedLabelFilter == label.key,
                                 onClick = {
-                                    selectedLabelFilter = if (selectedLabelFilter == label) null else label
-                                },
-                                label = { Text(label) }
+                                    selectedLabelFilter =
+                                        if (selectedLabelFilter == label.key) null else label.key
+                                }
                             )
                         }
                     }

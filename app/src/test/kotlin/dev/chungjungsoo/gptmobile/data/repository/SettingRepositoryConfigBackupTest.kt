@@ -40,6 +40,7 @@ class SettingRepositoryConfigBackupTest {
         val repository = SettingRepositoryImpl(
             settingDataSource = settingDataSource,
             platformV2Dao = platformDao,
+            providerConnectionDao = FakeProviderConnectionDao(),
             chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
             secretVault = secretVault
         )
@@ -78,6 +79,7 @@ class SettingRepositoryConfigBackupTest {
         val repository = SettingRepositoryImpl(
             settingDataSource = settingDataSource,
             platformV2Dao = platformDao,
+            providerConnectionDao = FakeProviderConnectionDao(),
             chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
             secretVault = secretVault
         )

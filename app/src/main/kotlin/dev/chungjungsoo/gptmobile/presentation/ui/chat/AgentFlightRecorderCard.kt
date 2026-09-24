@@ -50,7 +50,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 
-
 @Composable
 internal fun CompactAgentActivityBar(
     run: ActiveAgentRun?,
@@ -105,7 +104,7 @@ internal fun CompactAgentActivityBar(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(
@@ -135,7 +134,7 @@ internal fun CompactAgentActivityBar(
                         text = text,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -421,7 +420,7 @@ private fun AgentToolActivityLine(event: ToolEvent) {
     )
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         ToolServiceCircleIcon(info, sizeDp = 20)
         Spacer(modifier = Modifier.width(8.dp))
@@ -438,7 +437,7 @@ private fun AgentToolActivityLine(event: ToolEvent) {
                     text = info.serviceName,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 1
                 )
             }
         }

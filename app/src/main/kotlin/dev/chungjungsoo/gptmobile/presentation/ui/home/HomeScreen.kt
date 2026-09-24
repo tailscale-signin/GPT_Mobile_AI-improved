@@ -431,6 +431,8 @@ fun HomeScreen(
                         platformState = platformState,
                         onSelectGroup = homeViewModel::selectFavoriteGroup,
                         onAddGroupClick = { showAddGroupDialog = true },
+                        onRenameGroup = homeViewModel::renameFavoriteGroup,
+                        onDeleteGroup = homeViewModel::deleteFavoriteGroup,
                         onFavoriteClick = { message ->
                             selectedDetailMessage = message
                         },
@@ -877,9 +879,15 @@ fun FavoritesList(
     platformState: List<PlatformV2>,
     onSelectGroup: (String) -> Unit,
     onAddGroupClick: () -> Unit,
+    onRenameGroup: (String, String) -> Unit,
+    onDeleteGroup: (String) -> Unit,
     onFavoriteClick: (MessageV2) -> Unit,
     onToggleFavorite: (MessageV2) -> Unit
 ) {
+    var groupMenu by remember { mutableStateOf<String?>(null) }
+    var editingGroup by remember { mutableStateOf<String?>(null) }
+    var editingText by remember { mutableStateOf("") }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -890,11 +898,60 @@ fun FavoritesList(
             verticalAlignment = Alignment.CenterVertically
         ) {
             favoriteGroups.forEach { group ->
-                FilterChip(
-                    selected = selectedGroup == group,
-                    onClick = { onSelectGroup(group) },
-                    label = { Text(group) }
-                )
+                Box {
+                    val selected = selectedGroup == group
+                    Surface(
+                        modifier = Modifier.combinedClickable(
+                            onClick = { onSelectGroup(group) },
+                            onLongClick = {
+                                if (group !in HomeViewModel.DEFAULT_GROUPS) {
+                                    groupMenu = group
+                                }
+                            }
+                        ),
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
+                        )
+                    ) {
+                        Text(
+                            group,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = groupMenu == group,
+                        onDismissRequest = { groupMenu = null }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit label") },
+                            onClick = {
+                                editingGroup = group
+                                editingText = group
+                                groupMenu = null
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete label", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                onDeleteGroup(group)
+                                groupMenu = null
+                            }
+                        )
+                    }
+                }
             }
             IconButton(onClick = onAddGroupClick) {
                 Icon(
@@ -970,6 +1027,33 @@ fun FavoritesList(
                     }
                 }
             }
+        }
+
+        editingGroup?.let { original ->
+            AlertDialog(
+                onDismissRequest = { editingGroup = null },
+                title = { Text("Edit favorite label") },
+                text = {
+                    OutlinedTextField(
+                        value = editingText,
+                        onValueChange = { editingText = it },
+                        label = { Text("Label name") },
+                        singleLine = true
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = editingText.isNotBlank(),
+                        onClick = {
+                            onRenameGroup(original, editingText)
+                            editingGroup = null
+                        }
+                    ) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingGroup = null }) { Text("Cancel") }
+                }
+            )
         }
     }
 }

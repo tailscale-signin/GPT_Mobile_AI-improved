@@ -409,6 +409,8 @@
     <string name="agent_live_recovering">Refining the approach…</string>
     <string name="agent_live_synthesizing">Combining results…</string>
     <string name="agent_live_finalizing">Finishing the response…</string>
+    <string name="agent_live_local_prefill">Preparing local model context…</string>
+    <string name="agent_live_local_generating">Generating locally…</string>
 
     <!-- Home & Favorites -->
     <string name="favorites">Favorites</string>

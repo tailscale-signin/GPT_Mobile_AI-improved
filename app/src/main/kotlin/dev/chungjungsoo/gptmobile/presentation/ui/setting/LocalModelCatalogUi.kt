@@ -12,12 +12,23 @@ import dev.chungjungsoo.gptmobile.data.worker.LocalModelDownloadWorker
 
 data class LocalModelsUiState(
     val items: List<LocalModelListItem> = emptyList(),
+    val totalItemCount: Int = 0,
+    val searchQuery: String = "",
+    val filter: LocalModelFilter = LocalModelFilter.ALL,
     val isLoading: Boolean = true,
     val totalStorageBytes: Long = 0L,
     val checkingAccessEntryId: String? = null,
     val dialog: LocalModelsDialog = LocalModelsDialog.Hidden,
     val hasHuggingFaceToken: Boolean = false
 )
+
+enum class LocalModelFilter(val title: String) {
+    ALL("All"),
+    READY("Downloaded"),
+    AVAILABLE("Available"),
+    DOWNLOADING("Downloading"),
+    FAILED("Needs attention")
+}
 
 data class LocalModelDownloadUiState(
     val checkingAccessEntryId: String? = null,

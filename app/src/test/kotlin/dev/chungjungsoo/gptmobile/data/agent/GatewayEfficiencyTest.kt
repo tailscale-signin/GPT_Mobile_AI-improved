@@ -50,6 +50,24 @@ class GatewayEfficiencyTest {
     }
 
     @Test
+    fun `active run merges workflow profile and tool surface telemetry`() {
+        val run = ActiveAgentRun(runId = "run", chatId = 1, profileUid = "profile")
+            .withGatewayProgress(
+                GatewayProgress(
+                    workflowProfile = "repo_change_pr",
+                    fullToolCount = 107,
+                    selectedToolCount = 12,
+                    recoveryAttempt = 1
+                )
+            )
+
+        assertEquals("repo_change_pr", run.gatewayWorkflowProfile)
+        assertEquals(107, run.gatewayFullToolCount)
+        assertEquals(12, run.gatewaySelectedToolCount)
+        assertEquals(1, run.gatewayRecoveryAttempt)
+    }
+
+    @Test
     fun `activity history deduplicates consecutive repeats and keeps newest samples`() {
         var history = emptyList<GatewayActivitySample>()
         repeat(8) { index ->

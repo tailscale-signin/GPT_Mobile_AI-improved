@@ -63,7 +63,15 @@ data class ActiveAgentRun(
     val gatewayMessage: String? = null,
     val gatewayCheckpoint: Int? = null,
     val gatewayRound: Int? = null,
-    val gatewayToolCalls: Int? = null
+    val gatewayToolCalls: Int? = null,
+    val gatewayUsefulToolCalls: Int? = null,
+    val gatewayRepositoryToolCalls: Int? = null,
+    val gatewayNoProgress: Int? = null,
+    val gatewayCurrentTool: String? = null,
+    val gatewayRoute: String? = null,
+    val gatewayResultQuality: String? = null,
+    val gatewayWorkState: GatewayWorkState = GatewayWorkState.STARTING,
+    val gatewayActivity: List<GatewayActivitySample> = emptyList()
 )
 
 data class AgentRunNotice(
@@ -274,15 +282,7 @@ class AgentRunCoordinator @Inject constructor(
     private fun updateGatewayProgress(runId: String, progress: GatewayProgress) {
         _activeRuns.update { runs ->
             val current = runs[runId] ?: return@update runs
-            runs + (
-                runId to current.copy(
-                    gatewayStage = progress.stage?.takeIf { it.isNotBlank() } ?: current.gatewayStage,
-                    gatewayMessage = progress.message?.takeIf { it.isNotBlank() } ?: current.gatewayMessage,
-                    gatewayCheckpoint = progress.checkpoint ?: current.gatewayCheckpoint,
-                    gatewayRound = progress.round ?: current.gatewayRound,
-                    gatewayToolCalls = progress.totalToolCalls ?: current.gatewayToolCalls
-                )
-            )
+            runs + (runId to current.withGatewayProgress(progress))
         }
     }
 

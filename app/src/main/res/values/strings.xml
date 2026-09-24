@@ -402,6 +402,13 @@
     <string name="agent_recent_activity">Recent activity</string>
     <string name="agent_activity_update">Gateway update</string>
     <string name="agent_live_preparing">Preparing model, memory, and tools…</string>
+    <string name="agent_live_prefill">Preparing model context…</string>
+    <string name="agent_live_generating">Writing the response…</string>
+    <string name="agent_live_memory">Reviewing conversation memory…</string>
+    <string name="agent_live_repository">Working with the repository…</string>
+    <string name="agent_live_searching">Searching local capabilities…</string>
+    <string name="agent_live_files">Reading project files…</string>
+    <string name="agent_live_planning">Planning the next step…</string>
     <string name="agent_live_exploring">Checking context and local capabilities…</string>
     <string name="agent_live_focused">Working through the request…</string>
     <string name="agent_live_using_tool">Using %1$s…</string>
@@ -604,7 +611,7 @@
     <string name="debug_mode_tool_analytics">🛠️ TOOL ANALYTICS</string>
     <string name="debug_mode_export">📥 Export Diagnostics</string>
     <string name="complete_backup_description">One complete file contains your settings, chats, favourites, AI platforms, tool connections, credentials, attachments, downloaded models, and agent history.</string>
-    <string name="complete_backup_passwordless_description">Save or restore the complete app state in one file. New backups do not require a password.</string>
+    <string name="complete_backup_passwordless_description">Backups stay encrypted automatically with this installation’s secure key. No password is required.</string>
     <string name="complete_backup_show_contents">Backup contents</string>
     <string name="complete_backup_hide_contents">Hide backup contents</string>
     <string name="complete_backup_legacy_password_note">Older encrypted backups are still supported. A password is requested only when one of those files is selected.</string>

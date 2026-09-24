@@ -51,7 +51,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
-import dev.chungjungsoo.gptmobile.presentation.common.getBeveledLabelColors
+import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
+import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

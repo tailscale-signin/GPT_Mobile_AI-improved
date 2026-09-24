@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpOAuthConnectionUid
@@ -31,7 +32,8 @@ class ToolConnectionsViewModel @Inject constructor(
     toolConnectionDao: ToolConnectionDao,
     secretVault: SecretVault,
     private val oauthCoordinator: McpOAuthCoordinator,
-    private val mcpClientManager: McpClientManager
+    private val mcpClientManager: McpClientManager,
+    private val agentToolResolver: AgentToolResolver? = null
 ) : ViewModel() {
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
 
@@ -49,7 +51,16 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { toolConnectionRepository.listConnections() }
                 .onSuccess { connections ->
-                    _uiState.update { it.copy(connections = connections, errorMessage = null) }
+                    _uiState.update { state ->
+                        state.copy(
+                            connections = connections,
+                            connectionHealth = state.connectionHealth.filterKeys { uid ->
+                                connections.any { it.connectionUid == uid }
+                            },
+                            errorMessage = null
+                        )
+                    }
+                    probeConnections(connections)
                 }
                 .onFailure(::showError)
         }
@@ -144,6 +155,65 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun clearError() = _uiState.update { it.copy(errorMessage = null) }
 
+    fun probeConnections(connections: List<ToolConnection> = _uiState.value.connections) {
+        val resolver = agentToolResolver ?: return
+        connections
+            .filter { it.type == ToolConnectionType.MCP }
+            .forEach { connection ->
+                if (_uiState.value.connectionHealth[connection.connectionUid]?.status == ToolConnectionHealthStatus.CHECKING) {
+                    return@forEach
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        connectionHealth = state.connectionHealth + (
+                            connection.connectionUid to ToolConnectionHealth(
+                                status = ToolConnectionHealthStatus.CHECKING,
+                                message = "Checking Streamable HTTP server…"
+                            )
+                        )
+                    )
+                }
+                viewModelScope.launch {
+                    val checkedAt = System.currentTimeMillis()
+                    val health = runCatching { resolver.discoverMcpTools(connection) }
+                        .fold(
+                            onSuccess = { tools ->
+                                if (tools.isEmpty()) {
+                                    ToolConnectionHealth(
+                                        status = ToolConnectionHealthStatus.LIMITED,
+                                        toolCount = 0,
+                                        message = "Connected, but the server reported no tools.",
+                                        checkedAt = checkedAt
+                                    )
+                                } else {
+                                    ToolConnectionHealth(
+                                        status = ToolConnectionHealthStatus.ONLINE,
+                                        toolCount = tools.size,
+                                        message = "${tools.size} remote tool${if (tools.size == 1) "" else "s"} available",
+                                        checkedAt = checkedAt
+                                    )
+                                }
+                            },
+                            onFailure = { error ->
+                                val text = error.message.orEmpty()
+                                val limited = text.contains("401") ||
+                                    text.contains("403") ||
+                                    text.contains("auth", ignoreCase = true) ||
+                                    text.contains("permission", ignoreCase = true)
+                                ToolConnectionHealth(
+                                    status = if (limited) ToolConnectionHealthStatus.LIMITED else ToolConnectionHealthStatus.OFFLINE,
+                                    message = text.ifBlank { "Unable to reach the MCP server." },
+                                    checkedAt = checkedAt
+                                )
+                            }
+                        )
+                    _uiState.update { state ->
+                        state.copy(connectionHealth = state.connectionHealth + (connection.connectionUid to health))
+                    }
+                }
+            }
+    }
+
     fun startOAuth(connectionUid: String) {
         if (oauthStartJob?.isActive == true) return
         oauthStartJob = viewModelScope.launch {
@@ -184,6 +254,7 @@ class ToolConnectionsViewModel @Inject constructor(
 
     data class ToolConnectionsUiState(
         val connections: List<ToolConnection> = emptyList(),
+        val connectionHealth: Map<String, ToolConnectionHealth> = emptyMap(),
         val isOAuthBusy: Boolean = false,
         val errorMessage: String? = null
     )
@@ -220,6 +291,20 @@ class ToolConnectionsViewModel @Inject constructor(
         }.getOrDefault(false)
     }
 }
+
+enum class ToolConnectionHealthStatus {
+    CHECKING,
+    ONLINE,
+    LIMITED,
+    OFFLINE
+}
+
+data class ToolConnectionHealth(
+    val status: ToolConnectionHealthStatus,
+    val toolCount: Int? = null,
+    val message: String,
+    val checkedAt: Long? = null
+)
 
 data class ToolConnectionProvider(
     val label: String,

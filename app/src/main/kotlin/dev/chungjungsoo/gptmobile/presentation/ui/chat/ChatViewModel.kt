@@ -1405,11 +1405,13 @@ class ChatViewModel @Inject constructor(
         val activeRunIds = agentRunCoordinator.activeRuns.value.keys
         val anyActive = latestAssistantMessages.any { msg ->
             val runId = msg.currentRunId
-            runId != null && (
+            if (runId == null) {
+                false
+            } else {
                 runId in activeRunIds ||
                     runsById[runId]?.status == AgentRunStatus.RUNNING ||
                     runsById[runId]?.status == AgentRunStatus.QUEUED
-                )
+            }
         }
         if (anyActive) return
 

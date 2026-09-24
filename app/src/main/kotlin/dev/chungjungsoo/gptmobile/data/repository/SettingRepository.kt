@@ -19,6 +19,7 @@ interface SettingRepository {
     suspend fun fetchThemes(): ThemeSetting
     suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
+    fun observeLocalRuntimeBackend(): Flow<LocalRuntimeBackend> = flowOf(LocalRuntimeBackend.DEFAULT)
     suspend fun getDebugMode(): Boolean
     suspend fun updateDebugMode(enabled: Boolean)
     fun observeDebugMode(): Flow<Boolean>

@@ -54,18 +54,34 @@ class LocalRuntimeRouter(
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (qnnError: Exception) {
+                    val autoFallback = runCatching {
+                        settingRepository.getFeatureSettings().qnnAutomaticFallback
+                    }.getOrDefault(true)
+                    if (!autoFallback) {
+                        Log.e(TAG, "QUALCOMM_QNN failed and automatic fallback is disabled", qnnError)
+                        throw qnnError
+                    }
+
                     Log.w(
                         TAG,
                         "Failed to load engine using QUALCOMM_QNN backend, falling back to LITERT_LM",
                         qnnError
                     )
-                    // Verify QNN library status for diagnostics before falling back
+                    // Verify QNN library status for diagnostics before falling back.
                     val qnnContext = (qnnRuntime as? LocalRuntimeQnnImpl)?.context
                     if (qnnContext != null && QnnEnvironment.verifyQnnLibraries(qnnContext)) {
                         Log.w(TAG, "QNN environment is available but engine failed to load, falling back to LiteRT")
                     }
                     liteRtRuntime.loadEngine(spec)
                     activeLoadedRuntime = liteRtRuntime
+
+                    // Persist the actual active runtime so Settings never claims QNN after
+                    // a successful automatic fallback.
+                    runCatching {
+                        settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.LITERT_LM)
+                    }.onFailure { persistenceError ->
+                        Log.w(TAG, "LiteRT fallback succeeded but runtime preference could not be persisted", persistenceError)
+                    }
                 }
             }
             LocalRuntimeBackend.LITERT_LM -> {

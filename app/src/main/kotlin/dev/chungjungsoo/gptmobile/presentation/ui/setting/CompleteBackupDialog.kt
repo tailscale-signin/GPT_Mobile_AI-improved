@@ -42,7 +42,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
-import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupOptions
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
 import java.text.DateFormat
 import java.util.Date
 
@@ -52,9 +52,9 @@ fun CompleteBackupDialog(
     backupStatus: BackupStatus,
     onBackup: () -> Unit,
     onRestore: () -> Unit,
-    onOptionsChange: (CompleteBackupOptions) -> Unit,
-    onPasswordProtectionChange: (Boolean) -> Unit,
-    onPasswordChange: (String) -> Unit,
+    onSectionChange: (CompleteBackupSection, Boolean) -> Unit = { _, _ -> },
+    onPasswordProtectionChange: (Boolean) -> Unit = {},
+    onPasswordChange: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val listState = rememberLazyListState()
@@ -164,32 +164,60 @@ fun CompleteBackupDialog(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 BackupOptionRow(
-                                    checked = state.options.database,
-                                    title = "Conversations & app data",
-                                    subtitle = "Chats, favorites, profiles, tool bindings and agent history",
-                                    enabled = !state.isBusy,
-                                    onCheckedChange = { onOptionsChange(state.options.copy(database = it)) }
-                                )
-                                BackupOptionRow(
-                                    checked = state.options.settings,
+                                    checked = CompleteBackupSection.SETTINGS in state.selection.sections,
                                     title = "Settings & preferences",
                                     subtitle = "Theme, Advanced Settings and app preferences",
                                     enabled = !state.isBusy,
-                                    onCheckedChange = { onOptionsChange(state.options.copy(settings = it)) }
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.SETTINGS, it) }
                                 )
                                 BackupOptionRow(
-                                    checked = state.options.credentials,
+                                    checked = CompleteBackupSection.CONVERSATIONS in state.selection.sections,
+                                    title = "Conversations & favorites",
+                                    subtitle = "Conversation titles, messages, favorites, drafts and per-chat model choices",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.CONVERSATIONS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.PLATFORMS in state.selection.sections,
+                                    title = "AI platforms & profiles",
+                                    subtitle = "Provider connections and AI profile configuration",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.PLATFORMS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.TOOLS in state.selection.sections,
+                                    title = "Tool connections",
+                                    subtitle = "MCP connections, installed tools and profile tool bindings",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.TOOLS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.CREDENTIALS in state.selection.sections,
                                     title = "Credentials",
-                                    subtitle = "Saved provider and tool credentials",
+                                    subtitle = "Saved provider and tool secrets",
                                     enabled = !state.isBusy,
-                                    onCheckedChange = { onOptionsChange(state.options.copy(credentials = it)) }
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.CREDENTIALS, it) }
                                 )
                                 BackupOptionRow(
-                                    checked = state.options.appFiles,
-                                    title = "App files",
-                                    subtitle = "Attachments and downloaded local model files",
+                                    checked = CompleteBackupSection.LOCAL_MODELS in state.selection.sections,
+                                    title = "Local AI models",
+                                    subtitle = "Downloaded model records and model files",
                                     enabled = !state.isBusy,
-                                    onCheckedChange = { onOptionsChange(state.options.copy(appFiles = it)) }
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.LOCAL_MODELS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.ATTACHMENTS in state.selection.sections,
+                                    title = "Conversation attachments",
+                                    subtitle = "Images and files attached to chats; conversations are included automatically",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.ATTACHMENTS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.AGENT_HISTORY in state.selection.sections,
+                                    title = "Agent & tool history",
+                                    subtitle = "Agent runs, tool calls, results and diagnostics history; conversations are included automatically",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.AGENT_HISTORY, it) }
                                 )
                             }
                         }

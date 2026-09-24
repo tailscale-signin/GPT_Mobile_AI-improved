@@ -342,7 +342,12 @@ fun ChatScreen(
                             onPlatformClick = chatViewModel::updateChatPlatformIndex,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
-                            onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
+                            onFavoriteClick = {
+                                chatViewModel.toggleMessageFavorite(
+                                    index,
+                                    if (chatRoom.isCombined) 0 else indexStates.getOrElse(index) { 0 }
+                                )
+                            },
                             onFavoriteLongPress = {
                                 Toast.makeText(context, R.string.favorite, Toast.LENGTH_SHORT).show()
                             },
@@ -678,7 +683,7 @@ private fun ChatMessagePair(
                     runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
                     toolEvents = toolEvents,
                     contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
-                    revisionIndexLabel = selectedAssistantMessage?.let { assistantMessage ->
+                    revisionIndexLabel = if (combinedMode) null else selectedAssistantMessage?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1
                         if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
                             stringResource(
@@ -694,8 +699,8 @@ private fun ChatMessagePair(
                             )
                         }
                     },
-                    canShowPreviousRevision = canShowPreviousRevision,
-                    canShowNextRevision = canShowNextRevision,
+                    canShowPreviousRevision = !combinedMode && canShowPreviousRevision,
+                    canShowNextRevision = !combinedMode && canShowNextRevision,
                     onCopyClick = { onCopyText(assistantContent) },
                     onSelectClick = { onSelectText(assistantContent) },
                     onRetryClick = { onRetry(messageIndex, displayedPlatformIndex) },
@@ -744,15 +749,15 @@ private fun CombinedResponsesPanel(
     val readyCount = responses.count { it.third.isNotBlank() }
 
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { expanded = !expanded },
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(

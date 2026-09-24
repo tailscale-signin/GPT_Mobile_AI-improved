@@ -21,9 +21,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
-import okhttp3.ConnectionPool
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
+import okhttp3.ConnectionPool
 
 @Singleton
 class NetworkClient @Inject constructor(

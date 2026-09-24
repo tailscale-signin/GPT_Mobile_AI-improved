@@ -70,6 +70,9 @@ class AgentToolResolver @Inject constructor(
 
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
+        val featureSettings = settingRepository.getFeatureSettings()
+        val allowRemoteMcp = !disableRemote && featureSettings.remoteMcpConnections
+        val allowDeviceLocation = !disableLocal && featureSettings.deviceLocationTool
 
         // Baseline zero-config tools available out of the box to all models
         val defaultWebSearch = WebSearchTool(
@@ -103,6 +106,9 @@ class AgentToolResolver @Inject constructor(
                 val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
                 val isLocalBinding = !isRemoteBinding
                 if ((isRemoteBinding && !disableRemote) || (isLocalBinding && !disableLocal)) {
+                    if (binding.binding.toolName == BuiltInAgentTool.DEVICE_LOCATION && !allowDeviceLocation) {
+                        return@forEach
+                    }
                     resolveBinding(binding)?.let { customResolvedTool ->
                         resolved.removeAll { it.modelToolName == customResolvedTool.modelToolName }
                         resolved += customResolvedTool
@@ -110,7 +116,7 @@ class AgentToolResolver @Inject constructor(
                 }
             }
 
-        if (!disableRemote) {
+        if (allowRemoteMcp) {
             bindings.filter { it.connection?.type == ToolConnectionType.MCP }
                 .groupBy { requireNotNull(it.connection).connectionUid }
                 .toSortedMap()

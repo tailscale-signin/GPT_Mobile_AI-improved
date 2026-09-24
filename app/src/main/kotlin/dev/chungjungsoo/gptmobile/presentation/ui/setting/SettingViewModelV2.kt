@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.backup.BackupRestoreResult
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupOptions
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
@@ -239,6 +240,31 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    fun updateBackupPasswordProtection(enabled: Boolean) {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update {
+                it.copy(
+                    passwordProtectionEnabled = enabled,
+                    backupPassword = if (enabled) it.backupPassword else "",
+                    message = null,
+                    isError = false
+                )
+            }
+        }
+    }
+
+    fun updateBackupPassword(value: String) {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update { it.copy(backupPassword = value, message = null, isError = false) }
+        }
+    }
+
+    fun updateBackupOptions(options: CompleteBackupOptions) {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update { it.copy(options = options, message = null, isError = false) }
+        }
+    }
+
     fun prepareBackupPicker(restoring: Boolean): Boolean {
         val state = _backupUi.value
         if (state.isBusy || state.isWorking) return false
@@ -270,7 +296,22 @@ class SettingViewModelV2 @Inject constructor(
             cancelBackupPicker()
             return
         }
-        runBackupOperation { completeBackupManager.backup(uri) }
+        val state = _backupUi.value
+        if (!state.options.hasAnySelection) {
+            _backupUi.update { it.copy(isBusy = false, message = "Select at least one backup section.", isError = true) }
+            return
+        }
+        if (state.passwordProtectionEnabled && state.backupPassword.length < 8) {
+            _backupUi.update { it.copy(isBusy = false, message = "Use a backup password with at least 8 characters.", isError = true) }
+            return
+        }
+        runBackupOperation {
+            completeBackupManager.backup(
+                uri = uri,
+                options = state.options,
+                password = state.backupPassword.takeIf { state.passwordProtectionEnabled }
+            )
+        }
     }
 
     fun restoreSourceSelected(uri: Uri?) {
@@ -314,7 +355,11 @@ class SettingViewModelV2 @Inject constructor(
         }
         _backupUi.update { it.copy(restoreUri = null, isBusy = true) }
         runBackupOperation {
-            completeBackupManager.restore(uri, state.legacyPassword.takeIf(String::isNotBlank))
+            completeBackupManager.restore(
+                uri = uri,
+                legacyPassword = state.legacyPassword.takeIf(String::isNotBlank),
+                options = state.options
+            )
         }
     }
 
@@ -346,6 +391,9 @@ class SettingViewModelV2 @Inject constructor(
     }
 
     data class BackupUiState(
+        val options: CompleteBackupOptions = CompleteBackupOptions(),
+        val passwordProtectionEnabled: Boolean = false,
+        val backupPassword: String = "",
         val legacyPassword: String = "",
         val requiresLegacyPassword: Boolean = false,
         val isBusy: Boolean = false,
@@ -354,7 +402,11 @@ class SettingViewModelV2 @Inject constructor(
         val message: String? = null,
         val isError: Boolean = false
     ) {
-        val canBackup: Boolean get() = !isBusy && !isWorking
+        val canBackup: Boolean
+            get() = !isBusy &&
+                !isWorking &&
+                options.hasAnySelection &&
+                (!passwordProtectionEnabled || backupPassword.length >= 8)
     }
 
     sealed interface UiEvent {

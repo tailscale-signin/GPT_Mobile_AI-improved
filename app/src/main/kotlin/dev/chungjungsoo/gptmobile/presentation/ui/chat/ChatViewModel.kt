@@ -38,6 +38,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.selectRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
@@ -129,6 +130,9 @@ class ChatViewModel @Inject constructor(
         )
     )
     val chatRoom = _chatRoom.asStateFlow()
+
+    val featureSettings = settingRepository.observeFeatureSettings()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppFeatureSettings())
 
     private val _isChatTitleDialogOpen = MutableStateFlow(false)
     val isChatTitleDialogOpen = _isChatTitleDialogOpen.asStateFlow()

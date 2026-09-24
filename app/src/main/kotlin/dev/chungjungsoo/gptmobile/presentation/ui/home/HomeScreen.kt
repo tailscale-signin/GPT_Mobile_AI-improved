@@ -777,7 +777,11 @@ private fun ChatListItem(
                 }
             } else {
                 Text(
-                    text = stringResource(R.string.using_certain_platform, usingPlatform),
+                    text = if (chatRoom.isCombined) {
+                        stringResource(R.string.using_combined_platforms, usingPlatform)
+                    } else {
+                        stringResource(R.string.using_certain_platform, usingPlatform)
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 )

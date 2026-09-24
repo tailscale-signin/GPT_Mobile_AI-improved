@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
@@ -33,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -54,6 +55,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
+import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceUrls
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelRequirements
@@ -114,8 +116,13 @@ fun LocalModelsScreen(
                     ModelCatalogSearch(
                         query = uiState.searchQuery,
                         selectedFilter = uiState.filter,
+                        selectedSource = uiState.source,
+                        isSearchingHuggingFace = uiState.isSearchingHuggingFace,
+                        huggingFaceSearchError = uiState.huggingFaceSearchError,
                         onQueryChange = viewModel::updateSearchQuery,
-                        onFilterChange = viewModel::updateFilter
+                        onFilterChange = viewModel::updateFilter,
+                        onSourceChange = viewModel::updateModelSource,
+                        onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
                     )
                     HuggingFaceAccountSection(
                         hasToken = uiState.hasHuggingFaceToken,
@@ -147,6 +154,7 @@ fun LocalModelsScreen(
                         uiState.items.forEach { item ->
                             LocalModelItem(
                                 item = item,
+                                source = uiState.source,
                                 isCheckingAccess = uiState.checkingAccessEntryId == item.entry.id,
                                 onDownload = { requestDownload(item.entry) },
                                 onCancel = { viewModel.cancelDownload(item.entry) },
@@ -254,15 +262,59 @@ private fun LocalModelStat(value: String, label: String, modifier: Modifier = Mo
 private fun ModelCatalogSearch(
     query: String,
     selectedFilter: LocalModelFilter,
+    selectedSource: LocalModelSource,
+    isSearchingHuggingFace: Boolean,
+    huggingFaceSearchError: String?,
     onQueryChange: (String) -> Unit,
-    onFilterChange: (LocalModelFilter) -> Unit
+    onFilterChange: (LocalModelFilter) -> Unit,
+    onSourceChange: (LocalModelSource) -> Unit,
+    onRefreshHuggingFace: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LocalModelSource.entries.forEach { source ->
+                FilterChip(
+                    selected = selectedSource == source,
+                    onClick = { onSourceChange(source) },
+                    label = {
+                        Text(
+                            if (source == LocalModelSource.HUGGING_FACE) "Hugging Face Hub"
+                            else "Curated catalog"
+                        )
+                    }
+                )
+            }
+            if (selectedSource == LocalModelSource.HUGGING_FACE) {
+                IconButton(onClick = onRefreshHuggingFace, enabled = !isSearchingHuggingFace) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Hugging Face search")
+                }
+            }
+        }
+
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
-            label = { Text("Search compatible models") },
-            placeholder = { Text("Model, Hugging Face ID, accelerator…") },
+            label = {
+                Text(
+                    if (selectedSource == LocalModelSource.HUGGING_FACE) {
+                        "Search Hugging Face LiteRT-LM"
+                    } else {
+                        "Search compatible models"
+                    }
+                )
+            },
+            placeholder = {
+                Text(
+                    if (selectedSource == LocalModelSource.HUGGING_FACE) {
+                        "Gemma, Qwen, Llama, litert-community…"
+                    } else {
+                        "Model, Hugging Face ID, accelerator…"
+                    }
+                )
+            },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
@@ -282,8 +334,33 @@ private fun ModelCatalogSearch(
                 )
             }
         }
+        if (isSearchingHuggingFace) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            )
+        }
+
+        huggingFaceSearchError?.takeIf { selectedSource == LocalModelSource.HUGGING_FACE }?.let { error ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onRefreshHuggingFace) { Text("Retry") }
+            }
+        }
+
         Text(
-            "Catalog downloads are limited to app-compatible model entries. Use Import model for other validated local files.",
+            if (selectedSource == LocalModelSource.HUGGING_FACE) {
+                "Live Hub results are filtered to repositories exposing .litertlm packages that this LiteRT-LM runtime can load."
+            } else {
+                "Curated downloads include app-tested models and device-specific variants. Use Import model for other validated local files."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)
@@ -374,6 +451,7 @@ private fun CustomModelImportSection(
 @Composable
 private fun LocalModelItem(
     item: LocalModelListItem,
+    source: LocalModelSource,
     isCheckingAccess: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
@@ -405,8 +483,14 @@ private fun LocalModelItem(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    val hubModelId = HuggingFaceUrls.modelId(item.entry.downloadUrl)
                     Text(
-                        text = item.entry.id,
+                        text = when {
+                            source == LocalModelSource.HUGGING_FACE && hubModelId != null ->
+                                "$hubModelId • ${item.entry.downloadUrl.substringBefore('?').substringAfterLast('/')}"
+                            hubModelId != null -> hubModelId
+                            else -> item.entry.id
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

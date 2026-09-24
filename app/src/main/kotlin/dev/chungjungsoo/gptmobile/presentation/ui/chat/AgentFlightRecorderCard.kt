@@ -1,6 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,6 +40,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.GatewayActivitySample
 import dev.chungjungsoo.gptmobile.data.agent.GatewayWorkState
 import dev.chungjungsoo.gptmobile.data.agent.gatewayEfficiencyPercent
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 
 
 @Composable
@@ -42,18 +48,20 @@ internal fun CompactAgentActivityBar(
     run: ActiveAgentRun,
     modifier: Modifier = Modifier
 ) {
-    val liveText = when (run.gatewayWorkState) {
-        GatewayWorkState.STARTING -> stringResource(R.string.agent_live_preparing)
-        GatewayWorkState.EXPLORING -> run.gatewayMessage?.takeIf(String::isNotBlank)
-            ?: stringResource(R.string.agent_live_exploring)
-        GatewayWorkState.FOCUSED -> run.gatewayMessage?.takeIf(String::isNotBlank)
-            ?: stringResource(R.string.agent_live_focused)
-        GatewayWorkState.ACTING -> run.gatewayCurrentTool?.takeIf(String::isNotBlank)?.let {
-            stringResource(R.string.agent_live_using_tool, it)
-        } ?: stringResource(R.string.agent_live_acting)
-        GatewayWorkState.RECOVERING -> stringResource(R.string.agent_live_recovering)
-        GatewayWorkState.SYNTHESIZING -> stringResource(R.string.agent_live_synthesizing)
-        GatewayWorkState.FINALIZING -> stringResource(R.string.agent_live_finalizing)
+    val liveText = run.gatewayMessage?.takeIf(String::isNotBlank) ?: when (run.phase) {
+        LocalInferencePhase.PREFILL -> stringResource(R.string.agent_live_local_prefill)
+        LocalInferencePhase.GENERATING -> stringResource(R.string.agent_live_local_generating)
+        null -> when (run.gatewayWorkState) {
+            GatewayWorkState.STARTING -> stringResource(R.string.agent_live_preparing)
+            GatewayWorkState.EXPLORING -> stringResource(R.string.agent_live_exploring)
+            GatewayWorkState.FOCUSED -> stringResource(R.string.agent_live_focused)
+            GatewayWorkState.ACTING -> run.gatewayCurrentTool?.takeIf(String::isNotBlank)?.let {
+                stringResource(R.string.agent_live_using_tool, it)
+            } ?: stringResource(R.string.agent_live_acting)
+            GatewayWorkState.RECOVERING -> stringResource(R.string.agent_live_recovering)
+            GatewayWorkState.SYNTHESIZING -> stringResource(R.string.agent_live_synthesizing)
+            GatewayWorkState.FINALIZING -> stringResource(R.string.agent_live_finalizing)
+        }
     }
 
     Surface(
@@ -62,13 +70,21 @@ internal fun CompactAgentActivityBar(
         color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
-            Text(
-                text = liveText,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            AnimatedContent(
+                targetState = liveText,
+                transitionSpec = {
+                    fadeIn(tween(220)) togetherWith fadeOut(tween(160))
+                },
+                label = "compactAgentActivity"
+            ) { status ->
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             LinearProgressIndicator(
                 modifier = Modifier
                     .fillMaxWidth()

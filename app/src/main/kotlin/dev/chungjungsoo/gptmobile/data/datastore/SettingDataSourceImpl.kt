@@ -204,6 +204,10 @@ class SettingDataSourceImpl @Inject constructor(
         return LocalRuntimeBackend.fromString(backendStr)
     }
 
+    override fun observeLocalRuntimeBackend(): Flow<LocalRuntimeBackend> = dataStore.data.map { pref ->
+        LocalRuntimeBackend.fromString(pref[localRuntimeBackendKey])
+    }
+
     override suspend fun getStatus(apiType: ApiType): Boolean? = dataStore.data.map { pref ->
         pref[apiStatusMap[apiType]!!]
     }.first()

@@ -151,6 +151,7 @@ fun ChatScreen(
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
+    val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val hasTargetMessage = chatViewModel.targetMessageId > 0
     var revealedArchivedTurns by rememberSaveable(chatRoom.id) { mutableIntStateOf(0) }
     val shouldCollapseHistory = featureSettings.archiveOlderAssistantReplies &&
@@ -191,7 +192,6 @@ fun ChatScreen(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
-    val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
     val canUseChat = (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }

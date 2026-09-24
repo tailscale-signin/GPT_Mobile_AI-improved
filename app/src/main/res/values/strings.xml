@@ -400,6 +400,7 @@
     <string name="agent_route_local">local route</string>
     <string name="agent_recovering_message">The gateway is changing strategy after repeated low-novelty work.</string>
     <string name="agent_recent_activity">Recent activity</string>
+    <string name="agent_recent_tools">Recent tools</string>
     <string name="agent_activity_update">Gateway update</string>
     <string name="agent_live_preparing">Preparing model, memory, and tools…</string>
     <string name="agent_live_prefill">Preparing model context…</string>

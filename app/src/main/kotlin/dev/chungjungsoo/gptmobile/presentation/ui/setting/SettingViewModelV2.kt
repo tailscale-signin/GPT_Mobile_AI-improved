@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.DebugMetric
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
@@ -102,6 +103,12 @@ class SettingViewModelV2 @Inject constructor(
             _uiEvent.emit(UiEvent.ShowToast("${feature.title} $state"))
         }
     }
+    fun updateDebugMetric(metric: DebugMetric, enabled: Boolean) {
+        viewModelScope.launch {
+            settingRepository.updateFeatureSettings(featureSettings.value.withDebugMetric(metric, enabled))
+        }
+    }
+
     fun fetchPlatforms() {
         viewModelScope.launch {
             settingRepository.fetchPlatformV2s()

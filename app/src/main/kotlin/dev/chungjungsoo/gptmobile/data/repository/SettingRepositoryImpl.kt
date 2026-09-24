@@ -14,6 +14,7 @@ import dev.chungjungsoo.gptmobile.data.dto.PlatformBackupDto
 import dev.chungjungsoo.gptmobile.data.dto.ThemeBackupDto
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ApiType
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
@@ -161,6 +162,14 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun updateDebugMode(enabled: Boolean) = settingDataSource.updateDebugMode(enabled)
 
     override fun observeDebugMode(): Flow<Boolean> = settingDataSource.observeDebugMode()
+
+    override suspend fun getFeatureSettings(): AppFeatureSettings = settingDataSource.getFeatureSettings()
+
+    override suspend fun updateFeatureSettings(settings: AppFeatureSettings) =
+        settingDataSource.updateFeatureSettings(settings)
+
+    override fun observeFeatureSettings(): Flow<AppFeatureSettings> =
+        settingDataSource.observeFeatureSettings()
 
     override suspend fun getFavoriteGroups(): List<String> = settingDataSource.getFavoriteGroups()
 

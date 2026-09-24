@@ -121,8 +121,11 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (chatRoomId > 0) {
-                        val targetSuffix = if (targetMessageId > 0) "&targetMessageId=$targetMessageId" else ""
-                        val route = "chat_room/$chatRoomId?enabled=$targetSuffix"
+                        val route = if (targetMessageId > 0) {
+                            "chat_room/$chatRoomId?targetMessageId=$targetMessageId"
+                        } else {
+                            "chat_room/$chatRoomId"
+                        }
                         navigate(route) {
                             launchSingleTop = true
                         }

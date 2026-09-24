@@ -288,7 +288,10 @@ fun SettingScreen(
                         Toast.makeText(context, R.string.backup_picker_unavailable, Toast.LENGTH_LONG).show()
                     }
                 }
-            }
+            },
+            onSectionChange = settingViewModel::updateBackupSection,
+            onPasswordProtectionChange = settingViewModel::updateBackupPasswordProtection,
+            onPasswordChange = settingViewModel::updateBackupPassword
         )
     }
 

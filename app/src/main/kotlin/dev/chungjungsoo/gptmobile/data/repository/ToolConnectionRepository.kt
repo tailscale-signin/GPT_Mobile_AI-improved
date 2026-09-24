@@ -75,10 +75,23 @@ class ToolConnectionRepository internal constructor(
     }
 
     suspend fun setReadUrlBinding(profileUid: String, enabled: Boolean) {
+        setBuiltInToolBinding(profileUid, BuiltInAgentTool.READ_URL, enabled)
+    }
+
+    suspend fun setBuiltInToolBinding(profileUid: String, toolName: String, enabled: Boolean) {
+        require(
+            toolName in setOf(
+                BuiltInAgentTool.READ_URL,
+                BuiltInAgentTool.READ_FILE_SLICE,
+                BuiltInAgentTool.DEVICE_LOCATION,
+                BuiltInAgentTool.CALCULATE_EXPRESSION,
+                BuiltInAgentTool.GITHUB,
+                BuiltInAgentTool.CURRENT_DATE
+            )
+        ) { "Unknown built-in tool: $toolName" }
+        toolConnectionDao.deleteBuiltInToolBinding(profileUid, toolName)
         if (enabled) {
-            toolConnectionDao.replaceReadUrlBinding(newBinding(profileUid, null, BuiltInAgentTool.READ_URL))
-        } else {
-            toolConnectionDao.removeReadUrlBinding(profileUid)
+            toolConnectionDao.insertBinding(newBinding(profileUid, null, toolName))
         }
     }
 

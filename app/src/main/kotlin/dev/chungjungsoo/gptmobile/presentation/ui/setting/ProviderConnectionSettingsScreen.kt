@@ -39,7 +39,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

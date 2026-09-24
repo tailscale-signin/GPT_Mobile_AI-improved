@@ -446,6 +446,14 @@
     <string name="using_certain_platform">Using: %1$s</string>
     <string name="select_platform">Select Platform</string>
     <string name="select_platform_description">Choose platforms to include in this conversation</string>
+    <string name="chat_mode_standard">Separate</string>
+    <string name="chat_mode_combined">Combined</string>
+    <string name="chat_mode_standard_description">Each selected AI keeps its own response tab.</string>
+    <string name="chat_mode_combined_description">All selected AIs answer together. The first selected AI creates one final merged response.</string>
+    <string name="combined_models_label">Combined · %1$d models</string>
+    <string name="combined_model_responses">Model responses</string>
+    <string name="combined_waiting">Waiting for all model responses…</string>
+    <string name="combined_synthesizing">Lead AI is combining the responses…</string>
     <string name="enable_at_leat_one_platform">Enable at least one platform in Settings</string>
     <string name="delete_selected_chats">Delete Selected Chats</string>
     <string name="this_operation_can_t_be_undone">This action cannot be undone. Selected conversations will be permanently deleted.</string>

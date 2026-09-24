@@ -225,7 +225,8 @@ class ChatViewModel @Inject constructor(
     val isLoaded = _isLoaded.asStateFlow()
 
     private var pendingQuestionText: String? = null
-    private var hasTriggeredAiTitle = false
+    private var lastAiTitlePromptCount = 0
+    private var titleGenerationInFlight = false
     private val combinedSynthesisTurns = mutableSetOf<Int>()
 
     init {
@@ -1376,14 +1377,34 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun checkAndGenerateAiTitle(runsById: Map<String, AgentRun>) {
-        if (hasTriggeredAiTitle) return
         val room = _chatRoom.value
-        if (room.id <= 0 || room.isTitleCustomized) return
+        if (room.id <= 0 || room.isTitleCustomized || titleGenerationInFlight) return
+
+        val grouped = _groupedMessages.value
+        val promptCount = grouped.userMessages.size
+        if (promptCount == 0) return
+
+        val shouldGenerate = lastAiTitlePromptCount == 0 ||
+            promptCount - lastAiTitlePromptCount >= TITLE_REFRESH_PROMPT_INTERVAL
+        if (!shouldGenerate) return
+
+        val latestTurn = promptCount - 1
+        val latestAssistantMessages = grouped.assistantMessages.getOrNull(latestTurn).orEmpty()
+        if (latestAssistantMessages.isEmpty()) return
+
+        val activeRunIds = agentRunCoordinator.activeRuns.value.keys
+        val hasActiveLatestRun = latestAssistantMessages.any { message ->
+            val runId = message.currentRunId
+            runId != null && (
+                runId in activeRunIds ||
+                    runsById[runId]?.status == AgentRunStatus.RUNNING ||
+                    runsById[runId]?.status == AgentRunStatus.QUEUED
+                )
+        }
+        if (hasActiveLatestRun) return
+
         if (room.conversationMode == ConversationMode.COMBINED) {
-            val leadRunId = _groupedMessages.value.assistantMessages
-                .firstOrNull()
-                ?.firstOrNull()
-                ?.currentRunId
+            val leadRunId = latestAssistantMessages.firstOrNull()?.currentRunId
             if (leadRunId?.startsWith(COMBINED_RUN_PREFIX) != true ||
                 runsById[leadRunId]?.status != AgentRunStatus.COMPLETED
             ) {
@@ -1391,33 +1412,43 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val grouped = _groupedMessages.value
-        // Only trigger on the first turn
-        if (grouped.userMessages.size != 1 || grouped.assistantMessages.isEmpty()) return
+        val recentTurns = grouped.userMessages.indices
+            .takeLast(TITLE_CONTEXT_TURNS)
 
-        val userMessage = grouped.userMessages.firstOrNull()?.content?.takeIf { it.isNotBlank() } ?: return
-        val firstAssistantMessages = grouped.assistantMessages.firstOrNull().orEmpty()
-        val assistantMessage = firstAssistantMessages.firstOrNull { it.effectiveContent().isNotBlank() }?.effectiveContent() ?: return
+        val userContext = recentTurns.joinToString("\n") { index ->
+            grouped.userMessages.getOrNull(index)?.content.orEmpty().trim()
+        }.take(TITLE_CONTEXT_CHAR_LIMIT)
 
-        // Ensure active runs for this turn are finished
-        val activeRunIds = agentRunCoordinator.activeRuns.value.keys
-        val anyActive = firstAssistantMessages.any { msg ->
-            val runId = msg.currentRunId
-            runId != null && (runId in activeRunIds || runsById[runId]?.status == AgentRunStatus.RUNNING || runsById[runId]?.status == AgentRunStatus.QUEUED)
-        }
-        if (anyActive) return
+        val assistantContext = recentTurns.joinToString("\n") { index ->
+            grouped.assistantMessages.getOrNull(index)
+                .orEmpty()
+                .firstOrNull { it.effectiveContent().isNotBlank() }
+                ?.effectiveContent()
+                .orEmpty()
+                .trim()
+        }.take(TITLE_CONTEXT_CHAR_LIMIT)
 
-        hasTriggeredAiTitle = true
+        if (userContext.isBlank() || assistantContext.isBlank()) return
+
+        titleGenerationInFlight = true
         viewModelScope.launch(Dispatchers.IO) {
-            val platform = _platformsInApp.value.firstOrNull { it.uid in enabledPlatformsInChat && it.enabled }
-                ?: _platformsInApp.value.firstOrNull()
-                ?: return@launch
+            try {
+                val features = settingRepository.getFeatureSettings()
+                if (!features.automaticConversationTitles) return@launch
 
-            val aiTitle = chatRepository.generateAiTitle(userMessage, assistantMessage, platform)
-            if (!aiTitle.isNullOrBlank()) {
-                val cleaned = aiTitle.replace('\n', ' ').take(50)
-                _chatRoom.update { it.copy(title = cleaned) }
-                chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = false)
+                val platform = _platformsInApp.value.firstOrNull { it.uid in enabledPlatformsInChat && it.enabled }
+                    ?: _platformsInApp.value.firstOrNull()
+                    ?: return@launch
+
+                val aiTitle = chatRepository.generateAiTitle(userContext, assistantContext, platform)
+                if (!aiTitle.isNullOrBlank() && !_chatRoom.value.isTitleCustomized) {
+                    val cleaned = aiTitle.replace('\n', ' ').trim().take(60)
+                    _chatRoom.update { it.copy(title = cleaned, isTitleCustomized = false) }
+                    chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = false)
+                    lastAiTitlePromptCount = promptCount
+                }
+            } finally {
+                titleGenerationInFlight = false
             }
         }
     }
@@ -1492,6 +1523,9 @@ class ChatViewModel @Inject constructor(
         }
     }
     companion object {
+        private const val TITLE_REFRESH_PROMPT_INTERVAL = 3
+        private const val TITLE_CONTEXT_TURNS = 4
+        private const val TITLE_CONTEXT_CHAR_LIMIT = 1600
         internal const val COMBINED_RUN_PREFIX = "combined-synthesis:"
         private const val MAX_COMBINED_SOURCE_CHARS = 24_000
     }

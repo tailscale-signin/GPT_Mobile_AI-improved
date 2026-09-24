@@ -4,7 +4,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +20,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -96,6 +110,13 @@ fun LocalModelsScreen(
                         .padding(innerPadding)
                         .verticalScroll(scrollState)
                 ) {
+                    LocalModelsOverviewCard(uiState)
+                    ModelCatalogSearch(
+                        query = uiState.searchQuery,
+                        selectedFilter = uiState.filter,
+                        onQueryChange = viewModel::updateSearchQuery,
+                        onFilterChange = viewModel::updateFilter
+                    )
                     HuggingFaceAccountSection(
                         hasToken = uiState.hasHuggingFaceToken,
                         onAddToken = viewModel::openAccessTokenDialog,
@@ -121,7 +142,7 @@ fun LocalModelsScreen(
                             ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
                         )
                         uiState.items.forEach { item ->
                             LocalModelItem(
@@ -182,6 +203,92 @@ private fun LocalModelsTopBar(
         },
         scrollBehavior = scrollBehavior
     )
+}
+
+@Composable
+private fun LocalModelsOverviewCard(state: LocalModelsUiState) {
+    val downloaded = state.items.count { it.status == LocalModelItemStatus.READY }
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+            Text("Local AI model library", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "Search compatible indexed models, download optimized variants, or import a validated local model file.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                LocalModelStat(state.totalItemCount.toString(), "indexed", Modifier.weight(1f))
+                LocalModelStat(downloaded.toString(), "shown downloaded", Modifier.weight(1f))
+                LocalModelStat(
+                    ModelCatalogParser.formatDownloadSize(state.totalStorageBytes),
+                    "storage",
+                    Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalModelStat(value: String, label: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ModelCatalogSearch(
+    query: String,
+    selectedFilter: LocalModelFilter,
+    onQueryChange: (String) -> Unit,
+    onFilterChange: (LocalModelFilter) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            label = { Text("Search compatible models") },
+            placeholder = { Text("Model, Hugging Face ID, accelerator…") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LocalModelFilter.entries.forEach { filter ->
+                FilterChip(
+                    selected = selectedFilter == filter,
+                    onClick = { onFilterChange(filter) },
+                    label = { Text(filter.title) }
+                )
+            }
+        }
+        Text(
+            "Catalog downloads are limited to app-compatible model entries. Use Import model for other validated local files.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+    }
 }
 
 @Composable
@@ -272,23 +379,49 @@ private fun LocalModelItem(
     onCancel: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Column(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
-        Text(
-            text = item.entry.displayName,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        LocalModelRequirements(item = item)
-        LocalModelDownloadStatus(
-            item = item,
-            isCheckingAccess = isCheckingAccess,
-            onDownload = onDownload,
-            onCancel = onCancel,
-            onDelete = onDelete
-        )
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(9.dp).size(22.dp)
+                    )
+                }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(
+                        text = item.entry.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = item.entry.id,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            LocalModelRequirements(item = item)
+            LocalModelDownloadStatus(
+                item = item,
+                isCheckingAccess = isCheckingAccess,
+                onDownload = onDownload,
+                onCancel = onCancel,
+                onDelete = onDelete
+            )
+        }
     }
 }

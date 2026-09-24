@@ -45,23 +45,26 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 @Composable
 internal fun CompactAgentActivityBar(
     run: ActiveAgentRun,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    statusOverride: String? = null
 ) {
-    val liveText = run.gatewayMessage?.takeIf(String::isNotBlank) ?: when (run.phase) {
+    val liveText = statusOverride?.takeIf(String::isNotBlank)
+        ?: run.gatewayMessage?.takeIf(String::isNotBlank)
+        ?: when (run.phase) {
         LocalInferencePhase.PREFILL -> stringResource(R.string.agent_live_local_prefill)
         LocalInferencePhase.GENERATING -> stringResource(R.string.agent_live_local_generating)
-        null -> when (run.gatewayWorkState) {
-            GatewayWorkState.STARTING -> stringResource(R.string.agent_live_preparing)
-            GatewayWorkState.EXPLORING -> stringResource(R.string.agent_live_exploring)
-            GatewayWorkState.FOCUSED -> stringResource(R.string.agent_live_focused)
-            GatewayWorkState.ACTING -> run.gatewayCurrentTool?.takeIf(String::isNotBlank)?.let {
-                stringResource(R.string.agent_live_using_tool, it)
-            } ?: stringResource(R.string.agent_live_acting)
-            GatewayWorkState.RECOVERING -> stringResource(R.string.agent_live_recovering)
-            GatewayWorkState.SYNTHESIZING -> stringResource(R.string.agent_live_synthesizing)
-            GatewayWorkState.FINALIZING -> stringResource(R.string.agent_live_finalizing)
+            null -> when (run.gatewayWorkState) {
+                GatewayWorkState.STARTING -> stringResource(R.string.agent_live_preparing)
+                GatewayWorkState.EXPLORING -> stringResource(R.string.agent_live_exploring)
+                GatewayWorkState.FOCUSED -> stringResource(R.string.agent_live_focused)
+                GatewayWorkState.ACTING -> run.gatewayCurrentTool?.takeIf(String::isNotBlank)?.let {
+                    stringResource(R.string.agent_live_using_tool, it)
+                } ?: stringResource(R.string.agent_live_acting)
+                GatewayWorkState.RECOVERING -> stringResource(R.string.agent_live_recovering)
+                GatewayWorkState.SYNTHESIZING -> stringResource(R.string.agent_live_synthesizing)
+                GatewayWorkState.FINALIZING -> stringResource(R.string.agent_live_finalizing)
+            }
         }
-    }
 
     Surface(
         modifier = modifier.fillMaxWidth(),

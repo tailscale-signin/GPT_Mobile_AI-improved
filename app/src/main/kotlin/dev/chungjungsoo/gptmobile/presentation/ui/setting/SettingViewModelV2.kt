@@ -9,6 +9,8 @@ import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
+import dev.chungjungsoo.gptmobile.data.model.AppFeature
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
@@ -45,6 +47,9 @@ class SettingViewModelV2 @Inject constructor(
 
     val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val featureSettings: StateFlow<AppFeatureSettings> = settingRepository.observeFeatureSettings()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppFeatureSettings())
 
     private val _backupStatus = MutableStateFlow(completeBackupManager.getBackupStatus())
     val backupStatus: StateFlow<BackupStatus> = _backupStatus.asStateFlow()
@@ -89,6 +94,14 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    fun updateFeature(feature: AppFeature, enabled: Boolean) {
+        viewModelScope.launch {
+            val updated = featureSettings.value.withFeature(feature, enabled)
+            settingRepository.updateFeatureSettings(updated)
+            val state = if (enabled) "enabled" else "disabled"
+            _uiEvent.emit(UiEvent.ShowToast("${feature.title} $state"))
+        }
+    }
     fun fetchPlatforms() {
         viewModelScope.launch {
             settingRepository.fetchPlatformV2s()

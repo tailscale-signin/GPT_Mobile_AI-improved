@@ -395,6 +395,8 @@
     <string name="agent_metric_stall_short">Stall</string>
     <string name="agent_metric_checkpoint">Checkpoint %1$d</string>
     <string name="agent_current_tool">%1$s · %2$s</string>
+    <string name="agent_workflow_profile">Workflow: %1$s</string>
+    <string name="agent_workflow_surface">Workflow: %1$s · %2$d/%3$d tool schemas</string>
     <string name="agent_route_local">local route</string>
     <string name="agent_recovering_message">The gateway is changing strategy after repeated low-novelty work.</string>
     <string name="agent_recent_activity">Recent activity</string>

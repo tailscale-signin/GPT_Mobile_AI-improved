@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -62,6 +63,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
@@ -496,8 +498,6 @@ fun SettingScreen(
         CompleteBackupDialog(
             state = backupUi,
             backupStatus = backupStatus,
-            onPasswordChange = settingViewModel::updateBackupPassword,
-            onConfirmationChange = settingViewModel::updateBackupConfirmation,
             onDismiss = settingViewModel::closeBackupRestoreDialog,
             onBackup = {
                 if (settingViewModel.prepareBackupPicker(restoring = false)) {
@@ -525,10 +525,34 @@ fun SettingScreen(
     if (backupUi.restoreUri != null) {
         AlertDialog(
             title = { Text(stringResource(R.string.complete_restore_title)) },
-            text = { Text(stringResource(R.string.complete_restore_confirmation)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(stringResource(R.string.complete_restore_confirmation))
+                    if (backupUi.requiresLegacyPassword) {
+                        Text(
+                            text = stringResource(R.string.complete_backup_legacy_password_required),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = backupUi.legacyPassword,
+                            onValueChange = settingViewModel::updateLegacyBackupPassword,
+                            label = { Text(stringResource(R.string.complete_backup_legacy_password)) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
             onDismissRequest = settingViewModel::cancelBackupPicker,
             confirmButton = {
-                Button(onClick = settingViewModel::confirmRestore) { Text(stringResource(R.string.confirm)) }
+                Button(
+                    enabled = !backupUi.requiresLegacyPassword || backupUi.legacyPassword.isNotBlank(),
+                    onClick = settingViewModel::confirmRestore
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
             },
             dismissButton = {
                 TextButton(onClick = settingViewModel::cancelBackupPicker) { Text(stringResource(R.string.cancel)) }

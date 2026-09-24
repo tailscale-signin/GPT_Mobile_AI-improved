@@ -53,6 +53,8 @@ class HomeViewModel @Inject constructor(
         val isSelectionMode: Boolean = false,
         val isSearchMode: Boolean = false,
         val selectedPlatforms: List<Boolean> = listOf(),
+        val selectedPlatformOrder: List<String> = emptyList(),
+        val combinedMode: Boolean = false,
         val selectedChats: List<Boolean> = listOf()
     )
 
@@ -231,18 +233,25 @@ class HomeViewModel @Inject constructor(
 
     fun updatePlatformCheckedState(idx: Int) {
         if (idx < 0 || idx >= _chatListState.value.selectedPlatforms.size) return
+        val uid = _platformState.value.getOrNull(idx)?.uid ?: return
 
-        _chatListState.update {
-            it.copy(
-                selectedPlatforms = it.selectedPlatforms.mapIndexed { index, b ->
-                    if (index == idx) {
-                        !b
-                    } else {
-                        b
-                    }
+        _chatListState.update { state ->
+            val wasSelected = state.selectedPlatforms.getOrElse(idx) { false }
+            state.copy(
+                selectedPlatforms = state.selectedPlatforms.mapIndexed { index, selected ->
+                    if (index == idx) !selected else selected
+                },
+                selectedPlatformOrder = if (wasSelected) {
+                    state.selectedPlatformOrder - uid
+                } else {
+                    state.selectedPlatformOrder + uid
                 }
             )
         }
+    }
+
+    fun setCombinedMode(enabled: Boolean) {
+        _chatListState.update { it.copy(combinedMode = enabled) }
     }
 
     fun updateSearchQuery(query: String) {
@@ -278,7 +287,13 @@ class HomeViewModel @Inject constructor(
 
     fun closeSelectModelDialog() {
         _showSelectModelDialog.update { false }
-        _chatListState.update { it.copy(selectedPlatforms = List(it.selectedPlatforms.size) { false }) }
+        _chatListState.update {
+            it.copy(
+                selectedPlatforms = List(it.selectedPlatforms.size) { false },
+                selectedPlatformOrder = emptyList(),
+                combinedMode = false
+            )
+        }
     }
 
     fun deleteSelectedChats() {
@@ -419,7 +434,13 @@ class HomeViewModel @Inject constructor(
             _platformState.update { platforms }
 
             if (_chatListState.value.selectedPlatforms.size != platforms.size) {
-                _chatListState.update { it.copy(selectedPlatforms = List(platforms.size) { false }) }
+                _chatListState.update {
+                    it.copy(
+                        selectedPlatforms = List(platforms.size) { false },
+                        selectedPlatformOrder = emptyList(),
+                        combinedMode = false
+                    )
+                }
             }
         }
     }

@@ -1334,7 +1334,7 @@ internal fun FileThumbnailRow(
         selectedAttachments.forEach { attachment ->
             FileThumbnail(
                 attachment = attachment,
-                onRemove = { onFileRemoved(attachment.sourceFilePath) }
+                onRemove = { onFileRemoved(attachment.filePath) }
             )
         }
     }
@@ -1345,7 +1345,7 @@ internal fun FileThumbnail(
     attachment: ChatAttachmentDraft,
     onRemove: () -> Unit
 ) {
-    val file = File(attachment.preparedFilePath ?: attachment.sourceFilePath)
+    val file = File(attachment.filePath)
     val isImage = isImageFile(file.extension)
 
     Column(
@@ -1399,16 +1399,6 @@ internal fun FileThumbnail(
                     )
                 }
             }
-
-            if (attachment.status == ChatAttachmentDraft.Status.Preparing) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 4.dp)
-                        .size(18.dp),
-                    strokeWidth = 2.dp
-                )
-            }
         }
 
         Text(
@@ -1422,30 +1412,6 @@ internal fun FileThumbnail(
                 .padding(top = 4.dp)
                 .width(72.dp)
         )
-
-        attachment.notice?.let { notice ->
-            Text(
-                text = notice,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.width(72.dp)
-            )
-        }
-
-        attachment.errorMessage?.let { errorMessage ->
-            Text(
-                text = errorMessage,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.width(72.dp)
-            )
-        }
     }
 }
 
@@ -1454,20 +1420,18 @@ private fun isImageFile(extension: String): Boolean {
     return lower == "jpg" || lower == "jpeg" || lower == "png" || lower == "webp" || lower == "gif"
 }
 
-private fun copyFileToAppDirectory(context: Context, uri: android.net.Uri): String? {
-    return try {
-        val fileName = getFileName(context, uri) ?: "attachment_${System.currentTimeMillis()}"
-        val destFile = File(context.filesDir, fileName)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            destFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
+private fun copyFileToAppDirectory(context: Context, uri: android.net.Uri): String? = try {
+    val fileName = getFileName(context, uri) ?: "attachment_${System.currentTimeMillis()}"
+    val destFile = File(context.filesDir, fileName)
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        destFile.outputStream().use { output ->
+            input.copyTo(output)
         }
-        destFile.absolutePath
-    } catch (e: Exception) {
-        Log.e("ChatScreen", "Failed to copy file", e)
-        null
     }
+    destFile.absolutePath
+} catch (e: Exception) {
+    Log.e("ChatScreen", "Failed to copy file", e)
+    null
 }
 
 private fun getFileName(context: Context, uri: android.net.Uri): String? {

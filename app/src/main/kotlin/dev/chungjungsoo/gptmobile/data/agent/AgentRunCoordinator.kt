@@ -58,6 +58,7 @@ data class ActiveAgentRun(
     val runId: String,
     val chatId: Int,
     val profileUid: String,
+    val assistantMessageId: Int? = null,
     val phase: LocalInferencePhase? = null,
     val gatewayStage: String? = null,
     val gatewayMessage: String? = null,
@@ -154,7 +155,12 @@ class AgentRunCoordinator @Inject constructor(
 
         _activeRuns.update { active ->
             active + pending.associate { (request, _) ->
-                request.runId to ActiveAgentRun(request.runId, request.chatId, request.platform.uid)
+                request.runId to ActiveAgentRun(
+                    runId = request.runId,
+                    chatId = request.chatId,
+                    profileUid = request.platform.uid,
+                    assistantMessageId = request.assistantMessage.id.takeIf { it > 0 }
+                )
             }
         }
         try {

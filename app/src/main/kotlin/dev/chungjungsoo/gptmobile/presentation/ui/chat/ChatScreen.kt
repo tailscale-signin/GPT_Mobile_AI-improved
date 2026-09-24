@@ -105,6 +105,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
@@ -151,6 +152,7 @@ fun ChatScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
+    val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
     val runNoticesById by chatViewModel.runNoticesById.collectAsStateWithLifecycle()
     val toolEventsByRun by chatViewModel.toolEventsByRun.collectAsStateWithLifecycle()
     val indexStates by chatViewModel.indexStates.collectAsStateWithLifecycle()
@@ -316,6 +318,7 @@ fun ChatScreen(
                             message = message,
                             assistantMessages = groupedMessages.assistantMessages.getOrNull(index) ?: emptyList(),
                             agentRunsById = agentRunsById,
+                            activeAgentRuns = activeAgentRuns,
                             runNoticesById = runNoticesById,
                             toolEventsByRun = toolEventsByRun,
                             platformIndexState = indexStates.getOrElse(index) { 0 },
@@ -488,6 +491,7 @@ private fun ChatMessagePair(
     message: MessageV2,
     assistantMessages: List<MessageV2>,
     agentRunsById: Map<String, AgentRun>,
+    activeAgentRuns: Map<String, ActiveAgentRun>,
     runNoticesById: Map<String, List<ChatRunNotice>>,
     toolEventsByRun: Map<String, List<ToolEvent>>,
     platformIndexState: Int,
@@ -519,6 +523,7 @@ private fun ChatMessagePair(
     val assistantTimeline = selectedAssistantMessage?.effectiveTimeline().orEmpty()
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
+    val activeAgentRun = selectedRunId?.let(activeAgentRuns::get)
     val toolEvents = selectedRunId?.let(toolEventsByRun::get).orEmpty()
     val canShowPreviousRevision = selectedAssistantMessage?.let { assistantMessage ->
         assistantMessage.revisions.isNotEmpty() &&
@@ -592,6 +597,12 @@ private fun ChatMessagePair(
                             }
                         }
                     }
+                }
+                if (isActiveMessage && isCurrentPlatformLoading && activeAgentRun != null) {
+                    AgentFlightRecorderCard(
+                        run = activeAgentRun,
+                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
+                    )
                 }
                 OpponentChatBubble(
                     modifier = Modifier

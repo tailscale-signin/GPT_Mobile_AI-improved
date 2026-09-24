@@ -103,6 +103,7 @@ import dev.chungjungsoo.gptmobile.data.catalog.McpCategory
 import dev.chungjungsoo.gptmobile.data.catalog.McpPreset
 import dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.McpPricingType
+import dev.chungjungsoo.gptmobile.data.catalog.McpTransportType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
 
@@ -234,9 +235,7 @@ fun McpMarketplaceScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     val filteredPresets = remember(searchQuery, selectedCategory, selectedPricing) {
-        var list = McpPresetCatalog.presets.filter { preset ->
-            preset.isPreinstalled || preset.transportType == dev.chungjungsoo.gptmobile.data.catalog.McpTransportType.STREAMABLE_HTTP
-        }
+        var list = McpPresetCatalog.presets
 
         if (selectedCategory != null) {
             list = list.filter { it.category == selectedCategory }
@@ -664,6 +663,42 @@ fun McpMarketplaceDetailCard(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (preset.isPreinstalled) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    }
+                ) {
+                    Text(
+                        text = if (preset.isPreinstalled) "Integrated" else "Streamable HTTP",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (preset.isPreinstalled) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+
+                if (preset.verifiedRemote) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF2E7D32).copy(alpha = 0.14f)
+                    ) {
+                        Text(
+                            text = "Verified endpoint",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF2E7D32),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -904,7 +939,7 @@ fun McpPresetConfigureDialog(
                     isError = endpoint.isNotBlank() && !isEndpointValid,
                     supportingText = {
                         if (endpoint.isNotBlank() && !isEndpointValid) {
-                            Text("Must be a valid HTTP(S) URL. Cleartext requires explicit approval.")
+                            Text("Must be a valid HTTP(S) Streamable HTTP endpoint. Cleartext requires explicit approval.")
                         } else {
                             Text("Remote MCP endpoint using Streamable HTTP. Legacy HTTP+SSE is not used for new connections.")
                         }

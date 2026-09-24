@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.datastore
 
 import androidx.datastore.preferences.core.Preferences
 import dev.chungjungsoo.gptmobile.data.model.ApiType
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
@@ -13,6 +14,9 @@ interface SettingDataSource {
     suspend fun updateThemeMode(themeMode: ThemeMode)
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
     suspend fun updateDebugMode(enabled: Boolean)
+    suspend fun updateFeatureSettings(settings: AppFeatureSettings)
+    suspend fun getFeatureSettings(): AppFeatureSettings
+    fun observeFeatureSettings(): Flow<AppFeatureSettings>
     suspend fun getDebugMode(): Boolean
     fun observeDebugMode(): Flow<Boolean>
     suspend fun updateStatus(apiType: ApiType, status: Boolean)

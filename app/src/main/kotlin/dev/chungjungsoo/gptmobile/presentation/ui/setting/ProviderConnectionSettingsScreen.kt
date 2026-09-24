@@ -210,8 +210,7 @@ fun ProviderConnectionSettingsScreen(
                 item {
                     Text("Child AI profiles", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
-                items(childProfiles.size) { index ->
-                    val profile = childProfiles[index]
+                items(childProfiles, key = { it.uid }) { profile ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)

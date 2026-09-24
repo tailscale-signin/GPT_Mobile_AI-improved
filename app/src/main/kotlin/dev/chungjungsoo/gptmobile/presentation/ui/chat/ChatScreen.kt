@@ -599,10 +599,17 @@ private fun ChatMessagePair(
                     }
                 }
                 if (isActiveMessage && isCurrentPlatformLoading && activeAgentRun != null) {
-                    AgentFlightRecorderCard(
-                        run = activeAgentRun,
-                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
-                    )
+                    if (debugMode) {
+                        AgentFlightRecorderCard(
+                            run = activeAgentRun,
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
+                        )
+                    } else {
+                        CompactAgentActivityBar(
+                            run = activeAgentRun,
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
+                        )
+                    }
                 }
                 OpponentChatBubble(
                     modifier = Modifier

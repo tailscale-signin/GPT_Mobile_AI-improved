@@ -266,6 +266,9 @@ fun SettingScreen(
             state = backupUi,
             backupStatus = backupStatus,
             onDismiss = settingViewModel::closeBackupRestoreDialog,
+            onOptionsChange = settingViewModel::updateBackupOptions,
+            onPasswordProtectionChange = settingViewModel::updateBackupPasswordProtection,
+            onPasswordChange = settingViewModel::updateBackupPassword,
             onBackup = {
                 if (settingViewModel.prepareBackupPicker(restoring = false)) {
                     try {

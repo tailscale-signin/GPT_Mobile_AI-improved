@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
@@ -154,10 +155,15 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController) {
             settingOnClick = { navController.navigate(Route.SETTING_ROUTE) },
             onExistingChatClick = { chatRoom, targetMessageId ->
                 val targetSuffix = if (targetMessageId != null) "&targetMessageId=$targetMessageId" else ""
-                navController.navigate("chat_room/${chatRoom.id}?enabled=${chatRoom.enabledPlatform.joinToString(",")}$targetSuffix")
+                navController.navigate(
+                    "chat_room/${chatRoom.id}?enabled=${chatRoom.enabledPlatform.joinToString(",")}" +
+                        "&mode=${chatRoom.conversationMode}$targetSuffix"
+                )
             },
-            navigateToNewChat = { enabledPlatforms ->
-                navController.navigate("chat_room/0?enabled=${enabledPlatforms.joinToString(",")}")
+            navigateToNewChat = { enabledPlatforms, conversationMode ->
+                navController.navigate(
+                    "chat_room/0?enabled=${enabledPlatforms.joinToString(",")}&mode=$conversationMode"
+                )
             }
         )
     }
@@ -169,6 +175,7 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
         arguments = listOf(
             navArgument("chatRoomId") { type = NavType.IntType },
             navArgument("enabledPlatforms") { defaultValue = "" },
+            navArgument("conversationMode") { defaultValue = ConversationMode.STANDARD },
             navArgument("targetMessageId") {
                 type = NavType.IntType
                 defaultValue = -1

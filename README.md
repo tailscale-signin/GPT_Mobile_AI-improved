@@ -109,11 +109,11 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 
 ### 16. 🔐 Keystore Credential Vault & Backup Compatibility
 - **Device Credential Security**: All API keys and secrets are protected using Android Keystore-backed AES-256-GCM encryption (`SecretVault`) stored in secure `noBackupFilesDir`.
-- **Passphrase Vault Backups**: Export and restore your complete database with PBKDF2-HMAC-SHA256 key derivation and authenticated AES-256-GCM encryption.
+- **Legacy Encrypted Backup Compatibility**: Existing passphrase-protected PBKDF2/AES-GCM backups remain restorable, while v0.9.8 complete backups use the new passwordless archive workflow.
 
 ### 17. 🗄️ Instant Search & Robust Database (`ChatDatabaseV2`)
 - **Fast Full-Text Search**: Instant search indexing across all conversation histories and tool executions.
-- **Safe Room Migrations**: Powered by `ChatDatabaseV2` (Schema v19) with verified automated migrations guaranteeing zero data loss across updates.
+- **Safe Room Migrations**: Powered by `ChatDatabaseV2` (Schema v24) with automated migrations, including persisted Combined conversation mode.
 
 ### 18. 📉 Up to 60% Smaller App Download Size
 - **Native ABI Splits**: Published as targeted `arm64-v8a` and `x86_64` release APK packages alongside universal APKs, saving storage space and cellular download data.
@@ -130,7 +130,7 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 | **Initial Chat Scroll** | Delayed jump or layout lag | ⚡ Instant bottom anchoring (`rememberChatListState`) |
 | **Chat Bubble Layout & Timestamps** | Left/floating timestamps | ⏱️ Bottom-right aligned timestamps & semantic colors |
 | **Conversational Continuation** | ❌ Manual re-prompt | ✨ Glowing pulsating continue chip with full context preservation |
-| **Live Chat Status** | ❌ None | 🔄 Animated progress spinner on active chat cards |
+| **Live Chat Status** | ❌ None | 🔄 Compact live Gateway/local-model activity feed with Debug-only Flight Recorder |
 | **Agent Tools & MCP** | ❌ Not supported | ✅ Built-in Agent Engine + Model Context Protocol |
 | **Agent Plan Visualization** | ❌ Not supported | 📋 Visual `AgentPlanCard` step-by-step progress tracking |
 | **Interactive Artifacts** | ❌ Raw code blocks only | 🖼️ `SandboxedArtifactView` for interactive HTML/SVG rendering |
@@ -149,10 +149,11 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 | **Local Inference Engine** | Basic / Limited | ✅ LiteRT-LM & Qualcomm QNN (NPU/GPU/CPU), thermal governor, warm engine retention |
 | **Long Context Conversations** | Vulnerable to context overflows | ✅ Rolling context compaction with Turn 0 anchor preservation |
 | **Credential Security** | Plaintext / basic storage | ✅ Android Keystore AES-256-GCM (`SecretVault`) |
-| **Encrypted Backups** | ❌ Not supported | ✅ Passphrase-protected PBKDF2 + AES-GCM export/import |
+| **Complete Backup & Restore** | ❌ Not supported | ✅ Passwordless full-state archive + automatic legacy encrypted-backup compatibility |
 | **Favorites Management** | ❌ Basic or none | ✅ Custom group chips, rich Markdown dialog, chat jump |
 | **Web Search** | ❌ Manual setup / none | ✅ Zero-config `droid-mcp-web` (DuckDuckGo, Firecrawl, Perplexity, Exa) |
-| **Search & Database** | Monolithic legacy database | ✅ Modern `ChatDatabaseV2` (Schema v19) with instant search |
+| **Combined Multi-AI Chat** | ❌ Not supported | ✅ Ordered multi-model responses + first-selected lead synthesis |
+| **Search & Database** | Monolithic legacy database | ✅ Modern `ChatDatabaseV2` (Schema v24) with instant search |
 | **APK Footprint** | Large universal APK | ✅ Up to 60% lighter native ABI split APKs |
 
 ---

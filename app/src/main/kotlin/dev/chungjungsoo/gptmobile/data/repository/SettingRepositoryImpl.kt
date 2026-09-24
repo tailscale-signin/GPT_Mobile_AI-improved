@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.data.repository
 import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
+import dev.chungjungsoo.gptmobile.data.database.dao.ProviderConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSourceImpl
 import dev.chungjungsoo.gptmobile.data.dto.ConfigBackupDto
@@ -28,6 +30,7 @@ import kotlinx.serialization.json.Json
 class SettingRepositoryImpl @Inject constructor(
     private val settingDataSource: SettingDataSource,
     private val platformV2Dao: PlatformV2Dao,
+    private val providerConnectionDao: ProviderConnectionDao,
     private val chatPlatformModelV2Dao: ChatPlatformModelV2Dao,
     private val secretVault: SecretVault
 ) : SettingRepository {
@@ -273,22 +276,27 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updatePlatformV2(platform: PlatformV2) {
-        val previousSecretRef = platform.secretRef
-            ?: platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it)?.secretRef }
+        val previous = platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it) }
+        val previousSecretRef = previous?.secretRef ?: platform.secretRef
         val securedPlatform = securePlatform(platform)
         platformV2Dao.editPlatform(securedPlatform)
-        if (previousSecretRef != securedPlatform.secretRef) {
+        if (securedPlatform.providerConnectionUid == null &&
+            previousSecretRef != securedPlatform.secretRef
+        ) {
             previousSecretRef?.let { secretVault.delete(it) }
         }
         invalidatePlatformCache()
     }
 
     override suspend fun deletePlatformV2(platform: PlatformV2) {
-        val secretRef = platform.secretRef
-            ?: platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it)?.secretRef }
+        val persisted = platform.id.takeIf { it > 0 }?.let { platformV2Dao.getPlatform(it) }
+        val secretRef = persisted?.secretRef ?: platform.secretRef
+        val providerConnectionUid = persisted?.providerConnectionUid ?: platform.providerConnectionUid
         chatPlatformModelV2Dao.deleteByPlatformUid(platform.uid)
         platformV2Dao.deletePlatform(platform)
-        secretRef?.let { secretVault.delete(it) }
+        if (providerConnectionUid == null) {
+            secretRef?.let { secretVault.delete(it) }
+        }
         invalidatePlatformCache()
     }
 
@@ -301,6 +309,48 @@ class SettingRepositoryImpl @Inject constructor(
         return platformV2Dao.getPlatform(id)?.let { platform ->
             resolvePlatformToken(platform)
         }
+    }
+
+    override suspend fun fetchProviderConnections(): List<ProviderConnection> =
+        providerConnectionDao.getConnections()
+
+    override fun observeProviderConnections(): Flow<List<ProviderConnection>> =
+        providerConnectionDao.observeConnections()
+
+    override suspend fun getProviderConnection(uid: String): ProviderConnection? =
+        providerConnectionDao.getConnection(uid)
+
+    override suspend fun addProviderConnection(
+        connection: ProviderConnection,
+        credential: String?
+    ): ProviderConnection {
+        val secured = secureProviderConnection(connection, credential)
+        providerConnectionDao.upsert(secured)
+        invalidatePlatformCache()
+        return secured
+    }
+
+    override suspend fun updateProviderConnection(
+        connection: ProviderConnection,
+        credential: String?
+    ): ProviderConnection {
+        val existing = providerConnectionDao.getConnection(connection.uid)
+        val base = connection.copy(
+            secretRef = connection.secretRef ?: existing?.secretRef,
+            updatedAt = System.currentTimeMillis() / 1000
+        )
+        val secured = secureProviderConnection(base, credential)
+        providerConnectionDao.upsert(secured)
+        invalidatePlatformCache()
+        return secured
+    }
+
+    override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean {
+        if (providerConnectionDao.profileCount(connection.uid) > 0) return false
+        providerConnectionDao.delete(connection)
+        connection.secretRef?.let { secretVault.delete(it) }
+        invalidatePlatformCache()
+        return true
     }
 
     override suspend fun exportConfigurationJson(): String {
@@ -430,9 +480,13 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun securePlatform(platform: PlatformV2): PlatformV2 {
+        if (platform.providerConnectionUid != null) {
+            return platform.copy(token = null, secretRef = null)
+        }
+
         val secret = platform.token
         if (secret == null) {
-            return platform.copy(token = null, secretRef = null)
+            return platform.copy(token = null)
         }
 
         val secretRef = platform.secretRef ?: profileSecretRef(platform.uid)
@@ -441,9 +495,37 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun resolvePlatformToken(platform: PlatformV2): PlatformV2 {
+        val connectionUid = platform.providerConnectionUid
+        if (connectionUid != null) {
+            val connection = providerConnectionDao.getConnection(connectionUid)
+            if (connection != null) {
+                return platform.copy(
+                    apiUrl = connection.apiUrl,
+                    token = connection.secretRef?.let { readSecret(it) },
+                    secretRef = connection.secretRef
+                )
+            }
+        }
+
         if (platform.token != null) return platform
         val secretRef = platform.secretRef ?: return platform
         return platform.copy(token = readSecret(secretRef))
+    }
+
+    private suspend fun secureProviderConnection(
+        connection: ProviderConnection,
+        credential: String?
+    ): ProviderConnection {
+        if (credential == null) return connection
+
+        if (credential.isBlank()) {
+            connection.secretRef?.let { secretVault.delete(it) }
+            return connection.copy(secretRef = null)
+        }
+
+        val secretRef = connection.secretRef ?: providerConnectionSecretRef(connection.uid)
+        storeVerified(secretRef, credential)
+        return connection.copy(secretRef = secretRef)
     }
 
     private suspend fun resolveLegacyToken(apiType: ApiType): String? = settingDataSource.getToken(apiType)
@@ -474,6 +556,8 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     private fun profileSecretRef(uid: String): String = "profile_$uid"
+
+    private fun providerConnectionSecretRef(uid: String): String = "provider_connection_$uid"
 
     private fun migratedProfileSecretRef(platform: PlatformV2): String = platform.id.takeIf { it > 0 }?.let { "room_profile_$it" } ?: profileSecretRef(platform.uid)
 

@@ -30,6 +30,14 @@ class GatewayEfficiencyTest {
     }
 
     @Test
+    fun `tool completed event stays tool activity instead of finalizing the run`() {
+        assertEquals(
+            GatewayWorkState.ACTING,
+            resolveGatewayWorkState("researching", "tool_completed", 4, 2, 0, "get_file")
+        )
+    }
+
+    @Test
     fun `synthesis and finalization are surfaced explicitly`() {
         assertEquals(
             GatewayWorkState.SYNTHESIZING,
@@ -58,7 +66,7 @@ class GatewayEfficiencyTest {
         history = appendGatewayActivity(
             history,
             GatewayProgress(
-                sequence = 7,
+                sequence = 99,
                 stage = "round-7",
                 message = "message-7"
             ),

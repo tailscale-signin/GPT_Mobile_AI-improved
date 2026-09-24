@@ -66,11 +66,15 @@ internal object CompleteBackupDatabase {
         order.asReversed()
             .filterNot { it in selectedTables }
             .forEach { database.execSQL("DELETE FROM ${quote(it)}") }
-        database.execSQL(
-            "DELETE FROM sqlite_sequence WHERE name NOT IN (" +
-                selectedTables.joinToString(",") { "'${it.replace("'", "''")}'" } +
-                ")"
-        )
+        if (selectedTables.isEmpty()) {
+            database.execSQL("DELETE FROM sqlite_sequence")
+        } else {
+            database.execSQL(
+                "DELETE FROM sqlite_sequence WHERE name NOT IN (" +
+                    selectedTables.joinToString(",") { "'${it.replace("'", "''")}'" } +
+                    ")"
+            )
+        }
     }
 
     fun restoreSections(

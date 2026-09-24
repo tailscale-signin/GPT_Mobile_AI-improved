@@ -374,7 +374,7 @@ fun OpponentChatBubble(
         mutableStateOf(isLoading)
     }
 
-    val hasDetails = remember(contentTimeline, thoughts, toolEvents) {
+    val hasDetails = debugMode && remember(contentTimeline, thoughts, toolEvents) {
         hasAssistantProcessDetails(
             timeline = contentTimeline,
             fallbackThoughts = thoughts,
@@ -387,23 +387,25 @@ fun OpponentChatBubble(
 
     val hasVisibleText = text.isNotBlank() || (showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
     val hasVisibleProcess = hasDetails && areDetailsVisible
-    val hasVisibleExtras = nonTelemetryNotices.isNotEmpty() || agentRun != null || attachments.isNotEmpty() || (!isLoading && (canRetry || canEdit || isError))
+    val hasVisibleExtras = (debugMode && (nonTelemetryNotices.isNotEmpty() || agentRun != null)) ||
+        attachments.isNotEmpty() || (!isLoading && (canRetry || canEdit || isError))
     val shouldShowBubble = hasVisibleText || hasVisibleProcess || hasVisibleExtras
 
     Column(modifier = modifier) {
-        RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
-        AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
-
-        GatewayActivityBar(
-            isLoading = isLoading,
-            toolEvents = toolEvents,
-            modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
-        )
+        if (debugMode) {
+            RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
+            AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
+            GatewayActivityBar(
+                isLoading = isLoading,
+                toolEvents = toolEvents,
+                modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp)
+            )
+        }
 
         AnimatedVisibility(
             visible = shouldShowBubble,
-            enter = fadeIn(animationSpec = tween(1000)),
-            exit = fadeOut(animationSpec = tween(1000))
+            enter = fadeIn(animationSpec = tween(1500)),
+            exit = fadeOut(animationSpec = tween(300))
         ) {
             Column(
                 modifier = Modifier
@@ -443,7 +445,7 @@ fun OpponentChatBubble(
                     AnimatedContent(
                         targetState = areDetailsVisible && hasDetails,
                         transitionSpec = {
-                            fadeIn(animationSpec = tween(1000)) togetherWith fadeOut(animationSpec = tween(1000))
+                            fadeIn(animationSpec = tween(450)) togetherWith fadeOut(animationSpec = tween(250))
                         },
                         label = "assistantProcessDetails"
                     ) { isVisible ->
@@ -1236,7 +1238,7 @@ internal fun buildDiagnosticsHudText(
     telemetryNotice: String?,
     debugMode: Boolean
 ): String? {
-    if (!debugMode) return telemetryNotice
+    if (!debugMode) return null
 
     val parts = mutableListOf<String>()
     agentRun?.modelSnapshot?.takeIf { it.isNotBlank() }?.let { parts.add(it) }

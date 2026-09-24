@@ -52,9 +52,10 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 @Composable
 internal fun CompactAgentActivityBar(
     run: ActiveAgentRun,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    overrideText: String? = null
 ) {
-    val liveText = when {
+    val inferredText = when {
         run.phase == LocalInferencePhase.PREFILL ->
             stringResource(R.string.agent_live_prefill)
 
@@ -82,6 +83,8 @@ internal fun CompactAgentActivityBar(
         else ->
             stringResource(R.string.agent_live_finalizing)
     }
+
+    val liveText = overrideText?.takeIf(String::isNotBlank) ?: inferredText
 
     Surface(
         modifier = modifier.fillMaxWidth(),

@@ -51,7 +51,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
-import dev.chungjungsoo.gptmobile.presentation.common.getBeveledLabelColors
+import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
+import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -285,19 +286,7 @@ private fun PlatformItemCard(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
-    val labelsList = remember(platform.labels) {
-        val raw = platform.labels?.trim()
-        if (raw.isNullOrBlank()) {
-            emptyList()
-        } else if (raw.startsWith("[") && raw.endsWith("]")) {
-            raw.removeSurrounding("[", "]")
-                .split(",")
-                .map { it.trim().removeSurrounding("\"") }
-                .filter { it.isNotBlank() }
-        } else {
-            raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        }
-    }
+    val labelsList = remember(platform.labels) { parseProfileLabels(platform.labels) }
 
     Card(
         modifier = modifier
@@ -357,19 +346,7 @@ private fun PlatformItemCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         labelsList.forEach { label ->
-                            val (chipBg, chipBorder, chipText) = getBeveledLabelColors(label)
-                            Surface(
-                                shape = CutCornerShape(topStart = 3.dp, bottomEnd = 3.dp, topEnd = 0.dp, bottomStart = 0.dp),
-                                color = chipBg,
-                                border = BorderStroke(1.dp, chipBorder)
-                            ) {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = chipText,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                )
-                            }
+                            BeveledProfileLabel(label = label)
                         }
                     }
                 }

@@ -46,43 +46,70 @@ class CompleteBackupManager @Inject constructor(
     private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)))
     fun getBackupStatus() = legacy.getBackupStatus()
 
-    suspend fun backup(uri: Uri): BackupRestoreResult = operation { work ->
+    suspend fun backup(
+        uri: Uri,
+        options: CompleteBackupOptions = CompleteBackupOptions(),
+        password: String? = null
+    ): BackupRestoreResult = operation { work ->
+        require(options.hasAnySelection) { "Select at least one backup section." }
         val storage = files()
-        val sources = storage.collect()
-        val dbFile = File(work, "database.sqlite")
-        database.withTransaction {
-            ensureIdle(restoring = false)
-            CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
+        val sources = if (options.appFiles) storage.collect() else mutableMapOf()
+
+        if (options.database) {
+            val dbFile = File(work, "database.sqlite")
+            database.withTransaction {
+                ensureIdle(restoring = false)
+                CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
+            }
+            val snapshot = openSnapshot(dbFile)
+            try {
+                if (options.appFiles) {
+                    validateModels(snapshot.openHelper.writableDatabase, sources.keys)
+                    rewriteAttachments(snapshot.openHelper.writableDatabase) { storage.archivePath(it, sources) }
+                } else {
+                    // Avoid restoring database rows that point at files deliberately omitted
+                    // from this backup.
+                    snapshot.openHelper.writableDatabase.execSQL("UPDATE messages_v2 SET attachments = '[]'")
+                    snapshot.openHelper.writableDatabase.execSQL("DELETE FROM local_models")
+                }
+            } finally {
+                snapshot.close()
+            }
+            sources["database.sqlite"] = dbFile
         }
-        val snapshot = openSnapshot(dbFile)
-        try {
-            validateModels(snapshot.openHelper.writableDatabase, sources.keys)
-            rewriteAttachments(snapshot.openHelper.writableDatabase) { storage.archivePath(it, sources) }
-        } finally {
-            snapshot.close()
-        }
-        sources["database.sqlite"] = dbFile
+
         val manifest = CompleteBackupManifest(
-            preferences = preferences.read(),
-            sharedPreferences = preferences.readShared(),
-            secrets = readSecrets(),
-            files = sources.mapValues { it.value.length() }
+            preferences = if (options.settings) preferences.read() else emptyMap(),
+            sharedPreferences = if (options.settings) preferences.readShared() else emptyMap(),
+            secrets = if (options.credentials) readSecrets() else emptyMap(),
+            files = sources.mapValues { it.value.length() },
+            sections = options.sections()
         )
         val archive = File(work, "archive.zip")
         CompleteBackupArchive.write(archive, manifest, sources)
-        val backupKey = getOrCreateBackupKey()
-        try {
-            context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
-                CompleteBackupCrypto.encryptWithKey(archive, output, backupKey)
-            } ?: error("Could not open the backup destination.")
-        } finally {
-            backupKey.fill(0)
-        }
+
+        context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+            val protectionPassword = password?.takeIf(String::isNotBlank)
+            if (protectionPassword != null) {
+                CompleteBackupCrypto.encrypt(archive, output, protectionPassword)
+            } else {
+                archive.inputStream().buffered().use { input -> input.copyTo(output) }
+            }
+        } ?: error("Could not open the backup destination.")
+
         legacy.recordBackupMetadata()
-        BackupRestoreResult(true, "Complete backup saved.")
+        BackupRestoreResult(
+            true,
+            if (password.isNullOrBlank()) "Backup saved." else "Password-encrypted backup saved."
+        )
     }
 
-    suspend fun restore(uri: Uri, legacyPassword: String? = null): BackupRestoreResult = operation { work ->
+    suspend fun restore(
+        uri: Uri,
+        legacyPassword: String? = null,
+        options: CompleteBackupOptions = CompleteBackupOptions()
+    ): BackupRestoreResult = operation { work ->
+        require(options.hasAnySelection) { "Select at least one restore section." }
         ensureIdle(restoring = true)
         val archive = File(work, "archive.zip")
         context.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
@@ -130,58 +157,94 @@ class CompleteBackupManager @Inject constructor(
         } ?: error("Could not read the backup file.")
         val staging = File(work, "files").apply { mkdirs() }
         val manifest = CompleteBackupArchive.read(archive, staging, work.usableSpace - RESERVE)
-        preferences.validate(manifest.preferences, manifest.sharedPreferences)
-        validateSecrets(manifest.secrets)
+        val availableSections = if (manifest.version == 1 || manifest.sections.isEmpty()) {
+            CompleteBackupOptions().sections()
+        } else {
+            manifest.sections
+        }
+
+        val restoreDatabase = options.database &&
+            CompleteBackupOptions.SECTION_DATABASE in availableSections &&
+            "database.sqlite" in manifest.files
+        val restoreSettings = options.settings &&
+            CompleteBackupOptions.SECTION_SETTINGS in availableSections
+        val restoreCredentials = options.credentials &&
+            CompleteBackupOptions.SECTION_CREDENTIALS in availableSections
+        val restoreFiles = options.appFiles &&
+            CompleteBackupOptions.SECTION_APP_FILES in availableSections
+
+        if (restoreSettings) {
+            preferences.validate(manifest.preferences, manifest.sharedPreferences)
+        }
+        if (restoreCredentials) {
+            validateSecrets(manifest.secrets)
+        }
+
         val storage = files()
-        val paths = manifest.files.keys - "database.sqlite"
+        val paths = if (restoreFiles) manifest.files.keys - "database.sqlite" else emptySet()
         require(paths.map(storage::target).toSet().size == paths.size) { "Conflicting backup file locations." }
-        val snapshot = openSnapshot(File(staging, "database.sqlite"))
+
+        val snapshot = if (restoreDatabase) openSnapshot(File(staging, "database.sqlite")) else null
         try {
-            val source = snapshot.openHelper.writableDatabase
-            CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
-            validateModels(source, paths)
-            rewriteAttachments(source) { path ->
-                if (path.isBlank()) {
-                    path
+            val source = snapshot?.openHelper?.writableDatabase
+            if (source != null) {
+                CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
+                if (restoreFiles) {
+                    validateModels(source, paths)
+                    rewriteAttachments(source) { path ->
+                        if (path.isBlank()) {
+                            path
+                        } else {
+                            require(path in paths) { "The backup is missing an attachment." }
+                            storage.target(path).absolutePath
+                        }
+                    }
                 } else {
-                    require(path in paths) { "The backup is missing an attachment." }
-                    storage.target(path).absolutePath
+                    source.execSQL("UPDATE messages_v2 SET attachments = '[]'")
+                    source.execSQL("DELETE FROM local_models")
                 }
             }
-            val oldPreferences = preferences.read()
-            val oldShared = preferences.readShared()
-            val oldSecrets = readSecrets()
+
+            val oldPreferences = if (restoreSettings) preferences.read() else emptyMap()
+            val oldShared = if (restoreSettings) preferences.readShared() else emptyMap()
+            val oldSecrets = if (restoreCredentials) readSecrets() else emptyMap()
             val replacement = storage.replacement(staging, paths)
+
             try {
                 database.withTransaction {
                     ensureIdle(restoring = true)
-                    CompleteBackupDatabase.restore(source, database.openHelper.writableDatabase)
-                    replacement.apply()
-                    replaceSecrets(manifest.secrets)
-                    preferences.replace(manifest.preferences, manifest.sharedPreferences)
+                    if (source != null) {
+                        CompleteBackupDatabase.restore(source, database.openHelper.writableDatabase)
+                    }
+                    if (restoreFiles) replacement.apply()
+                    if (restoreCredentials) replaceSecrets(manifest.secrets)
+                    if (restoreSettings) preferences.replace(manifest.preferences, manifest.sharedPreferences)
                 }
             } catch (error: Throwable) {
                 withContext(NonCancellable) {
-                    for (recover in listOf<suspend () -> Unit>(
-                        { replacement.rollback() },
-                        { replaceSecrets(oldSecrets) },
-                        { preferences.replace(oldPreferences, oldShared) }
-                    )) {
-                        try {
-                            recover()
-                        } catch (failure: Throwable) {
-                            error.addSuppressed(failure)
-                        }
-                    }
+                    if (restoreFiles) runCatching { replacement.rollback() }
+                    if (restoreCredentials) runCatching { replaceSecrets(oldSecrets) }
+                    if (restoreSettings) runCatching { preferences.replace(oldPreferences, oldShared) }
                 }
                 throw error
             }
-            replacement.cleanup()
+            if (restoreFiles) replacement.cleanup()
             settings.invalidatePlatformCache()
         } finally {
-            snapshot.close()
+            snapshot?.close()
         }
-        BackupRestoreResult(true, "Everything restored successfully.")
+
+        val restored = buildList {
+            if (restoreDatabase) add("conversations & app data")
+            if (restoreSettings) add("settings")
+            if (restoreCredentials) add("credentials")
+            if (restoreFiles) add("app files")
+        }
+        BackupRestoreResult(
+            true,
+            if (restored.isEmpty()) "None of the selected sections exist in this backup."
+            else "Restored: ${restored.joinToString()}."
+        )
     }
 
     suspend fun requiresPassword(uri: Uri): Boolean = withContext(Dispatchers.IO) {

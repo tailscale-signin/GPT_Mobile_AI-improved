@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
@@ -569,6 +570,13 @@ class AgentToolResolverTest {
 }
 
 private class ResolverFakeSettingRepository : SettingRepository {
+    override suspend fun fetchProviderConnections(): List<ProviderConnection> = emptyList()
+    override fun observeProviderConnections(): Flow<List<ProviderConnection>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    override suspend fun getProviderConnection(uid: String): ProviderConnection? = null
+    override suspend fun addProviderConnection(connection: ProviderConnection, credential: String?): ProviderConnection = error("Provider writes are not used by this fixture")
+    override suspend fun updateProviderConnection(connection: ProviderConnection, credential: String?): ProviderConnection = error("Provider writes are not used by this fixture")
+    override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean = error("Provider writes are not used by this fixture")
+
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
     override suspend fun fetchPlatformV2s(): List<PlatformV2> = emptyList()
     override fun observePlatformV2s(): Flow<List<PlatformV2>> = flowOf(emptyList())

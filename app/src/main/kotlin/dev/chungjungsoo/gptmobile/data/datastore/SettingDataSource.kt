@@ -42,6 +42,9 @@ interface SettingDataSource {
     suspend fun getFavoriteGroups(): List<String>
     suspend fun saveFavoriteGroups(groups: List<String>)
     fun observeFavoriteGroups(): Flow<List<String>>
+    suspend fun getSelectedFavoriteGroup(): String?
+    suspend fun saveSelectedFavoriteGroup(group: String)
+    fun observeSelectedFavoriteGroup(): Flow<String?>
     suspend fun getFavoriteMessageGroups(): Map<Int, String>
     suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>)
     fun observeFavoriteMessageGroups(): Flow<Map<Int, String>>

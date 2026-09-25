@@ -186,6 +186,7 @@ fun ChatScreen(
     val indexStates by chatViewModel.indexStates.collectAsStateWithLifecycle()
     val loadingStates by chatViewModel.loadingStates.collectAsStateWithLifecycle()
     val disabledPlatformUids by chatViewModel.disabledPlatformUids.collectAsStateWithLifecycle()
+    val activePlatformUids by chatViewModel.activePlatformUids.collectAsStateWithLifecycle()
     val isChatTitleDialogOpen by chatViewModel.isChatTitleDialogOpen.collectAsStateWithLifecycle()
     val isChatModelDialogOpen by chatViewModel.isChatModelDialogOpen.collectAsStateWithLifecycle()
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
@@ -466,9 +467,8 @@ fun ChatScreen(
         }
 
         if (isChatModelDialogOpen) {
-            val platformNames = chatViewModel.enabledPlatformsInChat.associateWith { uid ->
-                appAllPlatforms.find { it.uid == uid }?.name ?: stringResource(R.string.unknown)
-            }
+            val dialogPlatformOrder = appAllPlatforms.filter { it.enabled }.map { it.uid }
+            val platformNames = appAllPlatforms.associate { it.uid to it.name }
             val locationToolIds = availableChatTools.filter { tool ->
                 val searchable = (tool.name + " " + tool.description + " " + tool.source).lowercase()
                 "location" in searchable || "maps" in searchable || "geolocation" in searchable
@@ -483,14 +483,15 @@ fun ChatScreen(
                     "exa" in searchable
             }.map { it.id }
             val initialCreativity = appAllPlatforms
-                .filter { it.uid in chatViewModel.enabledPlatformsInChat }
+                .filter { it.uid in activePlatformUids }
                 .mapNotNull { it.temperature }
                 .average()
                 .takeIf { !it.isNaN() }
                 ?.toFloat()
                 ?: 0.5f
             ChatModelDialog(
-                platformOrder = chatViewModel.enabledPlatformsInChat,
+                platformOrder = dialogPlatformOrder,
+                activePlatformUids = activePlatformUids.toSet(),
                 initialModels = chatPlatformModels,
                 platformNames = platformNames,
                 platformClientTypes = appAllPlatforms.associate { it.uid to it.compatibleType },
@@ -504,10 +505,7 @@ fun ChatScreen(
                 locationToolsAvailable = locationToolIds.isNotEmpty(),
                 webSearchToolsAvailable = webSearchToolIds.isNotEmpty(),
                 disabledPlatformUids = disabledPlatformUids,
-                onPlatformActiveChanged = { uid, active ->
-                    val currentlyActive = uid !in disabledPlatformUids
-                    if (currentlyActive != active) chatViewModel.togglePlatformDisabled(uid)
-                },
+                onPlatformActiveChanged = chatViewModel::setPlatformMembership,
                 onLocationToolsChanged = { enabled ->
                     chatViewModel.setChatToolsEnabled(locationToolIds, enabled)
                 },

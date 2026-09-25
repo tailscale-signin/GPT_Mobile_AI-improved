@@ -86,6 +86,18 @@ interface AgentRunDao {
     @Query("UPDATE agent_runs SET gateway_last_sequence = :sequence WHERE run_id = :runId AND gateway_last_sequence < :sequence")
     suspend fun advanceGatewaySequence(runId: String, sequence: Int): Int
 
+    @Query(
+        "UPDATE agent_runs SET input_tokens = COALESCE(:inputTokens, input_tokens), " +
+            "output_tokens = COALESCE(:outputTokens, output_tokens), " +
+            "total_tokens = COALESCE(:totalTokens, total_tokens) WHERE run_id = :runId"
+    )
+    suspend fun updateUsage(
+        runId: String,
+        inputTokens: Int?,
+        outputTokens: Int?,
+        totalTokens: Int?
+    ): Int
+
     @Query("SELECT * FROM agent_runs WHERE gateway_job_id IS NOT NULL AND status IN ('QUEUED', 'RUNNING', 'INTERRUPTED')")
     suspend fun getRecoverableGatewayRuns(): List<AgentRun>
 }

@@ -237,6 +237,8 @@ private fun LocationToolMapPreview(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val disposed = remember(coordinates) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val mapView = remember(context, coordinates) {
+        // MapLibre requires initialization before constructing any MapView.
+        org.maplibre.android.MapLibre.getInstance(context)
         MapView(context).apply {
             onCreate(null)
             getMapAsync { map ->

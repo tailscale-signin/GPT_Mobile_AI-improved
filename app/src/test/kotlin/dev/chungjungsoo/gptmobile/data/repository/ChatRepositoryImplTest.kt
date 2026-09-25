@@ -234,7 +234,10 @@ class ChatRepositoryImplTest {
             states
         )
         assertEquals(1, runtime.sendMessageCalls.size)
-        assertEquals(listOf("current_date"), runtime.createConversationCalls.single().tools.map { it.name })
+        assertEquals(
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            runtime.createConversationCalls.single().tools.map { it.name }.sorted()
+        )
         assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
         val event = traceDao.events.single()
         assertEquals("run-local-tool", event.runId)
@@ -563,7 +566,7 @@ class ChatRepositoryImplTest {
             states
         )
         assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
             openAIAPI.requests.first().tools!!.map { it.function.name }.sorted()
         )
         assertEquals("call_exact", openAIAPI.requests.last().messages.takeLast(2).first().toolCalls!!.single().id)

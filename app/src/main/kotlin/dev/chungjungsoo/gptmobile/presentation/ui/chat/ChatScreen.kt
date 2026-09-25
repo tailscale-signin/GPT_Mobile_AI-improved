@@ -442,7 +442,7 @@ fun ChatScreen(
             ChatInputBox(
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
-                sendButtonEnabled = true,
+                sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
                 isRunning = !isIdle,
                 selectedAttachments = selectedAttachments,
                 onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },

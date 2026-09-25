@@ -55,13 +55,14 @@ class SettingRepositorySecretMigrationTest {
         assertTrue(p1?.secretRef?.isNotBlank() == true)
         assertEquals("legacy-token-1", secretVault.read(p1!!.secretRef!!)?.decodeToString())
 
-        assertEquals("legacy-token-2", p2?.token)
+        assertNull(p2?.token)
+        assertEquals("legacy-token-2", secretVault.read("existing-ref")?.decodeToString())
         assertEquals("existing-ref", p2?.secretRef)
 
         assertNull(settingDataSource.getToken(ApiType.OPENAI))
         assertNull(settingDataSource.getToken(ApiType.ANTHROPIC))
-        assertEquals("legacy-openai-token", secretVault.read("setting_token_OPENAI")?.decodeToString())
-        assertEquals("legacy-claude-token", secretVault.read("setting_token_ANTHROPIC")?.decodeToString())
+        assertEquals("legacy-openai-token", secretVault.read("legacy_openai")?.decodeToString())
+        assertEquals("legacy-claude-token", secretVault.read("legacy_anthropic")?.decodeToString())
     }
 
     @Test
@@ -89,7 +90,8 @@ class SettingRepositorySecretMigrationTest {
         val p1 = platformDao.getPlatform(1)
         assertEquals("legacy-token-1", p1?.token)
         assertNull(p1?.secretRef)
-        assertTrue(secretVault.values.isEmpty())
+        // A failed database edit keeps both the plaintext reference and its verified vault copy for retry.
+        assertEquals("legacy-token-1", secretVault.read("room_profile_1")?.decodeToString())
     }
 
     @Test

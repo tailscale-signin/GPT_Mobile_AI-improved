@@ -106,8 +106,6 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.plugins.annotation.SymbolManager
-import org.maplibre.android.plugins.annotation.SymbolOptions
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
@@ -224,17 +222,7 @@ private fun LocationToolMapPreview(
                                 .target(LatLng(latitude, longitude))
                                 .zoom(15.0)
                                 .build()
-                            map.setStyle(Style.Builder().fromUri(MAPLIBRE_DEMO_STYLE)) { style ->
-                                val symbolManager = SymbolManager(view, map, style).apply {
-                                    iconAllowOverlap = true
-                                    textAllowOverlap = true
-                                }
-                                symbolManager.create(
-                                    SymbolOptions()
-                                        .withLatLng(LatLng(latitude, longitude))
-                                        .withIconImage(MAPLIBRE_MARKER_ICON)
-                                )
-                            }
+                            map.setStyle(Style.Builder().fromUri(MAPLIBRE_DEMO_STYLE))
                         }
                     }
                 },
@@ -280,7 +268,6 @@ private fun LocationToolMapPreview(
 }
 
 private const val MAPLIBRE_DEMO_STYLE = "https://demotiles.maplibre.org/style.json"
-private const val MAPLIBRE_MARKER_ICON = "marker-15"
 
 private fun extractLocationCoordinates(result: String): Pair<Double, Double>? {
     val latitude = Regex("""["']?latitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)

@@ -70,6 +70,8 @@ fun ChatModelDialog(
     initialCreativity: Float = 0.5f,
     locationToolsEnabled: Boolean = false,
     webSearchToolsEnabled: Boolean = false,
+    locationToolsAvailable: Boolean = true,
+    webSearchToolsAvailable: Boolean = true,
     disabledPlatformUids: Set<String> = emptySet(),
     onPlatformActiveChanged: (String, Boolean) -> Unit = { _, _ -> },
     onLocationToolsChanged: (Boolean) -> Unit = {},
@@ -114,11 +116,19 @@ fun ChatModelDialog(
                 )
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Location tools", modifier = Modifier.weight(1f))
-                    Switch(checked = locationToolsEnabled, onCheckedChange = onLocationToolsChanged)
+                    Switch(
+                        checked = locationToolsEnabled,
+                        enabled = locationToolsAvailable,
+                        onCheckedChange = onLocationToolsChanged
+                    )
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Web search tools", modifier = Modifier.weight(1f))
-                    Switch(checked = webSearchToolsEnabled, onCheckedChange = onWebSearchToolsChanged)
+                    Switch(
+                        checked = webSearchToolsEnabled,
+                        enabled = webSearchToolsAvailable,
+                        onCheckedChange = onWebSearchToolsChanged
+                    )
                 }
                 Text(
                     text = "Models in this conversation",

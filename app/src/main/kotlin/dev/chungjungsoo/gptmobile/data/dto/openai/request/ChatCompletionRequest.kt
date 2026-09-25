@@ -22,6 +22,10 @@ data class ChatCompletionRequest(
     @SerialName("stream")
     val stream: Boolean = true,
 
+    @SerialName("stream_options")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val streamOptions: ChatStreamOptions? = ChatStreamOptions(),
+
     @SerialName("temperature")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val temperature: Float? = null,
@@ -97,6 +101,12 @@ data class ChatCompletionRequest(
     @SerialName("options")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val options: OllamaOptions? = null
+)
+
+@Serializable
+data class ChatStreamOptions(
+    @SerialName("include_usage")
+    val includeUsage: Boolean = true
 )
 
 @Serializable

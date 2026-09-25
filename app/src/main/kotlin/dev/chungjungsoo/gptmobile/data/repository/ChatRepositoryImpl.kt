@@ -3,12 +3,12 @@ package dev.chungjungsoo.gptmobile.data.repository
 import android.content.Context
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
-import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.agentRunnerForPlatform
+import dev.chungjungsoo.gptmobile.data.agent.liveToolSystemPrompt
 import dev.chungjungsoo.gptmobile.data.agent.provider.AnthropicMessagesAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.GeminiAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
@@ -151,19 +151,22 @@ class ChatRepositoryImpl(
             } else {
                 agentToolResolver.resolve(platform.uid, chatToolConfig)
             }
+            val requestPlatform = platform.copy(
+                systemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName })
+            )
             val session = when (platform.compatibleType) {
-                ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, platform)
+                ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, requestPlatform)
 
                 ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA ->
-                    openAICompatibleAdapter.openSession(contextTurns, platform)
+                    openAICompatibleAdapter.openSession(contextTurns, requestPlatform)
 
-                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextTurns, platform)
+                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextTurns, requestPlatform)
 
-                ClientType.GOOGLE -> geminiAdapter.openSession(contextTurns, platform)
+                ClientType.GOOGLE -> geminiAdapter.openSession(contextTurns, requestPlatform)
 
                 ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
                     contextTurns,
-                    platform,
+                    requestPlatform,
                     resolvedTools.map { it.tool }
                 )
             }
@@ -694,14 +697,15 @@ private class ToolTraceSession(
                 val eventId = gatewayEventIds.remove(callId) ?: return null
                 val isError =
                     eventName == "tool_failed" ||
-                    eventName == "tool_blocked" ||
-                    progress.status.equals("failed", ignoreCase = true) ||
-                    progress.status.equals("blocked", ignoreCase = true)
+                        eventName == "tool_blocked" ||
+                        progress.status.equals("failed", ignoreCase = true) ||
+                        progress.status.equals("blocked", ignoreCase = true)
 
-                val isEmptyResult = !isError && (
-                    progress.resultQuality.equals("empty", ignoreCase = true) ||
-                    progress.status.equals("no_useful_result", ignoreCase = true)
-                )
+                val isEmptyResult = !isError &&
+                    (
+                        progress.resultQuality.equals("empty", ignoreCase = true) ||
+                            progress.status.equals("no_useful_result", ignoreCase = true)
+                        )
 
                 val resultText = buildString {
                     if (isEmptyResult) {
@@ -750,9 +754,7 @@ private class ToolTraceSession(
     }
 }
 
-private fun GatewayProgress.timestampEpochSeconds(): Long {
-    return (timestamp ?: (System.currentTimeMillis() / 1000.0)).toLong()
-}
+private fun GatewayProgress.timestampEpochSeconds(): Long = (timestamp ?: (System.currentTimeMillis() / 1000.0)).toLong()
 
 private fun AgentToolResult.errorMessage(): String? {
     if (!isError) return null

@@ -8,7 +8,6 @@ import dev.chungjungsoo.gptmobile.data.mcp.model.McpToolDefinition
 import dev.chungjungsoo.gptmobile.data.mcp.model.McpToolResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Central registry of all available MCP tools with metadata and execution capabilities.
@@ -37,9 +36,7 @@ class McpToolRegistry(
     /**
      * Get tools by category.
      */
-    fun getToolsByCategory(category: String): List<McpToolDefinition> {
-        return tools.filter { it.category == category }
-    }
+    fun getToolsByCategory(category: String): List<McpToolDefinition> = tools.filter { it.category == category }
 
     /**
      * Search tools by name, description, or parameter.
@@ -48,17 +45,15 @@ class McpToolRegistry(
         val lowerQuery = query.lowercase()
         return tools.filter {
             it.name.contains(lowerQuery) ||
-                    it.description.contains(lowerQuery) ||
-                    it.parameters.any { p -> p.name.contains(lowerQuery) }
+                it.description.contains(lowerQuery) ||
+                it.parameters.any { p -> p.name.contains(lowerQuery) }
         }
     }
 
     /**
      * Get a tool by name.
      */
-    fun getToolByName(name: String): McpToolDefinition? {
-        return tools.find { it.name == name }
-    }
+    fun getToolByName(name: String): McpToolDefinition? = tools.find { it.name == name }
 
     /**
      * Execute a tool by name.
@@ -165,39 +160,11 @@ class McpToolRegistry(
                 category = McpToolCategory.TRANSLATION.name
             ),
 
-            // Location Tools
+            // Native location metadata; execution is owned by AgentToolResolver.
             McpToolDefinition(
-                name = "get_current_location",
-                description = "Get current GPS coordinates (latitude, longitude, altitude, accuracy)",
+                name = "device_location",
+                description = "Get current Android device coordinates after profile opt-in and Android location permission",
                 parameters = emptyList(),
-                category = McpToolCategory.LOCATION.name
-            ),
-            McpToolDefinition(
-                name = "reverse_geocode",
-                description = "Convert latitude/longitude coordinates to a human-readable address",
-                parameters = listOf(
-                    McpParameter(name = "latitude", type = "number", description = "Latitude coordinate (-90 to 90)", required = true),
-                    McpParameter(name = "longitude", type = "number", description = "Longitude coordinate (-180 to 180)", required = true)
-                ),
-                category = McpToolCategory.LOCATION.name
-            ),
-            McpToolDefinition(
-                name = "geocode_address",
-                description = "Convert a street address or place name to GPS coordinates",
-                parameters = listOf(
-                    McpParameter(name = "address", type = "string", description = "Address or place name to geocode", required = true)
-                ),
-                category = McpToolCategory.LOCATION.name
-            ),
-            McpToolDefinition(
-                name = "calculate_distance",
-                description = "Calculate the great-circle distance between two geographic coordinates using the Haversine formula",
-                parameters = listOf(
-                    McpParameter(name = "lat1", type = "number", description = "Latitude of point 1", required = true),
-                    McpParameter(name = "lon1", type = "number", description = "Longitude of point 1", required = true),
-                    McpParameter(name = "lat2", type = "number", description = "Latitude of point 2", required = true),
-                    McpParameter(name = "lon2", type = "number", description = "Longitude of point 2", required = true)
-                ),
                 category = McpToolCategory.LOCATION.name
             )
         )

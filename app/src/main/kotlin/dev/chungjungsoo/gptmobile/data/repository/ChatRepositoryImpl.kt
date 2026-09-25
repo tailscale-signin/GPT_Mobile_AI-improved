@@ -189,6 +189,12 @@ class ChatRepositoryImpl(
             var providerToolFailures = 0
             var providerThinkingSeen = false
             var providerTextSeen = false
+            var accumulatedInputTokens = 0L
+            var accumulatedOutputTokens = 0L
+            var accumulatedTotalTokens = 0L
+            var hasInputTokenUsage = false
+            var hasOutputTokenUsage = false
+            var hasTotalTokenUsage = false
             val providerRoute = platform.compatibleType.name.lowercase()
 
             fun providerProgress(
@@ -270,11 +276,23 @@ class ChatRepositoryImpl(
                         is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
 
                         is ProviderEvent.Usage -> {
+                            providerEvent.inputTokens?.let {
+                                accumulatedInputTokens += it
+                                hasInputTokenUsage = true
+                            }
+                            providerEvent.outputTokens?.let {
+                                accumulatedOutputTokens += it
+                                hasOutputTokenUsage = true
+                            }
+                            providerEvent.totalTokens?.let {
+                                accumulatedTotalTokens += it
+                                hasTotalTokenUsage = true
+                            }
                             agentRunDao.updateUsage(
                                 runId = runId,
-                                inputTokens = providerEvent.inputTokens,
-                                outputTokens = providerEvent.outputTokens,
-                                totalTokens = providerEvent.totalTokens
+                                inputTokens = if (hasInputTokenUsage) accumulatedInputTokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null,
+                                outputTokens = if (hasOutputTokenUsage) accumulatedOutputTokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null,
+                                totalTokens = if (hasTotalTokenUsage) accumulatedTotalTokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null
                             )
                         }
 

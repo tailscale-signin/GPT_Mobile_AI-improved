@@ -260,8 +260,8 @@ class HomeViewModel @Inject constructor(
         if (_selectedFavoriteGroup.value == groupName) {
             _selectedFavoriteGroup.value = GROUP_ALL
         }
+        persistFavoriteGroups(updatedGroups)
         viewModelScope.launch {
-            settingRepository.saveFavoriteGroups(updatedGroups.filter { it != GROUP_ALL } + FAVORITE_GROUPS_INITIALIZED)
             settingRepository.saveFavoriteMessageGroups(updatedMappings)
         }
     }

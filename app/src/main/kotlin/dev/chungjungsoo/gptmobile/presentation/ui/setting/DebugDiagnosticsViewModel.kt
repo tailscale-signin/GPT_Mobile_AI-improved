@@ -24,7 +24,10 @@ data class DebugAnalyticsState(
     val completedToolCalls: Int = 0,
     val failedToolCalls: Int = 0,
     val averageRunDurationMs: Long? = null,
-    val averageToolDurationMs: Long? = null
+    val averageToolDurationMs: Long? = null,
+    val modelUsage: List<Pair<String, Int>> = emptyList(),
+    val providerUsage: List<Pair<String, Int>> = emptyList(),
+    val profileUsage: List<Pair<String, Int>> = emptyList()
 )
 
 @HiltViewModel
@@ -49,6 +52,12 @@ class DebugDiagnosticsViewModel @Inject constructor(
                 val end = run.completedAt ?: return@mapNotNull null
                 ((end - start) * 1000L).coerceAtLeast(0L)
             }.takeIf { it.isNotEmpty() }?.average()?.toLong(),
+            modelUsage = runs.groupingBy { it.modelSnapshot.ifBlank { "Unknown model" } }
+                .eachCount().entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
+            providerUsage = runs.groupingBy { it.providerSnapshot.ifBlank { "Unknown provider" } }
+                .eachCount().entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
+            profileUsage = runs.groupingBy { it.profileUid.ifBlank { "Unknown profile" } }
+                .eachCount().entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
             averageToolDurationMs = tools.mapNotNull { event ->
                 val start = event.startedAt ?: return@mapNotNull null
                 val end = event.completedAt ?: return@mapNotNull null

@@ -438,6 +438,21 @@ class ChatViewModel @Inject constructor(
 
     fun generateDefaultChatTitle(): String? = chatRepository.generateDefaultChatTitle(_groupedMessages.value.userMessages)
 
+    fun updateChatCreativity(temperature: Float) {
+        val clamped = temperature.coerceIn(0f, 2f)
+        val targetUids = enabledPlatformsInChat.toSet()
+        _platformsInApp.update { platforms ->
+            platforms.map { platform ->
+                if (platform.uid in targetUids) platform.copy(temperature = clamped) else platform
+            }
+        }
+        viewModelScope.launch {
+            _platformsInApp.value
+                .filter { it.uid in targetUids }
+                .forEach { settingRepository.updatePlatformV2(it) }
+        }
+    }
+
     fun updateChatPlatformModels(models: Map<String, String>) {
         val sanitizedModels = models
             .filterKeys { it in enabledPlatformsInChat }

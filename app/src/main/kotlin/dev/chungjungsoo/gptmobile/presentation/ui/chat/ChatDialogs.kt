@@ -357,7 +357,7 @@ fun UserMessageEditDialog(
                 )
                 AttachmentEditorSection(
                     attachments = attachments,
-                    onAttachFileClick = { filePickerLauncher.launch("image/*") },
+                    onAttachFileClick = { filePickerLauncher.launch("*/*") },
                     onFileRemoved = onFileRemoved
                 )
             }

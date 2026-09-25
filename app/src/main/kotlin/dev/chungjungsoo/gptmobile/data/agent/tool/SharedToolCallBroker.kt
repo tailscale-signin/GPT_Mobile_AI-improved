@@ -10,6 +10,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Shares identical read-only tool executions across concurrent AI runs handling
@@ -27,8 +28,8 @@ class SharedToolCallBroker(
     )
 
     private data class Entry(
-        val createdAtMillis: Long,
-        val result: CompletableDeferred<AgentToolResult>
+        val result: CompletableDeferred<AgentToolResult>,
+        @Volatile var completedAtMillis: Long? = null
     )
 
     private val entries = ConcurrentHashMap<Key, Entry>()
@@ -69,13 +70,15 @@ class SharedToolCallBroker(
             val now = nowMillis()
             purgeExpired(now)
 
-            val candidate = Entry(now, CompletableDeferred())
+            val candidate = Entry(CompletableDeferred())
             val existing = entries.putIfAbsent(key, candidate)
 
             if (existing == null) {
                 try {
                     val result = execute()
+                    candidate.completedAtMillis = nowMillis()
                     candidate.result.complete(result)
+                    if (result.isError) entries.remove(key, candidate)
                     return result
                 } catch (cancellation: CancellationException) {
                     entries.remove(key, candidate)
@@ -88,7 +91,7 @@ class SharedToolCallBroker(
                 }
             }
 
-            if (now - existing.createdAtMillis > ttlMillis && entries.remove(key, existing)) {
+            if (existing.isExpired(now) && entries.remove(key, existing)) {
                 continue
             }
 
@@ -103,16 +106,20 @@ class SharedToolCallBroker(
 
     private fun purgeExpired(now: Long) {
         entries.entries.removeIf { (_, entry) ->
-            now - entry.createdAtMillis > ttlMillis && entry.result.isCompleted
+            entry.isExpired(now)
         }
     }
 
+    private fun Entry.isExpired(now: Long): Boolean =
+        result.isCompleted && completedAtMillis?.let { now - it >= ttlMillis } == true
+
     private fun canonicalJson(element: JsonElement): String = when (element) {
-        is JsonObject -> element.entries
-            .sortedBy { it.key }
-            .joinToString(prefix = "{", postfix = "}", separator = ",") { (key, value) ->
-                "${quote(key)}:${canonicalJson(value)}"
-            }
+        is JsonObject ->
+            element.entries
+                .sortedBy { it.key }
+                .joinToString(prefix = "{", postfix = "}", separator = ",") { (key, value) ->
+                    "${quote(key)}:${canonicalJson(value)}"
+                }
 
         is JsonArray -> element.joinToString(prefix = "[", postfix = "]", separator = ",") { value ->
             canonicalJson(value)
@@ -120,20 +127,7 @@ class SharedToolCallBroker(
         else -> element.toString()
     }
 
-    private fun quote(value: String): String = buildString {
-        append('"')
-        value.forEach { char ->
-            when (char) {
-                '\\' -> append("\\\\")
-                '"' -> append("\\"")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> append(char)
-            }
-        }
-        append('"')
-    }
+    private fun quote(value: String): String = JsonPrimitive(value).toString()
 
     private companion object {
         const val DEFAULT_TTL_MILLIS = 30_000L

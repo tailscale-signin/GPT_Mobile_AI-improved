@@ -196,6 +196,8 @@ fun ChatScreen(
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
+    val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
+    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
@@ -467,6 +469,21 @@ fun ChatScreen(
             val platformNames = chatViewModel.enabledPlatformsInChat.associateWith { uid ->
                 appAllPlatforms.find { it.uid == uid }?.name ?: stringResource(R.string.unknown)
             }
+            val locationToolIds = availableChatTools.filter { tool ->
+                val searchable = (tool.name + " " + tool.description).lowercase()
+                "location" in searchable || "maps" in searchable || "geolocation" in searchable
+            }.map { it.id }
+            val webSearchToolIds = availableChatTools.filter { tool ->
+                val searchable = (tool.name + " " + tool.description).lowercase()
+                "web search" in searchable || "web-search" in searchable || "search web" in searchable
+            }.map { it.id }
+            val initialCreativity = appAllPlatforms
+                .filter { it.uid in chatViewModel.enabledPlatformsInChat }
+                .mapNotNull { it.temperature }
+                .average()
+                .takeIf { !it.isNaN() }
+                ?.toFloat()
+                ?: 0.5f
             ChatModelDialog(
                 platformOrder = chatViewModel.enabledPlatformsInChat,
                 initialModels = chatPlatformModels,
@@ -474,10 +491,26 @@ fun ChatScreen(
                 platformClientTypes = appAllPlatforms.associate { it.uid to it.compatibleType },
                 platformApiUrls = appAllPlatforms.associate { it.uid to it.apiUrl },
                 downloadedLocalModels = downloadedLocalModels,
+                initialCreativity = initialCreativity,
+                locationToolsEnabled = locationToolIds.isNotEmpty() &&
+                    locationToolIds.any(chatToolConfig::isToolEnabled),
+                webSearchToolsEnabled = webSearchToolIds.isNotEmpty() &&
+                    webSearchToolIds.any(chatToolConfig::isToolEnabled),
+                onLocationToolsChanged = { enabled ->
+                    locationToolIds.forEach { id ->
+                        if (chatToolConfig.isToolEnabled(id) != enabled) chatViewModel.toggleChatTool(id)
+                    }
+                },
+                onWebSearchToolsChanged = { enabled ->
+                    webSearchToolIds.forEach { id ->
+                        if (chatToolConfig.isToolEnabled(id) != enabled) chatViewModel.toggleChatTool(id)
+                    }
+                },
                 onNavigateToLocalModels = onNavigateToLocalModels,
                 onDismissRequest = chatViewModel::closeChatModelDialog,
-                onConfirmRequest = { models ->
+                onConfirmRequest = { models, creativity ->
                     chatViewModel.updateChatPlatformModels(models)
+                    chatViewModel.updateChatCreativity(creativity)
                     chatViewModel.closeChatModelDialog()
                 }
             )

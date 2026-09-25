@@ -23,6 +23,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,6 +80,10 @@ fun ChatModelDialog(
 
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
+    var modelSearch by rememberSaveable { mutableStateOf("") }
+    var creativity by rememberSaveable { mutableStateOf(0.5f) }
+    var locationToolsEnabled by rememberSaveable { mutableStateOf(true) }
+    var webSearchToolsEnabled by rememberSaveable { mutableStateOf(true) }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -87,11 +93,38 @@ fun ChatModelDialog(
         title = { Text(text = stringResource(R.string.chat_models)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    text = stringResource(R.string.chat_models_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                OutlinedTextField(
+                    value = modelSearch,
+                    onValueChange = { modelSearch = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    label = { Text("Search models") },
+                    singleLine = true
                 )
-                platformOrder.forEach { platformUid ->
+                Text("Creativity", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                Slider(
+                    value = creativity,
+                    onValueChange = { creativity = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Location tools", modifier = Modifier.weight(1f))
+                    Switch(checked = locationToolsEnabled, onCheckedChange = { locationToolsEnabled = it })
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Web search tools", modifier = Modifier.weight(1f))
+                    Switch(checked = webSearchToolsEnabled, onCheckedChange = { webSearchToolsEnabled = it })
+                }
+                Text(
+                    text = "Models in this conversation",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                )
+                platformOrder.filter { uid ->
+                    modelSearch.isBlank() ||
+                        platformNames[uid].orEmpty().contains(modelSearch, ignoreCase = true) ||
+                        models[uid].orEmpty().contains(modelSearch, ignoreCase = true)
+                }.forEach { platformUid ->
                     val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
                     val clientType = platformClientTypes[platformUid]
 

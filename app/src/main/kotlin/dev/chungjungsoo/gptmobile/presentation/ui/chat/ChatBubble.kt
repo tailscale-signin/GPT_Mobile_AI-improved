@@ -100,6 +100,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
@@ -1205,25 +1206,22 @@ fun PlatformButton(
                 awaitPointerEventScope {
                     while (true) {
                         awaitFirstDown(requireUnconsumed = false)
-                        val downTime = System.currentTimeMillis()
-                        var released = false
-                        var elapsed = 0L
-                        while (elapsed < 1000L) {
-                            val event = awaitPointerEvent()
-                            if (event.changes.any { !it.pressed }) {
-                                released = true
-                                break
+                        val releasedBeforeLongPress = withTimeoutOrNull(1000L) {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.any { !it.pressed }) return@withTimeoutOrNull true
                             }
-                            elapsed = System.currentTimeMillis() - downTime
+                            @Suppress("UNREACHABLE_CODE")
+                            false
                         }
-                        if (!released && elapsed >= 1000L) {
+                        if (releasedBeforeLongPress == null) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onPlatformLongPress()
                             while (true) {
                                 val event = awaitPointerEvent()
                                 if (event.changes.all { !it.pressed }) break
                             }
-                        } else if (released) {
+                        } else {
                             onPlatformClick()
                         }
                     }

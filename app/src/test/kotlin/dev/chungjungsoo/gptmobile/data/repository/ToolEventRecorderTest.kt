@@ -360,6 +360,12 @@ private class FakeAgentRunDao : AgentRunDao {
         outputTokens: Int?,
         totalTokens: Int?
     ): Int = 0
+    override suspend fun updateUsage(
+        runId: String,
+        inputTokens: Int?,
+        outputTokens: Int?,
+        totalTokens: Int?
+    ): Int = 0
     override suspend fun getRecoverableGatewayRuns(): List<AgentRun> = emptyList()
 }
 

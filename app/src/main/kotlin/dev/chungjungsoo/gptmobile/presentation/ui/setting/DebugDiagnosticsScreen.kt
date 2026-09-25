@@ -150,19 +150,19 @@ fun DebugDiagnosticsScreen(
 
             item {
                 DiagnosticsPanelCard("Model usage", Icons.Default.Speed) {
-                    UsageBars(analytics.modelUsage)
+                    usageBars(analytics.modelUsage)
                 }
             }
 
             item {
                 DiagnosticsPanelCard("Provider usage", Icons.Default.Memory) {
-                    UsageBars(analytics.providerUsage)
+                    usageBars(analytics.providerUsage)
                 }
             }
 
             item {
                 DiagnosticsPanelCard("AI profile usage", Icons.Default.BugReport) {
-                    UsageBars(analytics.profileUsage)
+                    usageBars(analytics.profileUsage)
                 }
             }
 
@@ -179,13 +179,13 @@ fun DebugDiagnosticsScreen(
 
             item {
                 DiagnosticsPanelCard("Tokens by model", Icons.Default.Speed) {
-                    TokenUsageBars(analytics.modelTokenUsage)
+                    TokenusageBars(analytics.modelTokenUsage)
                 }
             }
 
             item {
                 DiagnosticsPanelCard("Tokens by AI profile", Icons.Default.BugReport) {
-                    TokenUsageBars(analytics.profileTokenUsage)
+                    TokenusageBars(analytics.profileTokenUsage)
                 }
             }
 
@@ -341,7 +341,7 @@ private fun DiagnosticsLine(label: String, value: String) {
 }
 
 @Composable
-private fun TokenUsageBars(values: List<Pair<String, Long>>) {
+private fun TokenusageBars(values: List<Pair<String, Long>>) {
     if (values.isEmpty()) {
         Text("No provider token usage reported yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
@@ -367,7 +367,8 @@ private fun formatTokenCount(tokens: Long): String = when {
     else -> tokens.toString()
 }
 
-private fun UsageBars(values: List<Pair<String, Int>>) {
+@Composable
+private fun usageBars(values: List<Pair<String, Int>>) {
     if (values.isEmpty()) {
         Text("No usage data yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
         return

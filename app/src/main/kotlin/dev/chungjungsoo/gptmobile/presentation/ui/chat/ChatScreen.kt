@@ -475,8 +475,12 @@ fun ChatScreen(
             }.map { it.id }
             val webSearchToolIds = availableChatTools.filter { tool ->
                 val searchable = (tool.name + " " + tool.description + " " + tool.source).lowercase()
-                "web search" in searchable || "web-search" in searchable || "search web" in searchable ||
-                    "firecrawl" in searchable || "perplexity" in searchable || "exa" in searchable
+                "web search" in searchable ||
+                    "web-search" in searchable ||
+                    "search web" in searchable ||
+                    "firecrawl" in searchable ||
+                    "perplexity" in searchable ||
+                    "exa" in searchable
             }.map { it.id }
             val initialCreativity = appAllPlatforms
                 .filter { it.uid in chatViewModel.enabledPlatformsInChat }

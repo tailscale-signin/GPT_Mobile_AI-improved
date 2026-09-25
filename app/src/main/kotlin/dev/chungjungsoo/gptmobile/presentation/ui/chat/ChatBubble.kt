@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.content.Intent
 import android.net.Uri
-
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState

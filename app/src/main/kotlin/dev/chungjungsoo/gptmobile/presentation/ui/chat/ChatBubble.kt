@@ -308,38 +308,11 @@ private fun GatewayActivityBar(
             it.connectionUidSnapshot?.startsWith("gateway:", ignoreCase = true) == true
         }
     }
-
-    val running = gatewayEvents.count { it.status == ToolEventStatus.RUNNING }
-    val completed = gatewayEvents.count { it.status == ToolEventStatus.COMPLETED }
-    val failed = gatewayEvents.count { it.status == ToolEventStatus.FAILED }
-
     val latestRunning = gatewayEvents
         .filter { it.status == ToolEventStatus.RUNNING }
         .maxByOrNull { it.sequence }
-
-    val title = if (gatewayEvents.isEmpty()) {
-        "AI is working"
-    } else {
-        buildString {
-            append("Gateway working")
-            append(" • ")
-            append(completed)
-            append(" completed")
-            if (running > 0) {
-                append(" • ")
-                append(running)
-                append(" running")
-            }
-            if (failed > 0) {
-                append(" • ")
-                append(failed)
-                append(" failed")
-            }
-        }
-    }
-
     val detail = latestRunning?.let { event ->
-        val server = event.connectionNameSnapshot ?: "GATEWAY"
+        val server = event.connectionNameSnapshot ?: "Gateway"
         val tool = event.toolName
             .ifBlank { event.modelToolName }
             .substringAfterLast("__")
@@ -351,49 +324,27 @@ private fun GatewayActivityBar(
         "Preparing model, memory, and tools…"
     }
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color.Transparent
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f)
-                )
-                if (gatewayEvents.isNotEmpty()) {
-                    Text(
-                        text = "GATEWAY",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // Indeterminate is intentional: the gateway knows whether work
-            // is progressing, but not the future number of model/tool steps.
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(Modifier.height(6.dp))
-
+        Icon(
+            imageVector = Icons.Default.AutoAwesome,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = detail,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
     }
 }

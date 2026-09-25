@@ -470,12 +470,13 @@ fun ChatScreen(
                 appAllPlatforms.find { it.uid == uid }?.name ?: stringResource(R.string.unknown)
             }
             val locationToolIds = availableChatTools.filter { tool ->
-                val searchable = (tool.name + " " + tool.description).lowercase()
+                val searchable = (tool.name + " " + tool.description + " " + tool.source).lowercase()
                 "location" in searchable || "maps" in searchable || "geolocation" in searchable
             }.map { it.id }
             val webSearchToolIds = availableChatTools.filter { tool ->
-                val searchable = (tool.name + " " + tool.description).lowercase()
-                "web search" in searchable || "web-search" in searchable || "search web" in searchable
+                val searchable = (tool.name + " " + tool.description + " " + tool.source).lowercase()
+                "web search" in searchable || "web-search" in searchable || "search web" in searchable ||
+                    "firecrawl" in searchable || "perplexity" in searchable || "exa" in searchable
             }.map { it.id }
             val initialCreativity = appAllPlatforms
                 .filter { it.uid in chatViewModel.enabledPlatformsInChat }

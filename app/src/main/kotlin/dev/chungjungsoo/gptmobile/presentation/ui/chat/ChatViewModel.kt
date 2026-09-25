@@ -382,6 +382,21 @@ class ChatViewModel @Inject constructor(
         if (enabled == disabled) toggleChatPlatformDisabled(platformUid)
     }
 
+    fun updateChatCreativity(value: Float) {
+        val normalized = value.coerceIn(0f, 2f)
+        val chatUids = enabledPlatformsInChat.toSet()
+        val updates = _platformsInApp.value
+            .filter { it.uid in chatUids }
+            .map { it.copy(temperature = normalized) }
+        if (updates.isEmpty()) return
+        val byUid = updates.associateBy { it.uid }
+        _platformsInApp.update { current -> current.map { byUid[it.uid] ?: it } }
+        _enabledPlatformsInApp.update { current -> current.map { byUid[it.uid] ?: it } }
+        viewModelScope.launch {
+            updates.forEach { settingRepository.updatePlatformV2(it) }
+        }
+    }
+
     fun openChatToolSheet() = _isChatToolSheetOpen.update { true }
     fun closeChatToolSheet() = _isChatToolSheetOpen.update { false }
 

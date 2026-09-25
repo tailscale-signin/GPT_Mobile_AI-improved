@@ -1,0 +1,187 @@
+{
+  "brave": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/brave.svg",
+    "brandSource": "https://brave.com/brave-branding-assets",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_brave.xml",
+    "sha256": "2ba588a29126bf8485a515c7ffe742701dbdb3ab1026d74ef8191903e33bc65a"
+  },
+  "stackoverflow": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/stackoverflow.svg",
+    "brandSource": "https://stackoverflow.design/brand/logo/",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_stackoverflow.xml",
+    "sha256": "f9d62466f8c9e51a11310b9390b86e8cb66a7e06758b776ccb5707710bd5f269"
+  },
+  "huggingface": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/huggingface.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_huggingface.xml",
+    "sha256": "06168bebcba9daa20f92077ec30263622b9559f351e0c563fa0a512ad0490c1d"
+  },
+  "netlify": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/netlify.svg",
+    "brandSource": "https://www.netlify.com/press/",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_netlify.xml",
+    "sha256": "94f4bfd66d171aefa64bd87df6ec8b182097e13eef4d04fea08f0f96c5c8f9f4"
+  },
+  "supabase": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/supabase.svg",
+    "brandSource": "https://github.com/supabase/supabase/blob/4031a7549f5d46da7bc79c01d56be4177dc7c114/packages/common/assets/images/supabase-logo-wordmark--light.svg",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_supabase.xml",
+    "sha256": "847e06251765b6c6eb882e00b5a68533e48015706db4507934499f1788dfe19b"
+  },
+  "airtable": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/airtable.svg",
+    "brandSource": "https://airtable.com/press",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_airtable.xml",
+    "sha256": "db3d62b561dd1a9ed3a579fb00ca6a18253fc08dc5b96f8138c2cb19ac9d29f8"
+  },
+  "prisma": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/prisma.svg",
+    "brandSource": "https://github.com/prisma/presskit/tree/4bcb64181f266723439d955d60afa1c55fefa715",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_prisma.xml",
+    "sha256": "f4ad089a9377829cf79852513e5ac131e1de5e935437c2b2d8e85b860a73f38c"
+  },
+  "slack": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/11.15.0/icons/slack.svg",
+    "brandSource": "https://slack.com/brand-guidelines",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_slack.xml",
+    "sha256": "d6e08d161948d2d894a7daaf535fcbe6d2d62ec997b5cd3e71db6742ae0dfb1c"
+  },
+  "asana": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/asana.svg",
+    "brandSource": "https://asana.com/brand",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_asana.xml",
+    "sha256": "820350f50bfcf9203414d6cd9ce837971c8247c81b47d58d0f9c1aea20d0bf7a"
+  },
+  "todoist": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/todoist.svg",
+    "brandSource": "https://doist.com/press",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_todoist.xml",
+    "sha256": "c4737b41d43c63936341a8352372b8784337acdb36df1af38ada9cda62c0c0bb"
+  },
+  "googledrive": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/googledrive.svg",
+    "brandSource": "https://developers.google.com/drive/web/branding",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_googledrive.xml",
+    "sha256": "fd91b0edfb89e843491456834d873d82668b52c03f9a28d428bc0b8d7e5e7a8b"
+  },
+  "googlesheets": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/googlesheets.svg",
+    "brandSource": "https://sheets.google.com",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_googlesheets.xml",
+    "sha256": "e5ba5188d9fea6f3716dcfc7df27672ef2b3bc7731234a21777fd4272eba3688"
+  },
+  "excalidraw": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/excalidraw.svg",
+    "brandSource": "https://excalidraw.com",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_excalidraw.xml",
+    "sha256": "a6e1975397f50f5e5d14bad46a62893cac9f4cc153457a40758ef7d96ea6dd97"
+  },
+  "microsoft": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/11.15.0/icons/microsoft.svg",
+    "brandSource": "https://developer.microsoft.com",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_microsoft.xml",
+    "sha256": "4b023fa688f53922f7acb26cf61195cfd855a30023cc0f2220ccc3f81e367892"
+  },
+  "cloudflare": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/cloudflare.svg",
+    "brandSource": "https://www.cloudflare.com/logo/",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_cloudflare.xml",
+    "sha256": "a1d1b2c84fbfe74867239d6ffec2db4f087ddca5fbc7933eda286e6b92799783"
+  },
+  "neon": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/neon.svg",
+    "brandSource": "",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_neon.xml",
+    "sha256": "c9522384de2b65f928dd8e2bf5cc437f9ec34d995c9395c454fb863517ca9d03"
+  },
+  "stripe": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/stripe.svg",
+    "brandSource": "https://stripe.com/about/resources",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_stripe.xml",
+    "sha256": "db33c60ddade96a82ae7f3ed4c729fc0ebb666754d3cf13e95e81d9d385c3725"
+  },
+  "mem0": {
+    "source": "https://raw.githubusercontent.com/mem0ai/mem0/main/docs/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_mem0.png",
+    "sha256": "3fce98034c829a3344b91d1e875f7cbd81cfb3aa22ad8bd67760e9206d2758b4"
+  },
+  "supermemory": {
+    "source": "https://raw.githubusercontent.com/supermemoryai/supermemory/main/apps/web/public/apple-touch-icon.png",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_supermemory.png",
+    "sha256": "7d188947043c216d0438d9bf9188e25d82b2e7daccb10afa39780cd592c50be3"
+  },
+  "mnemoverse": {
+    "source": "https://raw.githubusercontent.com/mnemoverse/mcp-memory-server/main/icon.png",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_mnemoverse.png",
+    "sha256": "180d6b9f54f353c5b446880d7b7e26a0f12f8b9534ecf3addbfed2555f941c77"
+  },
+  "deepwiki": {
+    "source": "https://deepwiki.com/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_deepwiki.png",
+    "sha256": "0fc79e46b2297e6782e09ded6123d8ca9d6ce389577ebb316e2ef8fa2ba9bf71"
+  },
+  "tavily": {
+    "source": "https://tavily.com/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_tavily.png",
+    "sha256": "eee3f43fb2fbc64bdaf47c4d847b900c8ea7a4855a7182a7559df569ec7bd858"
+  },
+  "jina": {
+    "source": "https://jina.ai/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_jina.png",
+    "sha256": "bcfac9dc7fed55219ce81bd77b03cb800d4cca50bbbc732c53d99425fcce7325"
+  },
+  "exa": {
+    "source": "https://exa.ai/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_exa.png",
+    "sha256": "965605eec3ec9819aae4c27452058804884ba86abaa5b916053e33666550e9f4"
+  },
+  "context7": {
+    "source": "https://context7.com/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_context7.png",
+    "sha256": "37af72f336395d75161e8837a57414446fc1f23b69828299f9f8807604f068f9"
+  },
+  "firecrawl": {
+    "source": "https://firecrawl.dev/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_firecrawl.png",
+    "sha256": "991debf32a90676988f205b369711150e3d588c4512563c2bcfabd133d7f7f74"
+  },
+  "semgrep": {
+    "source": "https://semgrep.dev/favicon.ico",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_semgrep.png",
+    "sha256": "fd81cbd3c0bdbd48b285ad458499991a85ed379e87a151e78c1fd8ba8a3fc360"
+  },
+  "brightdata": {
+    "source": "https://raw.githubusercontent.com/brightdata/brightdata-mcp/main/icon.png",
+    "license": "Provider-owned brand asset; trademark remains with its owner.",
+    "file": "app/src/main/res/drawable-nodpi/mcp_brand_brightdata.png",
+    "sha256": "6bb191fb0e34e86daf137c09af199881ff2031467a5aa37ae497cf9ac3fb51b6"
+  }
+}

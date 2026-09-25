@@ -473,6 +473,15 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                                 try {
                                     openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig).collect { chunk ->
+                                        chunk.usage?.let { usage ->
+                                            emit(
+                                                ProviderEvent.Usage(
+                                                    inputTokens = usage.promptTokens,
+                                                    outputTokens = usage.completionTokens,
+                                                    totalTokens = usage.totalTokens
+                                                )
+                                            )
+                                        }
                                         chunk.gatewayMetadata?.let { metadata ->
                                             if (metadata.jobId != null) {
                                                 capturedGatewayJobId = metadata.jobId
@@ -570,6 +579,15 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                         try {
                             openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                chunk.usage?.let { usage ->
+                                    emit(
+                                        ProviderEvent.Usage(
+                                            inputTokens = usage.promptTokens,
+                                            outputTokens = usage.completionTokens,
+                                            totalTokens = usage.totalTokens
+                                        )
+                                    )
+                                }
                                 chunk.gatewayMetadata?.let { metadata ->
                                     if (metadata.jobId != null) {
                                         capturedGatewayJobId = metadata.jobId

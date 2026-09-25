@@ -197,6 +197,8 @@ fun ChatScreen(
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val disabledPlatformsInChat by chatViewModel.disabledPlatformsInChat.collectAsStateWithLifecycle()
+    val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
+    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
@@ -480,8 +482,15 @@ fun ChatScreen(
                 platformNames = platformNames,
                 platformClientTypes = appAllPlatforms.associate { it.uid to it.compatibleType },
                 platformApiUrls = appAllPlatforms.associate { it.uid to it.apiUrl },
+                platformTemperatures = appAllPlatforms.associate { it.uid to it.temperature },
+                disabledPlatforms = disabledPlatformsInChat,
+                availableTools = availableChatTools,
+                toolConfig = chatToolConfig,
                 downloadedLocalModels = downloadedLocalModels,
                 onNavigateToLocalModels = onNavigateToLocalModels,
+                onPlatformEnabledChange = chatViewModel::setChatPlatformEnabled,
+                onToolToggle = chatViewModel::toggleChatTool,
+                onCreativityChange = chatViewModel::updateChatCreativity,
                 onDismissRequest = chatViewModel::closeChatModelDialog,
                 onConfirmRequest = { models ->
                     chatViewModel.updateChatPlatformModels(models)

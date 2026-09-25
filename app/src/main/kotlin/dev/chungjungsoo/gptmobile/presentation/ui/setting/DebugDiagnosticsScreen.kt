@@ -317,7 +317,6 @@ private fun DiagnosticsLine(label: String, value: String) {
     }
 }
 
-
 @Composable
 private fun UsageBars(values: List<Pair<String, Int>>) {
     if (values.isEmpty()) {

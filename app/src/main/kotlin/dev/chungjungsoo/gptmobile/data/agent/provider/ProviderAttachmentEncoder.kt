@@ -4,6 +4,8 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.DocumentContent as AnthropicDocumentContent
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.DocumentSource
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ImageContent as AnthropicImageContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ImageSource
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType
@@ -172,14 +174,25 @@ open class ProviderAttachmentEncoder @Inject constructor(
         if (ctx != null) {
             message.attachments.forEach { attachment ->
                 val providerRef = attachment.providerRefFor(platformUid)
+                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+                val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
                 if (providerRef?.remoteType == AttachmentRemoteType.ANTHROPIC_FILE) {
-                    content += AnthropicImageContent(ImageSource.file(providerRef.remoteId))
-                } else {
-                    val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
+                    when {
+                        FileUtils.isImage(mimeType) ->
+                            content += AnthropicImageContent(ImageSource.file(providerRef.remoteId))
+                        mimeType == "application/pdf" || mimeType.startsWith("text/") ->
+                            content += AnthropicDocumentContent(DocumentSource.file(providerRef.remoteId))
+                    }
+                } else if (FileUtils.isImage(mimeType)) {
                     encodedAttachment(filePath, mimeType)?.let { encoded ->
                         content += AnthropicImageContent(
                             ImageSource.base64(encoded.mimeType.toAnthropicMediaType(), encoded.base64Data)
+                        )
+                    }
+                } else if (mimeType == "application/pdf") {
+                    encodedAttachment(filePath, mimeType)?.let { encoded ->
+                        content += AnthropicDocumentContent(
+                            DocumentSource.base64(encoded.mimeType, encoded.base64Data)
                         )
                     }
                 }

@@ -24,11 +24,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,6 +53,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
+import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LlamaModelPickerDialog
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
@@ -63,9 +69,16 @@ fun ChatModelDialog(
     platformNames: Map<String, String>,
     platformClientTypes: Map<String, ClientType> = emptyMap(),
     platformApiUrls: Map<String, String> = emptyMap(),
+    platformTemperatures: Map<String, Float?> = emptyMap(),
+    disabledPlatforms: Set<String> = emptySet(),
+    availableTools: List<AvailableChatTool> = emptyList(),
+    toolConfig: ChatMcpToolConfig = ChatMcpToolConfig(),
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
     ollamaModels: List<UnifiedModelOption.Ollama> = emptyList(),
     onNavigateToLocalModels: () -> Unit = {},
+    onPlatformEnabledChange: (String, Boolean) -> Unit = { _, _ -> },
+    onToolToggle: (String) -> Unit = {},
+    onCreativityChange: (Float) -> Unit = {},
     onDismissRequest: () -> Unit,
     onConfirmRequest: (Map<String, String>) -> Unit
 ) {
@@ -78,6 +91,10 @@ fun ChatModelDialog(
 
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
+    var modelSearch by rememberSaveable { mutableStateOf("") }
+    var creativity by rememberSaveable(platformOrder, platformTemperatures) {
+        mutableFloatStateOf(platformOrder.mapNotNull { platformTemperatures[it] }.firstOrNull() ?: 1f)
+    }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -87,11 +104,49 @@ fun ChatModelDialog(
         title = { Text(text = stringResource(R.string.chat_models)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    text = stringResource(R.string.chat_models_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                OutlinedTextField(
+                    value = modelSearch,
+                    onValueChange = { modelSearch = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    singleLine = true,
+                    label = { Text("Search models") }
                 )
+
+                Text("AI profiles", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
                 platformOrder.forEach { platformUid ->
+                    val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(platformName, modifier = Modifier.weight(1f))
+                        Switch(checked = platformUid !in disabledPlatforms, onCheckedChange = { onPlatformEnabledChange(platformUid, it) })
+                    }
+                }
+
+                Text(
+                    text = "Creativity · " + "%.1f".format(creativity),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                )
+                Slider(value = creativity, onValueChange = { creativity = it }, valueRange = 0f..2f, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp))
+
+                if (availableTools.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text("MCP & tools", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    availableTools.sortedWith(compareBy<AvailableChatTool> { it.source != "Built-in" }.thenBy { it.name.lowercase() }).forEach { tool ->
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(tool.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(tool.source, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = toolConfig.isToolEnabled(tool.id), onCheckedChange = { onToolToggle(tool.id) })
+                        }
+                    }
+                }
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                platformOrder.filter { uid ->
+                    modelSearch.isBlank() || platformNames[uid].orEmpty().contains(modelSearch, ignoreCase = true) || models[uid].orEmpty().contains(modelSearch, ignoreCase = true)
+                }.forEach { platformUid ->
                     val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
                     val clientType = platformClientTypes[platformUid]
 
@@ -182,6 +237,7 @@ fun ChatModelDialog(
             TextButton(
                 enabled = !hasBlank,
                 onClick = {
+                    onCreativityChange(creativity)
                     onConfirmRequest(
                         models.mapValues { (_, model) -> model.trim() }
                     )

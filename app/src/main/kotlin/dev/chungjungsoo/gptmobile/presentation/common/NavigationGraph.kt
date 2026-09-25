@@ -30,6 +30,8 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.AddPlatformScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AdvancedSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AiPlatformsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.DebugDiagnosticsScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.FactVaultScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.FactVaultViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LicenseScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpToolsSelectionScreen
@@ -214,6 +216,7 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
                 onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToAdvancedSettings = { navController.navigate(Route.ADVANCED_SETTINGS) },
+                onNavigateToFactVault = { navController.navigate(Route.FACT_VAULT) },
                 onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
             )
@@ -224,6 +227,11 @@ fun NavGraphBuilder.settingNavigation(
                 viewModel = viewModel,
                 onNavigationClick = { navController.navigateUp() }
             )
+        }
+
+        composable(Route.FACT_VAULT) {
+            val viewModel: FactVaultViewModel = hiltViewModel()
+            FactVaultScreen(viewModel, onBack = { navController.navigateUp() })
         }
 
         composable(Route.ADVANCED_SETTINGS) {

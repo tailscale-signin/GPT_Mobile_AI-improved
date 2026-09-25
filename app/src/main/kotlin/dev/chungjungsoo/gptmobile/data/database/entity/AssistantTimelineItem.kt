@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.database.entity
 
+import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
+import dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -15,7 +17,9 @@ enum class AssistantTimelineItemType {
 data class AssistantTimelineItem(
     val type: AssistantTimelineItemType,
     val content: String = "",
-    val toolSequence: Int? = null
+    val toolSequence: Int? = null,
+    val toolMetrics: ToolPayloadMetrics? = null,
+    val recalledFacts: List<RecalledFactRef> = emptyList()
 )
 
 // Fallback for callers without a resource context; keep in sync with R.string.legacy_assistant_order_unavailable.

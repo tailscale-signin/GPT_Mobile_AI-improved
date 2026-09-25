@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.util
 
+import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -7,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
+import dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.updateAssistantSlot
 import kotlinx.coroutines.flow.Flow
@@ -97,8 +99,13 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 is ApiState.ToolCall -> {
-                    buffer.appendTool(chunk.toolSequence)
-                    buffer.publishIfDue(onUpdate)
+                    buffer.appendTool(chunk.toolSequence, chunk.metrics)
+                    buffer.publishNow(onUpdate)
+                }
+
+                is ApiState.MemoryRecalled -> {
+                    buffer.appendRecall(chunk.facts)
+                    buffer.publishNow(onUpdate)
                 }
 
                 is ApiState.Notice -> {
@@ -168,11 +175,24 @@ private class StreamingMessageBuffer(
         }
     }
 
-    fun appendTool(toolSequence: Int) {
-        timeline += AssistantTimelineItem(
-            type = AssistantTimelineItemType.TOOL,
-            toolSequence = toolSequence
-        )
+    fun appendTool(toolSequence: Int, metrics: ToolPayloadMetrics?) {
+        val existing = timeline.indexOfFirst { it.type == AssistantTimelineItemType.TOOL && it.toolSequence == toolSequence }
+        if (existing >= 0) {
+            if (metrics == null) return
+            timeline[existing] = timeline[existing].copy(toolMetrics = metrics)
+        } else {
+            timeline += AssistantTimelineItem(
+                type = AssistantTimelineItemType.TOOL,
+                toolSequence = toolSequence,
+                toolMetrics = metrics
+            )
+        }
+        timelineVersion += 1
+    }
+
+    fun appendRecall(facts: List<RecalledFactRef>) {
+        if (facts.isEmpty()) return
+        timeline += AssistantTimelineItem(type = AssistantTimelineItemType.NOTICE, recalledFacts = facts)
         timelineVersion += 1
     }
 

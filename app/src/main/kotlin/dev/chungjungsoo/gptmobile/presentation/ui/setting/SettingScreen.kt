@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
@@ -79,6 +80,7 @@ fun SettingScreen(
     onNavigateToAdvancedSettings: () -> Unit,
     onNavigateToDebugDiagnostics: () -> Unit,
     onNavigateToAboutPage: () -> Unit,
+    onNavigateToFactVault: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsState()
@@ -138,6 +140,11 @@ fun SettingScreen(
                         icon = Icons.Default.SmartToy,
                         title = "AI Platforms & Profiles",
                         onClick = onNavigateToAiPlatforms
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Psychology,
+                        title = "Fact Vault",
+                        onClick = onNavigateToFactVault
                     )
                     SettingsDestination(
                         icon = Icons.Default.Storage,

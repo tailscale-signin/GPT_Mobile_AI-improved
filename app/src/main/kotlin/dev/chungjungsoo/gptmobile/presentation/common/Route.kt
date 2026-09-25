@@ -31,6 +31,7 @@ object Route {
     const val LOCAL_MODELS = "local_models"
     const val OPENROUTER_SETTINGS = "openrouter_settings"
     const val BACKUP_RESTORE = "backup_restore"
+    const val FACT_VAULT = "fact_vault"
     const val ADVANCED_SETTINGS = "advanced_settings"
     const val USAGE_STATISTICS = "usage_statistics"
     const val DEBUG_DIAGNOSTICS = "debug_diagnostics"

@@ -75,6 +75,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRepositoryImplTest {
+    @Test
+    fun `saved facts prefix both cloud and local system prompts`() = runBlocking {
+        val storage = object : SecretVault {
+            var bytes: ByteArray? = null
+            override suspend fun put(secretRef: String, secret: ByteArray) {
+                bytes = secret.copyOf()
+            }
+            override suspend fun read(secretRef: String) = bytes?.copyOf()
+            override suspend fun delete(secretRef: String) {
+                bytes = null
+            }
+        }
+        val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
+        facts.setEnabled(true)
+        facts.prepareTurn("I prefer Kotlin", 1, 1)
+        val api = FakeGroqAPI(emptyFlow())
+        val cloud = createRepository(groqAPI = api, factVault = facts)
+        val cloudStates = cloud.completeChat(
+            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "Help me with Kotlin", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = groqPlatform(reasoning = false, model = "qwen/qwen3-32b").copy(systemPrompt = "Base instructions"),
+            runId = "memory-cloud"
+        ).toList()
+        val system = api.lastRequest!!.messages.first()
+        assertEquals(dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.SYSTEM, system.role)
+        assertTrue(system.content.toString().contains("Kotlin"))
+        assertTrue(system.content.toString().contains("Base instructions"))
+        assertEquals(1, cloudStates.filterIsInstance<ApiState.MemoryRecalled>().single().facts.size)
+
+        val runtime = FakeLocalRuntime()
+        val local = createRepository(localRuntime = runtime, localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm")), factVault = facts)
+        local.completeChat(
+            userMessages = listOf(MessageV2(id = 3, chatId = 1, content = "Kotlin", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = localPlatform(),
+            runId = "memory-local"
+        ).toList()
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().startsWith("Saved local facts"))
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Kotlin"))
+    }
 
     @Test(expected = IllegalStateException::class)
     fun `blank response input without encodable parts throws`() {
@@ -228,11 +268,15 @@ class ChatRepositoryImplTest {
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 ApiState.Success("before"),
                 ApiState.ToolCall(toolSequence = 0),
+                ApiState.ToolCall(toolSequence = 0),
                 ApiState.Success("after"),
                 ApiState.Done
             ),
-            states
+            states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }
         )
+        val completedMetrics = states.filterIsInstance<ApiState.ToolCall>().last().metrics
+        assertTrue(completedMetrics?.durationMs != null)
+        assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(1, runtime.sendMessageCalls.size)
         assertEquals(
             listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
@@ -560,11 +604,15 @@ class ChatRepositoryImplTest {
                 ApiState.Loading,
                 ApiState.Success("before"),
                 ApiState.ToolCall(toolSequence = 0),
+                ApiState.ToolCall(toolSequence = 0),
                 ApiState.Success("after"),
                 ApiState.Done
             ),
-            states
+            states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }
         )
+        val completedMetrics = states.filterIsInstance<ApiState.ToolCall>().last().metrics
+        assertTrue(completedMetrics?.durationMs != null)
+        assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(
             listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
             openAIAPI.requests.first().tools!!.map { it.function.name }.sorted()
@@ -616,7 +664,8 @@ class ChatRepositoryImplTest {
         toolEventRecorder: ToolEventRecorder = ToolEventRecorder(proxy(), proxy()),
         localRuntime: LocalRuntime = FakeLocalRuntime(),
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
-        modelCatalogRepository: ModelCatalogRepository = FakeModelCatalogRepository()
+        modelCatalogRepository: ModelCatalogRepository = FakeModelCatalogRepository(),
+        factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = ContextWrapper(null),
         chatRoomV2Dao = proxy(),
@@ -640,7 +689,8 @@ class ChatRepositoryImplTest {
         localRuntime = localRuntime,
         localModelRepository = localModelRepository,
         modelCatalogRepository = modelCatalogRepository,
-        deviceSocModel = ""
+        deviceSocModel = "",
+        factVault = factVault
     )
 
     private fun emptyToolResolver(): AgentToolResolver {

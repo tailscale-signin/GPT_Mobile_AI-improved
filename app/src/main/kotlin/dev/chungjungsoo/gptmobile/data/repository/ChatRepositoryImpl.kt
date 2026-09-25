@@ -1,11 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import android.content.Context
+import com.example.gptmobileai.debug.ToolMetricsCollector
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.agentRunnerForPlatform
 import dev.chungjungsoo.gptmobile.data.agent.liveToolSystemPrompt
@@ -16,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAICompatibleAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAttachmentEncoder
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
+import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
@@ -48,9 +51,12 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
+import dev.chungjungsoo.gptmobile.data.rag.FactRecall
+import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.util.DocumentTextExtractor
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -83,7 +89,9 @@ class ChatRepositoryImpl(
     private val localModelRepository: LocalModelRepository,
     private val modelCatalogRepository: ModelCatalogRepository,
     private val deviceSocModel: String,
-    private val titleSummarizer: ConversationTitleSummarizer? = null
+    private val titleSummarizer: ConversationTitleSummarizer? = null,
+    private val factVault: FactVaultRepository? = null,
+    private val toolMetricsCollector: ToolMetricsCollector? = null
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
@@ -149,6 +157,9 @@ class ChatRepositoryImpl(
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
+            val diagnosticsEnabled = runCatching {
+                settingRepository.getFeatureSettings().diagnosticsCollection
+            }.getOrDefault(false)
             val resolvedTools = if (platform.disableAllTools) {
                 emptyList()
             } else {
@@ -158,17 +169,46 @@ class ChatRepositoryImpl(
                 val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
                 agentToolResolver.resolve(platform.uid, chatToolConfig).map { resolved ->
                     resolved.copy(
-                        tool = sharedToolCallBroker.wrap(
-                            scopeId = shareScope,
-                            toolIdentity = buildSharedToolIdentity(resolved),
-                            shareableReadOnly = sharingEnabled && resolved.shareableReadOnly,
-                            tool = resolved.tool
+                        tool = MeasuredAgentTool(
+                            sharedToolCallBroker.wrap(
+                                scopeId = shareScope,
+                                toolIdentity = buildSharedToolIdentity(resolved),
+                                shareableReadOnly = sharingEnabled && resolved.shareableReadOnly,
+                                tool = resolved.tool
+                            ),
+                            onMeasured = { result ->
+                                val metrics = result.measurement
+                                if (diagnosticsEnabled && metrics != null && !result.sharedResult) {
+                                    toolMetricsCollector?.onToolExecuted(
+                                        toolId = resolved.modelToolName,
+                                        tokensUsed = metrics.estimatedResultTokens ?: 0,
+                                        executionTimeMs = metrics.durationMs ?: 0,
+                                        success = !result.isError,
+                                        errorType = if (result.isError) "tool_error" else null
+                                    )
+                                }
+                            }
                         )
                     )
                 }
             }
+            val latestUser = contextTurns.lastOrNull()?.userMessage
+            val recalled = try {
+                if (latestUser == null) {
+                    FactRecall()
+                } else {
+                    factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id) ?: FactRecall()
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                emit(ApiState.Notice("Local memory is unavailable. Continuing without saved facts.", persistent = true))
+                FactRecall()
+            }
+            if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
+            val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName })
             val requestPlatform = platform.copy(
-                systemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName })
+                systemPrompt = if (recalled.facts.isEmpty()) baseSystemPrompt else recalled.prefix() + baseSystemPrompt.orEmpty()
             )
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, requestPlatform)
@@ -338,13 +378,21 @@ class ChatRepositoryImpl(
                             emit(ApiState.GatewayProgressChanged(providerEvent.progress))
                             val gatewayToolEvent = trace.gateway(providerEvent.progress)
                             if (gatewayToolEvent != null) {
-                                emit(ApiState.ToolCall(gatewayToolEvent.sequence))
+                                emit(gatewayToolEvent)
                             }
                         }
 
                         is ProviderEvent.ToolCall -> {
                             val toolEvent = trace.start(providerEvent)
-                            emit(ApiState.ToolCall(toolEvent.sequence))
+                            emit(
+                                ApiState.ToolCall(
+                                    toolEvent.sequence,
+                                    ToolPayloadMetrics(
+                                        argumentsCharacters = providerEvent.arguments.toString().length,
+                                        argumentsBytes = providerEvent.arguments.toString().toByteArray(Charsets.UTF_8).size
+                                    )
+                                )
+                            )
                             if (!gatewayTelemetrySeen) {
                                 emit(
                                     ApiState.GatewayProgressChanged(
@@ -383,7 +431,7 @@ class ChatRepositoryImpl(
                     }
 
                     is AgentRunEvent.ToolFinished -> {
-                        trace.finish(runEvent.call, runEvent.result)
+                        trace.finish(runEvent.call, runEvent.result)?.let { emit(it) }
                         if (!gatewayTelemetrySeen) {
                             if (runEvent.result.isError) {
                                 providerToolFailures += 1
@@ -754,7 +802,8 @@ private class ToolTraceSession(
     private val toolsByName = tools.associateBy { it.modelToolName }
     private val pendingEventIds = mutableMapOf<String, ArrayDeque<String>>()
 
-    private val gatewayEventIds = mutableMapOf<String, String>()
+    private val gatewayEventIds = mutableMapOf<String, ToolEvent>()
+    private val sequences = mutableMapOf<String, Int>()
 
     private var sequence = 0
 
@@ -772,10 +821,11 @@ private class ToolTraceSession(
             startedAt = currentEpochSeconds()
         )
         pendingEventIds.getOrPut(call.callId, ::ArrayDeque).addLast(event.eventId)
+        sequences[event.eventId] = event.sequence
         return event
     }
 
-    suspend fun gateway(progress: GatewayProgress): ToolEvent? {
+    suspend fun gateway(progress: GatewayProgress): ApiState.ToolCall? {
         val isGatewaySource = progress.toolSource.equals("gateway", ignoreCase = true) ||
             progress.origin.equals("gateway", ignoreCase = true)
         if (!isGatewaySource) return null
@@ -804,12 +854,20 @@ private class ToolTraceSession(
                     startedAt = progress.timestampEpochSeconds()
                 )
 
-                gatewayEventIds[callId] = event.eventId
-                event
+                gatewayEventIds[callId] = event
+                ApiState.ToolCall(
+                    event.sequence,
+                    ToolPayloadMetrics(
+                        argumentsCharacters = progress.toolArgs?.toString()?.length ?: 0,
+                        argumentsBytes = progress.toolArgs?.toString()?.toByteArray(Charsets.UTF_8)?.size ?: 0,
+                        timingSource = "gateway"
+                    )
+                )
             }
 
             "tool_completed", "tool_failed", "tool_blocked" -> {
-                val eventId = gatewayEventIds.remove(callId) ?: return null
+                val startedEvent = gatewayEventIds.remove(callId) ?: return null
+                val eventId = startedEvent.eventId
                 val isError =
                     eventName == "tool_failed" ||
                         eventName == "tool_blocked" ||
@@ -851,21 +909,32 @@ private class ToolTraceSession(
                     error = if (isError) resultText else null
                 )
 
-                null
+                // Gateway progress contains a summary, not the actual response payload.
+                ApiState.ToolCall(
+                    startedEvent.sequence,
+                    ToolPayloadMetrics(
+                        argumentsCharacters = startedEvent.arguments.length,
+                        argumentsBytes = startedEvent.arguments.toByteArray(Charsets.UTF_8).size,
+                        durationMs = progress.durationMs?.toLong()?.coerceAtLeast(0),
+                        timingSource = "gateway"
+                    )
+                )
             }
 
             else -> null
         }
     }
 
-    suspend fun finish(call: ProviderEvent.ToolCall, result: AgentToolResult) {
-        val eventId = pendingEventIds[call.callId]?.removeFirstOrNull() ?: return
+    suspend fun finish(call: ProviderEvent.ToolCall, result: AgentToolResult): ApiState.ToolCall? {
+        val eventId = pendingEventIds[call.callId]?.removeFirstOrNull() ?: return null
         recorder.finishTool(
             eventId = eventId,
             result = result,
             completedAt = currentEpochSeconds(),
             error = result.errorMessage()
         )
+        val sequence = sequences.remove(eventId) ?: return null
+        return ApiState.ToolCall(sequence, result.measurement ?: ToolPayloadMetrics.measure(call.arguments.toString(), result.content))
     }
 }
 

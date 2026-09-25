@@ -17,6 +17,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test
+    fun `tool completion updates original timeline entry and recall stores references only`() = runBlocking {
+        val metrics = dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics(durationMs = 120, resultBytes = 140)
+        val reference = dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef("fact-id", "User preference")
+        var saved = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.MemoryRecalled(listOf(reference)),
+            ApiState.ToolCall(0),
+            ApiState.Success("Answer"),
+            ApiState.ToolCall(0, metrics),
+            ApiState.Done
+        ).collectApiStateUpdates(onUpdate = { _, _, timeline -> saved = timeline })
+        assertEquals(3, saved.size)
+        assertEquals(listOf(reference), saved.first().recalledFacts)
+        assertEquals("", saved.first().content)
+        assertEquals(metrics, saved[1].toolMetrics)
+        assertEquals(AssistantTimelineItemType.TEXT, saved.last().type)
+        val serialized = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(AssistantTimelineItem.serializer()), saved)
+        assertTrue(serialized.contains("fact-id"))
+        val old = kotlinx.serialization.json.Json.decodeFromString<AssistantTimelineItem>("""{"type":"TOOL","toolSequence":1}""")
+        assertEquals(null, old.toolMetrics)
+        assertTrue(old.recalledFacts.isEmpty())
+    }
 
     @Test
     fun `collectApiStateUpdates publishes provider text and thoughts without UI state`() = runBlocking {

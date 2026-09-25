@@ -1,0 +1,118 @@
+package dev.chungjungsoo.gptmobile.data.rag
+
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class FactVaultRepositoryTest {
+    private class MemoryVault : SecretVault {
+        val values = mutableMapOf<String, ByteArray>()
+        var failWrites = false
+        override suspend fun put(secretRef: String, secret: ByteArray) {
+            check(!failWrites) { "Storage unavailable" }
+            values[secretRef] = secret.copyOf()
+        }
+        override suspend fun read(secretRef: String) = values[secretRef]?.copyOf()
+        override suspend fun delete(secretRef: String) {
+            values.remove(secretRef)
+        }
+    }
+
+    @Test
+    fun `learning is opt in and persists through vault reload`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        assertTrue(repository.prepareTurn("I prefer Kotlin", 1, 1).facts.isEmpty())
+        assertTrue(storage.values.isEmpty())
+        repository.setEnabled(true)
+        assertTrue(repository.prepareTurn("I prefer Kotlin", 1, 1).facts.isEmpty())
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        val recalled = restored.prepareTurn("Help me with Kotlin", 2, 2)
+        assertEquals(1, recalled.facts.size)
+        assertEquals("User", recalled.facts.single().fact.entity.name)
+        assertTrue(recalled.prefix().contains("Kotlin"))
+        assertEquals("User preference", recalled.references.single().label)
+        assertFalse(recalled.references.toString().contains("Kotlin"))
+    }
+
+    @Test
+    fun `disabled and deleted facts stay excluded across retries`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        val id = repository.state.value.facts.single().id
+        repository.setFactEnabled(id, false)
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        assertTrue(repository.prepareTurn("Kotlin", 1, 2).facts.isEmpty())
+        assertFalse(repository.state.value.facts.single().enabled)
+        repository.setFactEnabled(id, true)
+        assertEquals(1, repository.prepareTurn("What are my preferences?", 1, 3).facts.size)
+        repository.deleteFact(id)
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        assertTrue(repository.state.value.facts.isEmpty())
+        assertTrue(repository.prepareTurn("Kotlin", 1, 4).facts.isEmpty())
+    }
+
+    @Test
+    fun `parallel profiles do not recall facts learned in the same turn`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        val recalls = (1..8).map { async { repository.prepareTurn("I prefer Kotlin", 5, 8) } }.awaitAll()
+        assertTrue(recalls.all { it.facts.isEmpty() })
+        assertEquals(1, repository.state.value.facts.size)
+        assertEquals(1, repository.prepareTurn("Kotlin", 5, 9).facts.size)
+        assertTrue(repository.prepareTurn("Weather in Paris", 5, 10).facts.isEmpty())
+    }
+
+    @Test
+    fun `turn reload observes restored vault and clear disables learning`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        storage.values.clear()
+        assertTrue(repository.prepareTurn("Kotlin", 1, 2).facts.isEmpty())
+        assertFalse(repository.state.value.enabled)
+        repository.setEnabled(true)
+        repository.prepareTurn("I use Android", 1, 3)
+        repository.clear()
+        repository.prepareTurn("I use Android", 1, 3)
+        assertTrue(repository.state.value.facts.isEmpty())
+        assertFalse(repository.state.value.enabled)
+    }
+
+    @Test
+    fun `failed storage mutation preserves the last saved state`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        storage.failWrites = true
+        var failed = false
+        try {
+            repository.deleteFact(repository.state.value.facts.single().id)
+        } catch (_: IllegalStateException) {
+            failed = true
+        }
+        assertTrue(failed)
+        assertEquals(1, repository.state.value.facts.size)
+        assertEquals(1, repository.prepareTurn("Kotlin", 1, 2).facts.size)
+    }
+
+    @Test
+    fun `recall and storage remain bounded`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn((1..80).joinToString("\n") { "I prefer Item$it" }, 1, 1)
+        assertEquals(64, repository.state.value.facts.size)
+        assertEquals(5, repository.prepareTurn("What do I prefer?", 1, 2).facts.size)
+        repository.setEnabled(false)
+        assertTrue(repository.prepareTurn("What do I prefer?", 1, 3).facts.isEmpty())
+        assertEquals(64, repository.state.value.facts.size)
+    }
+}

@@ -1,9 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.rag
 
-import kotlinx.serialization.Serializable
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.Serializable
 
 /**
  * Domain representations for the on-device Knowledge Graph Memory engine.
@@ -61,8 +61,12 @@ class KnowledgeGraphEngine @Inject constructor() {
         val dst = relation.targetId.lowercase(Locale.ROOT).trim()
         val normalizedRelation = relation.copy(sourceId = src, targetId = dst)
 
-        outgoingEdges.getOrPut(src) { mutableListOf() }.add(normalizedRelation)
-        incomingEdges.getOrPut(dst) { mutableListOf() }.add(normalizedRelation)
+        val outgoing = outgoingEdges.getOrPut(src) { mutableListOf() }
+        val incoming = incomingEdges.getOrPut(dst) { mutableListOf() }
+        outgoing.removeAll { it.relationType == relation.relationType && it.targetId == dst }
+        incoming.removeAll { it.relationType == relation.relationType && it.sourceId == src }
+        outgoing.add(normalizedRelation)
+        incoming.add(normalizedRelation)
     }
 
     @Synchronized
@@ -119,7 +123,9 @@ class KnowledgeGraphEngine @Inject constructor() {
      */
     @Synchronized
     fun queryContextualFacts(queryText: String, maxResults: Int = 5): List<KnowledgeFact> {
-        val tokens = queryText.lowercase(Locale.ROOT).split(Regex("\\W+")).filter { it.length > 2 }.toSet()
+        val words = queryText.lowercase(Locale.ROOT).split(Regex("\\W+"))
+        val tokens = words.filter { it.length > 2 }.toMutableSet()
+        if (words.any { it in setOf("i", "me", "my", "mine") }) tokens.add("user")
         if (tokens.isEmpty()) return emptyList()
 
         // Match seed entities that overlap with tokens
@@ -131,6 +137,12 @@ class KnowledgeGraphEngine @Inject constructor() {
         val collectedFacts = mutableListOf<KnowledgeFact>()
         for (seed in matchedEntities) {
             collectedFacts.addAll(querySubgraph(seed.id, maxDepth = 2))
+            // A query can name the target (e.g. Kotlin) rather than the subject (User).
+            getRelationsFor(seed.id).forEach { relation ->
+                val source = entities[relation.sourceId]
+                val target = entities[relation.targetId]
+                if (source != null && target != null) collectedFacts.add(KnowledgeFact(source, relation, target))
+            }
         }
 
         return collectedFacts.distinctBy { "${it.relation.sourceId}:${it.relation.relationType}:${it.relation.targetId}" }
@@ -144,10 +156,10 @@ class KnowledgeGraphEngine @Inject constructor() {
     fun extractAndStoreFromText(text: String) {
         val lines = text.lines()
         val relationKeywords = listOf(
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:is using|uses|built with|built on|runs on)\\s+([a-zA-Z0-9_-]+)") to "USES",
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:prefers|likes|favorite is)\\s+([a-zA-Z0-9_-]+)") to "PREFERS",
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:works at|contributes to|part of)\\s+([a-zA-Z0-9_-]+)") to "CONTRIBUTES_TO",
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:located in|lives in|based in)\\s+([a-zA-Z0-9_-]+)") to "LOCATED_IN"
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:is using|uses|use|built with|built on|runs on)\\s+([a-zA-Z0-9_-]+)") to "USES",
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:prefers|prefer|likes|like|favorite is)\\s+([a-zA-Z0-9_-]+)") to "PREFERS",
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:works at|work at|contributes to|part of)\\s+([a-zA-Z0-9_-]+)") to "CONTRIBUTES_TO",
+            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:located in|lives in|live in|based in)\\s+([a-zA-Z0-9_-]+)") to "LOCATED_IN"
         )
 
         for (line in lines) {

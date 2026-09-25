@@ -534,6 +534,7 @@ fun OpponentChatBubble(
     val shouldShowBubble = hasVisibleText || hasVisibleProcess || hasVisibleExtras
 
     Column(modifier = modifier) {
+        InlineExecutionTrace(events = toolEvents, timeline = timeline, contentIdentity = contentIdentity)
         if (debugMode) {
             RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
             AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))

@@ -157,6 +157,9 @@ class ChatViewModel @Inject constructor(
     private val _chatPlatformModels = MutableStateFlow<Map<String, String>>(emptyMap())
     val chatPlatformModels = _chatPlatformModels.asStateFlow()
 
+    private val _disabledPlatformsInChat = MutableStateFlow<Set<String>>(emptySet())
+    val disabledPlatformsInChat = _disabledPlatformsInChat.asStateFlow()
+
     private val _catalogEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
     val catalogEntries = _catalogEntries.asStateFlow()
     val downloadedLocalModels: StateFlow<List<DownloadedLocalModelOption>> = combine(
@@ -360,6 +363,24 @@ class ChatViewModel @Inject constructor(
 
     fun openChatTitleDialog() = _isChatTitleDialogOpen.update { true }
     fun openChatModelDialog() = _isChatModelDialogOpen.update { true }
+
+    fun toggleChatPlatformDisabled(platformUid: String) {
+        if (platformUid !in enabledPlatformsInChat) return
+        _disabledPlatformsInChat.update { disabled ->
+            if (platformUid in disabled) {
+                disabled - platformUid
+            } else {
+                val activeCount = enabledPlatformsInChat.count { it !in disabled }
+                val minimumActive = if (_chatRoom.value.conversationMode == ConversationMode.COMBINED) 2 else 1
+                if (activeCount <= minimumActive) disabled else disabled + platformUid
+            }
+        }
+    }
+
+    fun setChatPlatformEnabled(platformUid: String, enabled: Boolean) {
+        val disabled = platformUid in _disabledPlatformsInChat.value
+        if (enabled == disabled) toggleChatPlatformDisabled(platformUid)
+    }
 
     fun openChatToolSheet() = _isChatToolSheetOpen.update { true }
     fun closeChatToolSheet() = _isChatToolSheetOpen.update { false }
@@ -773,7 +794,9 @@ class ChatViewModel @Inject constructor(
         val turnIndex = _groupedMessages.value.assistantMessages.lastIndex
 
         viewModelScope.launch {
+            val disabledPlatforms = _disabledPlatformsInChat.value
             val platforms = resolveSelectedPlatforms(enabledPlatformsInChat, _platformsInApp.value)
+                .filter { it.value.uid !in disabledPlatforms }
                 .map { IndexedValue(it.index, resolvePlatformModel(it.value)) }
             val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
             _loadingStates.update { states ->
@@ -1268,7 +1291,10 @@ class ChatViewModel @Inject constructor(
 
     private fun maybeStartCombinedSynthesis(runsById: Map<String, AgentRun>) {
         val room = _chatRoom.value
-        if (room.conversationMode != ConversationMode.COMBINED || enabledPlatformsInChat.size < 2) return
+        val activePlatformIndexes = enabledPlatformsInChat.indices.filter { index ->
+            enabledPlatformsInChat[index] !in _disabledPlatformsInChat.value
+        }
+        if (room.conversationMode != ConversationMode.COMBINED || activePlatformIndexes.size < 2) return
 
         val grouped = _groupedMessages.value
         grouped.userMessages.indices.forEach { turnIndex ->
@@ -1277,8 +1303,10 @@ class ChatViewModel @Inject constructor(
                 ?.take(enabledPlatformsInChat.size)
                 .orEmpty()
             if (row.size < 2) return@forEach
+            val activeRow = activePlatformIndexes.mapNotNull(row::getOrNull)
+            if (activeRow.size < 2) return@forEach
 
-            val runIds = row.map { it.currentRunId }
+            val runIds = activeRow.map { it.currentRunId }
             if (runIds.any { it.isNullOrBlank() }) return@forEach
             if (runIds.any { it?.startsWith(COMBINED_RUN_PREFIX) == true }) {
                 combinedSynthesisTurns += turnIndex
@@ -1290,7 +1318,8 @@ class ChatViewModel @Inject constructor(
                 return@forEach
             }
 
-            val sources = row.mapIndexedNotNull { index, message ->
+            val sources = activePlatformIndexes.mapNotNull { index ->
+                val message = row.getOrNull(index) ?: return@mapNotNull null
                 val content = message.effectiveContent().trim()
                 if (content.isBlank() || isAssistantErrorMessage(content)) return@mapIndexedNotNull null
                 val uid = enabledPlatformsInChat.getOrNull(index)
@@ -1333,7 +1362,7 @@ class ChatViewModel @Inject constructor(
         val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.firstOrNull() ?: return
         if (leadMessage.id <= 0) return
 
-        val leadUid = enabledPlatformsInChat.firstOrNull() ?: return
+        val leadUid = enabledPlatformsInChat.firstOrNull { it !in _disabledPlatformsInChat.value } ?: return
         val leadPlatform = _platformsInApp.value
             .firstOrNull { it.uid == leadUid && it.enabled }
             ?.let(::resolvePlatformModel)

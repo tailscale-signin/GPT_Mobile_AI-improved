@@ -151,6 +151,12 @@ class HomeViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
+        settingRepository.observeSelectedFavoriteGroup()
+            .onEach { savedGroup ->
+                savedGroup?.takeIf { it in _favoriteGroups.value }?.let { _selectedFavoriteGroup.value = it }
+            }
+            .launchIn(viewModelScope)
+
         settingRepository.observeFavoriteMessageGroups()
             .onEach { savedMappings ->
                 _messageGroups.update { savedMappings }
@@ -185,6 +191,7 @@ class HomeViewModel @Inject constructor(
 
     fun selectFavoriteGroup(group: String) {
         _selectedFavoriteGroup.update { group }
+        viewModelScope.launch { settingRepository.saveSelectedFavoriteGroup(group) }
     }
 
     fun addFavoriteGroup(newGroup: String) {
@@ -194,6 +201,7 @@ class HomeViewModel @Inject constructor(
             _favoriteGroups.update { updated }
             _selectedFavoriteGroup.update { trimmed }
             viewModelScope.launch {
+                settingRepository.saveSelectedFavoriteGroup(trimmed)
                 settingRepository.saveFavoriteGroups(
                     updated.filter { it !in DEFAULT_GROUPS }.ifEmpty { listOf(EMPTY_GROUP_SENTINEL) }
                 )
@@ -224,10 +232,12 @@ class HomeViewModel @Inject constructor(
         }
         _favoriteGroups.value = updatedGroups
         _messageGroups.value = updatedMappings
-        if (_selectedFavoriteGroup.value == groupName) {
+        val renamedSelected = _selectedFavoriteGroup.value == groupName
+        if (renamedSelected) {
             _selectedFavoriteGroup.value = normalized
         }
         viewModelScope.launch {
+            if (renamedSelected) settingRepository.saveSelectedFavoriteGroup(normalized)
             settingRepository.saveFavoriteGroups(
                 updatedGroups.filter { it !in DEFAULT_GROUPS }.ifEmpty { listOf(EMPTY_GROUP_SENTINEL) }
             )
@@ -242,11 +252,15 @@ class HomeViewModel @Inject constructor(
         val updatedMappings = _messageGroups.value.filterValues { it != groupName }
         _favoriteGroups.value = updatedGroups
         _messageGroups.value = updatedMappings
-        if (_selectedFavoriteGroup.value == groupName) {
+        val deletedSelected = _selectedFavoriteGroup.value == groupName
+        if (deletedSelected) {
             _selectedFavoriteGroup.value = GROUP_ALL
         }
         viewModelScope.launch {
-            settingRepository.saveFavoriteGroups(updatedGroups.filter { it !in DEFAULT_GROUPS })
+            if (deletedSelected) settingRepository.saveSelectedFavoriteGroup(GROUP_ALL)
+            settingRepository.saveFavoriteGroups(
+                updatedGroups.filter { it !in DEFAULT_GROUPS }.ifEmpty { listOf(EMPTY_GROUP_SENTINEL) }
+            )
             settingRepository.saveFavoriteMessageGroups(updatedMappings)
         }
     }

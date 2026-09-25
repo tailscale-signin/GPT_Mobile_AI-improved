@@ -179,7 +179,7 @@ fun SettingScreen(
                     )
                     SettingsDestination(
                         icon = Icons.Default.Tune,
-                        title = "Advanced Settings"
+                        title = "Advanced Settings",
                         onClick = onNavigateToAdvancedSettings
                     )
                 }
@@ -195,11 +195,6 @@ fun SettingScreen(
                         title = "Debug & Diagnostics",
                         onClick = onNavigateToDebugDiagnostics
                     )
-
-                    val backupSubtitle = backupStatus.lastBackupEpochMs?.let {
-                        val date = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.getDefault()).format(Date(it))
-                        "Last backup: $date • ${backupStatus.backupCount} total"
-                    } ?: stringResource(R.string.backup_and_restore_description)
 
                     SettingsDestination(
                         icon = Icons.Default.Backup,
@@ -345,7 +340,6 @@ private fun SettingsStat(value: String, label: String, modifier: Modifier = Modi
 @Composable
 private fun SettingsCategory(
     title: String,
-    subtitle: String,
     icon: ImageVector,
     content: @Composable () -> Unit
 ) {
@@ -364,7 +358,6 @@ private fun SettingsCategory(
 private fun SettingsDestination(
     icon: ImageVector,
     title: String,
-    subtitle: String,
     onClick: () -> Unit
 ) {
     Row(

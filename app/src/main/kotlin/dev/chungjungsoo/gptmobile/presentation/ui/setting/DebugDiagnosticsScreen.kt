@@ -149,6 +149,24 @@ fun DebugDiagnosticsScreen(
             }
 
             item {
+                DiagnosticsPanelCard("Model usage", Icons.Default.Speed) {
+                    UsageBars(analytics.modelUsage)
+                }
+            }
+
+            item {
+                DiagnosticsPanelCard("Provider usage", Icons.Default.Memory) {
+                    UsageBars(analytics.providerUsage)
+                }
+            }
+
+            item {
+                DiagnosticsPanelCard("AI profile usage", Icons.Default.BugReport) {
+                    UsageBars(analytics.profileUsage)
+                }
+            }
+
+            item {
                 DiagnosticsPanelCard("Display in Debug Mode", Icons.Default.Terminal) {
                     DebugMetric.entries.forEach { metric ->
                         val checked = when (metric) {
@@ -296,5 +314,27 @@ private fun DiagnosticsLine(label: String, value: String) {
             modifier = Modifier.weight(1f)
         )
         Text(value, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+    }
+}
+
+
+@Composable
+private fun UsageBars(values: List<Pair<String, Int>>) {
+    if (values.isEmpty()) {
+        Text("No usage data yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    val max = values.maxOf { it.second }.coerceAtLeast(1)
+    values.forEach { (label, count) ->
+        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                Text(count.toString(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { count.toFloat() / max.toFloat() },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
+        }
     }
 }

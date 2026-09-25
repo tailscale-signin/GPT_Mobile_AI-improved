@@ -94,61 +94,46 @@ internal fun CompactAgentActivityBar(
 
     val liveText = overrideText?.takeIf(String::isNotBlank) ?: inferredText
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.88f),
-        tonalElevation = 1.dp
+    Column(
+        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-                Spacer(Modifier.width(9.dp))
-                AnimatedContent(
-                    targetState = liveText,
-                    transitionSpec = {
-                        fadeIn(tween(280)) togetherWith fadeOut(tween(180))
-                    },
-                    label = "agentLiveActivity",
-                    modifier = Modifier.weight(1f)
-                ) { text ->
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 37.dp, top = 6.dp)
-                    .height(2.dp)
-                    .clip(RoundedCornerShape(99.dp)),
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
             )
+            Spacer(Modifier.width(9.dp))
+            AnimatedContent(
+                targetState = liveText,
+                transitionSpec = {
+                    fadeIn(tween(280)) togetherWith fadeOut(tween(180))
+                },
+                label = "agentLiveActivity",
+                modifier = Modifier.weight(1f)
+            ) { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Light),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
+
+        LinearProgressIndicator(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 27.dp, top = 5.dp)
+                .height(2.dp)
+                .clip(RoundedCornerShape(99.dp)),
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.65f)
+        )
     }
 }
 

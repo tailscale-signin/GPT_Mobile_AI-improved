@@ -233,6 +233,10 @@ class ChatViewModel @Inject constructor(
             )
 
     private var pendingQuestionText: String? = null
+    private data class QueuedPrompt(val text: String, val attachments: List<ChatAttachmentDraft>)
+    private val queuedPrompts = ArrayDeque<QueuedPrompt>()
+    private val _queuedPromptCount = MutableStateFlow(0)
+    val queuedPromptCount = _queuedPromptCount.asStateFlow()
     private var lastAutoTitleUserTurnCount = 0
     private val combinedSynthesisTurns = mutableSetOf<Int>()
 
@@ -280,7 +284,30 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        sendQuestion(questionText, _selectedAttachments.value)
+        submitOrQueueQuestion(questionText, _selectedAttachments.value)
+    }
+
+    private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
+        if (isGenerationBusy()) {
+            queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList()))
+            _queuedPromptCount.value = queuedPrompts.size
+            question.clearText()
+            _selectedAttachments.value = emptyList()
+            _attachmentNotice.value = "Queued — sends automatically after the current response."
+            return
+        }
+        sendQuestion(questionText, attachments)
+    }
+
+    private fun isGenerationBusy(): Boolean =
+        _loadingStates.value.any { it != LoadingState.Idle } ||
+            agentRunCoordinator.activeRuns.value.values.any { it.chatId == _chatRoom.value.id }
+
+    private fun drainPromptQueueIfIdle() {
+        if (isGenerationBusy() || queuedPrompts.isEmpty()) return
+        val next = queuedPrompts.removeFirst()
+        _queuedPromptCount.value = queuedPrompts.size
+        sendQuestion(next.text, next.attachments)
     }
 
     fun sendContinueResponse() {
@@ -1018,7 +1045,7 @@ class ChatViewModel @Inject constructor(
         }
 
         pendingQuestionText = null
-        sendQuestion(queuedQuestion, attachments)
+        submitOrQueueQuestion(queuedQuestion, attachments)
     }
 
     private fun sendQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
@@ -1229,6 +1256,7 @@ class ChatViewModel @Inject constructor(
                     syncLoadingStates(runsById)
                     maybeStartCombinedSynthesis(runsById)
                     checkAndGenerateAiTitle(runsById)
+                    drainPromptQueueIfIdle()
                 }
         }
     }

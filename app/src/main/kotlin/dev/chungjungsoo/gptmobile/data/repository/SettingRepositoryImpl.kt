@@ -148,7 +148,8 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(
         dynamicTheme = settingDataSource.getDynamicTheme() ?: DynamicTheme.OFF,
-        themeMode = settingDataSource.getThemeMode() ?: ThemeMode.SYSTEM
+        themeMode = settingDataSource.getThemeMode() ?: ThemeMode.SYSTEM,
+        customAccentArgb = settingDataSource.getCustomAccent()
     )
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
@@ -315,6 +316,7 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun updateThemes(themeSetting: ThemeSetting) {
         settingDataSource.updateDynamicTheme(themeSetting.dynamicTheme)
         settingDataSource.updateThemeMode(themeSetting.themeMode)
+        settingDataSource.updateCustomAccent(themeSetting.customAccentArgb)
     }
 
     override suspend fun addPlatformV2(platform: PlatformV2) {

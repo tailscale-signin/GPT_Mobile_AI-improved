@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
+import dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPrimaryArgb
 import dev.chungjungsoo.gptmobile.presentation.common.LocalDynamicTheme
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeMode
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeViewModel
@@ -416,6 +417,28 @@ fun ThemeSettingDialog(settingViewModel: SettingViewModelV2) {
                         selected = LocalDynamicTheme.current == theme
                     ) {
                         themeViewModel.updateDynamicTheme(theme)
+                    }
+                }
+                Spacer(Modifier.fillMaxWidth().height(24.dp))
+                Text("Accent color", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.fillMaxWidth().height(8.dp))
+                val accentChoices = listOf(
+                    "Current theme" to null,
+                    "Cyan" to 0xFF00BCD4L,
+                    "Blue" to 0xFF2196F3L,
+                    "Purple" to 0xFF9C27B0L,
+                    "Green" to 0xFF4CAF50L,
+                    "Orange" to 0xFFFF9800L,
+                    "Red" to 0xFFF44336L
+                )
+                accentChoices.forEach { (label, argb) ->
+                    RadioItem(
+                        title = label,
+                        description = null,
+                        value = label,
+                        selected = LocalCustomPrimaryArgb.current == argb
+                    ) {
+                        themeViewModel.updateCustomPrimaryArgb(argb)
                     }
                 }
                 Spacer(Modifier.fillMaxWidth().height(24.dp))

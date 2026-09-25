@@ -1110,7 +1110,14 @@ fun GPTMobileIcon(loading: Boolean) {
 }
 
 @Composable
-fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatformClick: () -> Unit) {
+fun PlatformButton(
+    isLoading: Boolean,
+    name: String,
+    selected: Boolean,
+    disabled: Boolean = false,
+    onPlatformClick: () -> Unit,
+    onPlatformLongPress: () -> Unit = {}
+) {
     val content: @Composable RowScope.() -> Unit = {
         Spacer(Modifier.width(12.dp))
         if (isLoading) { CircularProgressIndicator(Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)) }
@@ -1120,11 +1127,23 @@ fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatfo
         )
         Spacer(Modifier.width(12.dp)); if (isLoading) Spacer(Modifier.width(4.dp))
     }
-    TextButton(
-        modifier = Modifier.widthIn(max = 160.dp), onClick = onPlatformClick,
-        colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.textButtonColors(),
-        content = content
-    )
+    Box(
+        modifier = Modifier
+            .widthIn(max = 160.dp)
+            .alpha(if (disabled) 0.5f else 1f)
+            .pointerInput(onPlatformClick, onPlatformLongPress) {
+                detectTapGestures(
+                    onTap = { onPlatformClick() },
+                    onLongPress = { onPlatformLongPress() }
+                )
+            }
+    ) {
+        TextButton(
+            onClick = {},
+            colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.textButtonColors(),
+            content = content
+        )
+    }
 }
 
 @Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {

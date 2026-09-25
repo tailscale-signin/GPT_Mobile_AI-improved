@@ -227,7 +227,7 @@ private fun GatewayActivityBar(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        color = Color.Transparent
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -262,7 +262,7 @@ private fun GatewayActivityBar(
 
             Text(
                 text = detail,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis

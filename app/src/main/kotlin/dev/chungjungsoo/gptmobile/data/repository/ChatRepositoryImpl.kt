@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAttachmentEncoder
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
@@ -88,6 +89,7 @@ class ChatRepositoryImpl(
     private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder)
     private val anthropicMessagesAdapter = AnthropicMessagesAdapter(anthropicAPI, providerAttachmentEncoder)
     private val geminiAdapter = GeminiAdapter(googleAPI, providerAttachmentEncoder)
+    private val sharedToolCallBroker = SharedToolCallBroker()
     private val liteRtLmAdapter = LiteRtLmAdapter(
         localRuntime = localRuntime,
         localModelRepository = localModelRepository,
@@ -149,7 +151,17 @@ class ChatRepositoryImpl(
             val resolvedTools = if (platform.disableAllTools) {
                 emptyList()
             } else {
-                agentToolResolver.resolve(platform.uid, chatToolConfig)
+                val shareScope = buildSharedToolScope(contextTurns)
+                agentToolResolver.resolve(platform.uid, chatToolConfig).map { resolved ->
+                    resolved.copy(
+                        tool = sharedToolCallBroker.wrap(
+                            scopeId = shareScope,
+                            toolIdentity = buildSharedToolIdentity(resolved),
+                            shareableReadOnly = resolved.shareableReadOnly,
+                            tool = resolved.tool
+                        )
+                    )
+                }
             }
             val requestPlatform = platform.copy(
                 systemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName })
@@ -406,6 +418,18 @@ class ChatRepositoryImpl(
         emit(ApiState.Error(classified.userMessage))
     }.onCompletion {
         emit(ApiState.Done)
+    }
+
+    private fun buildSharedToolScope(contextTurns: List<ConversationTurn>): String? {
+        val latestUserMessage = contextTurns.lastOrNull()?.userMessage ?: return null
+        if (latestUserMessage.chatId <= 0 || latestUserMessage.id <= 0) return null
+        return "chat:${latestUserMessage.chatId}:turn:${latestUserMessage.id}"
+    }
+
+    private fun buildSharedToolIdentity(tool: ResolvedAgentTool): String = buildString {
+        append(tool.connectionUid ?: "builtin")
+        append(':')
+        append(tool.realToolName)
     }
 
     private suspend fun buildContextTurns(

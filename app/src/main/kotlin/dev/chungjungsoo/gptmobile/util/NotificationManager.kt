@@ -54,24 +54,35 @@ class NotificationManager @Inject constructor(
             }
         }
 
+        val notificationId = responseNotificationId(chatId, targetMsgId)
         val pendingIntent = PendingIntent.getActivity(
             context,
-            NOTIFICATION_ID,
+            notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val preview = content.trim().take(MAX_RESPONSE_PREVIEW_CHARS)
+        val compactPreview = preview.replace(Regex("\\s+"), " ").take(COMPACT_RESPONSE_PREVIEW_CHARS)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_ai_notification)
             .setContentTitle(title)
-            .setContentText(content)
+            .setContentText(compactPreview)
+            .setSubText("AI response completed • Tap to open")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(preview)
+                    .setBigContentTitle(title)
+                    .setSummaryText("Tap to jump to this response")
+            )
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setVibrate(VIBRATION_PATTERN)
             .build()
 
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        notificationManager.notify(notificationId, notification)
         triggerVibration(context)
     }
 
@@ -117,7 +128,14 @@ class NotificationManager @Inject constructor(
         const val NOTIFICATION_ID = 1001
         const val EXTRA_CHAT_ROOM_ID = "chatRoomId"
         const val EXTRA_TARGET_MESSAGE_ID = "targetMessageId"
+        private const val MAX_RESPONSE_PREVIEW_CHARS = 640
+        private const val COMPACT_RESPONSE_PREVIEW_CHARS = 180
         val VIBRATION_PATTERN = longArrayOf(0, 200, 100, 200)
+
+        private fun responseNotificationId(chatId: Int, messageId: Int): Int {
+            val stable = 31 * chatId + messageId
+            return if (stable == 0) NOTIFICATION_ID else stable and 0x7FFFFFFF
+        }
 
         /**
          * Creates the notification channel for Android O+ compatibility.

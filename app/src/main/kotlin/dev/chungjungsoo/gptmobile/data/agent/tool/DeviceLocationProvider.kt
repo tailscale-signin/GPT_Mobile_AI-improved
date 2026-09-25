@@ -12,12 +12,12 @@ import android.os.CancellationSignal
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.Executors
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class DeviceLocation(
     val latitude: Double,
@@ -53,7 +53,7 @@ class DeviceLocationProvider @Inject constructor(
             ?: return null
 
         val lastKnown = getLastKnownLocation(locationManager)
-        if (lastKnown != null && System.currentTimeMillis() - lastKnown.time < 120_000) {
+        if (lastKnown != null && isRecentLocation(lastKnown.time, System.currentTimeMillis())) {
             return lastKnown.toDeviceLocation()
         }
 
@@ -61,7 +61,9 @@ class DeviceLocationProvider @Inject constructor(
             requestSingleUpdate(locationManager)
         }
 
-        return (freshLocation ?: lastKnown)?.toDeviceLocation()
+        return (freshLocation ?: lastKnown)
+            ?.takeIf { isRecentLocation(it.time, System.currentTimeMillis()) }
+            ?.toDeviceLocation()
     }
 
     private fun getLastKnownLocation(locationManager: LocationManager): Location? {
@@ -176,14 +178,12 @@ class DeviceLocationProvider @Inject constructor(
             }
         }
 
-    private fun Location.toDeviceLocation(): DeviceLocation {
-        return DeviceLocation(
-            latitude = latitude,
-            longitude = longitude,
-            accuracy = if (hasAccuracy()) accuracy else null,
-            altitude = if (hasAltitude()) altitude else null,
-            timestamp = time,
-            provider = provider
-        )
-    }
+    private fun Location.toDeviceLocation(): DeviceLocation = DeviceLocation(
+        latitude = latitude,
+        longitude = longitude,
+        accuracy = if (hasAccuracy()) accuracy else null,
+        altitude = if (hasAltitude()) altitude else null,
+        timestamp = time,
+        provider = provider
+    )
 }

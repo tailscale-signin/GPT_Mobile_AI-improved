@@ -23,6 +23,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
+import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.AppForegroundTracker
 import dev.chungjungsoo.gptmobile.presentation.ui.main.MainActivity
@@ -45,6 +46,9 @@ class AgentRunForegroundService : Service() {
     @Inject
     lateinit var settingRepository: SettingRepository
 
+    @Inject
+    lateinit var chatRepository: ChatRepository
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var activeRunsJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -52,6 +56,7 @@ class AgentRunForegroundService : Service() {
     private var isForeground = false
     private var lastActiveProfileUid: String? = null
     private var lastActiveChatId: Int? = null
+    private var lastAssistantMessageId: Int? = null
     private var lastNotificationUpdateTime = 0L
     private var lastNotificationText: String? = null
 
@@ -88,6 +93,7 @@ class AgentRunForegroundService : Service() {
                         runs.firstOrNull()?.let {
                             lastActiveProfileUid = it.profileUid
                             lastActiveChatId = it.chatId
+                            lastAssistantMessageId = it.assistantMessageId
                         }
                         updateNotification(runs)
                         wasActive = true
@@ -95,7 +101,6 @@ class AgentRunForegroundService : Service() {
                         ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                         if (shouldNotifyAgentRunsCompleted(wasActive, isActive, AppForegroundTracker.isBackgrounded)) {
                             showCompletionNotification()
-                            triggerCompletionVibration()
                         }
                         stopSelf()
                     } else {
@@ -222,16 +227,45 @@ class AgentRunForegroundService : Service() {
 
     private fun showCompletionNotification() {
         serviceScope.launch {
+            val features = runCatching { settingRepository.getFeatureSettings() }.getOrNull()
+            if (features?.responseNotifications == false) return@launch
+
+            val chatId = lastActiveChatId
+            val targetMessageId = lastAssistantMessageId
             val platformName = lastActiveProfileUid?.let { uid ->
                 settingRepository.fetchPlatformV2s().firstOrNull { it.uid == uid }?.name
             }
-            val title = if (!platformName.isNullOrBlank()) {
-                getString(R.string.agent_completion_platform_title, platformName)
-            } else {
-                getString(R.string.agent_completion_notification_title)
+            val room = chatId?.takeIf { it > 0 }?.let { id ->
+                (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2())
+                    .firstOrNull { it.id == id }
             }
+            val completedMessage = if (chatId != null && chatId > 0) {
+                chatRepository.fetchMessagesV2(chatId)
+                    .firstOrNull { it.id == targetMessageId }
+                    ?: chatRepository.fetchMessagesV2(chatId)
+                        .lastOrNull { it.platformType != null && it.content.isNotBlank() }
+            } else {
+                null
+            }
+
+            val title = room?.title?.takeIf { it.isNotBlank() }
+                ?: platformName?.takeIf { it.isNotBlank() }
+                    ?.let { getString(R.string.agent_completion_platform_title, it) }
+                ?: getString(R.string.agent_completion_notification_title)
+
+            val preview = completedMessage?.content
+                ?.replace(Regex("\\s+"), " ")
+                ?.trim()
+                ?.take(360)
+                ?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.agent_completion_notification_text)
+
             val manager = getSystemService(NotificationManager::class.java)
-            manager?.notify(NOTIFICATION_ID, buildCompletionNotification(title, lastActiveChatId))
+            manager?.notify(
+                COMPLETION_NOTIFICATION_BASE_ID + (chatId ?: 0).coerceAtLeast(0),
+                buildCompletionNotification(title, preview, chatId, completedMessage?.id ?: targetMessageId)
+            )
+            triggerCompletionVibration()
         }
     }
 
@@ -262,21 +296,35 @@ class AgentRunForegroundService : Service() {
         }
     }
 
-    private fun buildCompletionNotification(title: String, chatId: Int?): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
+    private fun buildCompletionNotification(
+        title: String,
+        preview: String,
+        chatId: Int?,
+        targetMessageId: Int?
+    ): Notification = NotificationCompat.Builder(this, COMPLETION_CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_ai_notification)
         .setContentTitle(title)
-        .setContentText(getString(R.string.agent_completion_notification_text))
-        .setContentIntent(buildOpenAppPendingIntent(2, chatId))
+        .setContentText(preview)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
+        .setSubText("AI response complete")
+        .setContentIntent(buildOpenAppPendingIntent(2, chatId, targetMessageId))
         .setAutoCancel(true)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setCategory(NotificationCompat.CATEGORY_STATUS)
+        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .build()
 
-    private fun buildOpenAppPendingIntent(requestCode: Int, chatId: Int? = null): PendingIntent {
+    private fun buildOpenAppPendingIntent(
+        requestCode: Int,
+        chatId: Int? = null,
+        targetMessageId: Int? = null
+    ): PendingIntent {
         val openAppIntent = Intent().setClass(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (chatId != null && chatId > 0) {
                 putExtra(MainActivity.EXTRA_CHAT_ROOM_ID, chatId)
+            }
+            if (targetMessageId != null && targetMessageId > 0) {
+                putExtra(MainActivity.EXTRA_TARGET_MESSAGE_ID, targetMessageId)
             }
         }
         return PendingIntent.getActivity(
@@ -312,6 +360,7 @@ class AgentRunForegroundService : Service() {
         private const val CHANNEL_ID = "agent_runs"
         private const val COMPLETION_CHANNEL_ID = "agent_completion"
         private const val NOTIFICATION_ID = 8001
+        private const val COMPLETION_NOTIFICATION_BASE_ID = 9000
         private const val ACTION_CANCEL_ALL = "dev.chungjungsoo.gptmobile.action.CANCEL_AGENT_RUNS"
         private const val WAKELOCK_TAG = "dev.chungjungsoo.gptmobile:agent_execution_wakelock"
         private const val WAKELOCK_TIMEOUT_MS = 60 * 60 * 1000L // 1 hour max safeguard

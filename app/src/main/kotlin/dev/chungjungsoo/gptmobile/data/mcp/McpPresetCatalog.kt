@@ -54,7 +54,7 @@ object McpPresetCatalog {
         McpPreset(
             id = McpLocationToolSet.PRESET_ID,
             name = McpLocationToolSet.PRESET_NAME,
-            description = "Device GPS coordinates, altitude, accuracy, and geocoding services powered by OpenStreetMap Nominatim and Android location sensors. Preinstalled and ready to use.",
+            description = "Native Android device coordinates, altitude and accuracy. Enable Device location in the AI profile and grant Android location permission. No separate MCP server is required.",
             category = McpCategory.SYSTEM,
             transportType = McpTransportType.STDIO,
             commandOrUrl = McpLocationToolSet.DEFAULT_LAUNCHER_PATH,

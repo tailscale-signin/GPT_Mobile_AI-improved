@@ -36,9 +36,9 @@ class OpenRouterBatchClient(
         val scheme = uri.scheme ?: "https"
         val host = uri.host ?: "openrouter.ai"
         val port = if (uri.port != -1) ":${uri.port}" else ""
-        "$scheme://$host$port/api/beta/batches"
+        "$scheme://$host$port/api/v1/batches"
     } catch (e: Exception) {
-        "https://openrouter.ai/api/beta/batches"
+        "https://openrouter.ai/api/v1/batches"
     }
 
     /**
@@ -71,7 +71,7 @@ class OpenRouterBatchClient(
     }
 
     /**
-     * Submits a native asynchronous batch to OpenRouter via POST /api/beta/batches
+     * Submits a native asynchronous batch to OpenRouter via POST /api/v1/batches
      */
     suspend fun submit(
         endpoint: String = "/v1/chat/completions",
@@ -106,7 +106,7 @@ class OpenRouterBatchClient(
     }
 
     /**
-     * Retrieves status and inlined results (if completed) for a batch via GET /api/beta/batches/{id}
+     * Retrieves status and inlined results (if completed) for a batch via GET /api/v1/batches/{id}
      */
     suspend fun status(batchId: String): BatchStatusResponse = withContext(Dispatchers.IO) {
         val encodedId = URLEncoder.encode(batchId, "UTF-8")
@@ -128,7 +128,7 @@ class OpenRouterBatchClient(
     }
 
     /**
-     * Lists batches in the workspace via GET /api/beta/batches?limit={limit}
+     * Lists batches in the workspace via GET /api/v1/batches?limit={limit}
      */
     suspend fun list(limit: Int = 100): List<BatchMeta> = withContext(Dispatchers.IO) {
         val request = Request.Builder()
@@ -155,7 +155,7 @@ class OpenRouterBatchClient(
     }
 
     /**
-     * Cancels an in-progress batch via POST /api/beta/batches/{id}/cancel
+     * Cancels an in-progress batch via POST /api/v1/batches/{id}/cancel
      */
     suspend fun cancel(batchId: String): Unit = withContext(Dispatchers.IO) {
         val encodedId = URLEncoder.encode(batchId, "UTF-8")

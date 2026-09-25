@@ -57,6 +57,7 @@ import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterOptions
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterReasoning
 import dev.chungjungsoo.gptmobile.data.repository.GroqReasoningParser
+import dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
 import java.net.URI
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
@@ -175,7 +176,8 @@ class OpenAIResponsesAdapter @Inject constructor(
 class OpenAICompatibleAdapter @Inject constructor(
     private val openAIAPI: OpenAIAPI,
     private val groqAPI: GroqAPI,
-    private val attachmentEncoder: ProviderAttachmentEncoder
+    private val attachmentEncoder: ProviderAttachmentEncoder,
+    private val openRouterSettingsRepository: OpenRouterSettingsRepository? = null
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -192,6 +194,25 @@ class OpenAICompatibleAdapter @Inject constructor(
             attachmentEncoder.gatewayPerformanceHeaders()
         } else {
             emptyMap()
+        }
+
+        val openRouterProviderSettings = if (platform.compatibleType == ClientType.OPENROUTER) {
+            runCatching { openRouterSettingsRepository?.loadSettings() }.getOrNull()
+        } else {
+            null
+        }
+        val openRouterSessionId = if (
+            platform.compatibleType == ClientType.OPENROUTER &&
+            (openRouterProviderSettings?.stickySessionRoutingEnabled ?: true)
+        ) {
+            val chatId = turns.firstOrNull()?.userMessage?.chatId ?: 0
+            if (chatId > 0) {
+                "gptmobile-chat-$chatId-${platform.uid}".take(255)
+            } else {
+                null
+            }
+        } else {
+            null
         }
 
         return object : AgentProviderSession {
@@ -213,10 +234,17 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val isLlama = platform.compatibleType == ClientType.LLAMA
 
                 val openRouterHeaders = if (isOpenRouter) {
-                    mapOf(
-                        "HTTP-Referer" to "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
-                        "X-Title" to "GPT Mobile AI Improved"
-                    )
+                    buildMap {
+                        put("HTTP-Referer", "https://github.com/tailscale-signin/GPT_Mobile_AI-improved")
+                        put("X-Title", "GPT Mobile AI Improved")
+                        if (openRouterProviderSettings?.responseCachingEnabled == true) {
+                            put("X-OpenRouter-Cache", "true")
+                            put(
+                                "X-OpenRouter-Cache-TTL",
+                                openRouterProviderSettings.cacheTtlSeconds.coerceIn(1, 86_400).toString()
+                            )
+                        }
+                    }
                 } else {
                     emptyMap()
                 }
@@ -238,14 +266,14 @@ class OpenAICompatibleAdapter @Inject constructor(
                     if (!platform.openRouterRouting.isNullOrBlank()) {
                         val asOptions = runCatching { json.decodeFromString<OpenRouterOptions>(platform.openRouterRouting) }.getOrNull()
                         if (asOptions != null && (asOptions.provider != null || asOptions.maxTokens != null || asOptions.stream != null || asOptions.repetitionPenalty != null || asOptions.seed != null)) {
-                            asOptions to asOptions.provider
+                            asOptions to asOptions.provider?.normalized()
                         } else {
                             val routing = runCatching { json.decodeFromString<OpenRouterProviderRouting>(platform.openRouterRouting) }.getOrNull()
-                            null to routing
+                            null to routing?.normalized()
                         }
                     } else {
                         val defaultOpts = OpenRouterOptions.createDefault()
-                        defaultOpts to defaultOpts.provider
+                        defaultOpts to defaultOpts.provider?.normalized()
                     }
                 } else {
                     null to null
@@ -418,6 +446,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             tools = requestTools,
                             provider = parsedRouting,
                             reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null,
+                            sessionId = openRouterSessionId,
                             options = parsedOllamaOptions
                         )
                         val assembler = ChatCompletionsEventAssembler()

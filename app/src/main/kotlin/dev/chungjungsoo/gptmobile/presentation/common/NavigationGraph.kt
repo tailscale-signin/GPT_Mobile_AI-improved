@@ -24,6 +24,8 @@ import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpMarketplaceScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.migrate.MigrateScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AboutScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.AdvancedSettingsScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.DebugDiagnosticsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AddPlatformScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AiPlatformsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LicenseScreen
@@ -31,6 +33,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpToolsSelectionScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.OpenRouterSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.ProviderConnectionSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
@@ -208,6 +211,8 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
                 onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
                 onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                onNavigateToAdvancedSettings = { navController.navigate(Route.ADVANCED_SETTINGS) },
+                onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
             )
         }
@@ -215,6 +220,27 @@ fun NavGraphBuilder.settingNavigation(
             val viewModel: OpenRouterSettingsViewModel = hiltViewModel()
             OpenRouterSettingsScreen(
                 viewModel = viewModel,
+                onNavigationClick = { navController.navigateUp() }
+            )
+        }
+
+        composable(Route.ADVANCED_SETTINGS) {
+            val parentEntry = remember(it) {
+                navController.getBackStackEntry(Route.SETTING_ROUTE)
+            }
+            val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
+            AdvancedSettingsScreen(
+                viewModel = settingViewModel,
+                onNavigationClick = { navController.navigateUp() }
+            )
+        }
+        composable(Route.DEBUG_DIAGNOSTICS) {
+            val parentEntry = remember(it) {
+                navController.getBackStackEntry(Route.SETTING_ROUTE)
+            }
+            val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
+            DebugDiagnosticsScreen(
+                settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() }
             )
         }
@@ -227,11 +253,31 @@ fun NavGraphBuilder.settingNavigation(
                 settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
                 onNavigateToAddPlatform = { navController.navigate(Route.ADD_PLATFORM) },
+                onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
+                onNavigateToProviderSettings = { connectionUid ->
+                    navController.navigate(
+                        Route.PROVIDER_CONNECTION_SETTINGS.replace("{connectionUid}", connectionUid)
+                    )
+                },
                 onNavigateToPlatformSetting = { platformUid ->
                     navController.navigate(
                         Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid)
                     )
                 }
+            )
+        }
+        composable(
+            Route.PROVIDER_CONNECTION_SETTINGS,
+            arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val parentEntry = remember(backStackEntry) {
+                navController.getBackStackEntry(Route.SETTING_ROUTE)
+            }
+            val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
+            ProviderConnectionSettingsScreen(
+                connectionUid = backStackEntry.arguments?.getString("connectionUid").orEmpty(),
+                settingViewModel = settingViewModel,
+                onNavigationClick = { navController.navigateUp() }
             )
         }
         composable(Route.ADD_PLATFORM) {

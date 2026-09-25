@@ -245,6 +245,9 @@ class PlatformSettingViewModel @Inject constructor(
                         it.toolName == WEB_SEARCH_TOOL && it.connectionUid in searchConnectionUids
                     }?.connectionUid,
                     readUrlEnabled = bindings.any { it.toolName == BuiltInAgentTool.READ_URL && it.connectionUid == null },
+                    deviceLocationEnabled = bindings.any {
+                        it.toolName == BuiltInAgentTool.DEVICE_LOCATION && it.connectionUid == null
+                    },
                     mcpConnections = mcpConnections,
                     selectedMcpTools = bindings.mapNotNull { binding ->
                         binding.connectionUid?.takeIf { it in mcpConnectionUids }?.let { ToolBindingSelection(it, binding.toolName) }
@@ -689,6 +692,21 @@ class PlatformSettingViewModel @Inject constructor(
         }
     }
 
+    fun toggleDeviceLocation(enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                toolConnectionRepository.setBuiltInToolBinding(
+                    platformUid,
+                    BuiltInAgentTool.DEVICE_LOCATION,
+                    enabled
+                )
+                _toolBindingState.update {
+                    it.copy(deviceLocationEnabled = enabled, errorMessage = null)
+                }
+            }.onFailure(::showToolError)
+        }
+    }
+
     fun openMcpToolsDialog() {
         val currentState = _toolBindingState.value
         _toolBindingState.update {
@@ -829,6 +847,7 @@ class PlatformSettingViewModel @Inject constructor(
         val searchConnections: List<ToolConnection> = emptyList(),
         val selectedSearchConnectionUid: String? = null,
         val readUrlEnabled: Boolean = false,
+        val deviceLocationEnabled: Boolean = false,
         val mcpConnections: List<ToolConnection> = emptyList(),
         val selectedMcpTools: Set<ToolBindingSelection> = emptySet(),
         val pendingMcpTools: Set<ToolBindingSelection> = emptySet(),

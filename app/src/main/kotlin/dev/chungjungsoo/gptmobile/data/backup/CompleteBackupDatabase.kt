@@ -60,6 +60,101 @@ internal object CompleteBackupDatabase {
         destination.execSQL("UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' WHERE status IN ('PENDING', 'RUNNING')")
     }
 
+    fun retainSections(database: SupportSQLiteDatabase, selection: CompleteBackupSelection) {
+        val selectedTables = tablesFor(selection.normalized())
+        val order = dependencyOrder(database)
+        order.asReversed()
+            .filterNot { it in selectedTables }
+            .forEach { database.execSQL("DELETE FROM ${quote(it)}") }
+        if (selectedTables.isEmpty()) {
+            database.execSQL("DELETE FROM sqlite_sequence")
+        } else {
+            database.execSQL(
+                "DELETE FROM sqlite_sequence WHERE name NOT IN (" +
+                    selectedTables.joinToString(",") { "'${it.replace("'", "''")}'" } +
+                    ")"
+            )
+        }
+    }
+
+    fun restoreSections(
+        source: SupportSQLiteDatabase,
+        destination: SupportSQLiteDatabase,
+        selection: CompleteBackupSelection
+    ) {
+        validate(source, destination)
+        val selectedTables = tablesFor(selection.normalized())
+        if (selectedTables.isEmpty()) return
+
+        val order = dependencyOrder(destination)
+        order.asReversed()
+            .filter { it in selectedTables }
+            .forEach { destination.execSQL("DELETE FROM ${quote(it)}") }
+
+        order.filter { it in selectedTables }.forEach { table ->
+            source.query("SELECT * FROM ${quote(table)}").use { rows ->
+                copyRows(table, rows) { sql, values -> destination.execSQL(sql, values) }
+            }
+        }
+
+        selectedTables.forEach { table ->
+            destination.execSQL("DELETE FROM sqlite_sequence WHERE name = ?", arrayOf<Any>(table))
+        }
+        source.query("SELECT name, seq FROM sqlite_sequence").use { rows ->
+            while (rows.moveToNext()) {
+                val name = rows.getString(0)
+                if (name in selectedTables) {
+                    destination.execSQL(
+                        "INSERT INTO sqlite_sequence(name, seq) VALUES (?, ?)",
+                        arrayOf<Any>(name, rows.getLong(1))
+                    )
+                }
+            }
+        }
+
+        if (CompleteBackupSection.AGENT_HISTORY in selection.normalized().sections) {
+            destination.execSQL(
+                "UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = 'BACKUP_RESTORED' " +
+                    "WHERE status IN ('QUEUED', 'RUNNING')"
+            )
+            destination.execSQL(
+                "UPDATE tool_events SET status = 'CANCELED', error = 'BACKUP_RESTORED' " +
+                    "WHERE status IN ('PENDING', 'RUNNING')"
+            )
+        }
+    }
+
+    private fun tablesFor(selection: CompleteBackupSelection): Set<String> {
+        val sections = selection.normalized().sections
+        return buildSet {
+            if (CompleteBackupSection.CONVERSATIONS in sections) {
+                add("chats_v2")
+                add("messages_v2")
+                add("chat_platform_model_v2")
+            }
+            if (CompleteBackupSection.PLATFORMS in sections) {
+                add("platform_v2")
+                add("provider_connections")
+            }
+            if (CompleteBackupSection.TOOLS in sections) {
+                add("tool_connections")
+                add("agent_tool_bindings")
+            }
+            if (CompleteBackupSection.LOCAL_MODELS in sections) {
+                add("local_models")
+            }
+            if (CompleteBackupSection.AGENT_HISTORY in sections) {
+                add("agent_runs")
+                add("tool_events")
+            }
+            if (CompleteBackupSection.SETTINGS in sections) {
+                // The queue cache is optional operational state, but keeping it with app
+                // settings preserves existing complete-backup round trips.
+                add("openrouter_batch_cache")
+            }
+        }
+    }
+
     private fun tables(db: SupportSQLiteDatabase, includeMetadata: Boolean = false): List<String> = db.query(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
     ).use { cursor ->

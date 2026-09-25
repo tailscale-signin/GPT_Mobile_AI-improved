@@ -2,11 +2,17 @@ package dev.chungjungsoo.gptmobile.data.catalog
 
 import kotlinx.serialization.Serializable
 
+/**
+ * Transport types visible in the marketplace.
+ *
+ * GPT Mobile can directly connect to remote MCP servers using Streamable HTTP.
+ * STDIO is retained only to describe app-integrated tools; Android does not pretend
+ * that a remote STDIO package is installable when no local process host exists.
+ */
 @Serializable
 enum class McpTransportType {
-    SSE,
-    STDIO,
-    WEBSOCKET
+    STREAMABLE_HTTP,
+    STDIO
 }
 
 @Serializable
@@ -26,7 +32,6 @@ enum class McpPricingType(val displayName: String) {
     PAID("Paid")
 }
 
-// Backward-compatibility alias for McpPresetCategory
 typealias McpPresetCategory = McpCategory
 
 @Serializable
@@ -36,7 +41,7 @@ data class McpPreset(
     val description: String,
     val category: McpCategory,
     val commandOrUrl: String,
-    val transportType: McpTransportType = McpTransportType.SSE,
+    val transportType: McpTransportType = McpTransportType.STREAMABLE_HTTP,
     val headers: Map<String, String> = emptyMap(),
     val iconName: String = "extension",
     val author: String = "Community",
@@ -46,41 +51,51 @@ data class McpPreset(
     val requiredFields: List<String> = emptyList(),
     val toolCapabilities: List<String> = emptyList(),
     val websiteUrl: String = "",
-    val isPreinstalled: Boolean = false
+    val isPreinstalled: Boolean = false,
+    val verifiedRemote: Boolean = false
 ) {
-    // Backward-compatibility aliases
     val url: String get() = commandOrUrl
     val defaultEndpoint: String get() = commandOrUrl
+    val isDirectlyInstallable: Boolean
+        get() = !isPreinstalled && transportType == McpTransportType.STREAMABLE_HTTP
 }
 
 typealias McpServerPreset = McpPreset
 
+/**
+ * Curated marketplace catalog.
+ *
+ * Only presets that GPT Mobile can actually use are surfaced:
+ * - app-integrated built-ins, or
+ * - remote Streamable HTTP endpoints.
+ *
+ * We intentionally do not advertise arbitrary localhost /sse or STDIO package examples
+ * as one-tap installs because the Android client does not launch Node/Python MCP servers.
+ */
 object McpPresetCatalog {
     val presets = listOf(
         McpPreset(
-            id = "droid-mcp-web",
-            name = "Online Search",
-            description = "Integrated online web search and webpage text extractor powered by droid-mcp. Preinstalled and enabled by default across all models.",
+            id = "builtin-web",
+            name = "Web Search & URL Reader",
+            description = "Integrated search and webpage reading tools available to AI profiles without installing a separate MCP server.",
             category = McpCategory.SEARCH,
-            commandOrUrl = "https://github.com/stixez/droid-mcp",
+            commandOrUrl = "builtin://web",
             transportType = McpTransportType.STDIO,
             iconName = "online_search",
-            author = "stixez / droid-mcp",
-            alias = "droid_mcp_web",
+            author = "GPT Mobile AI",
+            alias = "builtin_web",
             suggestedAuthType = "NONE",
             pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
             toolCapabilities = listOf(
-                "web_search: Search the web using DuckDuckGo with customizable result count",
-                "fetch_webpage: Fetch webpage content and extract clean, readable text"
+                "web_search: Search the web through the configured search backend",
+                "read_url: Retrieve and normalize supported web content"
             ),
-            websiteUrl = "https://github.com/stixez/droid-mcp",
             isPreinstalled = true
         ),
         McpPreset(
             id = "device-location",
-            name = "Device Location & Geocoding",
-            description = "Device GPS coordinates, altitude, accuracy, and geocoding services powered by OpenStreetMap Nominatim and Android location sensors. Preinstalled and ready to use.",
+            name = "Device Location",
+            description = "Native Android location tool. Profiles that enable it can request the phone's current coordinates after Android location permission is granted.",
             category = McpCategory.SYSTEM,
             commandOrUrl = "builtin://device_location",
             transportType = McpTransportType.STDIO,
@@ -89,197 +104,74 @@ object McpPresetCatalog {
             alias = "device_location",
             suggestedAuthType = "NONE",
             pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
             toolCapabilities = listOf(
-                "get_current_location: GPS coordinates (latitude, longitude, altitude, accuracy)",
-                "reverse_geocode: Convert GPS coordinates into formatted human-readable street addresses",
-                "geocode_address: Convert addresses and place names into GPS coordinates",
-                "calculate_distance: Calculate distance between two sets of coordinates"
+                "device_location: Current latitude, longitude, accuracy, altitude and provider metadata"
             ),
-            websiteUrl = "https://github.com/tailscale-signin/GPT_Mobile_AI-improved",
             isPreinstalled = true
         ),
         McpPreset(
-            id = "brave-search",
-            name = "Brave Search",
-            description = "Privacy-preserving web and local search querying Brave's independent global index without ad tracking or profiling.",
-            category = McpCategory.SEARCH,
-            commandOrUrl = "https://api.search.brave.com/res/v1",
-            transportType = McpTransportType.SSE,
-            iconName = "brave",
-            author = "Brave Software",
-            alias = "brave_search",
-            suggestedAuthType = "BEARER",
-            pricing = McpPricingType.FREE_WITH_SIGNUP,
-            requiredFields = listOf("Brave Search API Key"),
-            toolCapabilities = listOf(
-                "brave_web_search: Global web search with rich snippets and summaries",
-                "brave_local_search: Nearby businesses, points of interest, and addresses"
-            ),
-            websiteUrl = "https://brave.com/search/api/"
-        ),
-        McpPreset(
-            id = "github",
-            name = "GitHub",
-            description = "Official Model Context Protocol integration for GitHub: inspect repos, review PRs, file issues, and search code.",
+            id = "github-all",
+            name = "GitHub MCP — All Toolsets",
+            description = "GitHub's hosted remote MCP server with all available toolsets. Supports repository, issue, pull request, Actions and other GitHub operations allowed by your token.",
             category = McpCategory.DEVELOPMENT,
-            commandOrUrl = "https://api.github.com/mcp",
-            transportType = McpTransportType.SSE,
+            commandOrUrl = "https://api.githubcopilot.com/mcp/x/all",
+            transportType = McpTransportType.STREAMABLE_HTTP,
             iconName = "github",
-            author = "GitHub / MCP",
+            author = "GitHub",
             alias = "github",
             suggestedAuthType = "BEARER",
             pricing = McpPricingType.FREE_WITH_SIGNUP,
-            requiredFields = listOf("Personal Access Token (PAT)"),
+            requiredFields = listOf("GitHub Personal Access Token"),
             toolCapabilities = listOf(
-                "get_file_contents: Read files & directories from any repository",
-                "create_or_update_file: Commit changes directly to branches",
-                "issue_read/write: Query, label, create, and close issues",
-                "pull_request_read: Inspect diffs, checks, reviews, and commits",
-                "search_code/repositories: Fast semantic and exact search across GitHub"
+                "Repository and code operations",
+                "Issues, pull requests and reviews",
+                "GitHub Actions and workflow operations",
+                "Additional GitHub MCP toolsets exposed by the hosted service"
             ),
-            websiteUrl = "https://github.com/settings/tokens"
+            websiteUrl = "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
+            verifiedRemote = true
         ),
         McpPreset(
-            id = "filesystem",
-            name = "Local Filesystem",
-            description = "Secure filesystem tool with explicit directory sandboxing to read, write, navigate, and search files locally.",
-            category = McpCategory.SYSTEM,
-            commandOrUrl = "http://localhost:3001/sse",
-            transportType = McpTransportType.SSE,
-            iconName = "folder",
-            author = "Model Context Protocol",
-            alias = "filesystem",
-            suggestedAuthType = "NONE",
-            pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
-            toolCapabilities = listOf(
-                "read_file: Retrieve file content as UTF-8 text",
-                "write_file: Safely update or write new file content",
-                "list_directory: Enumerate directory trees and file metadata",
-                "search_files: Fast glob-based file search"
-            ),
-            websiteUrl = "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
-        ),
-        McpPreset(
-            id = "postgres",
-            name = "PostgreSQL",
-            description = "Read-only database exploration and schema analysis tool for PostgreSQL instances.",
-            category = McpCategory.DATABASE,
-            commandOrUrl = "http://localhost:3002/sse",
-            transportType = McpTransportType.SSE,
-            iconName = "postgres",
-            author = "Model Context Protocol",
-            alias = "postgres",
-            suggestedAuthType = "NONE",
-            pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
-            toolCapabilities = listOf(
-                "query: Execute read-only SQL queries",
-                "list_tables: List schemas, tables, and views",
-                "describe_table: Inspect columns, foreign keys, and indices"
-            ),
-            websiteUrl = "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres"
-        ),
-        McpPreset(
-            id = "puppeteer",
-            name = "Puppeteer Browser",
-            description = "Headless browser automation engine to navigate modern SPAs, interact with forms, execute JS, and take screenshots.",
-            category = McpCategory.BROWSER,
-            commandOrUrl = "http://localhost:3003/sse",
-            transportType = McpTransportType.SSE,
-            iconName = "puppeteer",
-            author = "Model Context Protocol",
-            alias = "puppeteer",
-            suggestedAuthType = "NONE",
-            pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
-            toolCapabilities = listOf(
-                "navigate: Load dynamic JavaScript-rendered web pages",
-                "screenshot: Capture full-page visual screenshots",
-                "click / fill: Interact with forms and web page elements",
-                "evaluate: Execute JavaScript in browser context"
-            ),
-            websiteUrl = "https://github.com/modelcontextprotocol/servers/tree/main/src/puppeteer"
-        ),
-        McpPreset(
-            id = "fetch",
-            name = "Fetch",
-            description = "Lightweight web content retriever converting HTML pages directly into LLM-optimized Markdown.",
-            category = McpCategory.BROWSER,
-            commandOrUrl = "http://localhost:3004/sse",
-            transportType = McpTransportType.SSE,
-            iconName = "fetch",
-            author = "Model Context Protocol",
-            alias = "fetch",
-            suggestedAuthType = "NONE",
-            pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
-            toolCapabilities = listOf(
-                "fetch: Download web pages and parse main content into readable Markdown",
-                "extract_links: Extract and list outbound hyperlinks from target URL"
-            ),
-            websiteUrl = "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch"
-        ),
-        McpPreset(
-            id = "memory",
-            name = "Knowledge Graph Memory",
-            description = "Persistent long-term cognitive graph memory storing concepts, relations, and user preferences across chat sessions.",
-            category = McpCategory.PRODUCTIVITY,
-            commandOrUrl = "http://localhost:3005/sse",
-            transportType = McpTransportType.SSE,
-            iconName = "memory",
-            author = "Model Context Protocol",
-            alias = "memory",
-            suggestedAuthType = "NONE",
-            pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
-            toolCapabilities = listOf(
-                "create_entities: Persist new facts, concepts, and nodes into graph",
-                "create_relations: Link concepts with semantic connections",
-                "search_nodes: Traverse and query graph nodes across sessions"
-            ),
-            websiteUrl = "https://github.com/modelcontextprotocol/servers/tree/main/src/memory"
-        ),
-        McpPreset(
-            id = "exa-search",
-            name = "Exa Neural Search",
-            description = "AI-native semantic web search engine tailored for LLMs with neural embeddings and clean web scraping.",
-            category = McpCategory.SEARCH,
-            commandOrUrl = "https://api.exa.ai/mcp",
-            transportType = McpTransportType.SSE,
-            iconName = "exa",
-            author = "Exa AI",
-            alias = "exa_search",
+            id = "github-readonly",
+            name = "GitHub MCP — Read Only",
+            description = "GitHub's hosted remote MCP server with all toolsets constrained to read-only operations.",
+            category = McpCategory.DEVELOPMENT,
+            commandOrUrl = "https://api.githubcopilot.com/mcp/x/all/readonly",
+            transportType = McpTransportType.STREAMABLE_HTTP,
+            iconName = "github",
+            author = "GitHub",
+            alias = "github_readonly",
             suggestedAuthType = "BEARER",
-            pricing = McpPricingType.PAID,
-            requiredFields = listOf("Exa API Key"),
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("GitHub Personal Access Token"),
             toolCapabilities = listOf(
-                "search: Neural semantic search returning relevant web content",
-                "find_similar: Find links conceptually similar to given URLs",
-                "get_contents: Full-text extraction from indexed web content"
+                "Repository inspection and code search",
+                "Read-only issues and pull request access",
+                "Read-only workflow and Actions visibility"
             ),
-            websiteUrl = "https://exa.ai"
+            websiteUrl = "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
+            verifiedRemote = true
         ),
         McpPreset(
-            id = "termux-bridge",
-            name = "Termux Android Bridge",
-            description = "Direct local Android shell bridge executing Termux commands, device sensor queries, and clipboard sync over loopback.",
-            category = McpCategory.SYSTEM,
-            commandOrUrl = "http://127.0.0.1:8765/sse",
-            transportType = McpTransportType.SSE,
-            iconName = "terminal",
-            author = "Termux Community",
-            alias = "termux_bridge",
+            id = "exa-mcp",
+            name = "Exa MCP Search",
+            description = "Exa's hosted remote MCP endpoint for web search, code search, research and webpage retrieval. The hosted MCP service can be used without a separate local server.",
+            category = McpCategory.SEARCH,
+            commandOrUrl = "https://mcp.exa.ai/mcp",
+            transportType = McpTransportType.STREAMABLE_HTTP,
+            iconName = "exa",
+            author = "Exa",
+            alias = "exa_mcp",
             suggestedAuthType = "NONE",
             pricing = McpPricingType.FREE,
-            requiredFields = emptyList(),
             toolCapabilities = listOf(
-                "exec_command: Run permitted local shell scripts inside Termux",
-                "get_device_status: Query battery, storage, and sensors",
-                "clipboard_sync: Read and write to Android system clipboard"
+                "Web and news search",
+                "Code search",
+                "Research workflows",
+                "Webpage content retrieval"
             ),
-            websiteUrl = "https://termux.dev"
+            websiteUrl = "https://exa.ai/mcp",
+            verifiedRemote = true
         )
     )
 
@@ -289,13 +181,9 @@ object McpPresetCatalog {
 
     fun findByAlias(alias: String): McpPreset? = presets.find { it.alias.equals(alias, ignoreCase = true) }
 
-    fun getByCategory(category: McpCategory): List<McpPreset> {
-        return presets.filter { it.category == category }
-    }
+    fun getByCategory(category: McpCategory): List<McpPreset> = presets.filter { it.category == category }
 
-    fun filterByCategory(category: McpCategory): List<McpPreset> {
-        return presets.filter { it.category == category }
-    }
+    fun filterByCategory(category: McpCategory): List<McpPreset> = presets.filter { it.category == category }
 
     fun filterByCategory(categoryName: String): List<McpPreset> {
         if (categoryName.equals("All", ignoreCase = true)) return presets

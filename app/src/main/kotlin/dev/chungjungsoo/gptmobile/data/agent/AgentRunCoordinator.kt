@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome
 import dev.chungjungsoo.gptmobile.util.HIGH_REFRESH_FRAME_INTERVAL_MILLIS
@@ -58,6 +59,7 @@ data class ActiveAgentRun(
     val runId: String,
     val chatId: Int,
     val profileUid: String,
+    val assistantMessageId: Int? = null,
     val phase: LocalInferencePhase? = null,
     val gatewayStage: String? = null,
     val gatewayMessage: String? = null,
@@ -89,7 +91,8 @@ data class AgentRunNotice(
 class AgentRunCoordinator @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
-    private val gatewayAPI: GatewayAPI
+    private val gatewayAPI: GatewayAPI,
+    private val settingRepository: SettingRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -131,7 +134,7 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    private fun startUnlocked(requests: List<AgentRunRequest>) {
+    private suspend fun startUnlocked(requests: List<AgentRunRequest>) {
         val pending = requests.distinctBy(AgentRunRequest::runId).mapNotNull { request ->
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 execute(request)
@@ -154,19 +157,30 @@ class AgentRunCoordinator @Inject constructor(
 
         _activeRuns.update { active ->
             active + pending.associate { (request, _) ->
-                request.runId to ActiveAgentRun(request.runId, request.chatId, request.platform.uid)
+                request.runId to ActiveAgentRun(
+                    runId = request.runId,
+                    chatId = request.chatId,
+                    profileUid = request.platform.uid,
+                    assistantMessageId = request.assistantMessage.id.takeIf { it > 0 }
+                )
             }
         }
-        try {
-            AgentRunForegroundService.start(context)
-        } catch (error: RuntimeException) {
-            pending.forEach { (request, job) ->
-                jobs.remove(request.runId)
-                job.cancel()
+        val backgroundGenerationEnabled = runCatching {
+            settingRepository.getFeatureSettings().backgroundGeneration
+        }.getOrDefault(true)
+
+        if (backgroundGenerationEnabled) {
+            try {
+                AgentRunForegroundService.start(context)
+            } catch (error: RuntimeException) {
+                pending.forEach { (request, job) ->
+                    jobs.remove(request.runId)
+                    job.cancel()
+                }
+                _activeRuns.update { active -> active - pending.map { it.first.runId }.toSet() }
+                failQueuedStarts(pending.map { it.first }, error)
+                return
             }
-            _activeRuns.update { active -> active - pending.map { it.first.runId }.toSet() }
-            failQueuedStarts(pending.map { it.first }, error)
-            return
         }
         pending.forEach { (_, job) -> job.start() }
     }

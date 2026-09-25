@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -335,6 +336,7 @@ private class FakeAgentRunDao : AgentRunDao {
     override suspend fun getById(runId: String): AgentRun? = null
     override suspend fun getByChatId(chatId: Int): List<AgentRun> = emptyList()
     override fun observeByChatId(chatId: Int): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
+    override fun observeRecent(limit: Int): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
     override suspend fun updateStatus(
         runId: String,
         status: String,
@@ -360,6 +362,10 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
     val observedToolEvents = MutableStateFlow(emptyList<ToolEvent>())
     val observedChatIds = mutableListOf<Int>()
     var bulkQueryCount = 0
+
+    override fun observeRecentToolEvents(limit: Int): Flow<List<ToolEvent>> = observedToolEvents.map { events ->
+        events.sortedWith(compareByDescending<ToolEvent> { it.completedAt ?: it.startedAt ?: 0L }.thenByDescending { it.sequence }).take(limit)
+    }
 
     override suspend fun insertChatRoom(chatRoom: ChatRoomV2): Long = unused()
     override suspend fun updateChatRoom(chatRoom: ChatRoomV2) = unused<Unit>()

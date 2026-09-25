@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.localmodel
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -108,6 +109,13 @@ private class RecordingPlatformRepository(
 ) : SettingRepository {
     var platforms = initial.toMutableList()
     val updatedPlatforms = mutableListOf<PlatformV2>()
+
+    override suspend fun fetchProviderConnections(): List<ProviderConnection> = emptyList()
+    override fun observeProviderConnections(): Flow<List<ProviderConnection>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    override suspend fun getProviderConnection(uid: String): ProviderConnection? = null
+    override suspend fun addProviderConnection(connection: ProviderConnection, credential: String?): ProviderConnection = error("Provider writes are not used by this fixture")
+    override suspend fun updateProviderConnection(connection: ProviderConnection, credential: String?): ProviderConnection = error("Provider writes are not used by this fixture")
+    override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean = error("Provider writes are not used by this fixture")
 
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
 

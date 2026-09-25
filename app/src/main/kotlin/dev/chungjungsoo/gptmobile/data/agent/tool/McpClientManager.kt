@@ -190,7 +190,7 @@ class McpClientManager internal constructor(
 
     private companion object {
         const val CLIENT_NAME = "gpt-mobile"
-        const val CLIENT_VERSION = "0.8.0"
+        const val CLIENT_VERSION = "0.9.10"
 
         // Bounded (not Int.MAX_VALUE): remote MCP server responses are untrusted input. Without a
         // finite cap, a misbehaving or malicious server (e.g. a compromised or misconfigured

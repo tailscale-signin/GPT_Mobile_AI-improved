@@ -7,8 +7,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.backup.BackupRestoreResult
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupManager
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSelection
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
+import dev.chungjungsoo.gptmobile.data.model.AppFeature
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.model.DebugMetric
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
@@ -40,11 +45,14 @@ class SettingViewModelV2 @Inject constructor(
         settingRepository.observeProviderConnections()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val _localRuntimeBackend = MutableStateFlow(LocalRuntimeBackend.DEFAULT)
-    val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = _localRuntimeBackend.asStateFlow()
+    val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = settingRepository.observeLocalRuntimeBackend()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, LocalRuntimeBackend.DEFAULT)
 
     val debugMode: StateFlow<Boolean> = settingRepository.observeDebugMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val featureSettings: StateFlow<AppFeatureSettings> = settingRepository.observeFeatureSettings()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppFeatureSettings())
 
     private val _backupStatus = MutableStateFlow(completeBackupManager.getBackupStatus())
     val backupStatus: StateFlow<BackupStatus> = _backupStatus.asStateFlow()
@@ -60,7 +68,6 @@ class SettingViewModelV2 @Inject constructor(
 
     init {
         fetchPlatforms()
-        loadLocalRuntimeBackend()
         refreshBackupStatus()
     }
 
@@ -68,16 +75,9 @@ class SettingViewModelV2 @Inject constructor(
         _backupStatus.value = completeBackupManager.getBackupStatus()
     }
 
-    private fun loadLocalRuntimeBackend() {
-        viewModelScope.launch {
-            _localRuntimeBackend.value = settingRepository.getLocalRuntimeBackend()
-        }
-    }
-
     fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend) {
         viewModelScope.launch {
             settingRepository.updateLocalRuntimeBackend(backend)
-            _localRuntimeBackend.value = backend
             _uiEvent.emit(UiEvent.ShowToast("Local inference engine set to ${backend.displayName}"))
         }
     }
@@ -86,6 +86,20 @@ class SettingViewModelV2 @Inject constructor(
         viewModelScope.launch {
             settingRepository.updateDebugMode(enabled)
             _uiEvent.emit(UiEvent.ShowToast(if (enabled) "Debug diagnostics HUD enabled" else "Debug diagnostics HUD disabled"))
+        }
+    }
+
+    fun updateFeature(feature: AppFeature, enabled: Boolean) {
+        viewModelScope.launch {
+            val updated = featureSettings.value.withFeature(feature, enabled)
+            settingRepository.updateFeatureSettings(updated)
+            val state = if (enabled) "enabled" else "disabled"
+            _uiEvent.emit(UiEvent.ShowToast("${feature.title} $state"))
+        }
+    }
+    fun updateDebugMetric(metric: DebugMetric, enabled: Boolean) {
+        viewModelScope.launch {
+            settingRepository.updateFeatureSettings(featureSettings.value.withDebugMetric(metric, enabled))
         }
     }
 
@@ -227,6 +241,51 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    fun updateBackupPasswordProtection(enabled: Boolean) {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update {
+                it.copy(
+                    passwordProtectionEnabled = enabled,
+                    backupPassword = if (enabled) it.backupPassword else "",
+                    message = null,
+                    isError = false
+                )
+            }
+        }
+    }
+
+    fun updateBackupPassword(value: String) {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update { it.copy(backupPassword = value, message = null, isError = false) }
+        }
+    }
+
+    fun updateBackupSection(section: CompleteBackupSection, enabled: Boolean) {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update {
+                it.copy(
+                    selection = it.selection.toggled(section, enabled),
+                    message = null,
+                    isError = false
+                )
+            }
+        }
+    }
+
+    fun selectAllBackupSections() {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update { it.copy(selection = CompleteBackupSelection.ALL, message = null, isError = false) }
+        }
+    }
+
+    fun clearBackupSections() {
+        if (!_backupUi.value.isWorking) {
+            _backupUi.update {
+                it.copy(selection = CompleteBackupSelection(emptySet()), message = null, isError = false)
+            }
+        }
+    }
+
     fun prepareBackupPicker(restoring: Boolean): Boolean {
         val state = _backupUi.value
         if (state.isBusy || state.isWorking) return false
@@ -258,7 +317,27 @@ class SettingViewModelV2 @Inject constructor(
             cancelBackupPicker()
             return
         }
-        runBackupOperation { completeBackupManager.backup(uri) }
+        val state = _backupUi.value
+        if (state.selection.sections.isEmpty()) {
+            _backupUi.update { it.copy(isBusy = false, message = "Select at least one backup section.", isError = true) }
+            return
+        }
+        if (state.passwordProtectionEnabled && state.backupPassword.length < 8) {
+            _backupUi.update { it.copy(isBusy = false, message = "Use a backup password with at least 8 characters.", isError = true) }
+            return
+        }
+        runBackupOperation {
+            val password = state.backupPassword.takeIf { state.passwordProtectionEnabled }
+            if (state.selection == CompleteBackupSelection.ALL && password == null) {
+                completeBackupManager.backup(uri)
+            } else {
+                completeBackupManager.backup(
+                    uri = uri,
+                    selection = state.selection,
+                    password = password
+                )
+            }
+        }
     }
 
     fun restoreSourceSelected(uri: Uri?) {
@@ -302,7 +381,16 @@ class SettingViewModelV2 @Inject constructor(
         }
         _backupUi.update { it.copy(restoreUri = null, isBusy = true) }
         runBackupOperation {
-            completeBackupManager.restore(uri, state.legacyPassword.takeIf(String::isNotBlank))
+            val password = state.legacyPassword.takeIf(String::isNotBlank)
+            if (state.selection == CompleteBackupSelection.ALL) {
+                completeBackupManager.restore(uri, password)
+            } else {
+                completeBackupManager.restore(
+                    uri = uri,
+                    legacyPassword = password,
+                    selection = state.selection
+                )
+            }
         }
     }
 
@@ -322,7 +410,6 @@ class SettingViewModelV2 @Inject constructor(
                 refreshBackupStatus()
                 if (result.success) {
                     fetchPlatforms()
-                    loadLocalRuntimeBackend()
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -335,6 +422,9 @@ class SettingViewModelV2 @Inject constructor(
     }
 
     data class BackupUiState(
+        val selection: CompleteBackupSelection = CompleteBackupSelection.ALL,
+        val passwordProtectionEnabled: Boolean = false,
+        val backupPassword: String = "",
         val legacyPassword: String = "",
         val requiresLegacyPassword: Boolean = false,
         val isBusy: Boolean = false,
@@ -343,7 +433,11 @@ class SettingViewModelV2 @Inject constructor(
         val message: String? = null,
         val isError: Boolean = false
     ) {
-        val canBackup: Boolean get() = !isBusy && !isWorking
+        val canBackup: Boolean
+            get() = !isBusy &&
+                !isWorking &&
+                selection.sections.isNotEmpty() &&
+                (!passwordProtectionEnabled || backupPassword.length >= 8)
     }
 
     sealed interface UiEvent {

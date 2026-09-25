@@ -17,6 +17,8 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,11 +35,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
+import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
 import java.text.DateFormat
 import java.util.Date
 
@@ -47,6 +52,9 @@ fun CompleteBackupDialog(
     backupStatus: BackupStatus,
     onBackup: () -> Unit,
     onRestore: () -> Unit,
+    onSectionChange: (CompleteBackupSection, Boolean) -> Unit = { _, _ -> },
+    onPasswordProtectionChange: (Boolean) -> Unit = {},
+    onPasswordChange: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val listState = rememberLazyListState()
@@ -82,7 +90,7 @@ fun CompleteBackupDialog(
                     style = MaterialTheme.typography.headlineSmall
                 )
                 Text(
-                    text = stringResource(R.string.complete_backup_passwordless_description),
+                    text = "Choose exactly what is included. Backups are portable and unencrypted by default; password encryption is optional.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp, bottom = 12.dp)
@@ -152,20 +160,109 @@ fun CompleteBackupDialog(
 
                         AnimatedVisibility(visible = showContents) {
                             Column(
-                                modifier = Modifier.padding(top = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                modifier = Modifier.padding(top = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                backupContentLabels().forEach { label ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Checkbox(checked = true, onCheckedChange = null, enabled = false)
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.SETTINGS in state.selection.sections,
+                                    title = "Settings & preferences",
+                                    subtitle = "Theme, Advanced Settings and app preferences",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.SETTINGS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.CONVERSATIONS in state.selection.sections,
+                                    title = "Conversations & favorites",
+                                    subtitle = "Conversation titles, messages, favorites, drafts and per-chat model choices",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.CONVERSATIONS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.PLATFORMS in state.selection.sections,
+                                    title = "AI platforms & profiles",
+                                    subtitle = "Provider connections and AI profile configuration",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.PLATFORMS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.TOOLS in state.selection.sections,
+                                    title = "Tool connections",
+                                    subtitle = "MCP connections, installed tools and profile tool bindings",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.TOOLS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.CREDENTIALS in state.selection.sections,
+                                    title = "Credentials",
+                                    subtitle = "Saved provider and tool secrets",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.CREDENTIALS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.LOCAL_MODELS in state.selection.sections,
+                                    title = "Local AI models",
+                                    subtitle = "Downloaded model records and model files",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.LOCAL_MODELS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.ATTACHMENTS in state.selection.sections,
+                                    title = "Conversation attachments",
+                                    subtitle = "Images and files attached to chats; conversations are included automatically",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.ATTACHMENTS, it) }
+                                )
+                                BackupOptionRow(
+                                    checked = CompleteBackupSection.AGENT_HISTORY in state.selection.sections,
+                                    title = "Agent & tool history",
+                                    subtitle = "Agent runs, tool calls, results and diagnostics history; conversations are included automatically",
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.AGENT_HISTORY, it) }
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow
+                        ) {
+                            Column(Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
                                         Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.bodySmall
+                                            "Password encryption",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            "Optional. Off by default. A password-encrypted backup can be restored on another installation.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                    Switch(
+                                        checked = state.passwordProtectionEnabled,
+                                        enabled = !state.isBusy,
+                                        onCheckedChange = onPasswordProtectionChange
+                                    )
+                                }
+                                AnimatedVisibility(state.passwordProtectionEnabled) {
+                                    OutlinedTextField(
+                                        value = state.backupPassword,
+                                        onValueChange = onPasswordChange,
+                                        label = { Text("Backup password") },
+                                        supportingText = { Text("Minimum 8 characters") },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        singleLine = true,
+                                        enabled = !state.isBusy,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                    )
                                 }
                             }
                         }
@@ -219,14 +316,29 @@ fun CompleteBackupDialog(
 }
 
 @Composable
-private fun backupContentLabels(): List<String> = listOf(
-    stringResource(R.string.complete_backup_item_configuration),
-    stringResource(R.string.complete_backup_item_conversations),
-    stringResource(R.string.complete_backup_item_favorites),
-    stringResource(R.string.complete_backup_item_platforms),
-    stringResource(R.string.complete_backup_item_tools),
-    stringResource(R.string.complete_backup_item_credentials),
-    stringResource(R.string.complete_backup_item_attachments),
-    stringResource(R.string.complete_backup_item_models),
-    stringResource(R.string.complete_backup_item_agent_history)
-)
+private fun BackupOptionRow(
+    checked: Boolean,
+    title: String,
+    subtitle: String,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onCheckedChange
+        )
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}

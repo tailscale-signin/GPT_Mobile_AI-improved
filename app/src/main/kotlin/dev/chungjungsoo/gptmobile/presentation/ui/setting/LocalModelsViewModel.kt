@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
+import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceModelSearchClient
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
 import dev.chungjungsoo.gptmobile.data.localmodel.GatedDownloadCoordinator
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelImportResult
@@ -19,6 +20,8 @@ import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.HuggingFaceAuthClie
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalDownloadGuards
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadActions
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +38,8 @@ class LocalModelsViewModel @Inject constructor(
     private val huggingFaceTokenStore: HuggingFaceTokenStore,
     downloadGuards: LocalDownloadGuards,
     huggingFaceAuthClient: HuggingFaceAuthClient,
-    @param:DeviceSocModel private val deviceSocModel: String
+    @param:DeviceSocModel private val deviceSocModel: String,
+    private val huggingFaceModelSearchClient: HuggingFaceModelSearchClient? = null
 ) : ViewModel() {
 
     private val downloadActions = LocalModelDownloadActions(
@@ -51,20 +55,78 @@ class LocalModelsViewModel @Inject constructor(
     private val _listState = MutableStateFlow(LocalModelsListState())
     private val customDialogState = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
     private val hasHuggingFaceToken = MutableStateFlow(false)
+    private val searchQuery = MutableStateFlow("")
+    private val modelFilter = MutableStateFlow(LocalModelFilter.ALL)
+    private val modelSource = MutableStateFlow(LocalModelSource.CATALOG)
+    private val huggingFaceEntries = MutableStateFlow<List<CatalogEntry>>(emptyList())
+    private val huggingFaceSearchState = MutableStateFlow(HuggingFaceSearchState())
+    private var huggingFaceSearchJob: Job? = null
+
+    private val discoveryState = combine(
+        searchQuery,
+        modelFilter,
+        modelSource,
+        huggingFaceEntries,
+        huggingFaceSearchState
+    ) { query, filter, source, hfEntries, hfSearch ->
+        LocalModelDiscoveryState(
+            query = query,
+            filter = filter,
+            source = source,
+            huggingFaceEntries = hfEntries,
+            huggingFaceSearch = hfSearch
+        )
+    }
 
     val uiState: StateFlow<LocalModelsUiState> = combine(
         _listState,
         downloadActions.uiState,
         customDialogState,
-        hasHuggingFaceToken
-    ) { list, download, customDialog, hasToken ->
+        hasHuggingFaceToken,
+        discoveryState
+    ) { list, download, customDialog, hasToken, discovery ->
+        val normalized = discovery.query.trim().lowercase()
+        fun matchesFilter(item: LocalModelListItem): Boolean = when (discovery.filter) {
+            LocalModelFilter.ALL -> true
+            LocalModelFilter.READY -> item.status == LocalModelItemStatus.READY
+            LocalModelFilter.AVAILABLE -> item.status == LocalModelItemStatus.NOT_DOWNLOADED
+            LocalModelFilter.DOWNLOADING -> item.status == LocalModelItemStatus.DOWNLOADING
+            LocalModelFilter.FAILED -> item.status == LocalModelItemStatus.FAILED
+        }
+
+        val localItemsById = list.items.associateBy { it.entry.id }
+        val hfItems = discovery.huggingFaceEntries.map { entry ->
+            localItemsById[entry.id]?.copy(entry = entry)
+                ?: LocalModelListItem(
+                    entry = entry,
+                    status = LocalModelItemStatus.NOT_DOWNLOADED,
+                    downloadSizeBytes = entry.sizeInBytes
+                )
+        }.filter(::matchesFilter)
+
+        val catalogItems = list.items.filter { item ->
+            val matchesQuery = normalized.isBlank() ||
+                item.entry.displayName.lowercase().contains(normalized) ||
+                item.entry.id.lowercase().contains(normalized) ||
+                item.entry.downloadUrl.lowercase().contains(normalized) ||
+                item.entry.supportedAccelerators.any { it.lowercase().contains(normalized) }
+            matchesQuery && matchesFilter(item)
+        }
+
         LocalModelsUiState(
-            items = list.items,
+            items = if (discovery.source == LocalModelSource.CATALOG) catalogItems else hfItems,
+            totalItemCount = if (discovery.source == LocalModelSource.CATALOG) list.items.size else discovery.huggingFaceEntries.size,
+            searchQuery = discovery.query,
+            filter = discovery.filter,
             isLoading = list.isLoading,
             totalStorageBytes = list.totalStorageBytes,
             checkingAccessEntryId = download.checkingAccessEntryId,
             dialog = if (customDialog !is LocalModelsDialog.Hidden) customDialog else download.dialog,
-            hasHuggingFaceToken = hasToken
+            hasHuggingFaceToken = hasToken,
+            source = discovery.source,
+            huggingFaceItems = hfItems,
+            isSearchingHuggingFace = discovery.huggingFaceSearch.isLoading,
+            huggingFaceSearchError = discovery.huggingFaceSearch.error
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, LocalModelsUiState())
 
@@ -100,6 +162,57 @@ class LocalModelsViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    fun updateSearchQuery(value: String) {
+        searchQuery.value = value
+        if (modelSource.value == LocalModelSource.HUGGING_FACE) {
+            scheduleHuggingFaceSearch(value)
+        }
+    }
+
+    fun updateFilter(filter: LocalModelFilter) {
+        modelFilter.value = filter
+    }
+
+    fun updateModelSource(source: LocalModelSource) {
+        modelSource.value = source
+        if (source == LocalModelSource.HUGGING_FACE && huggingFaceEntries.value.isEmpty()) {
+            scheduleHuggingFaceSearch(searchQuery.value, immediate = true)
+        }
+    }
+
+    fun refreshHuggingFaceSearch() {
+        if (modelSource.value == LocalModelSource.HUGGING_FACE) {
+            scheduleHuggingFaceSearch(searchQuery.value, immediate = true)
+        }
+    }
+
+    private fun scheduleHuggingFaceSearch(query: String, immediate: Boolean = false) {
+        huggingFaceSearchJob?.cancel()
+        val client = huggingFaceModelSearchClient
+        if (client == null) {
+            huggingFaceSearchState.value = HuggingFaceSearchState(
+                isLoading = false,
+                error = "Hugging Face search is unavailable in this build."
+            )
+            return
+        }
+
+        huggingFaceSearchJob = viewModelScope.launch {
+            if (!immediate) delay(HUGGING_FACE_SEARCH_DEBOUNCE_MS)
+            huggingFaceSearchState.value = HuggingFaceSearchState(isLoading = true)
+            runCatching { client.search(query) }
+                .onSuccess { results ->
+                    huggingFaceEntries.value = results.map { it.toCatalogEntry() }
+                    huggingFaceSearchState.value = HuggingFaceSearchState()
+                }
+                .onFailure { error ->
+                    huggingFaceSearchState.value = HuggingFaceSearchState(
+                        error = error.localizedMessage ?: "Could not search Hugging Face."
+                    )
+                }
         }
     }
 
@@ -204,12 +317,30 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        huggingFaceSearchJob?.cancel()
         downloadActions.release()
         super.onCleared()
     }
 
+    private companion object {
+        const val HUGGING_FACE_SEARCH_DEBOUNCE_MS = 350L
+    }
+
     private fun currentStatus(catalogEntryId: String): LocalModelItemStatus? = _listState.value.items.firstOrNull { it.entry.id == catalogEntryId }?.status
 }
+
+private data class HuggingFaceSearchState(
+    val isLoading: Boolean = false,
+    val error: String? = null
+)
+
+private data class LocalModelDiscoveryState(
+    val query: String,
+    val filter: LocalModelFilter,
+    val source: LocalModelSource,
+    val huggingFaceEntries: List<CatalogEntry>,
+    val huggingFaceSearch: HuggingFaceSearchState
+)
 
 private data class LocalModelsListState(
     val items: List<LocalModelListItem> = emptyList(),

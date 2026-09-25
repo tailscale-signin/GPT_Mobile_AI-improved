@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,6 +59,8 @@ fun AiPlatformsScreen(
     settingViewModel: SettingViewModelV2,
     onNavigationClick: () -> Unit,
     onNavigateToAddPlatform: () -> Unit,
+    onNavigateToOpenRouterSettings: () -> Unit = {},
+    onNavigateToProviderSettings: (String) -> Unit = {},
     onNavigateToPlatformSetting: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -138,7 +141,14 @@ fun AiPlatformsScreen(
                             settingViewModel.togglePlatformFavorite(platform.id)
                         },
                         onEdit = { platform -> onNavigateToPlatformSetting(platform.uid) },
-                        onDelete = { platform -> settingViewModel.openDeleteDialog(platform.id) }
+                        onDelete = { platform -> settingViewModel.openDeleteDialog(platform.id) },
+                        onProviderSettings = {
+                            if (connection.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER) {
+                                onNavigateToOpenRouterSettings()
+                            } else {
+                                onNavigateToProviderSettings(connection.uid)
+                            }
+                        }
                     )
                 }
 
@@ -193,6 +203,7 @@ private fun ProviderConnectionGroupCard(
     onToggleFavorite: (PlatformV2) -> Unit,
     onEdit: (PlatformV2) -> Unit,
     onDelete: (PlatformV2) -> Unit,
+    onProviderSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -226,16 +237,28 @@ private fun ProviderConnectionGroupCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        text = stringResource(R.string.provider_profiles_count, profiles.size),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                Column(horizontalAlignment = Alignment.End) {
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = stringResource(R.string.provider_profiles_count, profiles.size),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    if (onProviderSettings != null) {
+                        TextButton(onClick = onProviderSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(" Provider settings")
+                        }
+                    }
                 }
             }
             if (connection.hasCredential) {

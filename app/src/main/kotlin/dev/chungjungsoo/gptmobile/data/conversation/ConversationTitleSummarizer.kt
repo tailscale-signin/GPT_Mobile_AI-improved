@@ -144,12 +144,12 @@ class ConversationTitleSummarizer(
         .removePrefix("Title:")
         .removePrefix("title:")
         .trim()
-        .take(50)
+        .take(60)
 
     companion object {
         private const val TIMEOUT_MS = 10_000L
         private const val SYSTEM_INSTRUCTION =
-            "Summarize the following exchange into a short, concise conversation title of 3 to 6 words. " +
-                "Respond ONLY with the title text. Do NOT wrap in quotes, do NOT include punctuation, do NOT include explanations."
+            "Create a specific, informative conversation subject of 4 to 8 words, preferably naming the main task, object, or topic. " +
+                "Keep it under 60 characters. Respond ONLY with the title text; do not wrap it in quotes or add an explanation."
     }
 }

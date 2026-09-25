@@ -11,11 +11,12 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 internal data class CompleteBackupManifest(
-    val version: Int = 1,
-    val preferences: Map<String, BackupValue>,
-    val sharedPreferences: Map<String, Map<String, BackupValue>>,
-    val secrets: Map<String, String>,
-    val files: Map<String, Long>
+    val version: Int = 2,
+    val preferences: Map<String, BackupValue> = emptyMap(),
+    val sharedPreferences: Map<String, Map<String, BackupValue>> = emptyMap(),
+    val secrets: Map<String, String> = emptyMap(),
+    val files: Map<String, Long> = emptyMap(),
+    val sections: Set<String> = emptySet()
 )
 
 @Serializable
@@ -56,8 +57,11 @@ internal object CompleteBackupArchive {
             copyExactly(input, out, metadata.size)
             json.decodeFromString<CompleteBackupManifest>(out.toString(Charsets.UTF_8.name()))
         }
-        require(manifest.version == 1) { "This backup requires a newer app version." }
-        require("database.sqlite" in manifest.files && entries.map { it.name }.toSet() == manifest.files.keys + MANIFEST) { "Incomplete backup archive." }
+        require(manifest.version in 1..2) { "This backup requires a newer app version." }
+        if (manifest.version == 1) {
+            require("database.sqlite" in manifest.files) { "Incomplete legacy complete backup." }
+        }
+        require(entries.map { it.name }.toSet() == manifest.files.keys + MANIFEST) { "Incomplete backup archive." }
         var remaining = maxFileBytes
         manifest.files.forEach { (path, size) ->
             validatePath(path)

@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Edit
@@ -331,6 +333,7 @@ fun OpponentChatBubble(
     val dynamicActions = remember(text, isLoading) { ChatResponseActionParser.extractDynamicActions(text, isLoading) }
     var continueDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     var actionDismissed by rememberSaveable(contentIdentity) { mutableStateOf(false) }
+    var actionsExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
 
     // Suggestion Button Hold-to-Highlight State
     val highlightProgress = remember { Animatable(0f) }
@@ -351,6 +354,16 @@ fun OpponentChatBubble(
                     targetValue = 1f,
                     animationSpec = tween(durationMillis = duration, easing = LinearEasing)
                 )
+                while (true) {
+                    highlightProgress.animateTo(
+                        targetValue = 0.68f,
+                        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                    )
+                    highlightProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                    )
+                }
             }
         }
     }
@@ -490,29 +503,47 @@ fun OpponentChatBubble(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 16.dp, end = 16.dp, top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Spacer(modifier = Modifier.weight(1f))
-
                     if (!isLoading) {
-                        if (!isError) {
-                            CopyTextIcon(onCopyClick)
-                            Spacer(Modifier.width(8.dp))
-                            SelectTextIcon(onSelectClick)
-                            Spacer(Modifier.width(8.dp))
-                            FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
-                            if (canEdit) {
-                                Spacer(Modifier.width(8.dp))
-                                EditTextIcon(onEditClick)
+                        AnimatedVisibility(
+                            visible = actionsExpanded,
+                            enter = fadeIn(tween(180)),
+                            exit = fadeOut(tween(120))
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (!isError) {
+                                    CopyTextIcon(onCopyClick)
+                                    Spacer(Modifier.width(4.dp))
+                                    SelectTextIcon(onSelectClick)
+                                    Spacer(Modifier.width(4.dp))
+                                    FavoriteIcon(isFavorite, onFavoriteClick, onFavoriteLongPress)
+                                    if (canEdit) {
+                                        Spacer(Modifier.width(4.dp))
+                                        EditTextIcon(onEditClick)
+                                    }
+                                }
+                                if (canRetry) {
+                                    Spacer(Modifier.width(4.dp))
+                                    RetryIcon(onRetryClick)
+                                }
+                                diagnosticsHudText?.let { hudText ->
+                                    Spacer(Modifier.width(4.dp))
+                                    TelemetryBadge(hudText)
+                                }
                             }
                         }
-                        if (canRetry) {
-                            Spacer(Modifier.width(8.dp))
-                            RetryIcon(onRetryClick)
-                        }
-                        diagnosticsHudText?.let { hudText ->
-                            Spacer(Modifier.width(8.dp))
-                            TelemetryBadge(hudText)
+
+                        IconButton(
+                            onClick = { actionsExpanded = !actionsExpanded },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (actionsExpanded) Icons.Default.Close else Icons.Default.MoreHoriz,
+                                contentDescription = if (actionsExpanded) "Collapse response actions" else "Show response actions",
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
@@ -527,7 +558,8 @@ fun OpponentChatBubble(
                     )
                 }
 
-                // Dynamic Action Buttons strip (if assistant proposed choices or options)
+                // Dynamic Action Buttons strip (if assistant proposed choices or options).
+                // Manual typing takes priority and hides the generated suggestions.
                 if (dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading) {
                     Row(
                         modifier = Modifier
@@ -537,6 +569,43 @@ fun OpponentChatBubble(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val allInteractionSource = remember { MutableInteractionSource() }
+                        val allPressed by allInteractionSource.collectIsPressedAsState()
+                        val allPulse = suggestionHoldPulseAlpha(allPressed)
+                        LaunchedEffect(allInteractionSource, dynamicActions) {
+                            allInteractionSource.interactions.collect { interaction ->
+                                when (interaction) {
+                                    is PressInteraction.Press -> startHighlight("all of the above", dynamicActions.joinToString(" ") { it.actionPrompt })
+                                    is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
+                                }
+                            }
+                        }
+                        AssistChip(
+                            onClick = {
+                                actionDismissed = true
+                                onActionClick(
+                                    buildString {
+                                        append("Please do all of the following: ")
+                                        append(dynamicActions.joinToString("; ") { it.actionPrompt })
+                                    }
+                                )
+                            },
+                            label = { Text("All of the above", maxLines = 1) },
+                            leadingIcon = {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                            },
+                            interactionSource = allInteractionSource,
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = if (allPressed) Color(0xFFFFD54F).copy(alpha = allPulse) else MaterialTheme.colorScheme.primaryContainer,
+                                labelColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
+                                leadingIconContentColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            border = BorderStroke(
+                                if (allPressed) 2.dp else 1.dp,
+                                if (allPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant
+                            )
+                        )
+
                         dynamicActions.forEach { action ->
                             val icon = when (action.iconType) {
                                 ActionIconType.SEARCH -> Icons.Default.Search
@@ -549,6 +618,8 @@ fun OpponentChatBubble(
                             }
 
                             val chipInteractionSource = remember { MutableInteractionSource() }
+                            val chipPressed by chipInteractionSource.collectIsPressedAsState()
+                            val chipPulse = suggestionHoldPulseAlpha(chipPressed)
 
                             LaunchedEffect(chipInteractionSource, action) {
                                 chipInteractionSource.interactions.collect { interaction ->
@@ -584,10 +655,14 @@ fun OpponentChatBubble(
                                 },
                                 interactionSource = chipInteractionSource,
                                 colors = AssistChipDefaults.assistChipColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    containerColor = if (chipPressed) Color(0xFFFFD54F).copy(alpha = chipPulse) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                    labelColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer,
+                                    leadingIconContentColor = if (chipPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onSecondaryContainer
                                 ),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                border = BorderStroke(
+                                    if (chipPressed) 2.dp else 1.dp,
+                                    if (chipPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
                             )
                         }
                     }
@@ -602,6 +677,17 @@ fun OpponentChatBubble(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (formattedTime.isNotBlank()) {
+                        Text(
+                            text = formattedTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
                     AnimatedVisibility(
                         visible = isContinueVisible,
                         enter = fadeIn(tween(300)),
@@ -619,16 +705,14 @@ fun OpponentChatBubble(
                         )
 
                         val continueInteractionSource = remember { MutableInteractionSource() }
+                        val continuePressed by continueInteractionSource.collectIsPressedAsState()
+                        val continueHoldPulse = suggestionHoldPulseAlpha(continuePressed)
 
                         LaunchedEffect(continueInteractionSource) {
                             continueInteractionSource.interactions.collect { interaction ->
                                 when (interaction) {
-                                    is PressInteraction.Press -> {
-                                        startHighlight("continue", "continue")
-                                    }
-                                    is PressInteraction.Release, is PressInteraction.Cancel -> {
-                                        reverseHighlight()
-                                    }
+                                    is PressInteraction.Press -> startHighlight("continue", "continue")
+                                    is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
                                 }
                             }
                         }
@@ -647,22 +731,15 @@ fun OpponentChatBubble(
                                 )
                             },
                             interactionSource = continueInteractionSource,
-                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)),
+                            border = BorderStroke(
+                                if (continuePressed) 2.dp else 1.5.dp,
+                                if (continuePressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)
+                            ),
                             colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f)
+                                containerColor = if (continuePressed) Color(0xFFFFD54F).copy(alpha = continueHoldPulse) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = pulseAlpha * 0.6f),
+                                labelColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
+                                iconContentColor = if (continuePressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    if (formattedTime.isNotBlank()) {
-                        Text(
-                            text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            modifier = Modifier
-                                .padding(start = 8.dp)
                         )
                     }
                 }
@@ -705,6 +782,21 @@ fun OpponentChatBubble(
             }
         }
     }
+}
+
+@Composable
+private fun suggestionHoldPulseAlpha(pressed: Boolean): Float {
+    val transition = rememberInfiniteTransition(label = "suggestionHoldPulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.58f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "suggestionHoldPulseAlpha"
+    )
+    return if (pressed) pulse else 1f
 }
 
 @Composable

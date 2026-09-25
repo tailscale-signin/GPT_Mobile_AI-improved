@@ -330,11 +330,18 @@ fun HomeScreen(
                             key = { _, it -> it.id },
                             contentType = { _, _ -> "chat-room-item" }
                         ) { idx, chatRoom ->
-                            val usingPlatform = chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
+                            val chatProfiles = chatRoom.enabledPlatform.mapNotNull { uid ->
+                                platformState.firstOrNull { it.uid == uid }
+                            }
+                            val usingPlatform = chatProfiles.joinToString(", ") { it.name }
+                                .ifBlank {
+                                    chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
+                                }
+                            val chatProfileLabels = collectReusableProfileLabels(chatProfiles.map { it.labels })
                             val isGenerating = activeChatIds.contains(chatRoom.id)
                             var hasTriggeredHaptic by remember { mutableStateOf(false) }
                             val dismissState = rememberSwipeToDismissBoxState(
-                                positionalThreshold = { totalDistance -> totalDistance * 0.5f },
+                                positionalThreshold = { totalDistance -> totalDistance * 0.38f },
                                 confirmValueChange = { dismissValue ->
                                     when (dismissValue) {
                                         SwipeToDismissBoxValue.StartToEnd -> {
@@ -375,6 +382,7 @@ fun HomeScreen(
                                     chatListState = chatListState,
                                     isGenerating = isGenerating,
                                     usingPlatform = usingPlatform,
+                                    profileLabels = chatProfileLabels,
                                     onItemClick = {
                                         if (chatListState.isSelectionMode) {
                                             homeViewModel.selectChat(idx)
@@ -397,6 +405,7 @@ fun HomeScreen(
                                     chatListState = chatListState,
                                     isGenerating = isGenerating,
                                     usingPlatform = usingPlatform,
+                                    profileLabels = chatProfileLabels,
                                     onItemClick = {
                                         onExistingChatClick(chatRoom, null)
                                     },
@@ -422,6 +431,8 @@ fun HomeScreen(
                         platformState = platformState,
                         onSelectGroup = homeViewModel::selectFavoriteGroup,
                         onAddGroupClick = { showAddGroupDialog = true },
+                        onRenameGroup = homeViewModel::renameFavoriteGroup,
+                        onDeleteGroup = homeViewModel::deleteFavoriteGroup,
                         onFavoriteClick = { message ->
                             selectedDetailMessage = message
                         },
@@ -539,6 +550,7 @@ fun FancySwipeChatCard(
     chatListState: HomeViewModel.ChatListState,
     isGenerating: Boolean,
     usingPlatform: String,
+    profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -565,8 +577,10 @@ fun FancySwipeChatCard(
 
     // Card surface tint dynamically reacting to swipe progress
     val cardContainerColor = when {
-        isSwipingStartToEnd && progress > 0.2f -> archiveColor.copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
-        isSwipingEndToStart && progress > 0.2f -> deleteColor.copy(alpha = ((progress - 0.2f) * 0.25f).coerceIn(0f, 0.2f))
+        isSwipingStartToEnd && progress > 0.01f ->
+            archiveColor.copy(alpha = (0.18f + progress * 0.38f).coerceIn(0.18f, 0.52f))
+        isSwipingEndToStart && progress > 0.01f ->
+            deleteColor.copy(alpha = (0.18f + progress * 0.38f).coerceIn(0.18f, 0.52f))
         else -> MaterialTheme.colorScheme.surface
     }
 
@@ -682,6 +696,7 @@ fun FancySwipeChatCard(
                 chatListState = chatListState,
                 isGenerating = isGenerating,
                 usingPlatform = usingPlatform,
+                profileLabels = profileLabels,
                 onItemClick = onItemClick,
                 onItemLongClick = onItemLongClick
             )
@@ -697,6 +712,7 @@ private fun ChatListItem(
     chatListState: HomeViewModel.ChatListState,
     isGenerating: Boolean,
     usingPlatform: String,
+    profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit
 ) {
@@ -724,7 +740,8 @@ private fun ChatListItem(
                 Text(
                     text = chatRoom.title,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (chatRoom.isTitleCustomized) Color(0xFF67E8F9) else Color.Unspecified
                 )
             }
         },
@@ -741,10 +758,7 @@ private fun ChatListItem(
                     color = MaterialTheme.colorScheme.primary
                 )
             } else {
-                Icon(
-                    ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
-                    contentDescription = stringResource(R.string.chat_icon)
-                )
+                ConversationModeSymbol(chatRoom = chatRoom)
             }
         },
         supportingContent = {
@@ -778,14 +792,82 @@ private fun ChatListItem(
                     )
                 }
             } else {
-                Text(
-                    text = stringResource(R.string.using_certain_platform, usingPlatform),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(
+                        text = usingPlatform,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (profileLabels.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            profileLabels.take(4).forEach { label ->
+                                BeveledProfileLabel(label = label)
+                            }
+                        }
+                    }
+                }
             }
         }
     )
+}
+
+@Composable
+private fun ConversationModeSymbol(chatRoom: ChatRoomV2) {
+    val combined = chatRoom.conversationMode == ConversationMode.COMBINED
+    val multiple = !combined && chatRoom.enabledPlatform.size > 1
+    when {
+        combined -> {
+            Surface(
+                modifier = Modifier.size(34.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "⇄",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+            }
+        }
+        multiple -> {
+            Box(modifier = Modifier.size(34.dp)) {
+                Icon(
+                    imageVector = Icons.Outlined.ChatBubbleOutline,
+                    contentDescription = "Multiple AI conversation",
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(23.dp).align(Alignment.TopStart)
+                )
+                Icon(
+                    imageVector = Icons.Outlined.ChatBubbleOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(23.dp).align(Alignment.BottomEnd)
+                )
+            }
+        }
+        else -> {
+            Surface(
+                modifier = Modifier.size(34.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
+                        contentDescription = stringResource(R.string.chat_icon),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -797,9 +879,15 @@ fun FavoritesList(
     platformState: List<PlatformV2>,
     onSelectGroup: (String) -> Unit,
     onAddGroupClick: () -> Unit,
+    onRenameGroup: (String, String) -> Unit,
+    onDeleteGroup: (String) -> Unit,
     onFavoriteClick: (MessageV2) -> Unit,
     onToggleFavorite: (MessageV2) -> Unit
 ) {
+    var groupMenu by remember { mutableStateOf<String?>(null) }
+    var editingGroup by remember { mutableStateOf<String?>(null) }
+    var editingText by remember { mutableStateOf("") }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -810,11 +898,60 @@ fun FavoritesList(
             verticalAlignment = Alignment.CenterVertically
         ) {
             favoriteGroups.forEach { group ->
-                FilterChip(
-                    selected = selectedGroup == group,
-                    onClick = { onSelectGroup(group) },
-                    label = { Text(group) }
-                )
+                Box {
+                    val selected = selectedGroup == group
+                    Surface(
+                        modifier = Modifier.combinedClickable(
+                            onClick = { onSelectGroup(group) },
+                            onLongClick = {
+                                if (group !in HomeViewModel.DEFAULT_GROUPS) {
+                                    groupMenu = group
+                                }
+                            }
+                        ),
+                        shape = RoundedCornerShape(18.dp),
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
+                        )
+                    ) {
+                        Text(
+                            group,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = groupMenu == group,
+                        onDismissRequest = { groupMenu = null }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit label") },
+                            onClick = {
+                                editingGroup = group
+                                editingText = group
+                                groupMenu = null
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete label", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                onDeleteGroup(group)
+                                groupMenu = null
+                            }
+                        )
+                    }
+                }
             }
             IconButton(onClick = onAddGroupClick) {
                 Icon(
@@ -890,6 +1027,33 @@ fun FavoritesList(
                     }
                 }
             }
+        }
+
+        editingGroup?.let { original ->
+            AlertDialog(
+                onDismissRequest = { editingGroup = null },
+                title = { Text("Edit favorite label") },
+                text = {
+                    OutlinedTextField(
+                        value = editingText,
+                        onValueChange = { editingText = it },
+                        label = { Text("Label name") },
+                        singleLine = true
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = editingText.isNotBlank(),
+                        onClick = {
+                            onRenameGroup(original, editingText)
+                            editingGroup = null
+                        }
+                    ) { Text("Save") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editingGroup = null }) { Text("Cancel") }
+                }
+            )
         }
     }
 }

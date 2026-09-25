@@ -4,8 +4,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 interface SettingRepository {
     fun invalidatePlatformCache() {}
@@ -17,9 +19,13 @@ interface SettingRepository {
     suspend fun fetchThemes(): ThemeSetting
     suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
+    fun observeLocalRuntimeBackend(): Flow<LocalRuntimeBackend> = flowOf(LocalRuntimeBackend.DEFAULT)
     suspend fun getDebugMode(): Boolean
     suspend fun updateDebugMode(enabled: Boolean)
     fun observeDebugMode(): Flow<Boolean>
+    suspend fun getFeatureSettings(): AppFeatureSettings = AppFeatureSettings()
+    suspend fun updateFeatureSettings(settings: AppFeatureSettings) = Unit
+    fun observeFeatureSettings(): Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
     suspend fun migrateToPlatformV2()
     suspend fun migrateSecrets(): List<SecretMigrationError>
     suspend fun updatePlatforms(platforms: List<Platform>)

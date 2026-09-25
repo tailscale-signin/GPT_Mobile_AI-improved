@@ -90,6 +90,10 @@ data class ChatCompletionRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val plugins: List<OpenRouterPlugin>? = null,
 
+    @SerialName("session_id")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val sessionId: String? = null,
+
     @SerialName("options")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val options: OllamaOptions? = null

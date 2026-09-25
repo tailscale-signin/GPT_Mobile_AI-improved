@@ -37,6 +37,9 @@ class CompleteBackupViewModelTest {
         val settings = mockk<SettingRepository>(relaxed = true)
         every { settings.observePlatformV2s() } returns flowOf(emptyList())
         every { settings.observeDebugMode() } returns flowOf(false)
+        every { settings.observeProviderConnections() } returns flowOf(emptyList())
+        every { settings.observeLocalRuntimeBackend() } returns flowOf(LocalRuntimeBackend.DEFAULT)
+        every { settings.observeFeatureSettings() } returns flowOf(dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
         coEvery { settings.getLocalRuntimeBackend() } returns LocalRuntimeBackend.DEFAULT
         every { manager.getBackupStatus() } returns BackupStatus()
         viewModel = SettingViewModelV2(settings, manager)

@@ -5,11 +5,11 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Singleton
 class DeviceLocationTool @Inject constructor(
@@ -18,7 +18,7 @@ class DeviceLocationTool @Inject constructor(
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = BuiltInAgentTool.DEVICE_LOCATION,
-        description = "Returns the user's current device location (latitude, longitude, accuracy, and altitude) when permission is granted and location services are enabled.",
+        description = "Get current location / GPS coordinates from the Android phone (get_current_location capability). Use this for where-am-I requests, not timezone or memory inference. Returns latitude, longitude, accuracy and altitude when Android permission and location services allow it.",
         inputSchema = buildJsonObject {
             put("type", "object")
             put("properties", buildJsonObject {})
@@ -30,7 +30,7 @@ class DeviceLocationTool @Inject constructor(
         if (!locationProvider.hasPermission()) {
             return AgentToolResult(
                 callId = callId,
-                content = ToolResultContent.Text("Location permission is not granted on this device."),
+                content = ToolResultContent.Text("Android location permission is not granted. Enable Device location in this AI profile and grant the app location permission in Android settings. No separate MCP server is required."),
                 isError = true
             )
         }
@@ -38,7 +38,7 @@ class DeviceLocationTool @Inject constructor(
         val location = locationProvider.getCurrentLocation()
             ?: return AgentToolResult(
                 callId = callId,
-                content = ToolResultContent.Text("Unable to determine device location at this time."),
+                content = ToolResultContent.Text("No recent device location fix is available. Check Android location services and try again. Do not substitute a timezone or remembered address for a current location."),
                 isError = true
             )
 

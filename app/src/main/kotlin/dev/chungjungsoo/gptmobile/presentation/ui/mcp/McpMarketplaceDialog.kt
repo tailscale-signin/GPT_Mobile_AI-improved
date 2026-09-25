@@ -452,7 +452,7 @@ private fun McpMarketplaceTopBar(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Discover & connect autonomous protocol tools to your AI",
+                    text = "Install built-ins and connect verified Streamable HTTP MCP servers",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -619,11 +619,11 @@ fun McpMarketplaceDetailCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = "Installed",
+                            contentDescription = if (preset.isPreinstalled) "Built in" else "Installed",
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Installed")
+                        Text(if (preset.isPreinstalled) "Built in" else "Installed")
                     }
                 } else {
                     Button(
@@ -661,6 +661,42 @@ fun McpMarketplaceDetailCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (preset.isPreinstalled) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.primaryContainer
+                    }
+                ) {
+                    Text(
+                        text = if (preset.isPreinstalled) "Integrated" else "Streamable HTTP",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (preset.isPreinstalled) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+
+                if (preset.verifiedRemote) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF2E7D32).copy(alpha = 0.14f)
+                    ) {
+                        Text(
+                            text = "Verified endpoint",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF2E7D32),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
@@ -898,13 +934,13 @@ fun McpPresetConfigureDialog(
                 OutlinedTextField(
                     value = endpoint,
                     onValueChange = { endpoint = it },
-                    label = { Text("MCP SSE Endpoint URL *") },
+                    label = { Text("MCP Streamable HTTP URL *") },
                     isError = endpoint.isNotBlank() && !isEndpointValid,
                     supportingText = {
                         if (endpoint.isNotBlank() && !isEndpointValid) {
-                            Text("Must be a valid HTTP(S) URL. Cleartext requires explicit approval.")
+                            Text("Must be a valid HTTP(S) Streamable HTTP endpoint. Cleartext requires explicit approval.")
                         } else {
-                            Text("Server-Sent Events endpoint exposing MCP protocol")
+                            Text("Remote MCP endpoint using Streamable HTTP. Legacy HTTP+SSE is not used for new connections.")
                         }
                     },
                     singleLine = true,

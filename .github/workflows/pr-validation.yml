@@ -38,11 +38,15 @@ jobs:
         continue-on-error: true
 
       - name: Run Unit Tests & JaCoCo Coverage Report
+        shell: bash
         run: |
+          set -o pipefail
           ./gradlew :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
 
       - name: Run Android Lint
+        shell: bash
         run: |
+          set -o pipefail
           ./gradlew :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
 
       - name: Publish Test Results

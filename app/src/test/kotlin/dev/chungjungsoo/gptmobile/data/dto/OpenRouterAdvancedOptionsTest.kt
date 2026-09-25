@@ -39,6 +39,20 @@ class OpenRouterAdvancedOptionsTest {
         assertFalse(encoded.contains("\"transforms\""))
         assertFalse(encoded.contains("\"reasoning\""))
         assertFalse(encoded.contains("\"plugins\""))
+        assertFalse(encoded.contains("\"session_id\""))
+    }
+
+    @Test
+    fun `openrouter session id serializes as top level routing field`() {
+        val request = ChatCompletionRequest(
+            model = "anthropic/claude-sonnet-4.6",
+            messages = listOf(userMessage("Hello")),
+            sessionId = "gptmobile-chat-42-profile"
+        )
+
+        val encoded = json.encodeToString(request)
+
+        assertTrue(encoded.contains("\"session_id\":\"gptmobile-chat-42-profile\""))
     }
 
     @Test

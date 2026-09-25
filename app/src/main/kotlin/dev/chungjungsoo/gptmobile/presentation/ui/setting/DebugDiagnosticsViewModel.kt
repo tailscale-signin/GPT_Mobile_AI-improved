@@ -1,0 +1,59 @@
+package dev.chungjungsoo.gptmobile.presentation.ui.setting
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
+import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import javax.inject.Inject
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+
+data class DebugAnalyticsState(
+    val recentRuns: List<AgentRun> = emptyList(),
+    val recentToolEvents: List<ToolEvent> = emptyList(),
+    val completedRuns: Int = 0,
+    val failedRuns: Int = 0,
+    val activeRuns: Int = 0,
+    val completedToolCalls: Int = 0,
+    val failedToolCalls: Int = 0,
+    val averageRunDurationMs: Long? = null,
+    val averageToolDurationMs: Long? = null
+)
+
+@HiltViewModel
+class DebugDiagnosticsViewModel @Inject constructor(
+    agentRunDao: AgentRunDao,
+    agentPersistenceDao: AgentPersistenceDao
+) : ViewModel() {
+    val analytics: StateFlow<DebugAnalyticsState> = combine(
+        agentRunDao.observeRecent(80),
+        agentPersistenceDao.observeRecentToolEvents(160)
+    ) { runs, tools ->
+        DebugAnalyticsState(
+            recentRuns = runs,
+            recentToolEvents = tools,
+            completedRuns = runs.count { it.status == AgentRunStatus.COMPLETED },
+            failedRuns = runs.count { it.status == AgentRunStatus.FAILED },
+            activeRuns = runs.count { it.status == AgentRunStatus.RUNNING || it.status == AgentRunStatus.QUEUED },
+            completedToolCalls = tools.count { it.status == ToolEventStatus.COMPLETED },
+            failedToolCalls = tools.count { it.status == ToolEventStatus.FAILED },
+            averageRunDurationMs = runs.mapNotNull { run ->
+                val start = run.startedAt ?: return@mapNotNull null
+                val end = run.completedAt ?: return@mapNotNull null
+                ((end - start) * 1000L).coerceAtLeast(0L)
+            }.takeIf { it.isNotEmpty() }?.average()?.toLong(),
+            averageToolDurationMs = tools.mapNotNull { event ->
+                val start = event.startedAt ?: return@mapNotNull null
+                val end = event.completedAt ?: return@mapNotNull null
+                ((end - start) * 1000L).coerceAtLeast(0L)
+            }.takeIf { it.isNotEmpty() }?.average()?.toLong()
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DebugAnalyticsState())
+}

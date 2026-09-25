@@ -11,12 +11,12 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -43,6 +43,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -53,6 +55,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Edit
@@ -89,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -100,6 +104,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -113,10 +118,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
-import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
-import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
+import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
@@ -127,7 +132,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -149,9 +156,22 @@ fun ChatScreen(
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
+    val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val hasTargetMessage = chatViewModel.targetMessageId > 0
+    var revealedArchivedTurns by rememberSaveable(chatRoom.id) { mutableIntStateOf(0) }
+    val shouldCollapseHistory = featureSettings.archiveOlderAssistantReplies &&
+        !hasTargetMessage &&
+        groupedMessages.userMessages.size > RECENT_EXPANDED_TURNS
+    val firstVisibleTurn = if (shouldCollapseHistory) {
+        (groupedMessages.userMessages.size - RECENT_EXPANDED_TURNS - revealedArchivedTurns).coerceAtLeast(0)
+    } else {
+        0
+    }
+    val hiddenTurnCount = firstVisibleTurn
+    val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
+    val historyHeaderCount = if (hiddenTurnCount > 0) 1 else 0
     val listState = rememberChatListState(
-        messageCount = groupedMessages.userMessages.size,
+        messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
     )
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
@@ -288,6 +308,7 @@ fun ChatScreen(
         topBar = {
             ChatTopBar(
                 title = chatRoom.title,
+                isTitleCustomized = chatRoom.isTitleCustomized,
                 isMenuItemEnabled = chatRoom.id > 0,
                 isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
                 onBackAction = onBackAction,
@@ -317,10 +338,24 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     state = listState
                 ) {
+                    if (hiddenTurnCount > 0) {
+                        item(key = "archived-history-header") {
+                            ArchivedHistoryHeader(
+                                hiddenTurnCount = hiddenTurnCount,
+                                onExpand = {
+                                    revealedArchivedTurns = (revealedArchivedTurns + ARCHIVE_REVEAL_STEP)
+                                        .coerceAtMost(groupedMessages.userMessages.size)
+                                }
+                            )
+                        }
+                    }
                     itemsIndexed(
-                        items = groupedMessages.userMessages,
-                        key = { index, message -> chatMessagePairKey(message, index) }
-                    ) { index, message ->
+                        items = groupedMessages.userMessages.drop(firstVisibleTurn),
+                        key = { visibleIndex, message ->
+                            chatMessagePairKey(message, firstVisibleTurn + visibleIndex)
+                        }
+                    ) { visibleIndex, message ->
+                        val index = firstVisibleTurn + visibleIndex
                         ChatMessagePair(
                             messageIndex = index,
                             message = message,
@@ -340,6 +375,9 @@ fun ChatScreen(
                             maximumOpponentChatBubbleWidth = maximumOpponentChatBubbleWidth,
                             debugMode = debugMode,
                             combinedMode = chatRoom.conversationMode == ConversationMode.COMBINED,
+                            smartSuggestionsEnabled = featureSettings.smartSuggestions,
+                            isUserTyping = chatViewModel.question.text.isNotEmpty(),
+                            targetMessageId = chatViewModel.targetMessageId,
                             onEditQuestion = chatViewModel::openUserMessageEditDialog,
                             onEditAssistant = chatViewModel::openAssistantMessageEditDialog,
                             onCopyText = { copiedText ->
@@ -514,6 +552,9 @@ private fun ChatMessagePair(
     maximumOpponentChatBubbleWidth: Dp,
     debugMode: Boolean = false,
     combinedMode: Boolean = false,
+    smartSuggestionsEnabled: Boolean = true,
+    isUserTyping: Boolean = false,
+    targetMessageId: Int = -1,
     onEditQuestion: (MessageV2) -> Unit,
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
@@ -530,6 +571,18 @@ private fun ChatMessagePair(
     val isCombinedConversation = combinedMode && enabledPlatformsInChat.size > 1
     val displayPlatformIndex = if (isCombinedConversation) 0 else platformIndexState
     val selectedAssistantMessage = assistantMessages.getOrNull(displayPlatformIndex)
+    val responseBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val isTargetAssistantResponse = targetMessageId > 0 && selectedAssistantMessage?.id == targetMessageId
+
+    LaunchedEffect(isTargetAssistantResponse, selectedAssistantMessage?.id) {
+        if (isTargetAssistantResponse) {
+            // The parent turn is first brought into the LazyColumn, then the assistant
+            // response itself is brought into view so notification taps land at the
+            // generated answer rather than the user prompt above it.
+            delay(80)
+            responseBringIntoViewRequester.bringIntoView()
+        }
+    }
     val synthesisStarted =
         isCombinedConversation &&
             selectedAssistantMessage?.currentRunId?.startsWith(ChatViewModel.COMBINED_RUN_PREFIX) == true
@@ -626,7 +679,15 @@ private fun ChatMessagePair(
         ) {
             OpponentResponseContainer(
                 isFavorite = selectedAssistantMessage?.isFavorite ?: false,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (isTargetAssistantResponse) {
+                            Modifier.bringIntoViewRequester(responseBringIntoViewRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 Row(
                     modifier = Modifier
@@ -735,8 +796,10 @@ private fun ChatMessagePair(
                     onFavoriteLongPress = onFavoriteLongPress,
                     onShowPreviousRevision = { onShowPreviousRevision(messageIndex, displayPlatformIndex) },
                     onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
-                    onContinueClick = onContinueClick,
-                    onActionClick = onActionClick
+                    isUserTyping = isUserTyping,
+                    isLastMessage = isActiveMessage,
+                    onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled },
+                    onActionClick = onActionClick.takeIf { smartSuggestionsEnabled }
                 )
 
                 if (isCombinedConversation && combinedSources.isNotEmpty()) {
@@ -746,6 +809,52 @@ private fun ChatMessagePair(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ArchivedHistoryHeader(
+    hiddenTurnCount: Int,
+    onExpand: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onExpand),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.86f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.History,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Archived conversation history",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "$hiddenTurnCount older response${if (hiddenTurnCount == 1) "" else "s"} hidden",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "Show ${minOf(ARCHIVE_REVEAL_STEP, hiddenTurnCount)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
@@ -831,6 +940,9 @@ private fun CombinedResponsesPanel(
     }
 }
 
+private const val RECENT_EXPANDED_TURNS = 3
+private const val ARCHIVE_REVEAL_STEP = 3
+
 private fun chatMessagePairKey(message: MessageV2, index: Int): String = if (message.id > 0) {
     "message-${message.id}"
 } else {
@@ -873,11 +985,15 @@ internal fun ChatBottomAutoScroller(
     LaunchedEffect(listState, isEnabled) {
         if (!isEnabled) return@LaunchedEffect
 
-        snapshotFlow { listState.layoutInfo }
-            .collectLatest { layoutInfo ->
-                val latestItemIndex = layoutInfo.totalItemsCount - 1
-                if (latestItemIndex >= 0 && listState.canScrollForward) {
-                    listState.requestScrollToItem(latestItemIndex)
+        // Only react when a new list item is added. Streaming tokens change the height of
+        // the current response many times per second; force-scrolling on every layout pass
+        // causes visible jumping and fights the user's own scrolling.
+        snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .distinctUntilChanged()
+            .collectLatest { totalItems ->
+                val latestItemIndex = totalItems - 1
+                if (latestItemIndex >= 0 && listState.canScrollForward && !listState.isScrollInProgress) {
+                    listState.animateScrollToItem(latestItemIndex)
                 }
             }
     }
@@ -894,6 +1010,7 @@ internal suspend fun LazyListState.animateScrollToLatestChatMessage() {
 @OptIn(ExperimentalMaterial3Api::class)
 private fun ChatTopBar(
     title: String,
+    isTitleCustomized: Boolean,
     isMenuItemEnabled: Boolean,
     isModelItemEnabled: Boolean,
     onBackAction: () -> Unit,
@@ -906,7 +1023,18 @@ private fun ChatTopBar(
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
     TopAppBar(
-        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = {
+            Text(
+                text = title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (isTitleCustomized) Color(0xFF67E8F9) else Color.Unspecified,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(enabled = isMenuItemEnabled, onClick = onChatTitleItemClick)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            )
+        },
         navigationIcon = {
             IconButton(
                 onClick = onBackAction

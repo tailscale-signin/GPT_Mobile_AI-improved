@@ -2,78 +2,89 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setup
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 
-data class PlatformTypeInfo(
+private data class PlatformTypeInfo(
     val clientType: ClientType,
     val titleResId: Int,
     val descriptionResId: Int
 )
 
-private val platformTypes = listOf(
-    PlatformTypeInfo(
-        clientType = ClientType.OPENAI,
-        titleResId = R.string.openai,
-        descriptionResId = R.string.openai_description
+private data class SetupProviderGroup(
+    val title: String,
+    val description: String,
+    val icon: ImageVector,
+    val items: List<PlatformTypeInfo>
+)
+
+private val setupProviderGroups = listOf(
+    SetupProviderGroup(
+        title = "Hosted AI providers",
+        description = "Connect directly to managed cloud APIs.",
+        icon = Icons.Default.Cloud,
+        items = listOf(
+            PlatformTypeInfo(ClientType.OPENAI, R.string.openai, R.string.openai_description),
+            PlatformTypeInfo(ClientType.ANTHROPIC, R.string.anthropic, R.string.anthropic_description),
+            PlatformTypeInfo(ClientType.GOOGLE, R.string.google, R.string.google_description),
+            PlatformTypeInfo(ClientType.GROQ, R.string.groq, R.string.groq_description)
+        )
     ),
-    PlatformTypeInfo(
-        clientType = ClientType.ANTHROPIC,
-        titleResId = R.string.anthropic,
-        descriptionResId = R.string.anthropic_description
+    SetupProviderGroup(
+        title = "AI routing platforms",
+        description = "Use one connection to access and discover many models.",
+        icon = Icons.Default.Route,
+        items = listOf(
+            PlatformTypeInfo(ClientType.OPENROUTER, R.string.openrouter, R.string.openrouter_description)
+        )
     ),
-    PlatformTypeInfo(
-        clientType = ClientType.GOOGLE,
-        titleResId = R.string.google,
-        descriptionResId = R.string.google_description
+    SetupProviderGroup(
+        title = "Local & self-hosted",
+        description = "Run models on your phone or connect to infrastructure you control.",
+        icon = Icons.Default.Memory,
+        items = listOf(
+            PlatformTypeInfo(ClientType.LITERT_LM, R.string.litert_lm, R.string.litert_lm_description),
+            PlatformTypeInfo(ClientType.OLLAMA, R.string.ollama, R.string.ollama_description),
+            PlatformTypeInfo(ClientType.LLAMA, R.string.llama, R.string.client_type_llama_desc)
+        )
     ),
-    PlatformTypeInfo(
-        clientType = ClientType.GROQ,
-        titleResId = R.string.groq,
-        descriptionResId = R.string.groq_description
-    ),
-    PlatformTypeInfo(
-        clientType = ClientType.OLLAMA,
-        titleResId = R.string.ollama,
-        descriptionResId = R.string.ollama_description
-    ),
-    PlatformTypeInfo(
-        clientType = ClientType.OPENROUTER,
-        titleResId = R.string.openrouter,
-        descriptionResId = R.string.openrouter_description
-    ),
-    PlatformTypeInfo(
-        clientType = ClientType.LLAMA,
-        titleResId = R.string.llama,
-        descriptionResId = R.string.client_type_llama_desc
-    ),
-    PlatformTypeInfo(
-        clientType = ClientType.CUSTOM,
-        titleResId = R.string.custom_provider,
-        descriptionResId = R.string.custom_provider_description
-    ),
-    PlatformTypeInfo(
-        clientType = ClientType.LITERT_LM,
-        titleResId = R.string.litert_lm,
-        descriptionResId = R.string.litert_lm_description
+    SetupProviderGroup(
+        title = "Custom compatible API",
+        description = "Connect another endpoint when you already know its compatibility mode.",
+        icon = Icons.Default.Tune,
+        items = listOf(
+            PlatformTypeInfo(ClientType.CUSTOM, R.string.custom_provider, R.string.custom_provider_description)
+        )
     )
 )
 
@@ -88,33 +99,28 @@ fun SetupPlatformTypeScreen(
         modifier = modifier.fillMaxSize(),
         topBar = { SetupAppBar(onBackAction) }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header
-            PlatformTypeHeader()
+            item {
+                ProviderChoiceHero()
+            }
 
-            // Platform type list
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(platformTypes) { platformTypeInfo ->
+            setupProviderGroups.forEach { group ->
+                item(key = "header_${group.title}") {
+                    ProviderGroupHeader(group)
+                }
+                items(group.items, key = { it.clientType.name }) { item ->
                     DestinationCard(
-                        title = stringResource(platformTypeInfo.titleResId),
-                        description = stringResource(platformTypeInfo.descriptionResId),
+                        title = stringResource(item.titleResId),
+                        description = stringResource(item.descriptionResId),
                         onClick = {
-                            setupViewModel.selectClientType(platformTypeInfo.clientType)
+                            setupViewModel.selectClientType(item.clientType)
                             onPlatformTypeSelected()
                         }
                     )
-                }
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
@@ -122,23 +128,58 @@ fun SetupPlatformTypeScreen(
 }
 
 @Composable
-private fun PlatformTypeHeader(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(20.dp)
+private fun ProviderChoiceHero() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
-        Text(
-            modifier = Modifier
-                .padding(4.dp)
-                .semantics { heading() },
-            text = stringResource(R.string.choose_platform_type),
-            style = MaterialTheme.typography.headlineMedium
-        )
-        Text(
-            modifier = Modifier.padding(4.dp),
-            text = stringResource(R.string.choose_platform_type_description),
-            style = MaterialTheme.typography.bodyLarge
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+                ) {
+                    Icon(
+                        Icons.Default.Computer,
+                        contentDescription = null,
+                        modifier = Modifier.padding(10.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    "Where should this AI connect?",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                "Choose the provider connection first. You will choose the model and configure the child AI profile on the next steps.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProviderGroupHeader(group: SetupProviderGroup) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(group.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Column(Modifier.weight(1f)) {
+            Text(group.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                group.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

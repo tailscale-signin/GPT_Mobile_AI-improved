@@ -354,6 +354,7 @@ class ChatViewModel @Inject constructor(
                 chatRepository.updateChatPlatforms(_chatRoom.value, updated)
             }.onSuccess { updatedRoom ->
                 _chatRoom.value = updatedRoom
+                applyChatPlatformState(updatedRoom)
                 val platform = _platformsInApp.value.firstOrNull { it.uid == platformUid }
                 if (active && platform != null && platformUid !in _chatPlatformModels.value) {
                     _chatPlatformModels.update { it + (platformUid to platform.model) }

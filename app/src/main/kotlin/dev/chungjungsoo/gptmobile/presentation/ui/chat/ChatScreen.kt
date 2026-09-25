@@ -196,6 +196,7 @@ fun ChatScreen(
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
+    val disabledPlatformsInChat by chatViewModel.disabledPlatformsInChat.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
@@ -369,6 +370,7 @@ fun ChatScreen(
                             loadingStates = loadingStates,
                             enabledPlatformsInChat = chatViewModel.enabledPlatformsInChat,
                             enabledPlatformLookup = enabledPlatformLookup,
+                            disabledPlatformsInChat = disabledPlatformsInChat,
                             canUseChat = canUseChat,
                             isIdle = isIdle,
                             isActiveMessage = index == lastMessageIndex,
@@ -387,6 +389,7 @@ fun ChatScreen(
                                 }
                             },
                             onPlatformClick = chatViewModel::updateChatPlatformIndex,
+                            onTogglePlatformDisabled = chatViewModel::toggleChatPlatformDisabled,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
                             onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
@@ -552,6 +555,7 @@ private fun ChatMessagePair(
     loadingStates: List<ChatViewModel.LoadingState>,
     enabledPlatformsInChat: List<String>,
     enabledPlatformLookup: Map<String, PlatformV2>,
+    disabledPlatformsInChat: Set<String>,
     canUseChat: Boolean,
     isIdle: Boolean,
     isActiveMessage: Boolean,
@@ -566,6 +570,7 @@ private fun ChatMessagePair(
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
     onPlatformClick: (Int, Int) -> Unit,
+    onTogglePlatformDisabled: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onFavoriteClick: () -> Unit,
@@ -688,6 +693,7 @@ private fun ChatMessagePair(
                 isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .alpha(if (selectedPlatformUid in disabledPlatformsInChat) 0.5f else 1f)
                     .then(
                         if (isTargetAssistantResponse) {
                             Modifier.bringIntoViewRequester(responseBringIntoViewRequester)
@@ -731,7 +737,9 @@ private fun ChatMessagePair(
                                     isLoading = isActiveMessage && loadingStates[platformIndex] == ChatViewModel.LoadingState.Loading,
                                     name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
                                     selected = platformIndexState == platformIndex,
-                                    onPlatformClick = { onPlatformClick(messageIndex, platformIndex) }
+                                    disabled = uid in disabledPlatformsInChat,
+                                    onPlatformClick = { onPlatformClick(messageIndex, platformIndex) },
+                                    onPlatformLongPress = { onTogglePlatformDisabled(uid) }
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                             }

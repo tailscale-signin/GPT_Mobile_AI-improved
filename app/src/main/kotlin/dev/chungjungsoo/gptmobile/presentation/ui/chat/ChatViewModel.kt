@@ -61,7 +61,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -246,6 +245,7 @@ class ChatViewModel @Inject constructor(
     val disabledPlatformUids = _disabledPlatformUids.asStateFlow()
     private var lastAutoTitleUserTurnCount = 0
     private val combinedSynthesisTurns = mutableSetOf<Int>()
+    private var pendingRunDispatches = 0
 
     init {
         fetchChatRoom()
@@ -286,7 +286,6 @@ class ChatViewModel @Inject constructor(
         if (hasPreparingAttachments) {
             pendingQuestionText = questionText
             question.clearText()
-            _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Loading } }
             trySendPendingQuestionIfReady()
             return
         }
@@ -307,14 +306,15 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun isGenerationBusy(): Boolean =
-        _loadingStates.value.any { it != LoadingState.Idle } ||
+        pendingRunDispatches > 0 ||
+            _loadingStates.value.any { it != LoadingState.Idle } ||
             agentRunCoordinator.activeRuns.value.values.any { it.chatId == _chatRoom.value.id }
 
     private fun drainPromptQueueIfIdle() {
         if (isGenerationBusy() || queuedPrompts.isEmpty()) return
         val next = queuedPrompts.removeFirst()
         _queuedPromptCount.value = queuedPrompts.size
-        sendQuestion(next.text, next.attachments)
+        sendQuestion(next.text, next.attachments, clearComposer = false)
     }
 
     fun togglePlatformDisabled(platformUid: String) {
@@ -866,99 +866,107 @@ class ChatViewModel @Inject constructor(
         _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Loading } }
         val turnIndex = _groupedMessages.value.assistantMessages.lastIndex
 
+        pendingRunDispatches += 1
         viewModelScope.launch {
-            val disabled = _disabledPlatformUids.value
-            val activeUids = _activePlatformUids.value.filterNot { it in disabled }.toSet()
-            val platforms = resolveSelectedPlatforms(enabledPlatformsInChat, _platformsInApp.value)
-                .filter { it.value.uid in activeUids }
-                .map { IndexedValue(it.index, resolvePlatformModel(it.value)) }
-            val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
-            _loadingStates.update { states ->
-                states.toMutableList().apply {
-                    unavailableIndexes.forEach { this[it] = LoadingState.Idle }
-                }
-            }
-            if (platforms.isEmpty()) {
-                _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                return@launch
-            }
-            val timestamp = currentTimeStamp
-            val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex)
-            if (userMessage == null) {
-                _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
-                return@launch
-            }
-            val runs = platforms.map { (_, platform) ->
-                AgentRunDraft(
-                    runId = UUID.randomUUID().toString(),
-                    profileUid = platform.uid,
-                    providerSnapshot = platform.compatibleType.name,
-                    modelSnapshot = platform.model,
-                    createdAt = timestamp
-                )
-            }
-            val chatRoom = _chatRoom.value.copy(
-                title = if (_chatRoom.value.id == 0) {
-                    userMessage.content.replace('\n', ' ').take(50)
-                } else {
-                    _chatRoom.value.title
-                },
-                updatedAt = timestamp
-            )
-            persistBeforeProvider(
-                persist = {
-                    if (persistSnapshotFirst && _chatRoom.value.id > 0) {
-                        chatRepository.saveChat(
-                            chatRoom = _chatRoom.value,
-                            messages = persistableMessages(_groupedMessages.value),
-                            chatPlatformModels = _chatPlatformModels.value
-                        )
+            try {
+                val disabled = _disabledPlatformUids.value
+                val activeUids = _activePlatformUids.value.filterNot { it in disabled }.toSet()
+                val platforms = resolveSelectedPlatforms(enabledPlatformsInChat, _platformsInApp.value)
+                    .filter { it.value.uid in activeUids }
+                    .map { IndexedValue(it.index, resolvePlatformModel(it.value)) }
+                val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
+                _loadingStates.update { states ->
+                    states.toMutableList().apply {
+                        unavailableIndexes.forEach { this[it] = LoadingState.Idle }
                     }
-                    chatRepository.persistAgentTurn(
-                        PersistAgentTurnRequest(
-                            chatRoom = chatRoom,
-                            userMessage = userMessage,
-                            runs = runs,
-                            chatPlatformModels = _chatPlatformModels.value.filterKeys { it in chatRoom.enabledPlatform }
-                        )
+                }
+                if (platforms.isEmpty()) {
+                    _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
+                    return@launch
+                }
+                val timestamp = currentTimeStamp
+                val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex)
+                if (userMessage == null) {
+                    _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
+                    return@launch
+                }
+                val runs = platforms.map { (_, platform) ->
+                    AgentRunDraft(
+                        runId = UUID.randomUUID().toString(),
+                        profileUid = platform.uid,
+                        providerSnapshot = platform.compatibleType.name,
+                        modelSnapshot = platform.model,
+                        createdAt = timestamp
                     )
-                },
-                startProvider = { persisted ->
-                    _chatRoom.update { persisted.chatRoom }
-                    _groupedMessages.update { groupedMessages ->
-                        groupedMessages.copy(
-                            userMessages = groupedMessages.userMessages.toMutableList().apply {
-                                this[turnIndex] = persisted.userMessage
-                            },
-                            assistantMessages = groupedMessages.assistantMessages.toMutableList().apply {
-                                this[turnIndex] = mergePersistedAssistantRow(
-                                    currentRow = this[turnIndex],
-                                    selectedProfileUids = enabledPlatformsInChat,
-                                    persistedMessages = persisted.assistantMessages,
-                                    chatId = persisted.chatRoom.id
+                }
+                val chatRoom = _chatRoom.value.copy(
+                    title = if (_chatRoom.value.id == 0) {
+                        userMessage.content.replace('\n', ' ').take(50)
+                    } else {
+                        _chatRoom.value.title
+                    },
+                    updatedAt = timestamp
+                )
+                persistBeforeProvider(
+                    persist = {
+                        if (persistSnapshotFirst && _chatRoom.value.id > 0) {
+                            chatRepository.saveChat(
+                                chatRoom = _chatRoom.value,
+                                messages = persistableMessages(_groupedMessages.value),
+                                chatPlatformModels = _chatPlatformModels.value
+                            )
+                        }
+                        chatRepository.persistAgentTurn(
+                            PersistAgentTurnRequest(
+                                chatRoom = chatRoom,
+                                userMessage = userMessage,
+                                runs = runs,
+                                chatPlatformModels = _chatPlatformModels.value.filterKeys { it in chatRoom.enabledPlatform }
+                            )
+                        )
+                    },
+                    startProvider = { persisted ->
+                        _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
+                        _chatRoom.update { persisted.chatRoom }
+                        _groupedMessages.update { groupedMessages ->
+                            groupedMessages.copy(
+                                userMessages = groupedMessages.userMessages.toMutableList().apply {
+                                    this[turnIndex] = persisted.userMessage
+                                },
+                                assistantMessages = groupedMessages.assistantMessages.toMutableList().apply {
+                                    this[turnIndex] = mergePersistedAssistantRow(
+                                        currentRow = this[turnIndex],
+                                        selectedProfileUids = enabledPlatformsInChat,
+                                        persistedMessages = persisted.assistantMessages,
+                                        chatId = persisted.chatRoom.id
+                                    )
+                                }
+                            )
+                        }
+                        val contextMessages = _groupedMessages.value
+                        agentRunCoordinator.start(
+                            platforms.mapIndexed { runIndex, (_, platform) ->
+                                AgentRunRequest(
+                                    runId = runs[runIndex].runId,
+                                    chatId = persisted.chatRoom.id,
+                                    assistantMessage = persisted.assistantMessages[runIndex],
+                                    platform = platform,
+                                    userMessages = contextMessages.userMessages,
+                                    assistantMessages = contextMessages.assistantMessages,
+                                    chatToolConfig = _chatToolConfig.value
                                 )
                             }
                         )
+                    },
+                    onFailure = { error ->
+                        showPersistenceFailure(turnIndex, platforms.map { it.index }, error)
                     }
-                    val contextMessages = _groupedMessages.value
-                    agentRunCoordinator.start(
-                        platforms.mapIndexed { runIndex, (_, platform) ->
-                            AgentRunRequest(
-                                runId = runs[runIndex].runId,
-                                chatId = persisted.chatRoom.id,
-                                assistantMessage = persisted.assistantMessages[runIndex],
-                                platform = platform,
-                                userMessages = contextMessages.userMessages,
-                                assistantMessages = contextMessages.assistantMessages,
-                                chatToolConfig = _chatToolConfig.value
-                            )
-                        }
-                    )
-                },
-                onFailure = { error ->
-                    showPersistenceFailure(turnIndex, platforms.map { it.index }, error)
-                }
-            )
+                )
+            } finally {
+                pendingRunDispatches -= 1
+                syncLoadingStates(_agentRunsById.value)
+                drainPromptQueueIfIdle()
+            }
         }
     }
 
@@ -1129,7 +1137,6 @@ class ChatViewModel @Inject constructor(
         if (attachments.any { it.status == ChatAttachmentDraft.Status.Failed }) {
             restoreQueuedQuestion(queuedQuestion)
             pendingQuestionText = null
-            _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
             return
         }
 
@@ -1139,7 +1146,6 @@ class ChatViewModel @Inject constructor(
 
         if (queuedQuestion.isBlank() && attachments.none { it.status == ChatAttachmentDraft.Status.Ready }) {
             pendingQuestionText = null
-            _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
             return
         }
 
@@ -1147,7 +1153,11 @@ class ChatViewModel @Inject constructor(
         submitOrQueueQuestion(queuedQuestion, attachments)
     }
 
-    private fun sendQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
+    private fun sendQuestion(
+        questionText: String,
+        attachments: List<ChatAttachmentDraft>,
+        clearComposer: Boolean = true
+    ) {
         MessageV2(
             chatId = chatRoomId,
             content = questionText,
@@ -1155,8 +1165,10 @@ class ChatViewModel @Inject constructor(
             platformType = null,
             createdAt = currentTimeStamp
         ).let { addMessage(it) }
-        question.clearText()
-        clearSelectedFiles()
+        if (clearComposer) {
+            question.clearText()
+            clearSelectedFiles()
+        }
         completeChat()
     }
 
@@ -1350,7 +1362,7 @@ class ChatViewModel @Inject constructor(
                     _indexStates.update { current ->
                         List(groupedMessages.assistantMessages.size) { index -> current.getOrElse(index) { 0 } }
                     }
-                    syncLoadingStates(_agentRunsById.value)
+                    advancePendingGeneration()
                     _isLoaded.update { true }
                 }
         }
@@ -1376,10 +1388,7 @@ class ChatViewModel @Inject constructor(
                             activeRunIds = agentRunCoordinator.activeRuns.value.keys
                         )
                     }
-                    syncLoadingStates(runsById)
-                    maybeStartCombinedSynthesis(runsById)
-                    checkAndGenerateAiTitle(runsById)
-                    drainPromptQueueIfIdle()
+                    advancePendingGeneration()
                 }
         }
     }
@@ -1433,6 +1442,7 @@ class ChatViewModel @Inject constructor(
             if (sources.isEmpty()) return@forEach
 
             combinedSynthesisTurns += turnIndex
+            pendingRunDispatches += 1
             viewModelScope.launch {
                 try {
                     startCombinedSynthesis(turnIndex, sources)
@@ -1445,6 +1455,10 @@ class ChatViewModel @Inject constructor(
                         error.message?.takeIf(String::isNotBlank)
                             ?: "Could not combine the model responses."
                     }
+                } finally {
+                    pendingRunDispatches -= 1
+                    syncLoadingStates(_agentRunsById.value)
+                    drainPromptQueueIfIdle()
                 }
             }
         }
@@ -1483,6 +1497,7 @@ class ChatViewModel @Inject constructor(
             )
         )
 
+        _agentRunsById.update { it + (persisted.run.runId to persisted.run) }
         _groupedMessages.update { current ->
             updateAssistantSlot(current, turnIndex, leadIndex) { persisted.assistantMessage }
         }
@@ -1637,9 +1652,18 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             agentRunCoordinator.activeRuns.collect {
-                syncLoadingStates(_agentRunsById.value)
+                advancePendingGeneration()
             }
         }
+    }
+
+    private fun advancePendingGeneration() {
+        if (pendingRunDispatches > 0) return
+        val runs = _agentRunsById.value
+        syncLoadingStates(runs)
+        maybeStartCombinedSynthesis(runs)
+        checkAndGenerateAiTitle(runs)
+        drainPromptQueueIfIdle()
     }
 
     private fun syncLoadingStates(runs: List<AgentRun>) {
@@ -1647,6 +1671,7 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun syncLoadingStates(runsById: Map<String, AgentRun>) {
+        if (pendingRunDispatches > 0) return
         val activeRunIds = agentRunCoordinator.activeRuns.value.keys
         val latestAssistantRow = _groupedMessages.value.assistantMessages.lastOrNull()
         _loadingStates.update {
@@ -1698,7 +1723,6 @@ class ChatViewModel @Inject constructor(
         internal const val COMBINED_RUN_PREFIX = "combined-synthesis:"
         private const val MAX_COMBINED_SOURCE_CHARS = 24_000
     }
-
 }
 
 data class ChatRunNotice(

@@ -903,11 +903,7 @@ fun FavoritesList(
                     Surface(
                         modifier = Modifier.combinedClickable(
                             onClick = { onSelectGroup(group) },
-                            onLongClick = {
-                                if (group !in HomeViewModel.DEFAULT_GROUPS) {
-                                    groupMenu = group
-                                }
-                            }
+                            onLongClick = { groupMenu = group }
                         ),
                         shape = RoundedCornerShape(18.dp),
                         color = if (selected) {
@@ -1258,7 +1254,7 @@ fun SelectPlatformDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var sortOrder by remember { mutableStateOf(PlatformSortOrder.DEFAULT) }
+    val sortOrder = PlatformSortOrder.ENABLED_FIRST
     var combinedMode by rememberSaveable { mutableStateOf(false) }
     val selectedCount = selectedPlatforms.count { it }
     val canCombine = selectedCount >= 2
@@ -1335,36 +1331,7 @@ fun SelectPlatformDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                // Interactive Sort Chips
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.DEFAULT,
-                        onClick = { sortOrder = PlatformSortOrder.DEFAULT },
-                        label = { Text("Default") }
-                    )
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.NAME,
-                        onClick = { sortOrder = PlatformSortOrder.NAME },
-                        label = { Text("Name") }
-                    )
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.PROVIDER,
-                        onClick = { sortOrder = PlatformSortOrder.PROVIDER },
-                        label = { Text("Provider") }
-                    )
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.ENABLED_FIRST,
-                        onClick = { sortOrder = PlatformSortOrder.ENABLED_FIRST },
-                        label = { Text("Enabled") }
-                    )
-                }
+
 
                 if (allLabels.isNotEmpty()) {
                     Row(

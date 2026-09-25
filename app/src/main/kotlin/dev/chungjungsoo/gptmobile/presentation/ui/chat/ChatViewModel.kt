@@ -1321,10 +1321,10 @@ class ChatViewModel @Inject constructor(
             val sources = activePlatformIndexes.mapNotNull { index ->
                 val message = row.getOrNull(index) ?: return@mapNotNull null
                 val content = message.effectiveContent().trim()
-                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapIndexedNotNull null
+                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapNotNull null
                 val uid = enabledPlatformsInChat.getOrNull(index)
                     ?: message.platformType
-                    ?: return@mapIndexedNotNull null
+                    ?: return@mapNotNull null
                 val platform = _platformsInApp.value.firstOrNull { it.uid == uid }
                 CombinedModelResponse(
                     platformUid = uid,

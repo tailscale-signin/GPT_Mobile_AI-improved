@@ -611,13 +611,17 @@ class ChatRepositoryImpl(
     }
 
     override suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2 {
-        val sanitized = platformUids.filter(String::isNotBlank).distinct()
-        require(sanitized.isNotEmpty()) { "A conversation must keep at least one AI profile." }
+        val activeProfiles = platformUids.filter(String::isNotBlank).distinct()
+        require(activeProfiles.isNotEmpty()) { "A conversation must keep at least one AI profile." }
+        val stableProfileSlots = (chatRoom.enabledPlatform + activeProfiles).filter(String::isNotBlank).distinct()
         val updated = chatRoom.copy(
-            enabledPlatform = sanitized,
+            enabledPlatform = stableProfileSlots,
+            activePlatform = activeProfiles,
             updatedAt = System.currentTimeMillis() / 1000
         )
-        chatRoomV2Dao.editChatRoom(updated)
+        if (chatRoom.id > 0) {
+            chatRoomV2Dao.editChatRoom(updated)
+        }
         return updated
     }
 

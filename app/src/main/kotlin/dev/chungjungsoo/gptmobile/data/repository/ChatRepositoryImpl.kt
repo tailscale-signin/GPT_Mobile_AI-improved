@@ -277,15 +277,27 @@ class ChatRepositoryImpl(
 
                         is ProviderEvent.Usage -> {
                             providerEvent.inputTokens?.let {
-                                accumulatedInputTokens += it
+                                accumulatedInputTokens = if (providerEvent.cumulative) {
+                                    maxOf(accumulatedInputTokens, it.toLong())
+                                } else {
+                                    accumulatedInputTokens + it
+                                }
                                 hasInputTokenUsage = true
                             }
                             providerEvent.outputTokens?.let {
-                                accumulatedOutputTokens += it
+                                accumulatedOutputTokens = if (providerEvent.cumulative) {
+                                    maxOf(accumulatedOutputTokens, it.toLong())
+                                } else {
+                                    accumulatedOutputTokens + it
+                                }
                                 hasOutputTokenUsage = true
                             }
                             providerEvent.totalTokens?.let {
-                                accumulatedTotalTokens += it
+                                accumulatedTotalTokens = if (providerEvent.cumulative) {
+                                    maxOf(accumulatedTotalTokens, it.toLong())
+                                } else {
+                                    accumulatedTotalTokens + it
+                                }
                                 hasTotalTokenUsage = true
                             }
                             agentRunDao.updateUsage(

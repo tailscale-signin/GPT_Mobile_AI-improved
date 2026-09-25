@@ -151,13 +151,16 @@ class ChatRepositoryImpl(
             val resolvedTools = if (platform.disableAllTools) {
                 emptyList()
             } else {
-                val shareScope = buildSharedToolScope(contextTurns)
+                val sharingEnabled = runCatching {
+                    settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
+                }.getOrDefault(true)
+                val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
                 agentToolResolver.resolve(platform.uid, chatToolConfig).map { resolved ->
                     resolved.copy(
                         tool = sharedToolCallBroker.wrap(
                             scopeId = shareScope,
                             toolIdentity = buildSharedToolIdentity(resolved),
-                            shareableReadOnly = resolved.shareableReadOnly,
+                            shareableReadOnly = sharingEnabled && resolved.shareableReadOnly,
                             tool = resolved.tool
                         )
                     )

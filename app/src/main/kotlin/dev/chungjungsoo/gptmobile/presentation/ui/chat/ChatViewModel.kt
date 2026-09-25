@@ -115,6 +115,8 @@ class ChatViewModel @Inject constructor(
     private val enabledPlatformString: String = checkNotNull(savedStateHandle["enabledPlatforms"])
     private val requestedConversationMode = ConversationMode.normalize(savedStateHandle["conversationMode"])
     val enabledPlatformsInChat = enabledPlatformString.split(',').filter(String::isNotBlank)
+    private val _activePlatformUids = MutableStateFlow(enabledPlatformsInChat)
+    val activePlatformUids = _activePlatformUids.asStateFlow()
     val targetMessageId: Int = savedStateHandle.get<Int>("targetMessageId") ?: -1
 
     private val currentTimeStamp: Long
@@ -313,18 +315,53 @@ class ChatViewModel @Inject constructor(
     }
 
     fun togglePlatformDisabled(platformUid: String) {
-        if (platformUid !in enabledPlatformsInChat) return
+        if (platformUid !in _activePlatformUids.value) return
         _disabledPlatformUids.update { disabled ->
             if (platformUid in disabled) {
                 disabled - platformUid
             } else {
-                val activeCount = enabledPlatformsInChat.count { it !in disabled }
+                val activeCount = _activePlatformUids.value.count { it !in disabled }
                 if (activeCount <= 1) {
                     _attachmentNotice.value = "At least one AI profile must remain active."
                     disabled
                 } else {
                     disabled + platformUid
                 }
+            }
+        }
+    }
+
+    fun setPlatformMembership(platformUid: String, active: Boolean) {
+        val current = _activePlatformUids.value
+        val updated = if (active) {
+            (current + platformUid).distinct()
+        } else {
+            current - platformUid
+        }
+        if (updated.isEmpty()) {
+            _attachmentNotice.value = "At least one AI profile must remain active."
+            return
+        }
+        if (updated == current) return
+
+        _activePlatformUids.value = updated
+        _disabledPlatformUids.update { it - platformUid }
+        viewModelScope.launch {
+            runCatching {
+                chatRepository.updateChatPlatforms(_chatRoom.value, updated)
+            }.onSuccess { updatedRoom ->
+                _chatRoom.value = updatedRoom
+                val platform = _platformsInApp.value.firstOrNull { it.uid == platformUid }
+                if (active && platform != null && platformUid !in _chatPlatformModels.value) {
+                    _chatPlatformModels.update { it + (platformUid to platform.model) }
+                    if (updatedRoom.id > 0) {
+                        chatRepository.saveChatPlatformModels(updatedRoom.id, _chatPlatformModels.value)
+                    }
+                }
+                updateLocalNetworkRequirement(_platformsInApp.value)
+            }.onFailure {
+                _activePlatformUids.value = current
+                _attachmentNotice.value = "Could not update AI profiles for this conversation."
             }
         }
     }
@@ -1210,6 +1247,7 @@ class ChatViewModel @Inject constructor(
                     chatRepository.fetchChatListV2().first { it.id == chatRoomId }
                 }
             }
+            _activePlatformUids.value = _chatRoom.value.enabledPlatform
         }
     }
 
@@ -1224,12 +1262,12 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun updateLocalNetworkRequirement(platforms: List<PlatformV2>) {
-        val selectedProfiles = platforms.filter { it.uid in enabledPlatformsInChat }
+        val selectedProfiles = platforms.filter { it.uid in _activePlatformUids.value }
         val providerNeedsAccess = selectedProfiles.any { requiresLocalNetworkAccess(it.apiUrl) }
         val requiresAccess = determineLocalNetworkAccessRequirement(
             providerNeedsAccess = providerNeedsAccess,
             toolNeedsAccess = {
-                enabledPlatformsInChat.any { profileUid ->
+                _activePlatformUids.value.any { profileUid ->
                     toolConnectionRepository.listBindingsWithConnections(profileUid).any { binding ->
                         binding.connection?.endpointUrl?.let(::requiresLocalNetworkAccess) == true
                     }
@@ -1320,7 +1358,7 @@ class ChatViewModel @Inject constructor(
 
     private fun maybeStartCombinedSynthesis(runsById: Map<String, AgentRun>) {
         val room = _chatRoom.value
-        val activeCombinedPlatforms = enabledPlatformsInChat.filterNot { it in _disabledPlatformUids.value }
+        val activeCombinedPlatforms = _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }
         if (room.conversationMode != ConversationMode.COMBINED || activeCombinedPlatforms.size < 2) return
 
         val grouped = _groupedMessages.value

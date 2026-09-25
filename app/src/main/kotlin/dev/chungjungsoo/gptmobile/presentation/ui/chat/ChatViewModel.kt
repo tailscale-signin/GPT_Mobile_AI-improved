@@ -523,7 +523,7 @@ class ChatViewModel @Inject constructor(
 
     fun updateChatPlatformModels(models: Map<String, String>) {
         val sanitizedModels = models
-            .filterKeys { it in enabledPlatformsInChat }
+            .filterKeys { it in _activePlatformUids.value }
             .mapValues { (_, model) -> model.trim() }
 
         _chatPlatformModels.update { it + sanitizedModels }
@@ -864,8 +864,9 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             val disabled = _disabledPlatformUids.value
+            val activeUids = _activePlatformUids.value.filterNot { it in disabled }.toSet()
             val platforms = resolveSelectedPlatforms(enabledPlatformsInChat, _platformsInApp.value)
-                .filter { it.value.uid !in disabled }
+                .filter { it.value.uid in activeUids }
                 .map { IndexedValue(it.index, resolvePlatformModel(it.value)) }
             val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
             _loadingStates.update { states ->

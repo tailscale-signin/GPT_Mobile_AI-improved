@@ -138,8 +138,7 @@ fun SettingScreen(
         ) {
             item {
                 SettingsCategory(
-                    title = "AI & models",
-                    icon = Icons.Default.SmartToy
+                    title = "AI & models"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.SmartToy,
@@ -156,8 +155,7 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Tools & connectivity",
-                    icon = Icons.Default.Build
+                    title = "Tools & connectivity"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Build,
@@ -169,8 +167,7 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Experience",
-                    icon = Icons.Default.Palette
+                    title = "Experience"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Palette,
@@ -187,8 +184,7 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Diagnostics & data",
-                    icon = Icons.Default.Security
+                    title = "Diagnostics & data"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.BugReport,
@@ -206,8 +202,7 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "About",
-                    icon = Icons.Default.Info
+                    title = "About"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Info,
@@ -340,17 +335,11 @@ private fun SettingsStat(value: String, label: String, modifier: Modifier = Modi
 @Composable
 private fun SettingsCategory(
     title: String,
-    icon: ImageVector,
     content: @Composable () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-        ) {
-            Column(Modifier.fillMaxWidth()) { content() }
-        }
+        Column(Modifier.fillMaxWidth()) { content() }
     }
 }
 

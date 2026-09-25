@@ -13,6 +13,7 @@ interface SettingDataSource {
     suspend fun getPreferencesSnapshot(): Preferences
     suspend fun updateDynamicTheme(theme: DynamicTheme)
     suspend fun updateThemeMode(themeMode: ThemeMode)
+    suspend fun updateCustomPrimaryArgb(argb: Long?) = Unit
     suspend fun updateLocalRuntimeBackend(backend: LocalRuntimeBackend)
     suspend fun updateDebugMode(enabled: Boolean)
     suspend fun updateFeatureSettings(settings: AppFeatureSettings) = Unit
@@ -30,6 +31,7 @@ interface SettingDataSource {
     suspend fun updateSystemPrompt(apiType: ApiType, prompt: String)
     suspend fun getDynamicTheme(): DynamicTheme?
     suspend fun getThemeMode(): ThemeMode?
+    suspend fun getCustomPrimaryArgb(): Long? = null
     suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend
     fun observeLocalRuntimeBackend(): Flow<LocalRuntimeBackend> = flowOf(LocalRuntimeBackend.DEFAULT)
     suspend fun getStatus(apiType: ApiType): Boolean?

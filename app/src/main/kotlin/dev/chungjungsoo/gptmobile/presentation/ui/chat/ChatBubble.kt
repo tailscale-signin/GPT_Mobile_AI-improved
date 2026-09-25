@@ -19,6 +19,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1131,13 +1132,32 @@ fun PlatformButton(
             .alpha(if (disabled) 0.5f else 1f)
             .clip(RoundedCornerShape(24.dp))
             .pointerInput(name, disabled) {
-                detectTapGestures(
-                    onTap = { onPlatformClick() },
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onPlatformLongPress()
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitFirstDown(requireUnconsumed = false)
+                        val downTime = System.currentTimeMillis()
+                        var released = false
+                        var elapsed = 0L
+                        while (elapsed < 1000L) {
+                            val event = awaitPointerEvent()
+                            if (event.changes.any { !it.pressed }) {
+                                released = true
+                                break
+                            }
+                            elapsed = System.currentTimeMillis() - downTime
+                        }
+                        if (!released && elapsed >= 1000L) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onPlatformLongPress()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.all { !it.pressed }) break
+                            }
+                        } else if (released) {
+                            onPlatformClick()
+                        }
                     }
-                )
+                }
             },
         color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         shape = RoundedCornerShape(24.dp)

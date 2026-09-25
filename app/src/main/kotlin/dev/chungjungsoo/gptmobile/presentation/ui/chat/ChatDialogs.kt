@@ -61,6 +61,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ChatModelDialog(
     platformOrder: List<String>,
+    activePlatformUids: Set<String>,
     initialModels: Map<String, String>,
     platformNames: Map<String, String>,
     platformClientTypes: Map<String, ClientType> = emptyMap(),
@@ -143,17 +144,19 @@ fun ChatModelDialog(
                 }.forEach { platformUid ->
                     val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
                     val clientType = platformClientTypes[platformUid]
-                    val isActive = platformUid !in disabledPlatformUids
+                    val isMember = platformUid in activePlatformUids
+                    val isTemporarilyEnabled = platformUid !in disabledPlatformUids
 
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                        Text(if (isActive) "Active" else "Removed", style = MaterialTheme.typography.labelSmall)
+                        Text(if (isMember) "Added" else "Available", style = MaterialTheme.typography.labelSmall)
                         Spacer(Modifier.width(8.dp))
                         Switch(
-                            checked = isActive,
+                            checked = isMember,
+                            enabled = isTemporarilyEnabled || !isMember,
                             onCheckedChange = { active -> onPlatformActiveChanged(platformUid, active) }
                         )
                     }

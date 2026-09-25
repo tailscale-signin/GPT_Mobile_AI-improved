@@ -315,7 +315,17 @@ class ChatViewModel @Inject constructor(
     fun togglePlatformDisabled(platformUid: String) {
         if (platformUid !in enabledPlatformsInChat) return
         _disabledPlatformUids.update { disabled ->
-            if (platformUid in disabled) disabled - platformUid else disabled + platformUid
+            if (platformUid in disabled) {
+                disabled - platformUid
+            } else {
+                val activeCount = enabledPlatformsInChat.count { it !in disabled }
+                if (activeCount <= 1) {
+                    _attachmentNotice.value = "At least one AI profile must remain active."
+                    disabled
+                } else {
+                    disabled + platformUid
+                }
+            }
         }
     }
 

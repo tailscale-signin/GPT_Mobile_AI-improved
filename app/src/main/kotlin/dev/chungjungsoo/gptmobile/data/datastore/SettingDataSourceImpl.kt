@@ -78,6 +78,7 @@ class SettingDataSourceImpl @Inject constructor(
     val featureSettingsKey = stringPreferencesKey("advanced_feature_settings_json")
     val favoriteGroupsKey = stringPreferencesKey("favorite_groups_json")
     val favoriteMessageGroupsKey = stringPreferencesKey("favorite_message_groups_json")
+    val selectedFavoriteGroupKey = stringPreferencesKey("selected_favorite_group")
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -260,6 +261,16 @@ class SettingDataSourceImpl @Inject constructor(
             emptyList()
         }
     }
+
+    override suspend fun getSelectedFavoriteGroup(): String? =
+        dataStore.data.map { pref -> pref[selectedFavoriteGroupKey] }.first()
+
+    override suspend fun saveSelectedFavoriteGroup(group: String) {
+        dataStore.edit { pref -> pref[selectedFavoriteGroupKey] = group }
+    }
+
+    override fun observeSelectedFavoriteGroup(): Flow<String?> =
+        dataStore.data.map { pref -> pref[selectedFavoriteGroupKey] }
 
     override suspend fun getFavoriteMessageGroups(): Map<Int, String> = dataStore.data.map { pref ->
         val raw = pref[favoriteMessageGroupsKey]

@@ -937,7 +937,7 @@ class ChatViewModel @Inject constructor(
                     currentAttachments = currentAttachments,
                     updateAttachments = updateAttachments,
                     filePath = filePath,
-                    notice = "Only image attachments are currently supported."
+                    notice = "Unsupported attachment type. Use images, PDF, Office, text, CSV, JSON, Markdown, or RTF files."
                 )
                 trySendPendingQuestionIfReady()
                 return@launch

@@ -18,6 +18,9 @@ interface MessageV2Dao {
     @Query("SELECT * FROM messages_v2 ORDER BY created_at, message_id")
     suspend fun getMessageList(): List<MessageV2>
 
+    @Query("SELECT * FROM messages_v2 WHERE platform_type IS NOT NULL ORDER BY created_at DESC, message_id DESC LIMIT :limit")
+    fun observeRecentAssistantMessages(limit: Int = 500): Flow<List<MessageV2>>
+
     @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId ORDER BY created_at, message_id")
     fun observeMessages(chatId: Int): Flow<List<MessageV2>>
 

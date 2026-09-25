@@ -136,19 +136,16 @@ fun SettingScreen(
             item {
                 SettingsCategory(
                     title = "AI & models",
-                    subtitle = "Providers own connectivity; AI profiles own model behavior.",
                     icon = Icons.Default.SmartToy
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.SmartToy,
                         title = "AI Platforms & Profiles",
-                        subtitle = "${providerConnections.size} providers • ${platforms.size} profiles • ${platforms.count { it.enabled }} active",
                         onClick = onNavigateToAiPlatforms
                     )
                     SettingsDestination(
                         icon = Icons.Default.Storage,
                         title = stringResource(R.string.local_models),
-                        subtitle = "Manage, search, download and validate on-device models",
                         onClick = onNavigateToLocalModels
                     )
                 }
@@ -157,13 +154,11 @@ fun SettingScreen(
             item {
                 SettingsCategory(
                     title = "Tools & connectivity",
-                    subtitle = "Built-in tools, installed connections and remote MCP servers.",
                     icon = Icons.Default.Build
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Build,
                         title = stringResource(R.string.tool_connections),
-                        subtitle = "View active tools, connection health and the MCP marketplace",
                         onClick = onNavigateToToolConnections
                     )
                 }
@@ -172,23 +167,16 @@ fun SettingScreen(
             item {
                 SettingsCategory(
                     title = "Experience",
-                    subtitle = "Appearance and optional app behavior.",
                     icon = Icons.Default.Palette
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Palette,
                         title = stringResource(R.string.theme_settings),
-                        subtitle = stringResource(R.string.theme_description),
                         onClick = settingViewModel::openThemeDialog
                     )
                     SettingsDestination(
                         icon = Icons.Default.Tune,
-                        title = "Advanced Settings",
-                        subtitle = buildString {
-                            append(if (featureSettings.backgroundGeneration) "Background AI on" else "Background AI off")
-                            append(" • ")
-                            append(if (featureSettings.remoteMcpConnections) "Remote MCP on" else "Remote MCP off")
-                        },
+                        title = "Advanced Settings"
                         onClick = onNavigateToAdvancedSettings
                     )
                 }
@@ -197,13 +185,11 @@ fun SettingScreen(
             item {
                 SettingsCategory(
                     title = "Diagnostics & data",
-                    subtitle = "Analyze performance and control what the app stores or exports.",
                     icon = Icons.Default.Security
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.BugReport,
                         title = "Debug & Diagnostics",
-                        subtitle = if (debugMode) "Diagnostics HUD enabled" else "Runtime, token and tool-call analytics",
                         onClick = onNavigateToDebugDiagnostics
                     )
 
@@ -215,7 +201,6 @@ fun SettingScreen(
                     SettingsDestination(
                         icon = Icons.Default.Backup,
                         title = stringResource(R.string.backup_and_restore),
-                        subtitle = backupSubtitle,
                         onClick = settingViewModel::openBackupRestoreDialog
                     )
                 }
@@ -224,13 +209,11 @@ fun SettingScreen(
             item {
                 SettingsCategory(
                     title = "About",
-                    subtitle = "Version, licenses and application information.",
                     icon = Icons.Default.Info
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Info,
                         title = stringResource(R.string.about),
-                        subtitle = stringResource(R.string.about_description),
                         onClick = onNavigateToAboutPage
                     )
                 }

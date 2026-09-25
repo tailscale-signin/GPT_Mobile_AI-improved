@@ -860,7 +860,7 @@ class ChatViewModel @Inject constructor(
                             assistantMessages = groupedMessages.assistantMessages.toMutableList().apply {
                                 this[turnIndex] = mergePersistedAssistantRow(
                                     currentRow = this[turnIndex],
-                                    selectedProfileUids = enabledPlatformsInChat,
+                                    selectedProfileUids = platforms.map { it.value.uid },
                                     persistedMessages = persisted.assistantMessages,
                                     chatId = persisted.chatRoom.id
                                 )

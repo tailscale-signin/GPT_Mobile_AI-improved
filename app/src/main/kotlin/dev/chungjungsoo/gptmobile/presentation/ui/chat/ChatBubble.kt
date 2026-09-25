@@ -21,13 +21,26 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,7 +62,20 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.*
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardColors
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +83,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,6 +103,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -89,7 +118,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.data.database.entity.*
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
@@ -116,9 +147,7 @@ internal fun shouldShowContinuePrompt(
     text: String,
     isLoading: Boolean,
     isLastMessage: Boolean = false
-): Boolean {
-    return ChatResponseActionParser.shouldShowContinuePrompt(text, isLoading, isLastMessage)
-}
+): Boolean = ChatResponseActionParser.shouldShowContinuePrompt(text, isLoading, isLastMessage)
 
 @Composable
 fun UserChatBubble(
@@ -142,7 +171,8 @@ fun UserChatBubble(
     Column(horizontalAlignment = Alignment.End) {
         Card(
             modifier = modifier.pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
-            shape = RoundedCornerShape(32.dp), colors = cardColor
+            shape = RoundedCornerShape(32.dp),
+            colors = cardColor
         ) {
             Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp)) {
                 ChatMarkdown(content = text)
@@ -194,13 +224,49 @@ private fun LocationToolMapPreview(
     } ?: return
     val context = LocalContext.current
     val (latitude, longitude) = coordinates
-    var mapView by remember { mutableStateOf<MapView?>(null) }
-
-    DisposableEffect(Unit) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val disposed = remember(coordinates) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    val mapView = remember(context, coordinates) {
+        MapView(context).apply {
+            onCreate(null)
+            getMapAsync { map ->
+                if (!disposed.get()) {
+                    map.cameraPosition = CameraPosition.Builder().target(LatLng(latitude, longitude)).zoom(15.0).build()
+                    map.setStyle(Style.Builder().fromUri(MAPLIBRE_STREET_STYLE)) { style ->
+                        if (!disposed.get()) {
+                            style.addSource(org.maplibre.android.style.sources.GeoJsonSource("tool-location", org.maplibre.geojson.Point.fromLngLat(longitude, latitude)))
+                            style.addLayer(
+                                org.maplibre.android.style.layers.CircleLayer("tool-location-pin", "tool-location").withProperties(
+                                    org.maplibre.android.style.layers.PropertyFactory.circleRadius(8f),
+                                    org.maplibre.android.style.layers.PropertyFactory.circleColor("#00BCD4"),
+                                    org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth(3f),
+                                    org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor("#FFFFFF")
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+    DisposableEffect(mapView, lifecycleOwner) {
+        val lifecycle = lifecycleOwner.lifecycle
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> mapView.onStart()
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> mapView.onStop()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
         onDispose {
-            mapView?.onStop()
-            mapView?.onDestroy()
-            mapView = null
+            disposed.set(true)
+            lifecycle.removeObserver(observer)
+            mapView.onPause()
+            mapView.onStop()
+            mapView.onDestroy()
         }
     }
 
@@ -212,28 +278,8 @@ private fun LocationToolMapPreview(
         Column {
             AndroidView(
                 modifier = Modifier.fillMaxWidth().height(220.dp),
-                factory = { mapContext ->
-                    MapView(mapContext).also { view ->
-                        mapView = view
-                        view.onCreate(null)
-                        view.onStart()
-                        view.getMapAsync { map ->
-                            map.cameraPosition = CameraPosition.Builder()
-                                .target(LatLng(latitude, longitude))
-                                .zoom(15.0)
-                                .build()
-                            map.setStyle(Style.Builder().fromUri(MAPLIBRE_DEMO_STYLE))
-                        }
-                    }
-                },
-                update = { view ->
-                    view.getMapAsync { map ->
-                        map.cameraPosition = CameraPosition.Builder()
-                            .target(LatLng(latitude, longitude))
-                            .zoom(15.0)
-                            .build()
-                    }
-                }
+                factory = { mapView }
+
             )
             Row(
                 modifier = Modifier.fillMaxWidth().padding(14.dp),
@@ -257,7 +303,9 @@ private fun LocationToolMapPreview(
                 TextButton(
                     onClick = {
                         val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude")
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }.onFailure {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openstreetmap.org/?mlat=$latitude&mlon=$longitude#map=16/$latitude/$longitude")))
+                        }
                     }
                 ) {
                     Text("Open")
@@ -267,7 +315,7 @@ private fun LocationToolMapPreview(
     }
 }
 
-private const val MAPLIBRE_DEMO_STYLE = "https://demotiles.maplibre.org/style.json"
+private const val MAPLIBRE_STREET_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 
 private fun extractLocationCoordinates(result: String): Pair<Double, Double>? {
     val latitude = Regex("""["']?latitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
@@ -452,13 +500,14 @@ fun OpponentChatBubble(
         mutableStateOf(isLoading)
     }
 
-    val hasDetails = debugMode && remember(contentTimeline, thoughts, toolEvents) {
-        hasAssistantProcessDetails(
-            timeline = contentTimeline,
-            fallbackThoughts = thoughts,
-            hasToolEvents = toolEvents.isNotEmpty()
-        )
-    }
+    val hasDetails = debugMode &&
+        remember(contentTimeline, thoughts, toolEvents) {
+            hasAssistantProcessDetails(
+                timeline = contentTimeline,
+                fallbackThoughts = thoughts,
+                hasToolEvents = toolEvents.isNotEmpty()
+            )
+        }
 
     val showAnswerStreamingIndicator = isLoading
     val showProcessStreamingIndicator = showAnswerStreamingIndicator && text.isBlank()
@@ -467,7 +516,8 @@ fun OpponentChatBubble(
         (debugMode && showAnswerStreamingIndicator && (!hasDetails || areDetailsVisible))
     val hasVisibleProcess = hasDetails && areDetailsVisible
     val hasVisibleExtras = (debugMode && (nonTelemetryNotices.isNotEmpty() || agentRun != null)) ||
-        attachments.isNotEmpty() || (!isLoading && (canRetry || canEdit || isError))
+        attachments.isNotEmpty() ||
+        (!isLoading && (canRetry || canEdit || isError))
     val shouldShowBubble = hasVisibleText || hasVisibleProcess || hasVisibleExtras
 
     Column(modifier = modifier) {
@@ -993,17 +1043,17 @@ private fun AssistantProcessContent(
                 }
                 AssistantTimelineItemType.TOOL -> if (!isLoading) {
                     item.toolSequence?.let(events::get)?.let { event ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-                    ) {
-                        ToolTraceBlock(
-                            events = listOf(event),
-                            modifier = Modifier.fillMaxWidth(),
-                            contentIdentity = "$contentIdentity:tool:${event.sequence}"
-                        )
-                    }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
+                        ) {
+                            ToolTraceBlock(
+                                events = listOf(event),
+                                modifier = Modifier.fillMaxWidth(),
+                                contentIdentity = "$contentIdentity:tool:${event.sequence}"
+                            )
+                        }
                     }
                 }
                 AssistantTimelineItemType.NOTICE,
@@ -1179,6 +1229,8 @@ fun PlatformButton(
     onPlatformClick: () -> Unit,
     onPlatformLongPress: () -> Unit = {}
 ) {
+    val currentClick by rememberUpdatedState(onPlatformClick)
+    val currentLongPress by rememberUpdatedState(onPlatformLongPress)
     val haptic = LocalHapticFeedback.current
     val content: @Composable RowScope.() -> Unit = {
         Spacer(Modifier.width(12.dp))
@@ -1200,27 +1252,34 @@ fun PlatformButton(
             .widthIn(max = 160.dp)
             .alpha(if (disabled) 0.5f else 1f)
             .clip(RoundedCornerShape(24.dp))
-            .pointerInput(name, disabled) {
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitFirstDown(requireUnconsumed = false)
-                        val releasedBeforeLongPress = withTimeoutOrNull(1000L) {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                if (event.changes.any { !it.pressed }) return@withTimeoutOrNull true
-                            }
-                            @Suppress("UNREACHABLE_CODE")
-                            false
-                        }
-                        if (releasedBeforeLongPress == null) {
+            .semantics {
+                role = Role.Button
+                stateDescription = if (disabled) "Paused" else "Active"
+                onClick {
+                    currentClick()
+                    true
+                }
+                onLongClick(label = if (disabled) "Resume AI profile" else "Pause AI profile") {
+                    currentLongPress()
+                    true
+                }
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    val released = withTimeoutOrNull(1000L) {
+                        waitForUpOrCancellation()?.let {
+                            it.consume()
+                            true
+                        } ?: false
+                    }
+                    when (released) {
+                        true -> currentClick()
+                        false -> Unit
+                        null -> {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onPlatformLongPress()
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                if (event.changes.all { !it.pressed }) break
-                            }
-                        } else {
-                            onPlatformClick()
+                            currentLongPress()
+                            waitForUpOrCancellation()?.consume()
                         }
                     }
                 }
@@ -1239,9 +1298,11 @@ fun PlatformButton(
 @Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(ImageVector.vectorResource(R.drawable.ic_copy), stringResource(R.string.copy_text))
 }
+
 @Composable private fun SelectTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(ImageVector.vectorResource(R.drawable.ic_select), stringResource(R.string.select_text))
 }
+
 @Composable
 private fun FavoriteIcon(
     isFavorite: Boolean,
@@ -1271,9 +1332,11 @@ private fun FavoriteIcon(
         )
     }
 }
+
 @Composable private fun RetryIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(Icons.Rounded.Refresh, stringResource(R.string.retry))
 }
+
 @Composable private fun EditTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
     Icon(Icons.Outlined.Edit, stringResource(R.string.edit))
 }
@@ -1477,13 +1540,19 @@ private fun MessageFileThumbnail(filePath: String, usePrimaryColors: Boolean) {
     Column(modifier = Modifier.width(56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(container)) {
             Icon(
-                ImageVector.vectorResource(if (isImage) R.drawable.ic_image else R.drawable.ic_file), file.name,
-                modifier = Modifier.fillMaxWidth().padding(8.dp), tint = content
+                ImageVector.vectorResource(if (isImage) R.drawable.ic_image else R.drawable.ic_file),
+                file.name,
+                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                tint = content
             )
         }
         Text(
-            file.name, style = MaterialTheme.typography.labelSmall, color = content, maxLines = 2,
-            overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+            file.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 4.dp).width(56.dp)
         )
     }

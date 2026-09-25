@@ -47,7 +47,13 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
 
     fun updateCustomPrimaryArgb(argb: Long?) {
         viewModelScope.launch {
-            persistTheme { it.copy(customPrimaryArgb = argb) }
+            persistTheme { it.copy(customPrimaryArgb = argb, customPalette = null) }
+        }
+    }
+
+    fun updateCustomPalette(palette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette?) {
+        viewModelScope.launch {
+            persistTheme { it.copy(customPalette = palette, customPrimaryArgb = palette?.primary) }
         }
     }
 

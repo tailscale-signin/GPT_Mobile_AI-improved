@@ -15,6 +15,8 @@ data class ChatAttachment(
     val width: Int? = null,
     val height: Int? = null,
     val wasResized: Boolean = false,
+    val extractedText: String? = null,
+    val extractionNote: String? = null,
     val providerRefs: List<AttachmentProviderRef> = emptyList()
 ) {
     val filePathForDisplay: String = preparedFilePath.ifBlank { localFilePath }

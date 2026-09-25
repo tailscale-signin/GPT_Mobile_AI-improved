@@ -238,6 +238,11 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.openid.appauth)
 
+    // Document text extraction for cloud and on-device models
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("org.apache.poi:poi:5.4.1")
+    implementation("org.apache.poi:poi-scratchpad:5.4.1")
+
     // JSON parsing
     implementation("com.google.code.gson:gson:2.11.0")
 

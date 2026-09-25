@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -24,17 +26,17 @@ import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.mcp.McpMarketplaceScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.migrate.MigrateScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AboutScreen
-import dev.chungjungsoo.gptmobile.presentation.ui.setting.AdvancedSettingsScreen
-import dev.chungjungsoo.gptmobile.presentation.ui.setting.DebugDiagnosticsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AddPlatformScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.AdvancedSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.AiPlatformsScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.DebugDiagnosticsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LicenseScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.McpToolsSelectionScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.OpenRouterSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingScreen
-import dev.chungjungsoo.gptmobile.presentation.ui.setting.ProviderConnectionSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingViewModel
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.ProviderConnectionSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionEditorScreen
@@ -234,6 +236,9 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigationClick = { navController.navigateUp() }
             )
         }
+        composable(Route.USAGE_STATISTICS) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.UsageStatisticsScreen(onBack = { navController.navigateUp() })
+        }
         composable(Route.DEBUG_DIAGNOSTICS) {
             val parentEntry = remember(it) {
                 navController.getBackStackEntry(Route.SETTING_ROUTE)
@@ -241,7 +246,8 @@ fun NavGraphBuilder.settingNavigation(
             val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
             DebugDiagnosticsScreen(
                 settingViewModel = settingViewModel,
-                onNavigationClick = { navController.navigateUp() }
+                onNavigationClick = { navController.navigateUp() },
+                onStatisticsClick = { navController.navigate(Route.USAGE_STATISTICS) }
             )
         }
         composable(Route.AI_PLATFORMS) {
@@ -325,7 +331,7 @@ fun NavGraphBuilder.settingNavigation(
             val platformUid = backStackEntry.arguments?.getString("platformUid") ?: ""
             val platformViewModel: PlatformSettingViewModel = hiltViewModel(
                 remember(backStackEntry) {
-                    navController.getBackStackEntry(Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid))
+                    runCatching { navController.getBackStackEntry(Route.PLATFORM_SETTINGS.replace("{platformUid}", platformUid)) }.getOrElse { backStackEntry }
                 }
             )
             McpToolsSelectionScreen(
@@ -351,7 +357,10 @@ fun NavGraphBuilder.settingNavigation(
                 }
             )
         }
-        composable(Route.MCP_MARKETPLACE) {
+        composable(Route.MCP_MARKETPLACE) { entry ->
+            val settings: SettingViewModelV2 = hiltViewModel(remember(entry) { navController.getBackStackEntry(Route.SETTING_ROUTE) })
+            val profiles by settings.platformState.collectAsStateWithLifecycle()
+            var installedName by remember { mutableStateOf<String?>(null) }
             val uiState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
             val installedAliases = remember(uiState.connections) {
                 uiState.connections.map { it.alias }.toSet()
@@ -374,10 +383,49 @@ fun NavGraphBuilder.settingNavigation(
                         oauthClientId = "",
                         allowCleartext = allowCleartext,
                         clearCredential = false,
-                        onSuccess = { navController.navigateUp() }
+                        onSuccess = {
+                            if (authType == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType.OAUTH) {
+                                navController.navigateUp()
+                            } else {
+                                installedName = name
+                            }
+                        }
                     )
                 }
             )
+            installedName?.let { name ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { installedName = null },
+                    title = { androidx.compose.material3.Text("$name saved") },
+                    text = {
+                        androidx.compose.foundation.lazy.LazyColumn {
+                            item { androidx.compose.material3.Text("Choose an AI profile, then select the server tools it may use.") }
+                            items(profiles.size) { index ->
+                                val profile = profiles[index]
+                                androidx.compose.material3.TextButton(onClick = {
+                                    installedName = null
+                                    navController.navigate(Route.MCP_TOOLS_SELECTION.replace("{platformUid}", profile.uid))
+                                }) { androidx.compose.material3.Text(profile.name) }
+                            }
+                            if (profiles.isEmpty()) item { androidx.compose.material3.Text("Add an AI profile in Settings to enable its tools.") }
+                        }
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(onClick = {
+                            installedName = null
+                            navController.navigateUp()
+                        }) { androidx.compose.material3.Text("Done") }
+                    }
+                )
+            }
+            uiState.errorMessage?.let { message ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = toolConnectionsViewModel::clearError,
+                    title = { androidx.compose.material3.Text("Could not install") },
+                    text = { androidx.compose.material3.Text(message) },
+                    confirmButton = { androidx.compose.material3.TextButton(onClick = toolConnectionsViewModel::clearError) { androidx.compose.material3.Text("Close") } }
+                )
+            }
         }
         composable(Route.ADD_TOOL_CONNECTION) {
             ToolConnectionEditorScreen(

@@ -30,7 +30,7 @@ class McpPresetCatalogTest {
     fun findByAliasReturnsCorrectPreset() {
         val github = McpPresetCatalog.findByAlias("github")
         assertNotNull(github)
-        assertEquals("GitHub", github?.name)
+        assertEquals("github-all", github?.id)
         assertEquals(McpPresetCategory.DEVELOPMENT, github?.category)
 
         val nonExistent = McpPresetCatalog.findByAlias("non_existent_preset")
@@ -39,10 +39,10 @@ class McpPresetCatalogTest {
 
     @Test
     fun findByIdReturnsCorrectPreset() {
-        val fetch = McpPresetCatalog.findById("fetch")
+        val fetch = McpPresetCatalog.findById("firecrawl-mcp")
         assertNotNull(fetch)
-        assertEquals("Fetch", fetch?.name)
-        assertEquals(McpPresetCategory.BROWSER, fetch?.category)
+        assertEquals("Firecrawl Web Research", fetch?.name)
+        assertEquals(McpPresetCategory.SEARCH, fetch?.category)
     }
 
     @Test
@@ -59,10 +59,14 @@ class McpPresetCatalogTest {
     @Test
     fun presetsContainExpectedMajorServers() {
         val aliases = McpPresetCatalog.presets.map { it.alias }.toSet()
-        assertTrue(aliases.contains("brave_search"))
-        assertTrue(aliases.contains("github"))
-        assertTrue(aliases.contains("filesystem"))
-        assertTrue(aliases.contains("fetch"))
-        assertTrue(aliases.contains("memory"))
+        assertTrue(aliases.containsAll(listOf("github", "context7", "tavily_mcp", "firecrawl_mcp", "jina_mcp", "huggingface", "microsoft_learn", "cloudflare_docs", "cloudflare_radar", "neon", "supabase", "stripe")))
+        assertTrue(McpPresetCatalog.presets.count { it.isDirectlyInstallable } >= 10)
+        assertTrue(
+            McpPresetCatalog.presets.filter { it.isDirectlyInstallable }.all {
+                it.commandOrUrl.startsWith("https://") && it.suggestedAuthType in setOf("NONE", "BEARER", "OAUTH") && it.websiteUrl.startsWith("https://github.com/") || it.id == "exa-mcp"
+            }
+        )
+        assertFalse(aliases.contains("filesystem"))
+        assertFalse(aliases.contains("memory"))
     }
 }

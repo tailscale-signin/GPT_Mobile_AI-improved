@@ -71,7 +71,8 @@ class MainActivity : ComponentActivity() {
                 GPTMobileTheme(
                     dynamicTheme = LocalDynamicTheme.current,
                     themeMode = LocalThemeMode.current,
-                    customPrimaryArgb = LocalCustomPrimaryArgb.current
+                    customPrimaryArgb = LocalCustomPrimaryArgb.current,
+                    customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
                 ) {
                     if (isReady) {
                         SetupNavGraph(

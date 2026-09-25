@@ -339,7 +339,6 @@
     <plurals name="duration_seconds">
         <item quantity="other">%1$d d</item>
     </plurals>
-    <string name="retry_tools_warning">Coba ulang dapat menjalankan alat yang ditetapkan lagi.</string>
     <string name="no_matching_tool_calls">Tidak ada pemanggilan alat yang cocok.</string>
     <string name="cancel_active_runs">Batalkan jalankan aktif</string>
     <string name="agent_run_queued">Jalankan agen antre</string>

@@ -55,6 +55,7 @@ import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 fun DebugDiagnosticsScreen(
     settingViewModel: SettingViewModelV2,
     onNavigationClick: () -> Unit,
+    onStatisticsClick: () -> Unit,
     viewModel: DebugDiagnosticsViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -105,6 +106,12 @@ fun DebugDiagnosticsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item {
+                FilledTonalButton(onClick = onStatisticsClick, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.padding(end = 12.dp))
+                    Text("Usage statistics")
+                }
+            }
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),

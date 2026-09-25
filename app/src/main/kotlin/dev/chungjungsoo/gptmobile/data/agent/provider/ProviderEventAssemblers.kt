@@ -11,7 +11,9 @@ import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentDeltaRespon
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentStartResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ContentStopResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageDeltaResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStartResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
@@ -75,7 +77,10 @@ class OpenAIResponsesEventAssembler {
 
         is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message))
 
-        is ResponseCompletedEvent -> listOf(ProviderEvent.Completed)
+        is ResponseCompletedEvent -> buildList {
+            event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens)) }
+            add(ProviderEvent.Completed)
+        }
 
         else -> emptyList()
     }
@@ -134,7 +139,15 @@ class AnthropicEventAssembler {
     private val pendingRedactedThinking = mutableMapOf<Int, String>()
     private val completed = sortedMapOf<Int, MessageContent>()
 
+    private var inputTokens: Int? = null
+
     fun accept(event: MessageResponseChunk): List<ProviderEvent> = when (event) {
+        is MessageStartResponseChunk -> {
+            val usage = event.message.usage
+            inputTokens = usage.inputTokens + (usage.cacheReadInputTokens ?: 0) + (usage.cacheCreationInputTokens ?: 0)
+            listOf(ProviderEvent.Usage(inputTokens, usage.outputTokens, inputTokens!! + usage.outputTokens))
+        }
+        is MessageDeltaResponseChunk -> listOf(ProviderEvent.Usage(inputTokens, event.usage.outputTokens, inputTokens?.plus(event.usage.outputTokens)))
         is ContentStartResponseChunk -> {
             when (event.contentBlock.type) {
                 ContentBlockType.TEXT -> pendingText[event.index] = StringBuilder(event.contentBlock.text.orEmpty())
@@ -224,6 +237,10 @@ object GeminiEventMapper {
     fun accept(response: GenerateContentResponse): List<ProviderEvent> {
         response.error?.let { return listOf(ProviderEvent.Failed(it.message)) }
         val events = mutableListOf<ProviderEvent>()
+        response.usageMetadata?.let { usage ->
+            val output = if (usage.candidateTokens != null || usage.thoughtTokens != null) (usage.candidateTokens ?: 0) + (usage.thoughtTokens ?: 0) else null
+            events += ProviderEvent.Usage(usage.promptTokens, output, usage.totalTokens)
+        }
         response.candidates.orEmpty().flatMap { it.content?.parts.orEmpty() }.forEach { part ->
             part.text?.let { text ->
                 events += if (part.thought == true) ProviderEvent.ThinkingDelta(text) else ProviderEvent.TextDelta(text)

@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.util.DocumentTextExtractor
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import java.io.File
 import javax.inject.Inject
@@ -30,6 +31,16 @@ class AttachmentUploadCoordinator @Inject constructor(
         val preparationResult = FileUtils.prepareAttachmentForUpload(context, filePath) ?: return@withContext null
         val preparedFilePath = preparationResult.preparedFilePath
         val dimensions = FileUtils.getImageDimensionsForDisplay(context, preparedFilePath)
+        val document = if (FileUtils.isImage(preparationResult.mimeType)) {
+            null
+        } else {
+            // PDFs can still use native visual understanding when no text layer is present.
+            if (preparationResult.mimeType == "application/pdf") {
+                runCatching { DocumentTextExtractor.extract(context, File(preparedFilePath), preparationResult.mimeType) }.getOrNull()
+            } else {
+                DocumentTextExtractor.extract(context, File(preparedFilePath), preparationResult.mimeType)
+            }
+        }
         ChatAttachment(
             localFilePath = filePath,
             preparedFilePath = preparedFilePath,
@@ -38,6 +49,8 @@ class AttachmentUploadCoordinator @Inject constructor(
             sizeBytes = FileUtils.getFileSize(context, preparedFilePath),
             width = dimensions?.first,
             height = dimensions?.second,
+            extractedText = document?.text,
+            extractionNote = document?.note,
             wasResized = preparationResult.wasResized
         )
     }

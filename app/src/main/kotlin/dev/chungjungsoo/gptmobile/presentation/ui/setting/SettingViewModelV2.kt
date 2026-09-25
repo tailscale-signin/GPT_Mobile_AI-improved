@@ -422,7 +422,7 @@ class SettingViewModelV2 @Inject constructor(
     }
 
     data class BackupUiState(
-        val selection: CompleteBackupSelection = CompleteBackupSelection.ALL,
+        val selection: CompleteBackupSelection = CompleteBackupSelection(),
         val passwordProtectionEnabled: Boolean = false,
         val backupPassword: String = "",
         val legacyPassword: String = "",

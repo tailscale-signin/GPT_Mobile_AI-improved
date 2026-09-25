@@ -37,6 +37,7 @@ data class CompleteBackupSelection(
 
     companion object {
         val DEFAULT_SECTIONS = CompleteBackupSection.entries.toSet() - setOf(
+            CompleteBackupSection.TOOLS,
             CompleteBackupSection.LOCAL_MODELS,
             CompleteBackupSection.ATTACHMENTS,
             CompleteBackupSection.AGENT_HISTORY

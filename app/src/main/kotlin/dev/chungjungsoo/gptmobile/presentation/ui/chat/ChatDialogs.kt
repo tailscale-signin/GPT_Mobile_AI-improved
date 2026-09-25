@@ -2,22 +2,18 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,7 +21,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,12 +32,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -50,7 +43,9 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
+import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.repository.ProfileModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LlamaModelPickerDialog
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
@@ -74,6 +69,10 @@ fun ChatModelDialog(
     locationToolsAvailable: Boolean = true,
     webSearchToolsAvailable: Boolean = true,
     disabledPlatformUids: Set<String> = emptySet(),
+    mcpTools: List<AvailableChatTool> = emptyList(),
+    isToolEnabled: (String) -> Boolean = { false },
+    onToolChanged: (String, Boolean) -> Unit = { _, _ -> },
+    loadModels: suspend (String) -> List<ProfileModelOption> = { emptyList() },
     onPlatformActiveChanged: (String, Boolean) -> Unit = { _, _ -> },
     onLocationToolsChanged: (Boolean) -> Unit = {},
     onWebSearchToolsChanged: (Boolean) -> Unit = {},
@@ -84,11 +83,12 @@ fun ChatModelDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var models by rememberSaveable(platformOrder, initialModels) {
+    var models by rememberSaveable(platformOrder) {
         mutableStateOf(platformOrder.associateWith { uid -> initialModels[uid].orEmpty() })
     }
 
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
+    var activeCloudPickerUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var modelSearch by rememberSaveable { mutableStateOf("") }
     var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
@@ -105,10 +105,10 @@ fun ChatModelDialog(
                     value = modelSearch,
                     onValueChange = { modelSearch = it },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                    label = { Text("Search models") },
+                    label = { Text("Filter profiles") },
                     singleLine = true
                 )
-                Text("Creativity", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                Text("Creativity · %.2f".format(creativity), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                 Slider(
                     value = creativity,
                     onValueChange = { creativity = it },
@@ -131,6 +131,12 @@ fun ChatModelDialog(
                         onCheckedChange = onWebSearchToolsChanged
                     )
                 }
+                mcpTools.forEach { tool ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(tool.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = isToolEnabled(tool.id), onCheckedChange = { onToolChanged(tool.id, it) })
+                    }
+                }
                 Text(
                     text = "Models in this conversation",
                     style = MaterialTheme.typography.titleSmall,
@@ -152,11 +158,19 @@ fun ChatModelDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                        Text(if (isMember) "Added" else "Available", style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            if (!isTemporarilyEnabled) {
+                                "Paused"
+                            } else if (isMember) {
+                                "Added"
+                            } else {
+                                "Available"
+                            },
+                            style = MaterialTheme.typography.labelSmall
+                        )
                         Spacer(Modifier.width(8.dp))
                         Switch(
                             checked = isMember,
-                            enabled = isTemporarilyEnabled || !isMember,
                             onCheckedChange = { active -> onPlatformActiveChanged(platformUid, active) }
                         )
                     }
@@ -234,6 +248,11 @@ fun ChatModelDialog(
                             },
                             singleLine = true,
                             label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
+                            trailingIcon = {
+                                IconButton(onClick = { activeCloudPickerUid = platformUid }) {
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Browse provider models")
+                                }
+                            },
                             supportingText = {
                                 Text(stringResource(R.string.model_supporting))
                             }
@@ -244,7 +263,7 @@ fun ChatModelDialog(
         },
         onDismissRequest = onDismissRequest,
         confirmButton = {
-            val hasBlank = platformOrder.any { models[it].orEmpty().trim().isBlank() }
+            val hasBlank = activePlatformUids.any { models[it].orEmpty().trim().isBlank() }
             TextButton(
                 enabled = !hasBlank,
                 onClick = {
@@ -263,6 +282,15 @@ fun ChatModelDialog(
             }
         }
     )
+
+    activeCloudPickerUid?.let { uid ->
+        CloudModelPickerDialog(
+            profileUid = uid,
+            loadModels = loadModels,
+            onSelect = { model -> models = models + (uid to model) },
+            onDismiss = { activeCloudPickerUid = null }
+        )
+    }
 
     // Show Unified Model Picker Dialog if active
     activeUnifiedPickerPlatformUid?.let { platformUid ->

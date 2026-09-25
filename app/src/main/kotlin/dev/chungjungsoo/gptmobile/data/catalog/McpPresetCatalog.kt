@@ -174,75 +174,88 @@ object McpPresetCatalog {
             verifiedRemote = true
         ),
         McpPreset(
-            id = "context7", name = "Context7 Documentation", description = "Up-to-date library and framework documentation from the official Context7 remote MCP service.",
+            id = "context7", name = "Context7 Documentation", description = "Current library documentation and code examples. Public access has rate limits; choose Bearer to add a Context7 API key.",
             category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.context7.com/mcp", author = "Upstash",
-            alias = "context7", suggestedAuthType = "API_KEY", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            requiredFields = listOf("Context7 API key (optional for higher limits)"),
+            alias = "context7", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
             toolCapabilities = listOf("Resolve library identifiers", "Search current library documentation"),
             websiteUrl = "https://github.com/upstash/context7", verifiedRemote = true
         ),
         McpPreset(
-            id = "sentry", name = "Sentry", description = "Official hosted Sentry MCP for issues, events, traces, releases and debugging workflows.",
-            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.sentry.dev/mcp", author = "Sentry",
-            alias = "sentry", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            toolCapabilities = listOf("Inspect issues and events", "Query traces and projects", "Debug releases and errors"),
-            websiteUrl = "https://github.com/getsentry/sentry-mcp", verifiedRemote = true
+            id = "tavily-mcp", name = "Tavily Search & Crawl", description = "Search, extract, crawl and map websites through Tavily. Requires a Tavily API key; usage is subject to your plan.",
+            category = McpCategory.SEARCH, commandOrUrl = "https://mcp.tavily.com/mcp/", author = "Tavily",
+            alias = "tavily_mcp", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search web", "Extract and crawl webpages", "Map website URLs"),
+            websiteUrl = "https://github.com/tavily-ai/tavily-mcp", verifiedRemote = true
         ),
         McpPreset(
-            id = "notion", name = "Notion", description = "Official hosted Notion MCP for semantic workspace search plus page reading and editing.",
-            category = McpCategory.PRODUCTIVITY, commandOrUrl = "https://mcp.notion.com/mcp", author = "Notion",
-            alias = "notion", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            toolCapabilities = listOf("Semantic workspace search", "Read pages as Markdown", "Create and edit workspace content"),
-            websiteUrl = "https://github.com/makenotion/notion-mcp-server", verifiedRemote = true
+            id = "firecrawl-mcp", name = "Firecrawl Web Research", description = "Hosted scrape, search and parse tools with a limited keyless tier. Choose Bearer for your Firecrawl API key and account limits.",
+            category = McpCategory.SEARCH, commandOrUrl = "https://mcp.firecrawl.dev/v2/mcp", author = "Firecrawl",
+            alias = "firecrawl_mcp", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Search web", "Scrape webpages", "Parse documents"),
+            websiteUrl = "https://github.com/firecrawl/firecrawl-mcp-server", verifiedRemote = true
         ),
         McpPreset(
-            id = "linear", name = "Linear", description = "Official hosted Linear MCP for issues, projects, initiatives, comments and team workflows.",
-            category = McpCategory.PRODUCTIVITY, commandOrUrl = "https://mcp.linear.app/mcp", author = "Linear",
-            alias = "linear", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            toolCapabilities = listOf("Find and update issues", "Work with projects and initiatives", "Create comments and project updates"),
-            websiteUrl = "https://github.com/linear/linear", verifiedRemote = true
+            id = "jina-mcp", name = "Jina Reader & Search", description = "Read webpages and retrieve content. Some tools, including search, require a Jina API key; choose Bearer to enable them.",
+            category = McpCategory.SEARCH, commandOrUrl = "https://mcp.jina.ai/v1", author = "Jina AI",
+            alias = "jina_mcp", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Read URLs", "Search with a Jina key", "Rerank results"),
+            websiteUrl = "https://github.com/jina-ai/MCP", verifiedRemote = true
         ),
         McpPreset(
-            id = "cloudflare", name = "Cloudflare", description = "Official Cloudflare remote MCP for Workers, DNS, storage, Zero Trust and account resources.",
-            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.cloudflare.com/mcp", author = "Cloudflare",
-            alias = "cloudflare", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            toolCapabilities = listOf("Inspect Cloudflare resources", "Manage Workers and storage", "Query DNS and Zero Trust configuration"),
+            id = "huggingface", name = "Hugging Face Hub", description = "Search models, datasets, papers and Spaces. Use a Hugging Face token and configure tools in your account.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://huggingface.co/mcp", author = "Hugging Face",
+            alias = "huggingface", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search models and datasets", "Find papers and Spaces", "Read model cards"),
+            websiteUrl = "https://github.com/huggingface/hf-mcp-server", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "microsoft-learn", name = "Microsoft Learn", description = "Search official Microsoft documentation and code samples without an account.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://learn.microsoft.com/api/mcp", author = "Microsoft",
+            alias = "microsoft_learn", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Search documentation", "Fetch documentation", "Search code samples"),
+            websiteUrl = "https://github.com/MicrosoftDocs/mcp", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "cloudflare-docs", name = "Cloudflare Documentation", description = "Search current Cloudflare product documentation using its public remote server.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://docs.mcp.cloudflare.com/mcp", author = "Cloudflare",
+            alias = "cloudflare_docs", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Search Cloudflare documentation"),
             websiteUrl = "https://github.com/cloudflare/mcp-server-cloudflare", verifiedRemote = true
         ),
         McpPreset(
-            id = "vercel", name = "Vercel", description = "Official Vercel remote MCP for projects, deployments, logs and platform documentation.",
-            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.vercel.com", author = "Vercel",
-            alias = "vercel", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            toolCapabilities = listOf("Inspect projects and deployments", "Analyze deployment logs", "Search Vercel documentation"),
-            websiteUrl = "https://github.com/vercel", verifiedRemote = true
+            id = "cloudflare-radar", name = "Cloudflare Radar", description = "Explore internet traffic, outages and security insights. Requires a Cloudflare token with Radar permissions.",
+            category = McpCategory.SEARCH, commandOrUrl = "https://radar.mcp.cloudflare.com/mcp", author = "Cloudflare",
+            alias = "cloudflare_radar", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Internet traffic insights", "Outage and security trends"),
+            websiteUrl = "https://github.com/cloudflare/mcp-server-cloudflare", verifiedRemote = true
         ),
         McpPreset(
-            id = "datadog", name = "Datadog", description = "Official Datadog MCP for APM, logs, metrics, monitors, dashboards and security signals.",
-            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.datadoghq.com/v1/mcp", author = "Datadog",
-            alias = "datadog", suggestedAuthType = "OAUTH", pricing = McpPricingType.PAID,
-            toolCapabilities = listOf("Query logs and metrics", "Inspect APM and monitors", "Analyze dashboards and security signals"),
-            websiteUrl = "https://github.com/DataDog", verifiedRemote = true
+            id = "neon", name = "Neon Postgres", description = "Inspect Neon projects and query Postgres in read-only mode. Requires a Neon API key. Scope projects with the endpoint query options.",
+            category = McpCategory.DATABASE, commandOrUrl = "https://mcp.neon.tech/mcp?readonly=true", author = "Neon",
+            alias = "neon", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Inspect projects and schemas", "Read-only SQL queries"),
+            websiteUrl = "https://github.com/neondatabase/mcp-server-neon", verifiedRemote = true
         ),
         McpPreset(
-            id = "grafana-cloud", name = "Grafana Cloud", description = "Official Grafana Cloud MCP for metrics, logs, dashboards, alerts and incident investigations.",
-            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.grafana.com/mcp", author = "Grafana Labs",
-            alias = "grafana_cloud", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            toolCapabilities = listOf("Query metrics and logs", "Inspect dashboards and alerts", "Investigate incidents"),
-            websiteUrl = "https://github.com/grafana", verifiedRemote = true
+            id = "supabase", name = "Supabase Database", description = "Inspect Supabase projects, schema and data. Read-only SQL is selected by default; add project_ref to scope one project. Requires a personal access token.",
+            category = McpCategory.DATABASE, commandOrUrl = "https://mcp.supabase.com/mcp?read_only=true", author = "Supabase",
+            alias = "supabase", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Inspect projects and schema", "Read-only database queries", "Search documentation"),
+            websiteUrl = "https://github.com/supabase/mcp", verifiedRemote = true
         ),
         McpPreset(
-            id = "new-relic", name = "New Relic", description = "Official New Relic remote MCP for observability discovery, NRQL, alerts and performance analysis.",
-            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.newrelic.com/mcp/", author = "New Relic",
-            alias = "new_relic", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
-            toolCapabilities = listOf("Run observability discovery", "Query NRQL data", "Analyze alerts and performance"),
-            websiteUrl = "https://github.com/newrelic", verifiedRemote = true
+            id = "stripe", name = "Stripe Account Tools", description = "Inspect and manage Stripe resources allowed by your Agent API key. Select only the tools your AI profile needs.",
+            category = McpCategory.PRODUCTIVITY, commandOrUrl = "https://mcp.stripe.com", author = "Stripe",
+            alias = "stripe", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Customer and payment resources", "Billing and product information", "Search Stripe documentation"),
+            websiteUrl = "https://github.com/stripe/ai", verifiedRemote = true
         ),
         McpPreset(
-            id = "grep-vercel", name = "Grep by Vercel", description = "Hosted MCP for searching real-world code examples across public GitHub repositories.",
-            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.grep.app", author = "Vercel",
-            alias = "grep_vercel", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
-            toolCapabilities = listOf("Search public GitHub code", "Find implementation examples across repositories"),
-            websiteUrl = "https://github.com/vercel", verifiedRemote = true
+            id = "cloudflare", name = "Cloudflare API", description = "Search and call Cloudflare APIs with the permissions of your Cloudflare API token.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.cloudflare.com/mcp", author = "Cloudflare",
+            alias = "cloudflare", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search Cloudflare APIs", "Execute authorized API operations"),
+            websiteUrl = "https://github.com/cloudflare/mcp", verifiedRemote = true
         )
     )
 

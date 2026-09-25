@@ -417,7 +417,33 @@ class ChatViewModel @Inject constructor(
     fun closeChatModelDialog() = _isChatModelDialogOpen.update { false }
 
     fun openChatTitleDialog() = _isChatTitleDialogOpen.update { true }
-    fun openChatModelDialog() = _isChatModelDialogOpen.update { true }
+    fun openChatModelDialog() {
+        loadAvailableChatTools()
+        _isChatModelDialogOpen.update { true }
+    }
+
+    suspend fun loadProfileModels(uid: String): List<dev.chungjungsoo.gptmobile.data.repository.ProfileModelOption> {
+        val profile = settingRepository.fetchPlatformV2s().first { it.uid == uid }
+        return dev.chungjungsoo.gptmobile.data.repository.ProfileModelCatalog().load(profile)
+    }
+
+    fun setDeviceLocationEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            if (enabled) {
+                val features = settingRepository.getFeatureSettings()
+                val profiles = settingRepository.fetchPlatformV2s().filter { it.uid in _activePlatformUids.value }
+                if (!features.deviceLocationTool || profiles.all { it.disableAllTools || it.disableLocalTools }) {
+                    _attachmentNotice.value = "Enable device location in Advanced Settings and allow local tools for an AI profile."
+                    return@launch
+                }
+                profiles.filterNot { it.disableAllTools || it.disableLocalTools }.forEach {
+                    toolConnectionRepository.setBuiltInToolBinding(it.uid, dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool.DEVICE_LOCATION, true)
+                }
+            }
+            setChatToolsEnabled(listOf(dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool.DEVICE_LOCATION), enabled)
+            loadAvailableChatTools()
+        }
+    }
 
     fun openChatToolSheet() = _isChatToolSheetOpen.update { true }
     fun closeChatToolSheet() = _isChatToolSheetOpen.update { false }
@@ -473,7 +499,13 @@ class ChatViewModel @Inject constructor(
     private fun loadAvailableChatTools() {
         viewModelScope.launch {
             val connections = toolConnectionRepository.getAllConnections()
-            _availableChatTools.update { ChatToolUtils.buildAvailableChatTools(connections) }
+            val bindings = _activePlatformUids.value.flatMap { toolConnectionRepository.listBindingsByProfile(it) }
+            val boundConnectionIds = bindings.mapNotNull { it.connectionUid }.toSet()
+            val locationEnabled = bindings.any { it.toolName == dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool.DEVICE_LOCATION }
+            _availableChatTools.value = ChatToolUtils.buildAvailableChatTools(connections.filter { it.connectionUid in boundConnectionIds }) + listOf(
+                AvailableChatTool("web_search", "Web search", "Built-in web search", "Built-in"),
+                AvailableChatTool("device_location", "Device location", "Phone GPS location", "Built-in", locationEnabled)
+            )
         }
     }
 
@@ -540,6 +572,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun retryChat(turnIndex: Int, platformIndex: Int) {
+        if (enabledPlatformsInChat.getOrNull(platformIndex) in _disabledPlatformUids.value) return
         if (turnIndex !in _groupedMessages.value.assistantMessages.indices) return
         if (platformIndex >= enabledPlatformsInChat.size || platformIndex < 0) return
         val platform = _platformsInApp.value.firstOrNull { it.uid == enabledPlatformsInChat[platformIndex] } ?: return
@@ -1044,7 +1077,7 @@ class ChatViewModel @Inject constructor(
                     currentAttachments = currentAttachments,
                     updateAttachments = updateAttachments,
                     filePath = filePath,
-                    notice = "Unsupported attachment type. Use images, PDF, Office, text, CSV, JSON, Markdown, or RTF files."
+                    notice = "Unsupported attachment type. Use images, PDF, Word, Excel, PowerPoint, text, CSV, JSON, XML or Markdown files."
                 )
                 trySendPendingQuestionIfReady()
                 return@launch
@@ -1082,8 +1115,14 @@ class ChatViewModel @Inject constructor(
                 return@launch
             }
 
-            val preparationResult = withContext(Dispatchers.IO) {
-                attachmentUploadCoordinator.prepareLocalAttachment(context, filePath)
+            val preparationResult = try {
+                withContext(Dispatchers.IO) { attachmentUploadCoordinator.prepareLocalAttachment(context, filePath) }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                rejectDraftAttachment(currentAttachments, updateAttachments, filePath, error.message ?: "Could not read this document.")
+                trySendPendingQuestionIfReady()
+                return@launch
             }
 
             if (currentAttachments().none { it.sourceFilePath == filePath }) {

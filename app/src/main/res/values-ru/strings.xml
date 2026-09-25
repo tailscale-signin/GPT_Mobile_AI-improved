@@ -346,7 +346,6 @@
         <item quantity="many">%1$d с</item>
         <item quantity="other">%1$d с</item>
     </plurals>
-    <string name="retry_tools_warning">Повторная попытка может привести к повторному запуску назначенных инструментов.</string>
     <string name="no_matching_tool_calls">Нет подходящих вызовов инструментов.</string>
     <string name="cancel_active_runs">Отменить активные запуски</string>
     <string name="agent_run_queued">Запуск агента в очереди</string>

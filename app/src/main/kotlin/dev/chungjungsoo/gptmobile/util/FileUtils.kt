@@ -73,7 +73,7 @@ object FileUtils {
         val mimeType = getMimeType(context, filePath)
         val fileSize = getFileSize(context, filePath)
         if (!validateFileSize(context, filePath, MAX_UPLOAD_SIZE_BYTES)) return null
-        if (!isSupportedUploadMimeType(mimeType) || mimeType == "image/gif" || mimeType == "image/svg+xml") {
+        if (!isImage(mimeType) || mimeType == "image/gif" || mimeType == "image/svg+xml") {
             return AttachmentPreparationResult(
                 preparedFilePath = filePath,
                 mimeType = mimeType,
@@ -337,7 +337,9 @@ object FileUtils {
             "text/markdown",
             "text/csv",
             "application/json",
-            "application/rtf"
+            "text/tab-separated-values",
+            "application/xml",
+            "text/xml"
         )
     }
 

@@ -42,9 +42,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -211,6 +211,14 @@ fun ChatScreen(
     var requestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterLocalNetworkPermission by rememberSaveable { mutableStateOf(false) }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            chatViewModel.setDeviceLocationEnabled(true)
+        } else {
+            Toast.makeText(context, "Location permission is needed to share phone coordinates with this conversation.", Toast.LENGTH_LONG).show()
+        }
+    }
     val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -288,12 +296,13 @@ fun ChatScreen(
 
     ChatBottomAutoScroller(
         listState = listState,
-        isEnabled = !hasTargetMessage && shouldAutoScrollToBottom(
-            isFollowing = isFollowingBottom,
-            isUserDragging = isUserDragging,
-            isScrollInProgress = listState.isScrollInProgress,
-            isScrollingAway = listState.lastScrolledBackward
-        )
+        isEnabled = !hasTargetMessage &&
+            shouldAutoScrollToBottom(
+                isFollowing = isFollowingBottom,
+                isUserDragging = isUserDragging,
+                isScrollInProgress = listState.isScrollInProgress,
+                isScrollingAway = listState.lastScrolledBackward
+            )
     )
 
     LaunchedEffect(attachmentNotice) {
@@ -494,14 +503,14 @@ fun ChatScreen(
             ChatModelDialog(
                 platformOrder = dialogPlatformOrder,
                 activePlatformUids = activePlatformUids.toSet(),
-                initialModels = chatPlatformModels,
+                initialModels = appAllPlatforms.associate { it.uid to it.model } + chatPlatformModels,
                 platformNames = platformNames,
                 platformClientTypes = appAllPlatforms.associate { it.uid to it.compatibleType },
                 platformApiUrls = appAllPlatforms.associate { it.uid to it.apiUrl },
                 downloadedLocalModels = downloadedLocalModels,
                 initialCreativity = initialCreativity,
                 locationToolsEnabled = locationToolIds.isNotEmpty() &&
-                    locationToolIds.any(chatToolConfig::isToolEnabled),
+                    availableChatTools.any { it.id in locationToolIds && it.isEnabled && chatToolConfig.isToolEnabled(it.id) },
                 webSearchToolsEnabled = webSearchToolIds.isNotEmpty() &&
                     webSearchToolIds.any(chatToolConfig::isToolEnabled),
                 locationToolsAvailable = locationToolIds.isNotEmpty(),
@@ -509,8 +518,17 @@ fun ChatScreen(
                 disabledPlatformUids = disabledPlatformUids,
                 onPlatformActiveChanged = chatViewModel::setPlatformMembership,
                 onLocationToolsChanged = { enabled ->
-                    chatViewModel.setChatToolsEnabled(locationToolIds, enabled)
+                    if (enabled && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                        locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                    } else {
+                        chatViewModel.setDeviceLocationEnabled(enabled)
+                        chatViewModel.setChatToolsEnabled(locationToolIds, enabled)
+                    }
                 },
+                mcpTools = availableChatTools.filter { it.source == "MCP" },
+                isToolEnabled = chatToolConfig::isToolEnabled,
+                onToolChanged = { id, enabled -> chatViewModel.setChatToolsEnabled(listOf(id), enabled) },
+                loadModels = chatViewModel::loadProfileModels,
                 onWebSearchToolsChanged = { enabled ->
                     chatViewModel.setChatToolsEnabled(webSearchToolIds, enabled)
                 },
@@ -671,14 +689,20 @@ private fun ChatMessagePair(
         selectedRunId?.let(activeAgentRuns::get)
     }
     val toolEvents = selectedRunId?.let(toolEventsByRun::get).orEmpty()
-    val canShowPreviousRevision = !isCombinedConversation && (selectedAssistantMessage?.let { assistantMessage ->
-        assistantMessage.revisions.isNotEmpty() &&
-            assistantMessage.activeRevisionIndex < assistantMessage.revisions.lastIndex
-    } ?: false)
-    val canShowNextRevision = !isCombinedConversation && (selectedAssistantMessage?.let { assistantMessage ->
-        assistantMessage.revisions.isNotEmpty() &&
-            assistantMessage.activeRevisionIndex != ACTIVE_REVISION_LATEST
-    } ?: false)
+    val canShowPreviousRevision = !isCombinedConversation &&
+        (
+            selectedAssistantMessage?.let { assistantMessage ->
+                assistantMessage.revisions.isNotEmpty() &&
+                    assistantMessage.activeRevisionIndex < assistantMessage.revisions.lastIndex
+            } ?: false
+            )
+    val canShowNextRevision = !isCombinedConversation &&
+        (
+            selectedAssistantMessage?.let { assistantMessage ->
+                assistantMessage.revisions.isNotEmpty() &&
+                    assistantMessage.activeRevisionIndex != ACTIVE_REVISION_LATEST
+            } ?: false
+            )
     val selectedPlatformUid = enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
     val isCurrentPlatformLoading = if (isCombinedConversation) {
         activeSlotIndexes.any { index ->

@@ -48,6 +48,7 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
+import dev.chungjungsoo.gptmobile.util.DocumentTextExtractor
 import dev.chungjungsoo.gptmobile.util.FileUtils
 import dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote
 import kotlinx.coroutines.Dispatchers
@@ -441,19 +442,41 @@ class ChatRepositoryImpl(
         platform: PlatformV2
     ): List<ConversationTurn> {
         val policy = ProviderContextPolicy.forClientType(platform.compatibleType)
-        val contextTurns = contextBuilder.build(userMessages, assistantMessages, platform, policy)
+        val preparedUsers = userMessages.map { withDocumentContext(it, platform) }
+        val preparedAssistants = assistantMessages.map { row -> row.map { withDocumentContext(it, platform) } }
+        val contextTurns = contextBuilder.build(preparedUsers, preparedAssistants, platform, policy)
         if (!policy.preferProviderFileRefs || contextTurns.isEmpty()) {
             return contextTurns
         }
 
-        return ensureProviderReferencesForTurns(contextTurns, platform)
+        return ensureProviderReferencesForTurns(contextTurns, platform, userMessages.associateBy { it.id })
+    }
+
+    private suspend fun withDocumentContext(message: MessageV2, platform: PlatformV2): MessageV2 {
+        val nativePdf = platform.compatibleType in setOf(ClientType.OPENAI, ClientType.ANTHROPIC, ClientType.GOOGLE)
+        val documents = message.attachments.filter {
+            !FileUtils.isImage(it.mimeType) && !(nativePdf && it.mimeType == "application/pdf")
+        }
+        if (documents.isEmpty()) return message
+        val excerpts = withContext(Dispatchers.IO) {
+            documents.map { document ->
+                val extracted = document.extractedText?.let { DocumentTextExtractor.Result(it, document.extractionNote) }
+                    ?: DocumentTextExtractor.extract(context, java.io.File(document.filePathForDisplay), document.mimeType)
+                "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text}"
+            }
+        }
+        return message.copy(
+            content = message.content + "\n\n" + excerpts.joinToString("\n\n"),
+            attachments = message.attachments - documents.toSet()
+        )
     }
 
     private suspend fun ensureProviderReferencesForTurns(
         turns: List<ConversationTurn>,
-        platform: PlatformV2
+        platform: PlatformV2,
+        originals: Map<Int, MessageV2>
     ): List<ConversationTurn> {
-        val preparedUserMessages = prepareMessagesForPlatform(turns.map { it.userMessage }, platform)
+        val preparedUserMessages = prepareMessagesForPlatform(turns.map { it.userMessage }, platform, originals)
         return turns.mapIndexed { index, turn ->
             turn.copy(userMessage = preparedUserMessages[index])
         }
@@ -469,7 +492,8 @@ class ChatRepositoryImpl(
 
     private suspend fun prepareMessagesForPlatform(
         messages: List<MessageV2>,
-        platform: PlatformV2
+        platform: PlatformV2,
+        originals: Map<Int, MessageV2>
     ): List<MessageV2> {
         if (messages.none { it.attachments.isNotEmpty() }) {
             return messages
@@ -486,7 +510,17 @@ class ChatRepositoryImpl(
             .mapNotNull { (updated, original) -> updated.takeIf { it != original } }
 
         if (changedMessages.isNotEmpty()) {
-            messageV2Dao.editMessages(*changedMessages.toTypedArray())
+            // Provider input may contain extracted document text or a compacted context.
+            // Persist only attachment references onto the original conversation message.
+            val persisted = changedMessages.map { updated ->
+                val source = originals[updated.id] ?: updated
+                source.copy(
+                    attachments = source.attachments.map { attachment ->
+                        updated.attachments.firstOrNull { it.localFilePath == attachment.localFilePath } ?: attachment
+                    }
+                )
+            }
+            messageV2Dao.editMessages(*persisted.toTypedArray())
         }
 
         return updatedMessages

@@ -61,6 +61,7 @@ class CompleteBackupViewModelTest {
 
     @Test
     fun backupAndPasswordlessRestoreUseSameManager() = runTest(dispatcher) {
+        viewModel.selectAllBackupSections()
         val uri = mockk<Uri>()
         coEvery { manager.backup(uri) } returns BackupRestoreResult(true, "Saved")
         coEvery { manager.requiresPassword(uri) } returns false
@@ -87,6 +88,7 @@ class CompleteBackupViewModelTest {
 
     @Test
     fun legacyEncryptedRestorePromptsOnlyAfterFileInspection() = runTest(dispatcher) {
+        viewModel.selectAllBackupSections()
         val uri = mockk<Uri>()
         coEvery { manager.requiresPassword(uri) } returns true
         coEvery { manager.restore(uri, "legacy-pass") } returns BackupRestoreResult(true, "Legacy restored")

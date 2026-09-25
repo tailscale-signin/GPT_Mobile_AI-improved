@@ -6,14 +6,11 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao
-import dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -22,7 +19,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], application = android.app.Application::class)
 class OpenRouterBatchWorkerTest {
 
     private lateinit var context: Context

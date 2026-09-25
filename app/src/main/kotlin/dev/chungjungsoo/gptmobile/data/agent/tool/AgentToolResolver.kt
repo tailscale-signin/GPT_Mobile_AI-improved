@@ -265,7 +265,7 @@ class AgentToolResolver @Inject constructor(
         val authorization = when (connection.authType) {
             ToolConnectionAuthType.NONE -> null
 
-            ToolConnectionAuthType.BEARER -> readBearerHeader(connection)
+            ToolConnectionAuthType.BEARER, ToolConnectionAuthType.API_KEY -> readBearerHeader(connection)
 
             ToolConnectionAuthType.OAUTH -> mcpOAuthCoordinator.authorizationHeader(
                 connection,

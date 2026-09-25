@@ -706,14 +706,18 @@ class ChatRepositoryImplTest {
     @Suppress("UNCHECKED_CAST")
     private inline fun <reified T> proxy(): T {
         val handler = InvocationHandler { _, method, _ ->
-            when (method.returnType) {
-                Boolean::class.javaPrimitiveType -> false
-                Int::class.javaPrimitiveType -> 0
-                Long::class.javaPrimitiveType -> 0L
-                Float::class.javaPrimitiveType -> 0f
-                Double::class.javaPrimitiveType -> 0.0
-                Unit::class.java -> Unit
-                else -> null
+            when {
+                method.name == "fetchPlatformV2s" -> emptyList<PlatformV2>()
+                method.name == "getFeatureSettings" -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+                else -> when (method.returnType) {
+                    Boolean::class.javaPrimitiveType -> false
+                    Int::class.javaPrimitiveType -> 0
+                    Long::class.javaPrimitiveType -> 0L
+                    Float::class.javaPrimitiveType -> 0f
+                    Double::class.javaPrimitiveType -> 0.0
+                    Unit::class.java -> Unit
+                    else -> null
+                }
             }
         }
 

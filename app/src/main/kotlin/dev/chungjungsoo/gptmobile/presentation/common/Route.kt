@@ -32,6 +32,7 @@ object Route {
     const val OPENROUTER_SETTINGS = "openrouter_settings"
     const val BACKUP_RESTORE = "backup_restore"
     const val ADVANCED_SETTINGS = "advanced_settings"
+    const val USAGE_STATISTICS = "usage_statistics"
     const val DEBUG_DIAGNOSTICS = "debug_diagnostics"
     const val TOOL_CONNECTIONS = "tool_connections"
     const val ADD_TOOL_CONNECTION = "tool_connections/add"

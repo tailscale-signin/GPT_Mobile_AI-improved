@@ -556,8 +556,11 @@ fun FancySwipeChatCard(
     modifier: Modifier = Modifier
 ) {
     val progress = dismissState.progress
-    val isSwipingStartToEnd = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
-    val isSwipingEndToStart = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+    val swipeDirection = dismissState.dismissDirection
+    val isSwipingStartToEnd = swipeDirection == SwipeToDismissBoxValue.StartToEnd ||
+        dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
+    val isSwipingEndToStart = swipeDirection == SwipeToDismissBoxValue.EndToStart ||
+        dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
 
     // Pulse animation spec for revealed swipe icons
     val infiniteTransition = rememberInfiniteTransition(label = "icon_pulse")
@@ -577,10 +580,10 @@ fun FancySwipeChatCard(
 
     // Card surface tint dynamically reacting to swipe progress
     val cardContainerColor = when {
-        isSwipingStartToEnd && progress > 0.01f ->
-            archiveColor.copy(alpha = (0.18f + progress * 0.38f).coerceIn(0.18f, 0.52f))
-        isSwipingEndToStart && progress > 0.01f ->
-            deleteColor.copy(alpha = (0.18f + progress * 0.38f).coerceIn(0.18f, 0.52f))
+        isSwipingStartToEnd && progress > 0.001f ->
+            archiveColor.copy(alpha = (0.45f + progress * 0.45f).coerceIn(0.45f, 0.90f))
+        isSwipingEndToStart && progress > 0.001f ->
+            deleteColor.copy(alpha = (0.45f + progress * 0.45f).coerceIn(0.45f, 0.90f))
         else -> MaterialTheme.colorScheme.surface
     }
 
@@ -598,8 +601,8 @@ fun FancySwipeChatCard(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         state = dismissState,
         backgroundContent = {
-            val isArchiveTarget = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
-            val isDeleteTarget = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+            val isArchiveTarget = isSwipingStartToEnd
+            val isDeleteTarget = isSwipingEndToStart
 
             Box(
                 modifier = Modifier

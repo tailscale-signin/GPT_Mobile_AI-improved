@@ -16,7 +16,7 @@ class LocalEngineHolderTest {
     @Test
     fun `reuses engine for the same spec and reloads for a different spec`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val first = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
         val second = LocalEngineSpec("/models/b.litertlm", LocalAccelerators.CPU, 2048)
 
@@ -37,7 +37,7 @@ class LocalEngineHolderTest {
                 listOf(LocalRuntimeEvent.TextDelta("two"), LocalRuntimeEvent.Done)
             )
         }
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val order = mutableListOf<String>()
 
         val first = launch {
@@ -63,7 +63,7 @@ class LocalEngineHolderTest {
     @Test
     fun `reloads engine when vision flag changes`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val textOnly = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024, isVisionEnabled = false)
         val vision = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024, isVisionEnabled = true)
 
@@ -87,7 +87,7 @@ class LocalEngineHolderTest {
                 }
             }
         }
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
 
         holder.loadEngine(cpu)
         runCatching { holder.loadEngine(gpu) }
@@ -102,7 +102,7 @@ class LocalEngineHolderTest {
     @Test
     fun `reloads engine when accelerator changes from GPU to NPU`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val gpu = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
         val npu = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.NPU, 1024)
 
@@ -116,7 +116,7 @@ class LocalEngineHolderTest {
     @Test
     fun `forwards image payloads to the delegate`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val image = byteArrayOf(1, 2, 3)
 
         holder.sendMessage("look", listOf(image)).toList()
@@ -135,7 +135,7 @@ class LocalEngineHolderTest {
                 listOf(LocalRuntimeEvent.TextDelta("one"), LocalRuntimeEvent.Done)
             )
         }
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val spec = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
         holder.loadEngine(spec)
 

@@ -171,7 +171,7 @@ class ChatPromptQueueTest {
             activePlatform = profiles.map { it.uid },
             conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD
         )
-        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "First prompt")) + profiles.mapIndexed { index, profile ->
+        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "First prompt", platformType = null)) + profiles.mapIndexed { index, profile ->
             MessageV2(id = index + 2, chatId = 7, content = "", platformType = profile.uid, currentRunId = "first-$index")
         }
         runs.value = profiles.mapIndexed { index, profile ->

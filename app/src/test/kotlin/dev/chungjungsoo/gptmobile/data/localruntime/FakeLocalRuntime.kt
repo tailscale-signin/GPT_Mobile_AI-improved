@@ -77,7 +77,6 @@ class FakeLocalRuntime : LocalRuntime {
         generationCancelled = false
         sendMessageCalls += text
         sendMessageImages += images
-        emit(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
         if (emitDelayMillis > 0L) {
             delay(emitDelayMillis)
         }

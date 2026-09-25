@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineHolder
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
@@ -32,6 +33,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -42,6 +44,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiteRtLmAdapterTest {
+    @Test
+    fun `runtime phase events are forwarded before generated text`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(
+                listOf(
+                    LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL),
+                    LocalRuntimeEvent.TextDelta("answer"),
+                    LocalRuntimeEvent.Done
+                )
+            )
+        }
+        val events = adapter(runtime).openSession(turns("hello"), localPlatform())
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(
+            listOf(
+                ProviderEvent.PhaseChanged(LocalInferencePhase.PREFILL),
+                ProviderEvent.TextDelta("answer"),
+                ProviderEvent.Completed
+            ),
+            events
+        )
+    }
+
     @Test
     fun `streams text deltas in order and maps thinking channel`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
@@ -283,8 +308,10 @@ class LiteRtLmAdapterTest {
                 events += it
             }
         }
-        while (events.none { it is ProviderEvent.TextDelta }) {
-            yield()
+        withTimeout(5_000) {
+            while (events.none { it is ProviderEvent.TextDelta }) {
+                yield()
+            }
         }
         job.cancelAndJoin()
         pause.complete(Unit)
@@ -312,8 +339,10 @@ class LiteRtLmAdapterTest {
                 events += it
             }
         }
-        while (events.none { it is ProviderEvent.TextDelta }) {
-            yield()
+        withTimeout(5_000) {
+            while (events.none { it is ProviderEvent.TextDelta }) {
+                yield()
+            }
         }
         job.cancelAndJoin()
         pause.complete(Unit)
@@ -351,7 +380,7 @@ class LiteRtLmAdapterTest {
                 listOf(LocalRuntimeEvent.TextDelta("two"), LocalRuntimeEvent.Done)
             )
         }
-        val holder = LocalEngineHolder(runtime)
+        val holder = LocalEngineHolder(runtime, timeProvider = { 1_000L })
         val adapter = adapter(
             holder,
             FakeLocalModelRepository(
@@ -669,7 +698,7 @@ class LiteRtLmAdapterTest {
                 listOf(LocalRuntimeEvent.TextDelta("two"), LocalRuntimeEvent.Done)
             )
         }
-        val holder = LocalEngineHolder(runtime)
+        val holder = LocalEngineHolder(runtime, timeProvider = { 1_000L })
         val adapter = adapter(holder)
         val platform = localPlatform()
         val firstEvents = mutableListOf<ProviderEvent>()
@@ -680,8 +709,10 @@ class LiteRtLmAdapterTest {
                 firstEvents += it
             }
         }
-        while (firstEvents.none { it is ProviderEvent.TextDelta }) {
-            yield()
+        withTimeout(5_000) {
+            while (firstEvents.none { it is ProviderEvent.TextDelta }) {
+                yield()
+            }
         }
 
         val second = launch {
@@ -689,8 +720,10 @@ class LiteRtLmAdapterTest {
                 secondEvents += it
             }
         }
-        while (secondEvents.none { it is ProviderEvent.Notice }) {
-            yield()
+        withTimeout(5_000) {
+            while (secondEvents.none { it is ProviderEvent.Notice }) {
+                yield()
+            }
         }
 
         pause.complete(Unit)
@@ -891,8 +924,10 @@ class LiteRtLmAdapterTest {
                 )
             ).streamRound(emptyList(), emptyList()).collect { firstEvents += it }
         }
-        while (firstEvents.none { it is ProviderEvent.TextDelta }) {
-            yield()
+        withTimeout(5_000) {
+            while (firstEvents.none { it is ProviderEvent.TextDelta }) {
+                yield()
+            }
         }
 
         val second = launch {
@@ -907,8 +942,10 @@ class LiteRtLmAdapterTest {
                 )
             ).streamRound(emptyList(), emptyList()).collect { secondEvents += it }
         }
-        while (secondEvents.none { it is ProviderEvent.Notice }) {
-            yield()
+        withTimeout(5_000) {
+            while (secondEvents.none { it is ProviderEvent.Notice }) {
+                yield()
+            }
         }
 
         pause.complete(Unit)
@@ -964,7 +1001,7 @@ class LiteRtLmAdapterTest {
                 listOf(LocalRuntimeEvent.TextDelta("rebuilt"), LocalRuntimeEvent.Done)
             )
         }
-        val holder = LocalEngineHolder(runtime)
+        val holder = LocalEngineHolder(runtime, timeProvider = { 1_000L })
         val adapter = adapter(holder)
         val platform = localPlatform()
         val firstEvents = mutableListOf<ProviderEvent>()
@@ -977,8 +1014,10 @@ class LiteRtLmAdapterTest {
             } catch (_: kotlinx.coroutines.CancellationException) {
             }
         }
-        while (firstEvents.none { it is ProviderEvent.TextDelta }) {
-            yield()
+        withTimeout(5_000) {
+            while (firstEvents.none { it is ProviderEvent.TextDelta }) {
+                yield()
+            }
         }
 
         holder.unloadEngine()
@@ -1378,8 +1417,10 @@ class LiteRtLmAdapterTest {
                 events += it
             }
         }
-        while (events.none { it is ProviderEvent.Notice }) {
-            yield()
+        withTimeout(5_000) {
+            while (events.none { it is ProviderEvent.Notice }) {
+                yield()
+            }
         }
 
         runtime.generationMutex.unlock()

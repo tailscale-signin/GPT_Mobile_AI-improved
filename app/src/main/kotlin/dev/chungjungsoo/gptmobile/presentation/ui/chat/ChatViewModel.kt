@@ -1661,6 +1661,7 @@ class ChatViewModel @Inject constructor(
         if (pendingRunDispatches > 0) return
         val runs = _agentRunsById.value
         syncLoadingStates(runs)
+        if (isGenerationBusy()) return
         maybeStartCombinedSynthesis(runs)
         checkAndGenerateAiTitle(runs)
         drainPromptQueueIfIdle()

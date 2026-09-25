@@ -28,7 +28,8 @@ data class ResolvedAgentTool(
     val connectionUid: String?,
     val connectionName: String?,
     val realToolName: String,
-    val modelToolName: String
+    val modelToolName: String,
+    val shareableReadOnly: Boolean = false
 )
 
 class AgentToolResolver @Inject constructor(
@@ -250,7 +251,8 @@ class AgentToolResolver @Inject constructor(
                     connectionUid = connection.connectionUid,
                     connectionName = connection.name,
                     realToolName = remoteTool.name,
-                    modelToolName = tool.definition.name
+                    modelToolName = tool.definition.name,
+                    shareableReadOnly = remoteTool.isSafelyShareableReadOnly()
                 )
             }
     }
@@ -303,11 +305,21 @@ class AgentToolResolver @Inject constructor(
         connectionUid = connectionUid,
         connectionName = connectionName,
         realToolName = realToolName,
-        modelToolName = definition.name
+        modelToolName = definition.name,
+        shareableReadOnly = realToolName in SHAREABLE_BUILT_IN_TOOLS
     )
 
     private companion object {
         const val WEB_SEARCH_TOOL = "web_search"
+        val SHAREABLE_BUILT_IN_TOOLS = setOf(
+            BuiltInAgentTool.CURRENT_DATE,
+            BuiltInAgentTool.CALCULATE_EXPRESSION,
+            BuiltInAgentTool.READ_FILE_SLICE,
+            BuiltInAgentTool.READ_URL,
+            BuiltInAgentTool.DEVICE_LOCATION,
+            BuiltInAgentTool.GITHUB,
+            WEB_SEARCH_TOOL
+        )
         val SEARCH_PROVIDERS = mapOf(
             ToolConnectionType.FIRECRAWL to SearchProvider(WebSearchProvider.FIRECRAWL, "https://api.firecrawl.dev/v2/search"),
             ToolConnectionType.PERPLEXITY to SearchProvider(WebSearchProvider.PERPLEXITY, "https://api.perplexity.ai/search"),
@@ -358,6 +370,70 @@ private class McpAgentTool(
         return mapMcpToolResult(callId, result, startLine, endLine)
     }
 }
+
+private fun Tool.isSafelyShareableReadOnly(): Boolean {
+    if (annotations?.readOnlyHint != true) return false
+
+    val tokens = name.lowercase()
+        .split(Regex("[^a-z0-9]+"))
+        .filter(String::isNotBlank)
+        .toSet()
+    if (tokens.any { it in MUTATING_TOOL_TOKENS }) return false
+    return tokens.any { it in READ_ONLY_TOOL_TOKENS }
+}
+
+private val MUTATING_TOOL_TOKENS = setOf(
+    "add",
+    "book",
+    "buy",
+    "cancel",
+    "commit",
+    "create",
+    "delete",
+    "edit",
+    "execute",
+    "install",
+    "move",
+    "order",
+    "patch",
+    "post",
+    "publish",
+    "purchase",
+    "remove",
+    "rename",
+    "report",
+    "restore",
+    "run",
+    "send",
+    "set",
+    "submit",
+    "trigger",
+    "update",
+    "upload",
+    "write"
+)
+
+private val READ_ONLY_TOOL_TOKENS = setOf(
+    "check",
+    "current",
+    "date",
+    "describe",
+    "fetch",
+    "find",
+    "get",
+    "inspect",
+    "list",
+    "location",
+    "lookup",
+    "query",
+    "read",
+    "retrieve",
+    "search",
+    "status",
+    "time",
+    "view",
+    "weather"
+)
 
 private fun Throwable.isUnauthorized(): Boolean = generateSequence(this) { it.cause }
     .any { error -> error is StreamableHttpError && error.code == 401 }

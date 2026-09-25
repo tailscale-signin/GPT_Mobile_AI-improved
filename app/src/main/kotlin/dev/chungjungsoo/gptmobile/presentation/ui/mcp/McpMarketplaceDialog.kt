@@ -9,6 +9,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -107,6 +110,14 @@ data class ServiceBrand(
 fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
     val isDark = MaterialTheme.colorScheme.background.red < 0.5f
 
+    McpBrandAssets.drawableFor(iconName)?.let { resource ->
+        return ServiceBrand(
+            iconResId = resource,
+            brandColor = Color.Unspecified,
+            containerColor = Color.White
+        )
+    }
+
     return when (iconName) {
         "online_search" -> ServiceBrand(
             iconVector = Icons.Default.TravelExplore,
@@ -142,6 +153,11 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
             iconVector = Icons.Default.Download,
             brandColor = Color(0xFF7C4DFF),
             containerColor = Color(0xFF7C4DFF).copy(alpha = 0.15f)
+        )
+        "pearls" -> ServiceBrand(
+            iconVector = Icons.Default.AccountTree,
+            brandColor = MaterialTheme.colorScheme.primary,
+            containerColor = MaterialTheme.colorScheme.primaryContainer
         )
         "memory" -> ServiceBrand(
             iconVector = Icons.Default.Psychology,
@@ -184,7 +200,7 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
                 brandColor = Color(0xFF00B0FF),
                 containerColor = Color(0xFF00B0FF).copy(alpha = 0.15f)
             )
-            McpCategory.PRODUCTIVITY -> ServiceBrand(
+            McpCategory.MEMORY, McpCategory.THREADING, McpCategory.PRODUCTIVITY -> ServiceBrand(
                 iconVector = Icons.Default.Psychology,
                 brandColor = Color(0xFFFF6D00),
                 containerColor = Color(0xFFFF6D00).copy(alpha = 0.15f)
@@ -535,6 +551,7 @@ fun ServiceIcon(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun McpMarketplaceDetailCard(
     preset: McpPreset,
@@ -623,17 +640,17 @@ fun McpMarketplaceDetailCard(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add")
+                        Text(if (preset.commandOrUrl.isBlank()) "Set up" else "Add")
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Badges Row: Pricing + Category
-            Row(
+            // Wrap badges so endpoint and setup labels fit narrow phones.
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 PricingBadge(pricing = preset.pricing)
 
@@ -659,7 +676,11 @@ fun McpMarketplaceDetailCard(
                     }
                 ) {
                     Text(
-                        text = if (preset.isPreinstalled) "Integrated" else "Streamable HTTP",
+                        text = when {
+                            preset.isPreinstalled -> "Integrated"
+                            preset.commandOrUrl.isBlank() -> "Self-hosted"
+                            else -> "Streamable HTTP"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = if (preset.isPreinstalled) {
@@ -695,6 +716,15 @@ fun McpMarketplaceDetailCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            if (preset.setupInstructions.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = preset.setupInstructions,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             // Tool capabilities list
             if (preset.toolCapabilities.isNotEmpty()) {
@@ -816,7 +846,8 @@ fun McpPresetConfigureDialog(
     val normalizedAlias = ToolConnectionsViewModel.normalizeAlias(alias)
     val isAliasValid = ToolConnectionsViewModel.isValidAlias(normalizedAlias)
     val isNameValid = name.isNotBlank()
-    val isEndpointValid = ToolConnectionsViewModel.isValidMcpEndpoint(endpoint.trim(), allowCleartext)
+    val isEndpointValid = ToolConnectionsViewModel.isValidMcpEndpoint(endpoint.trim(), allowCleartext) &&
+        preset.hasRequiredEndpointParameters(endpoint)
 
     val isCredentialRequired = authType == ToolConnectionAuthType.BEARER
 
@@ -882,6 +913,15 @@ fun McpPresetConfigureDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                if (preset.setupInstructions.isNotBlank()) {
+                    Text(
+                        text = preset.setupInstructions,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
                 // Connection Name
                 OutlinedTextField(
                     value = name,
@@ -921,8 +961,15 @@ fun McpPresetConfigureDialog(
                     onValueChange = { endpoint = it },
                     label = { Text("MCP Streamable HTTP URL *") },
                     isError = endpoint.isNotBlank() && !isEndpointValid,
+                    visualTransformation = if (preset.requiredEndpointQueryParameter != null) {
+                        PasswordVisualTransformation()
+                    } else {
+                        androidx.compose.ui.text.input.VisualTransformation.None
+                    },
                     supportingText = {
-                        if (endpoint.isNotBlank() && !isEndpointValid) {
+                        if (!preset.hasRequiredEndpointParameters(endpoint)) {
+                            Text("Enter the complete provider URL with a valid ${preset.requiredEndpointQueryParameter} parameter.")
+                        } else if (endpoint.isNotBlank() && !isEndpointValid) {
                             Text("Must be a valid HTTP(S) Streamable HTTP endpoint. Cleartext requires explicit approval.")
                         } else {
                             Text("Remote MCP endpoint using Streamable HTTP. Legacy HTTP+SSE is not used for new connections.")
@@ -1035,7 +1082,7 @@ fun McpPresetConfigureDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Need an API key? View documentation",
+                            text = "View setup documentation",
                             style = MaterialTheme.typography.labelSmall
                         )
                     }

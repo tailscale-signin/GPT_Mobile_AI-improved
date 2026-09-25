@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.catalog
 
+import java.net.URI
+import java.net.URLDecoder
 import kotlinx.serialization.Serializable
 
 /**
@@ -22,7 +24,9 @@ enum class McpCategory(val displayName: String) {
     SYSTEM("System"),
     DATABASE("Database"),
     BROWSER("Browser"),
-    PRODUCTIVITY("Productivity")
+    PRODUCTIVITY("Productivity"),
+    MEMORY("Memory"),
+    THREADING("Threading")
 }
 
 @Serializable
@@ -52,12 +56,27 @@ data class McpPreset(
     val toolCapabilities: List<String> = emptyList(),
     val websiteUrl: String = "",
     val isPreinstalled: Boolean = false,
-    val verifiedRemote: Boolean = false
+    val verifiedRemote: Boolean = false,
+    val setupInstructions: String = "",
+    val requiredEndpointQueryParameter: String? = null
 ) {
+    fun hasRequiredEndpointParameters(endpoint: String): Boolean {
+        val parameter = requiredEndpointQueryParameter ?: return true
+        return runCatching {
+            val values = URI(endpoint.trim()).rawQuery.orEmpty().split("&").map { part ->
+                val pair = part.split("=", limit = 2)
+                URLDecoder.decode(pair.first(), "UTF-8") to URLDecoder.decode(pair.getOrElse(1) { "" }, "UTF-8")
+            }.filter { it.first == parameter }.map { it.second.trim() }
+            values.size == 1 && values.single().isNotBlank() &&
+                !values.single().contains("YOUR_", ignoreCase = true) &&
+                !values.single().contains("<") && !values.single().contains("{")
+        }.getOrDefault(false)
+    }
+
     val url: String get() = commandOrUrl
     val defaultEndpoint: String get() = commandOrUrl
     val isDirectlyInstallable: Boolean
-        get() = !isPreinstalled && transportType == McpTransportType.STREAMABLE_HTTP
+        get() = !isPreinstalled && transportType == McpTransportType.STREAMABLE_HTTP && commandOrUrl.startsWith("https://") && requiredEndpointQueryParameter == null
 }
 
 typealias McpServerPreset = McpPreset
@@ -174,88 +193,362 @@ object McpPresetCatalog {
             verifiedRemote = true
         ),
         McpPreset(
-            id = "context7", name = "Context7 Documentation", description = "Current library documentation and code examples. Public access has rate limits; choose Bearer to add a Context7 API key.",
+            id = "context7", iconName = "context7", name = "Context7 Documentation", description = "Current library documentation and code examples. Public access has rate limits; choose Bearer to add a Context7 API key.",
             category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.context7.com/mcp", author = "Upstash",
             alias = "context7", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
             toolCapabilities = listOf("Resolve library identifiers", "Search current library documentation"),
             websiteUrl = "https://github.com/upstash/context7", verifiedRemote = true
         ),
         McpPreset(
-            id = "tavily-mcp", name = "Tavily Search & Crawl", description = "Search, extract, crawl and map websites through Tavily. Requires a Tavily API key; usage is subject to your plan.",
+            id = "tavily-mcp", iconName = "tavily", name = "Tavily Search & Crawl", description = "Search, extract, crawl and map websites through Tavily. Requires a Tavily API key; usage is subject to your plan.",
             category = McpCategory.SEARCH, commandOrUrl = "https://mcp.tavily.com/mcp/", author = "Tavily",
             alias = "tavily_mcp", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Search web", "Extract and crawl webpages", "Map website URLs"),
             websiteUrl = "https://github.com/tavily-ai/tavily-mcp", verifiedRemote = true
         ),
         McpPreset(
-            id = "firecrawl-mcp", name = "Firecrawl Web Research", description = "Hosted scrape, search and parse tools with a limited keyless tier. Choose Bearer for your Firecrawl API key and account limits.",
+            id = "firecrawl-mcp", iconName = "firecrawl", name = "Firecrawl Web Research", description = "Hosted scrape, search and parse tools with a limited keyless tier. Choose Bearer for your Firecrawl API key and account limits.",
             category = McpCategory.SEARCH, commandOrUrl = "https://mcp.firecrawl.dev/v2/mcp", author = "Firecrawl",
             alias = "firecrawl_mcp", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
             toolCapabilities = listOf("Search web", "Scrape webpages", "Parse documents"),
             websiteUrl = "https://github.com/firecrawl/firecrawl-mcp-server", verifiedRemote = true
         ),
         McpPreset(
-            id = "jina-mcp", name = "Jina Reader & Search", description = "Read webpages and retrieve content. Some tools, including search, require a Jina API key; choose Bearer to enable them.",
+            id = "jina-mcp", iconName = "jina", name = "Jina Reader & Search", description = "Read webpages and retrieve content. Some tools, including search, require a Jina API key; choose Bearer to enable them.",
             category = McpCategory.SEARCH, commandOrUrl = "https://mcp.jina.ai/v1", author = "Jina AI",
             alias = "jina_mcp", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
             toolCapabilities = listOf("Read URLs", "Search with a Jina key", "Rerank results"),
             websiteUrl = "https://github.com/jina-ai/MCP", verifiedRemote = true
         ),
         McpPreset(
-            id = "huggingface", name = "Hugging Face Hub", description = "Search models, datasets, papers and Spaces. Use a Hugging Face token and configure tools in your account.",
+            id = "huggingface", iconName = "huggingface", name = "Hugging Face Hub", description = "Search models, datasets, papers and Spaces. Use a Hugging Face token and configure tools in your account.",
             category = McpCategory.DEVELOPMENT, commandOrUrl = "https://huggingface.co/mcp", author = "Hugging Face",
             alias = "huggingface", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Search models and datasets", "Find papers and Spaces", "Read model cards"),
             websiteUrl = "https://github.com/huggingface/hf-mcp-server", verifiedRemote = true
         ),
         McpPreset(
-            id = "microsoft-learn", name = "Microsoft Learn", description = "Search official Microsoft documentation and code samples without an account.",
+            id = "microsoft-learn", iconName = "microsoft", name = "Microsoft Learn", description = "Search official Microsoft documentation and code samples without an account.",
             category = McpCategory.DEVELOPMENT, commandOrUrl = "https://learn.microsoft.com/api/mcp", author = "Microsoft",
             alias = "microsoft_learn", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
             toolCapabilities = listOf("Search documentation", "Fetch documentation", "Search code samples"),
             websiteUrl = "https://github.com/MicrosoftDocs/mcp", verifiedRemote = true
         ),
         McpPreset(
-            id = "cloudflare-docs", name = "Cloudflare Documentation", description = "Search current Cloudflare product documentation using its public remote server.",
+            id = "cloudflare-docs", iconName = "cloudflare", name = "Cloudflare Documentation", description = "Search current Cloudflare product documentation using its public remote server.",
             category = McpCategory.DEVELOPMENT, commandOrUrl = "https://docs.mcp.cloudflare.com/mcp", author = "Cloudflare",
             alias = "cloudflare_docs", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
             toolCapabilities = listOf("Search Cloudflare documentation"),
             websiteUrl = "https://github.com/cloudflare/mcp-server-cloudflare", verifiedRemote = true
         ),
         McpPreset(
-            id = "cloudflare-radar", name = "Cloudflare Radar", description = "Explore internet traffic, outages and security insights. Requires a Cloudflare token with Radar permissions.",
+            id = "cloudflare-radar", iconName = "cloudflare", name = "Cloudflare Radar", description = "Explore internet traffic, outages and security insights. Requires a Cloudflare token with Radar permissions.",
             category = McpCategory.SEARCH, commandOrUrl = "https://radar.mcp.cloudflare.com/mcp", author = "Cloudflare",
             alias = "cloudflare_radar", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Internet traffic insights", "Outage and security trends"),
             websiteUrl = "https://github.com/cloudflare/mcp-server-cloudflare", verifiedRemote = true
         ),
         McpPreset(
-            id = "neon", name = "Neon Postgres", description = "Inspect Neon projects and query Postgres in read-only mode. Requires a Neon API key. Scope projects with the endpoint query options.",
+            id = "neon", iconName = "neon", name = "Neon Postgres", description = "Inspect Neon projects and query Postgres in read-only mode. Requires a Neon API key. Scope projects with the endpoint query options.",
             category = McpCategory.DATABASE, commandOrUrl = "https://mcp.neon.tech/mcp?readonly=true", author = "Neon",
             alias = "neon", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Inspect projects and schemas", "Read-only SQL queries"),
             websiteUrl = "https://github.com/neondatabase/mcp-server-neon", verifiedRemote = true
         ),
         McpPreset(
-            id = "supabase", name = "Supabase Database", description = "Inspect Supabase projects, schema and data. Read-only SQL is selected by default; add project_ref to scope one project. Requires a personal access token.",
+            id = "supabase", iconName = "supabase", name = "Supabase Database", description = "Inspect Supabase projects, schema and data. Read-only SQL is selected by default; add project_ref to scope one project. Requires a personal access token.",
             category = McpCategory.DATABASE, commandOrUrl = "https://mcp.supabase.com/mcp?read_only=true", author = "Supabase",
             alias = "supabase", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Inspect projects and schema", "Read-only database queries", "Search documentation"),
             websiteUrl = "https://github.com/supabase/mcp", verifiedRemote = true
         ),
         McpPreset(
-            id = "stripe", name = "Stripe Account Tools", description = "Inspect and manage Stripe resources allowed by your Agent API key. Select only the tools your AI profile needs.",
+            id = "stripe", iconName = "stripe", name = "Stripe Account Tools", description = "Inspect and manage Stripe resources allowed by your Agent API key. Select only the tools your AI profile needs.",
             category = McpCategory.PRODUCTIVITY, commandOrUrl = "https://mcp.stripe.com", author = "Stripe",
             alias = "stripe", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Customer and payment resources", "Billing and product information", "Search Stripe documentation"),
             websiteUrl = "https://github.com/stripe/ai", verifiedRemote = true
         ),
         McpPreset(
-            id = "cloudflare", name = "Cloudflare API", description = "Search and call Cloudflare APIs with the permissions of your Cloudflare API token.",
+            id = "cloudflare", iconName = "cloudflare", name = "Cloudflare API", description = "Search and call Cloudflare APIs with the permissions of your Cloudflare API token.",
             category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.cloudflare.com/mcp", author = "Cloudflare",
             alias = "cloudflare", suggestedAuthType = "BEARER", pricing = McpPricingType.FREE_WITH_SIGNUP,
             toolCapabilities = listOf("Search Cloudflare APIs", "Execute authorized API operations"),
             websiteUrl = "https://github.com/cloudflare/mcp", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "mem0-hosted",
+            name = "Mem0 Memory",
+            description = "Store and recall account-backed memories across conversations and compatible clients. Usage depends on your Mem0 plan.",
+            category = McpCategory.MEMORY,
+            commandOrUrl = "https://mcp.mem0.ai/mcp",
+            iconName = "mem0",
+            author = "Mem0",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Save, search and update memories", "Manage memory entities and events"),
+            websiteUrl = "https://docs.mem0.ai/platform/mem0-mcp",
+            verifiedRemote = true,
+            setupInstructions = "Sign in to Mem0 in your browser, or select Bearer and enter a Mem0 API key. Enable memory tools in the AI profile to use them; installing does not automatically upload chat history."
+        ),
+        McpPreset(
+            id = "supermemory",
+            name = "Supermemory",
+            description = "Persistent memory shared across compatible AI clients, with account-controlled access to memory spaces.",
+            category = McpCategory.MEMORY,
+            commandOrUrl = "https://mcp.supermemory.ai/mcp",
+            iconName = "supermemory",
+            author = "Supermemory",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Store and retrieve memories", "Search context across authorized spaces"),
+            websiteUrl = "https://supermemory.ai/mcp/",
+            verifiedRemote = true,
+            setupInstructions = "Sign in and choose the spaces this connection may access. Service limits and charges depend on your plan."
+        ),
+        McpPreset(
+            id = "mnemoverse",
+            name = "Mnemoverse",
+            description = "Shared persistent memory with semantic recall and feedback-based ranking.",
+            category = McpCategory.MEMORY,
+            commandOrUrl = "https://mcp.mnemoverse.com/mcp",
+            iconName = "mnemoverse",
+            author = "Mnemoverse",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Store and recall memories", "Share context across connected clients"),
+            websiteUrl = "https://mnemoverse.com/docs/api/integrations",
+            verifiedRemote = true,
+            setupInstructions = "Browser sign-in uses OAuth with PKCE. Enable the tools you want in your AI profile."
+        ),
+        McpPreset(
+            id = "pearls",
+            name = "Pearls",
+            description = "Self-hosted AI continuity server with transmissions organized into access-controlled threads. Hosting may incur costs.",
+            category = McpCategory.THREADING,
+            commandOrUrl = "",
+            iconName = "pearls",
+            author = "Garblesnarff",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Create and search pearls", "List and create threads", "Retrieve recent transmissions and handshake context"),
+            websiteUrl = "https://github.com/Garblesnarff/pearls",
+            verifiedRemote = false,
+            setupInstructions = "Deploy Pearls on a server reachable from your phone, then enter its HTTPS /mcp URL. Configure OAuth for your deployment, or select Bearer for a pearl_ API key. No public hosted endpoint is supplied."
+        ),
+        McpPreset(
+            id = "brave-search",
+            name = "Brave Search",
+            description = "Web, local, image, video and news search through a self-hosted Brave MCP server. API usage depends on your Brave plan.",
+            category = McpCategory.SEARCH,
+            commandOrUrl = "",
+            iconName = "brave",
+            author = "Brave",
+            suggestedAuthType = "NONE",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search web and local places", "Search images, videos and news"),
+            websiteUrl = "https://github.com/brave/brave-search-mcp-server",
+            verifiedRemote = false,
+            setupInstructions = "Run the official server with HTTP transport and BRAVE_API_KEY configured on the server. Enter its phone-reachable /mcp URL and select authentication required by your deployment. The Brave API key is not a bearer token for this MCP endpoint."
+        ),
+        McpPreset(
+            id = "stackoverflow",
+            name = "Stack Overflow",
+            description = "Access Stack Overflow knowledge through its remote MCP service. Availability and capabilities depend on your account.",
+            category = McpCategory.DEVELOPMENT,
+            commandOrUrl = "https://mcp.stackoverflow.com",
+            iconName = "stackoverflow",
+            author = "Stack Overflow",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search developer questions and answers"),
+            websiteUrl = "https://stackoverflow.com/help/mcp-server",
+            verifiedRemote = true,
+            setupInstructions = "Sign in with a Stack Overflow account. Review the service documentation for current access requirements."
+        ),
+        McpPreset(
+            id = "semgrep",
+            name = "Semgrep",
+            description = "Security analysis through Semgrep's hosted MCP service. Hosted capabilities and access requirements can change.",
+            category = McpCategory.DEVELOPMENT,
+            commandOrUrl = "https://mcp.semgrep.ai/mcp",
+            iconName = "semgrep",
+            author = "Semgrep",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Analyze code for security issues", "Retrieve supported security findings"),
+            websiteUrl = "https://github.com/semgrep/mcp",
+            verifiedRemote = true,
+            setupInstructions = "The hosted service currently requires authentication. Use browser sign-in; the older unauthenticated setup is no longer sufficient. The standalone repository has moved into the main Semgrep project."
+        ),
+        McpPreset(
+            id = "deepwiki",
+            name = "DeepWiki",
+            description = "Read AI-generated documentation and ask questions about indexed public GitHub repositories.",
+            category = McpCategory.DEVELOPMENT,
+            commandOrUrl = "https://mcp.deepwiki.com/mcp",
+            iconName = "deepwiki",
+            author = "Cognition",
+            suggestedAuthType = "NONE",
+            pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Read repository documentation", "Ask questions about a public codebase"),
+            websiteUrl = "https://docs.devin.ai/work-with-devin/deepwiki-mcp",
+            verifiedRemote = true,
+            setupInstructions = "Public repositories only; private repository access uses a separate authenticated service."
+        ),
+        McpPreset(
+            id = "netlify",
+            name = "Netlify",
+            description = "Manage Netlify sites and deployments using your account permissions.",
+            category = McpCategory.DEVELOPMENT,
+            commandOrUrl = "https://netlify-mcp.netlify.app/mcp",
+            iconName = "netlify",
+            author = "Netlify",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Inspect sites and deployments", "Manage authorized site resources"),
+            websiteUrl = "https://docs.netlify.com/build/build-with-ai/agent-setup-guides/set-up-claude-code-for-netlify/",
+            verifiedRemote = true,
+            setupInstructions = "Sign in to Netlify. Site hosting and resource usage are subject to your account plan."
+        ),
+        McpPreset(
+            id = "airtable",
+            name = "Airtable",
+            description = "Work with Airtable bases, records and other resources available to your account.",
+            category = McpCategory.DATABASE,
+            commandOrUrl = "https://mcp.airtable.com/mcp",
+            iconName = "airtable",
+            author = "Airtable",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Read and update records", "Explore authorized bases and schemas"),
+            websiteUrl = "https://support.airtable.com/articles/9897799762-using-the-airtable-mcp-server",
+            verifiedRemote = true,
+            setupInstructions = "Sign in to Airtable and select permitted resources. Your account permissions and API limits apply."
+        ),
+        McpPreset(
+            id = "prisma",
+            name = "Prisma Postgres",
+            description = "Manage Prisma Postgres databases and related workspace resources.",
+            category = McpCategory.DATABASE,
+            commandOrUrl = "https://mcp.prisma.io/mcp",
+            iconName = "prisma",
+            author = "Prisma",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Inspect database schemas and queries", "Manage databases and deployments"),
+            websiteUrl = "https://www.prisma.io/docs/ai/tools/mcp-server",
+            verifiedRemote = true,
+            setupInstructions = "Sign in and choose a Prisma workspace. Database and infrastructure usage depend on your plan."
+        ),
+        McpPreset(
+            id = "slack",
+            name = "Slack",
+            description = "Search and work with Slack conversations and resources using an approved Slack app.",
+            category = McpCategory.PRODUCTIVITY,
+            commandOrUrl = "https://mcp.slack.com/mcp",
+            iconName = "slack",
+            author = "Slack",
+            suggestedAuthType = "BEARER",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search messages and channels", "Read threads and authorized workspace resources"),
+            websiteUrl = "https://docs.slack.dev/ai/slack-mcp-server/",
+            verifiedRemote = true,
+            setupInstructions = "Requires a registered internal or directory-published Slack app, workspace approval, and a user token with MCP tool scopes. Dynamic client registration is unsupported. Use an authorized user bearer token, or configure your own OAuth client ID in connection settings.",
+            requiredFields = listOf("Authorized Slack user token")
+        ),
+        McpPreset(
+            id = "asana",
+            name = "Asana",
+            description = "Read and manage Asana projects and tasks with the permissions of your connected account.",
+            category = McpCategory.PRODUCTIVITY,
+            commandOrUrl = "https://mcp.asana.com/v2/mcp",
+            iconName = "asana",
+            author = "Asana",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search projects and tasks", "Create and update authorized work items"),
+            websiteUrl = "https://developers.asana.com/docs/using-asanas-mcp-server",
+            verifiedRemote = true,
+            setupInstructions = "Sign in with Asana. Workspace policies and your account plan determine access."
+        ),
+        McpPreset(
+            id = "todoist",
+            name = "Todoist",
+            description = "Manage tasks and projects through Todoist's official hosted server.",
+            category = McpCategory.PRODUCTIVITY,
+            commandOrUrl = "https://ai.todoist.net/mcp",
+            iconName = "todoist",
+            author = "Doist",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Find and organize tasks", "Create and update tasks and projects"),
+            websiteUrl = "https://developer.todoist.com/",
+            verifiedRemote = true,
+            setupInstructions = "Sign in with Todoist to authorize the connection."
+        ),
+        McpPreset(
+            id = "google-drive",
+            name = "Google Drive",
+            description = "Access Google Drive files through the Workspace MCP developer preview.",
+            category = McpCategory.PRODUCTIVITY,
+            commandOrUrl = "https://drivemcp.googleapis.com/mcp/v1",
+            iconName = "googledrive",
+            author = "Google",
+            suggestedAuthType = "BEARER",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search and read files", "Inspect file metadata and permissions"),
+            websiteUrl = "https://developers.google.com/workspace/guides/configure-mcp-servers",
+            verifiedRemote = true,
+            setupInstructions = "Requires Workspace Developer Preview access, the MCP API enabled in a Google Cloud project, and a scoped Google OAuth access token. Paste the access token as Bearer; refresh expired tokens yourself. Generic MCP browser sign-in is not configured for Google.",
+            requiredFields = listOf("OAuth access token")
+        ),
+        McpPreset(
+            id = "google-sheets",
+            name = "Google Sheets",
+            description = "Read and update spreadsheets through the Workspace MCP developer preview.",
+            category = McpCategory.PRODUCTIVITY,
+            commandOrUrl = "https://sheetsmcp.googleapis.com/mcp/v1",
+            iconName = "googlesheets",
+            author = "Google",
+            suggestedAuthType = "BEARER",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Read sheets and cell values", "Update values and spreadsheet properties"),
+            websiteUrl = "https://developers.google.com/workspace/sheets/api/guides/configure-mcp-server",
+            verifiedRemote = true,
+            setupInstructions = "Requires Workspace Developer Preview access, the MCP API enabled in a Google Cloud project, and a scoped Google OAuth access token. Paste the access token as Bearer; refresh expired tokens yourself.",
+            requiredFields = listOf("OAuth access token")
+        ),
+        McpPreset(
+            id = "excalidraw",
+            name = "Excalidraw",
+            description = "Generate hand-drawn diagrams with the official public Excalidraw MCP server.",
+            category = McpCategory.BROWSER,
+            commandOrUrl = "https://mcp.excalidraw.com",
+            iconName = "excalidraw",
+            author = "Excalidraw",
+            suggestedAuthType = "NONE",
+            pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Create diagram content", "Retrieve diagram results"),
+            websiteUrl = "https://github.com/excalidraw/excalidraw-mcp",
+            verifiedRemote = true,
+            setupInstructions = "This app can call MCP tools, but does not render the interactive MCP Apps canvas. Use returned links or supported tool content; embedded editing requires a client with MCP Apps support."
+        ),
+        McpPreset(
+            id = "bright-data",
+            name = "Bright Data",
+            description = "Search and retrieve public web data through Bright Data's hosted MCP service. Paid usage may apply beyond plan allowances.",
+            category = McpCategory.BROWSER,
+            commandOrUrl = "https://mcp.brightdata.com/mcp",
+            iconName = "brightdata",
+            author = "Bright Data",
+            suggestedAuthType = "NONE",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Search and retrieve webpages", "Access enabled web data tools"),
+            websiteUrl = "https://github.com/brightdata/brightdata-mcp",
+            verifiedRemote = true,
+            setupInstructions = "Copy your complete hosted MCP URL from Bright Data, including its token query parameter. This service documents URL-token authentication, not generic OAuth. Treat the URL as a secret and do not share it.",
+            requiredEndpointQueryParameter = "token"
         )
     )
 

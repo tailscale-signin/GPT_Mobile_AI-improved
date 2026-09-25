@@ -1239,19 +1239,42 @@ class ChatViewModel @Inject constructor(
 
     private fun fetchChatRoom() {
         viewModelScope.launch {
-            _chatRoom.update {
-                if (chatRoomId == 0) {
-                    ChatRoomV2(
-                        id = 0,
-                        title = "Untitled Chat",
-                        enabledPlatform = enabledPlatformsInChat,
-                        conversationMode = requestedConversationMode
-                    )
-                } else {
-                    chatRepository.fetchChatListV2().first { it.id == chatRoomId }
-                }
+            val room = if (chatRoomId == 0) {
+                ChatRoomV2(
+                    id = 0,
+                    title = "Untitled Chat",
+                    enabledPlatform = initialPlatformUids,
+                    activePlatform = initialPlatformUids,
+                    conversationMode = requestedConversationMode
+                )
+            } else {
+                chatRepository.fetchChatListV2().first { it.id == chatRoomId }
             }
-            _activePlatformUids.value = _chatRoom.value.enabledPlatform
+            _chatRoom.value = room
+            applyChatPlatformState(room)
+        }
+    }
+
+    private fun applyChatPlatformState(room: ChatRoomV2) {
+        val slots = room.enabledPlatform.filter(String::isNotBlank).distinct()
+        val active = room.activePlatform
+            .filter(String::isNotBlank)
+            .distinct()
+            .ifEmpty { slots }
+            .filter { it in slots }
+
+        _platformSlotUids.value = slots
+        _activePlatformUids.value = active
+        _disabledPlatformUids.update { disabled -> disabled.intersect(active.toSet()) }
+        _loadingStates.update { current ->
+            List(slots.size) { index -> current.getOrElse(index) { LoadingState.Idle } }
+        }
+        _groupedMessages.update { grouped ->
+            grouped.copy(
+                assistantMessages = grouped.assistantMessages.map { row ->
+                    normalizeAssistantRow(row, slots, room.id.coerceAtLeast(chatRoomId))
+                }
+            )
         }
     }
 

@@ -68,6 +68,7 @@ class LocalRuntimeRouterTest {
 
         assertEquals(1, qnnRuntime.loadEngineCalls.size)
         assertEquals(1, liteRtRuntime.loadEngineCalls.size)
+        assertEquals(LocalRuntimeBackend.LITERT_LM, fakeSettingRepository.backend)
         assertTrue(router.isEngineLoaded(spec))
     }
 

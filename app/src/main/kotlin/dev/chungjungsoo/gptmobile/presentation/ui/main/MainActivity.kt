@@ -24,6 +24,7 @@ import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.data.agent.tool.MCP_OAUTH_SCHEME
 import dev.chungjungsoo.gptmobile.data.agent.tool.isMcpOAuthCallbackUri
+import dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPrimaryArgb
 import dev.chungjungsoo.gptmobile.presentation.common.LocalDynamicTheme
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeMode
 import dev.chungjungsoo.gptmobile.presentation.common.Route
@@ -69,7 +70,8 @@ class MainActivity : ComponentActivity() {
             ThemeSettingProvider {
                 GPTMobileTheme(
                     dynamicTheme = LocalDynamicTheme.current,
-                    themeMode = LocalThemeMode.current
+                    themeMode = LocalThemeMode.current,
+                    customPrimaryArgb = LocalCustomPrimaryArgb.current
                 ) {
                     if (isReady) {
                         SetupNavGraph(

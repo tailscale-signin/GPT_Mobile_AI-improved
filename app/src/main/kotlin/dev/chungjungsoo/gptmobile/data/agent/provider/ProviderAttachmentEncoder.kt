@@ -125,15 +125,7 @@ open class ProviderAttachmentEncoder @Inject constructor(
     ): ResponseInputMessage {
         val text = message.modelVisibleText(isUser)
         val ctx = context
-        val images = if (ctx != null) {
-            message.attachments.filter { attachment ->
-                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                FileUtils.isImage(attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) })
-            }
-        } else {
-            emptyList()
-        }
-        if (images.isEmpty()) {
+        if (message.attachments.isEmpty()) {
             return ResponseInputMessage(
                 role = if (isUser) "user" else "assistant",
                 content = ResponseInputContent.text(text)
@@ -142,13 +134,19 @@ open class ProviderAttachmentEncoder @Inject constructor(
 
         val parts = buildList {
             if (text.isNotBlank()) add(ResponseContentPart.text(text))
-            images.forEach { attachment ->
+            message.attachments.forEach { attachment ->
                 val providerRef = attachment.providerRefFor(platformUid)
+                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+                val mimeType = attachment.mimeType.ifBlank {
+                    if (ctx != null) FileUtils.getMimeType(ctx, filePath) else FileUtils.getMimeTypeFromPath(filePath)
+                }
                 if (providerRef?.remoteType == AttachmentRemoteType.OPENAI_FILE) {
-                    add(ResponseContentPart.imageFile(providerRef.remoteId))
-                } else if (ctx != null) {
-                    val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
+                    if (FileUtils.isImage(mimeType)) {
+                        add(ResponseContentPart.imageFile(providerRef.remoteId))
+                    } else {
+                        add(ResponseContentPart.file(providerRef.remoteId))
+                    }
+                } else if (ctx != null && FileUtils.isImage(mimeType)) {
                     encodedAttachment(filePath, mimeType)?.let { encoded ->
                         add(ResponseContentPart.image("data:${encoded.mimeType};base64,${encoded.base64Data}"))
                     }

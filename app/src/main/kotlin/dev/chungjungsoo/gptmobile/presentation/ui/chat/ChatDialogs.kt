@@ -70,6 +70,8 @@ fun ChatModelDialog(
     initialCreativity: Float = 0.5f,
     locationToolsEnabled: Boolean = false,
     webSearchToolsEnabled: Boolean = false,
+    disabledPlatformUids: Set<String> = emptySet(),
+    onPlatformActiveChanged: (String, Boolean) -> Unit = { _, _ -> },
     onLocationToolsChanged: (Boolean) -> Unit = {},
     onWebSearchToolsChanged: (Boolean) -> Unit = {},
     onNavigateToLocalModels: () -> Unit = {},
@@ -131,6 +133,20 @@ fun ChatModelDialog(
                 }.forEach { platformUid ->
                     val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
                     val clientType = platformClientTypes[platformUid]
+                    val isActive = platformUid !in disabledPlatformUids
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                        Text(if (isActive) "Active" else "Removed", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.width(8.dp))
+                        Switch(
+                            checked = isActive,
+                            onCheckedChange = { active -> onPlatformActiveChanged(platformUid, active) }
+                        )
+                    }
 
                     if (clientType == ClientType.LITERT_LM) {
                         Text(

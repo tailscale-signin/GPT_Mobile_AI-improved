@@ -115,16 +115,7 @@ fun SettingScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text(stringResource(R.string.settings))
-                        Text(
-                            "Models, tools, experience, diagnostics and app data",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
+                title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
                         Icon(
@@ -141,86 +132,51 @@ fun SettingScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            item {
-                SettingsHeroCard(
-                    activeProfiles = platforms.count { it.enabled },
-                    totalProfiles = platforms.size,
-                    providerCount = providerConnections.size,
-                    runtime = localRuntimeBackend.displayName
-                )
-            }
-
-            item {
-                SettingsCategory(
-                    title = "AI & models",
-                    subtitle = "Providers own connectivity; AI profiles own model behavior.",
-                    icon = Icons.Default.SmartToy
-                ) {
+item {
+                SettingsCategory(title = "AI & models") {
                     SettingsDestination(
                         icon = Icons.Default.SmartToy,
                         title = "AI Platforms & Profiles",
-                        subtitle = "${providerConnections.size} providers • ${platforms.size} profiles • ${platforms.count { it.enabled }} active",
                         onClick = onNavigateToAiPlatforms
                     )
                     SettingsDestination(
                         icon = Icons.Default.Storage,
                         title = stringResource(R.string.local_models),
-                        subtitle = "Manage, search, download and validate on-device models",
                         onClick = onNavigateToLocalModels
                     )
                 }
             }
 
             item {
-                SettingsCategory(
-                    title = "Tools & connectivity",
-                    subtitle = "Built-in tools, installed connections and remote MCP servers.",
-                    icon = Icons.Default.Build
-                ) {
+                SettingsCategory(title = "Tools & connectivity") {
                     SettingsDestination(
                         icon = Icons.Default.Build,
                         title = stringResource(R.string.tool_connections),
-                        subtitle = "View active tools, connection health and the MCP marketplace",
                         onClick = onNavigateToToolConnections
                     )
                 }
             }
 
             item {
-                SettingsCategory(
-                    title = "Experience",
-                    subtitle = "Appearance and optional app behavior.",
-                    icon = Icons.Default.Palette
-                ) {
+                SettingsCategory(title = "Experience") {
                     SettingsDestination(
                         icon = Icons.Default.Palette,
                         title = stringResource(R.string.theme_settings),
-                        subtitle = stringResource(R.string.theme_description),
                         onClick = settingViewModel::openThemeDialog
                     )
                     SettingsDestination(
                         icon = Icons.Default.Tune,
                         title = "Advanced Settings",
-                        subtitle = buildString {
-                            append(if (featureSettings.backgroundGeneration) "Background AI on" else "Background AI off")
-                            append(" • ")
-                            append(if (featureSettings.remoteMcpConnections) "Remote MCP on" else "Remote MCP off")
-                        },
                         onClick = onNavigateToAdvancedSettings
                     )
                 }
             }
 
             item {
-                SettingsCategory(
-                    title = "Diagnostics & data",
-                    subtitle = "Analyze performance and control what the app stores or exports.",
-                    icon = Icons.Default.Security
-                ) {
+                SettingsCategory(title = "Diagnostics & data") {
                     SettingsDestination(
                         icon = Icons.Default.BugReport,
                         title = "Debug & Diagnostics",
-                        subtitle = if (debugMode) "Diagnostics HUD enabled" else "Runtime, token and tool-call analytics",
                         onClick = onNavigateToDebugDiagnostics
                     )
 
@@ -232,22 +188,16 @@ fun SettingScreen(
                     SettingsDestination(
                         icon = Icons.Default.Backup,
                         title = stringResource(R.string.backup_and_restore),
-                        subtitle = backupSubtitle,
                         onClick = settingViewModel::openBackupRestoreDialog
                     )
                 }
             }
 
             item {
-                SettingsCategory(
-                    title = "About",
-                    subtitle = "Version, licenses and application information.",
-                    icon = Icons.Default.Info
-                ) {
+                SettingsCategory(title = "About") {
                     SettingsDestination(
                         icon = Icons.Default.Info,
                         title = stringResource(R.string.about),
-                        subtitle = stringResource(R.string.about_description),
                         onClick = onNavigateToAboutPage
                     )
                 }
@@ -376,24 +326,11 @@ private fun SettingsStat(value: String, label: String, modifier: Modifier = Modi
 @Composable
 private fun SettingsCategory(
     title: String,
-    subtitle: String,
-    icon: ImageVector,
     content: @Composable () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-        ) {
-            Column(Modifier.fillMaxWidth()) { content() }
-        }
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxWidth()) { content() }
     }
 }
 
@@ -401,7 +338,6 @@ private fun SettingsCategory(
 private fun SettingsDestination(
     icon: ImageVector,
     title: String,
-    subtitle: String,
     onClick: () -> Unit
 ) {
     Row(
@@ -410,10 +346,12 @@ private fun SettingsDestination(
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,

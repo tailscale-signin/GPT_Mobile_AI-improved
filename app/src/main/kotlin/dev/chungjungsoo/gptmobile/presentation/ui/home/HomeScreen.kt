@@ -904,7 +904,7 @@ fun FavoritesList(
                         modifier = Modifier.combinedClickable(
                             onClick = { onSelectGroup(group) },
                             onLongClick = {
-                                if (group !in HomeViewModel.DEFAULT_GROUPS) {
+                                if (group != HomeViewModel.GROUP_ALL) {
                                     groupMenu = group
                                 }
                             }
@@ -1336,32 +1336,6 @@ fun SelectPlatformDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 // Enabled profiles are always surfaced first; sorting controls are intentionally hidden.
-                if (allLabels.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilterChip(
-                            selected = selectedLabelFilter == null,
-                            onClick = { selectedLabelFilter = null },
-                            label = { Text("All Labels") }
-                        )
-                        allLabels.forEach { label ->
-                            BeveledProfileLabel(
-                                label = label,
-                                selected = selectedLabelFilter == label.key,
-                                onClick = {
-                                    selectedLabelFilter =
-                                        if (selectedLabelFilter == label.key) null else label.key
-                                }
-                            )
-                        }
-                    }
-                }
             }
         },
         text = {

@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.*
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
@@ -100,6 +102,12 @@ import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.plugins.annotation.SymbolManager
+import org.maplibre.android.plugins.annotation.SymbolOptions
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
@@ -188,38 +196,91 @@ private fun LocationToolMapPreview(
     } ?: return
     val context = LocalContext.current
     val (latitude, longitude) = coordinates
+    var mapView by remember { mutableStateOf<MapView?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mapView?.onStop()
+            mapView?.onDestroy()
+            mapView = null
+        }
+    }
+
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable {
-                val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude")
-                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-            },
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Location", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "%.5f, %.5f".format(Locale.US, latitude, longitude),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
-                )
-                Text(
-                    "Open map preview",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+        Column {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().height(220.dp),
+                factory = { mapContext ->
+                    MapView(mapContext).also { view ->
+                        mapView = view
+                        view.onCreate(null)
+                        view.onStart()
+                        view.getMapAsync { map ->
+                            map.cameraPosition = CameraPosition.Builder()
+                                .target(LatLng(latitude, longitude))
+                                .zoom(15.0)
+                                .build()
+                            map.setStyle(Style.Builder().fromUri(MAPLIBRE_DEMO_STYLE)) { style ->
+                                val symbolManager = SymbolManager(view, map, style).apply {
+                                    iconAllowOverlap = true
+                                    textAllowOverlap = true
+                                }
+                                symbolManager.create(
+                                    SymbolOptions()
+                                        .withLatLng(LatLng(latitude, longitude))
+                                        .withIconImage(MAPLIBRE_MARKER_ICON)
+                                )
+                            }
+                        }
+                    }
+                },
+                update = { view ->
+                    view.getMapAsync { map ->
+                        map.cameraPosition = CameraPosition.Builder()
+                            .target(LatLng(latitude, longitude))
+                            .zoom(15.0)
+                            .build()
+                    }
+                }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Location", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "%.5f, %.5f".format(Locale.US, latitude, longitude),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
+                    )
+                    Text(
+                        "Interactive MapLibre preview",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude")
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                    }
+                ) {
+                    Text("Open")
+                }
             }
         }
     }
 }
+
+private const val MAPLIBRE_DEMO_STYLE = "https://demotiles.maplibre.org/style.json"
+private const val MAPLIBRE_MARKER_ICON = "marker-15"
 
 private fun extractLocationCoordinates(result: String): Pair<Double, Double>? {
     val latitude = Regex("""["']?latitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)

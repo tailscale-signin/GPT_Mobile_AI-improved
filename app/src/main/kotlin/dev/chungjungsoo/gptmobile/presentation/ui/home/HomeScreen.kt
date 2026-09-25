@@ -1266,18 +1266,9 @@ fun SelectPlatformDialog(
         if (!canCombine) combinedMode = false
     }
 
-    val allLabels = remember(platforms) {
-        collectReusableProfileLabels(platforms.map { it.labels })
-    }
-    var selectedLabelFilter by remember { mutableStateOf<String?>(null) }
-
     // Map platform indices for stable checkbox selection even when sorted
-    val indexedPlatforms = remember(platforms, sortOrder, selectedLabelFilter) {
+    val indexedPlatforms = remember(platforms, sortOrder) {
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
-            .filter { (_, platform) ->
-                selectedLabelFilter == null ||
-                    parseProfileLabels(platform.labels).any { it.key == selectedLabelFilter }
-            }
         when (sortOrder) {
             PlatformSortOrder.DEFAULT -> list
             PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
@@ -1325,43 +1316,7 @@ fun SelectPlatformDialog(
                         label = { Text(stringResource(R.string.chat_mode_combined)) }
                     )
                 }
-                Text(
-                    text = stringResource(
-                        if (combinedMode) R.string.chat_mode_combined_description
-                        else R.string.chat_mode_standard_description
-                    ),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
 
-
-                if (allLabels.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilterChip(
-                            selected = selectedLabelFilter == null,
-                            onClick = { selectedLabelFilter = null },
-                            label = { Text("All Labels") }
-                        )
-                        allLabels.forEach { label ->
-                            BeveledProfileLabel(
-                                label = label,
-                                selected = selectedLabelFilter == label.key,
-                                onClick = {
-                                    selectedLabelFilter =
-                                        if (selectedLabelFilter == label.key) null else label.key
-                                }
-                            )
-                        }
-                    }
-                }
             }
         },
         text = {

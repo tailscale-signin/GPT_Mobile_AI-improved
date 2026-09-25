@@ -109,6 +109,12 @@ open class ProviderAttachmentEncoder @Inject constructor(
             message.attachments.forEach { attachment ->
                 val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
                 val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
+                if (!FileUtils.isImage(mimeType)) {
+                    throw IllegalStateException(
+                        "This OpenAI-compatible Chat Completions provider supports image attachments only. " +
+                            "Use an OpenAI Responses, Anthropic, or Gemini profile for document attachments."
+                    )
+                }
                 encodedAttachment(filePath, mimeType)?.let { encoded ->
                     content += OpenAIImageContent(ImageUrl("data:${encoded.mimeType};base64,${encoded.base64Data}"))
                 }
@@ -182,6 +188,10 @@ open class ProviderAttachmentEncoder @Inject constructor(
                             content += AnthropicImageContent(ImageSource.file(providerRef.remoteId))
                         mimeType == "application/pdf" || mimeType.startsWith("text/") ->
                             content += AnthropicDocumentContent(DocumentSource.file(providerRef.remoteId))
+                        else -> throw IllegalStateException(
+                            "Anthropic document attachments currently support PDF and text files. " +
+                                "Convert ${attachment.resolvedDisplayName} to PDF or text before sending."
+                        )
                     }
                 } else if (FileUtils.isImage(mimeType)) {
                     encodedAttachment(filePath, mimeType)?.let { encoded ->

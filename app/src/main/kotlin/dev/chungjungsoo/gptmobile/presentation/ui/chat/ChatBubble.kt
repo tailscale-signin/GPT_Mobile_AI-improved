@@ -1101,21 +1101,53 @@ fun GPTMobileIcon(loading: Boolean) {
 }
 
 @Composable
-fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatformClick: () -> Unit) {
+fun PlatformButton(
+    isLoading: Boolean,
+    name: String,
+    selected: Boolean,
+    disabled: Boolean = false,
+    onPlatformClick: () -> Unit,
+    onPlatformLongPress: () -> Unit = {}
+) {
+    val haptic = LocalHapticFeedback.current
     val content: @Composable RowScope.() -> Unit = {
         Spacer(Modifier.width(12.dp))
-        if (isLoading) { CircularProgressIndicator(Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)) }
+        if (isLoading) {
+            CircularProgressIndicator(Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
-            name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            name,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary
         )
-        Spacer(Modifier.width(12.dp)); if (isLoading) Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(12.dp))
+        if (isLoading) Spacer(Modifier.width(4.dp))
     }
-    TextButton(
-        modifier = Modifier.widthIn(max = 160.dp), onClick = onPlatformClick,
-        colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.textButtonColors(),
-        content = content
-    )
+    Surface(
+        modifier = Modifier
+            .widthIn(max = 160.dp)
+            .alpha(if (disabled) 0.5f else 1f)
+            .clip(RoundedCornerShape(24.dp))
+            .pointerInput(name, disabled) {
+                detectTapGestures(
+                    onTap = { onPlatformClick() },
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onPlatformLongPress()
+                    }
+                )
+            },
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
+    }
 }
 
 @Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {

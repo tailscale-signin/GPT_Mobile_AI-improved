@@ -232,5 +232,9 @@ data class ResponseContentPart(
             fileId = fileId,
             detail = detail
         )
+        fun file(fileId: String) = ResponseContentPart(
+            type = "input_file",
+            fileId = fileId
+        )
     }
 }

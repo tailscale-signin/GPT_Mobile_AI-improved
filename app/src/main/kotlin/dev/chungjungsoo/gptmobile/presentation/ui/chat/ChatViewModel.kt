@@ -114,8 +114,11 @@ class ChatViewModel @Inject constructor(
     private val chatRoomId: Int = checkNotNull(savedStateHandle["chatRoomId"])
     private val enabledPlatformString: String = checkNotNull(savedStateHandle["enabledPlatforms"])
     private val requestedConversationMode = ConversationMode.normalize(savedStateHandle["conversationMode"])
-    val enabledPlatformsInChat = enabledPlatformString.split(',').filter(String::isNotBlank)
-    private val _activePlatformUids = MutableStateFlow(enabledPlatformsInChat)
+    private val initialPlatformUids = enabledPlatformString.split(',').filter(String::isNotBlank)
+    private val _platformSlotUids = MutableStateFlow(initialPlatformUids)
+    val enabledPlatformsInChat: List<String>
+        get() = _platformSlotUids.value
+    private val _activePlatformUids = MutableStateFlow(initialPlatformUids)
     val activePlatformUids = _activePlatformUids.asStateFlow()
     val targetMessageId: Int = savedStateHandle.get<Int>("targetMessageId") ?: -1
 

@@ -171,7 +171,8 @@ object McpPresetCatalog {
                 "Webpage content retrieval"
             ),
             websiteUrl = "https://exa.ai/mcp",
-            verifiedRemote = true,
+            verifiedRemote = true
+        ),
         McpPreset(
             id = "context7", name = "Context7 Documentation", description = "Up-to-date library and framework documentation from the official Context7 remote MCP service.",
             category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.context7.com/mcp", author = "Upstash",
@@ -242,7 +243,6 @@ object McpPresetCatalog {
             alias = "grep_vercel", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
             toolCapabilities = listOf("Search public GitHub code", "Find implementation examples across repositories"),
             websiteUrl = "https://github.com/vercel", verifiedRemote = true
-        )
         )
     )
 

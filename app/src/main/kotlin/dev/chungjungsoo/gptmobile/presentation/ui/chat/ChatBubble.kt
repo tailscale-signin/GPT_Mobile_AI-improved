@@ -142,8 +142,8 @@ fun UserChatBubble(
                     ) {
                         Text(
                             text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f)
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.24f)
                         )
                     }
                 }
@@ -680,8 +680,8 @@ fun OpponentChatBubble(
                     if (formattedTime.isNotBlank()) {
                         Text(
                             text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f),
                             modifier = Modifier.padding(end = 8.dp)
                         )
                     }

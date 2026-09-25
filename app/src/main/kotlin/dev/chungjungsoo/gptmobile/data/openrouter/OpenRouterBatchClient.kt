@@ -42,12 +42,9 @@ class OpenRouterBatchClient(
     }
 
     /**
-     * Serializes payload guaranteeing strict field order:
-     * 1. endpoint
-     * 2. model
-     * 3. requests
-     *
-     * OpenRouter's stream-parser requires this order and returns 400 if wrong.
+     * Serializes the documented OpenRouter batch payload shape:
+     * endpoint, model, and requests. JSON object key order is not semantically
+     * significant; the deterministic order here is only for stable output/tests.
      */
     fun buildBatchPayload(
         endpoint: String,
@@ -210,6 +207,19 @@ class OpenRouterBatchClient(
         }
 
         return BatchStatusResponse(meta = meta, results = results)
+    }
+
+    fun extractAssistantContent(responseJson: String?): String? {
+        if (responseJson.isNullOrBlank()) return null
+        return runCatching {
+            val root = JSONObject(responseJson)
+            root.optJSONArray("choices")
+                ?.optJSONObject(0)
+                ?.optJSONObject("message")
+                ?.optString("content")
+                ?.takeIf { it.isNotBlank() }
+                ?: root.optString("output_text").takeIf { it.isNotBlank() }
+        }.getOrNull()
     }
 
     // --- Client-side parallel fallback execution ---

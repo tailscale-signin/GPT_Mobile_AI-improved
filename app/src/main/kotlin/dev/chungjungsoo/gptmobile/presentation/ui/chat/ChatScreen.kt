@@ -190,6 +190,7 @@ fun ChatScreen(
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
     val isSelectTextSheetOpen by chatViewModel.isSelectTextSheetOpen.collectAsStateWithLifecycle()
     val selectedAttachments by chatViewModel.selectedAttachments.collectAsStateWithLifecycle()
+    val queuedMessages by chatViewModel.queuedMessages.collectAsStateWithLifecycle()
     val attachmentNotice by chatViewModel.attachmentNotice.collectAsStateWithLifecycle()
     val needsLocalNetworkAccess by chatViewModel.needsLocalNetworkAccess.collectAsStateWithLifecycle()
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
@@ -422,10 +423,16 @@ fun ChatScreen(
                 }
             }
 
+            MessageQueueIndicatorBanner(
+                queuedItems = queuedMessages,
+                onRemoveItem = chatViewModel::removeQueuedMessage,
+                onCancelAll = chatViewModel::clearQueuedMessages
+            )
+
             ChatInputBox(
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
-                sendButtonEnabled = isIdle,
+                sendButtonEnabled = true,
                 isRunning = !isIdle,
                 selectedAttachments = selectedAttachments,
                 onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
@@ -770,7 +777,9 @@ private fun ChatMessagePair(
                     runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
                     toolEvents = toolEvents,
                     contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
-                    revisionIndexLabel = selectedAssistantMessage?.let { assistantMessage ->
+                    revisionIndexLabel = selectedAssistantMessage
+                        ?.takeIf { it.revisions.isNotEmpty() }
+                        ?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1
                         if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
                             stringResource(
@@ -1232,6 +1241,7 @@ fun ChatInputBox(
     val scope = rememberCoroutineScope()
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
     val hasQuestionText = inputState.text.isNotEmpty()
+    val hasSendableContent = hasQuestionText || selectedAttachments.any { it.status == ChatAttachmentDraft.Status.Ready }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -1276,8 +1286,8 @@ fun ChatInputBox(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            enabled = chatEnabled && !isRunning,
-                            onClick = { filePickerLauncher.launch("image/*") }
+                            enabled = chatEnabled,
+                            onClick = { filePickerLauncher.launch("*/*") }
                         ) {
                             Icon(
                                 imageVector = ImageVector.vectorResource(R.drawable.ic_attach_file),
@@ -1300,10 +1310,10 @@ fun ChatInputBox(
                             }
                         }
                         IconButton(
-                            enabled = isRunning || (chatEnabled && sendButtonEnabled && hasQuestionText),
-                            onClick = if (isRunning) onCancelButtonClick else onSendButtonClick
+                            enabled = if (hasSendableContent) chatEnabled && sendButtonEnabled else isRunning,
+                            onClick = if (hasSendableContent) onSendButtonClick else onCancelButtonClick
                         ) {
-                            if (isRunning) {
+                            if (isRunning && !hasSendableContent) {
                                 Icon(
                                     imageVector = Icons.Filled.Stop,
                                     contentDescription = stringResource(R.string.cancel_active_runs)

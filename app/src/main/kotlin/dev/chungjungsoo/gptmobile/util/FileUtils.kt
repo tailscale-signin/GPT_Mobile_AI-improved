@@ -323,7 +323,23 @@ object FileUtils {
         maxSizeBytes: Long = MAX_UPLOAD_SIZE_BYTES
     ): Boolean = currentTotalBytes + newFileBytes > maxSizeBytes
 
-    internal fun isSupportedUploadMimeType(mimeType: String): Boolean = isImage(mimeType)
+    internal fun isSupportedUploadMimeType(mimeType: String): Boolean {
+        if (isImage(mimeType)) return true
+        return mimeType in setOf(
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+            "application/json",
+            "application/rtf"
+        )
+    }
 
     internal fun shouldResizeImage(
         originalWidth: Int,

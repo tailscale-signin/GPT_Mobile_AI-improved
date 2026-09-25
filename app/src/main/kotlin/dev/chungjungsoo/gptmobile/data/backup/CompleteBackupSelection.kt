@@ -16,7 +16,13 @@ enum class CompleteBackupSection {
 
 @Serializable
 data class CompleteBackupSelection(
-    val sections: Set<CompleteBackupSection> = CompleteBackupSection.entries.toSet()
+    val sections: Set<CompleteBackupSection> = CompleteBackupSection.entries
+        .filterNot {
+            it == CompleteBackupSection.LOCAL_MODELS ||
+                it == CompleteBackupSection.ATTACHMENTS ||
+                it == CompleteBackupSection.AGENT_HISTORY
+        }
+        .toSet()
 ) {
     fun includes(section: CompleteBackupSection): Boolean = section in sections
 
@@ -36,6 +42,6 @@ data class CompleteBackupSelection(
     }
 
     companion object {
-        val ALL = CompleteBackupSelection()
+        val ALL = CompleteBackupSelection(CompleteBackupSection.entries.toSet())
     }
 }

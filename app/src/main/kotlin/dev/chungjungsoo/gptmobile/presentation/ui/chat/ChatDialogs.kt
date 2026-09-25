@@ -107,6 +107,7 @@ fun ChatModelDialog(
                 Slider(
                     value = creativity,
                     onValueChange = { creativity = it },
+                    valueRange = 0f..2f,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                 )
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

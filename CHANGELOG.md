@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.11.0] - 2026-09-25
+
+### Added & Improved
+- **App-wide Architecture, UX & Diagnostics Redesign**:
+  - Live tool context tracking and active execution telemetry via `LiveToolContext`.
+  - Comprehensive provider adapter hardening and normalized OpenRouter model routing.
+  - Native device location freshness and live capability providers (`DeviceLocationProvider`, `LocationFreshness`).
+  - Granular complete backup and restore framework (`CompleteBackupOptions`, `CompleteBackupSelection`, `CompleteBackupDatabase`).
+  - Native Hugging Face model search and repository exploration (`HuggingFaceModelSearchClient`).
+  - Local runtime router enhancements and hardware acceleration routing.
+  - Granular application feature settings (`AppFeatureSettings`) controlling smart suggestion actions and foreground execution.
+- **Creativity Slider & Custom Profile Labels**:
+  - Unified single Creativity slider smoothly mapping temperature and top-p sampling.
+  - Reusable colored profile badges across conversation cards, model pickers, and settings.
+- **Version Bump**:
+  - Bumped version name to `0.9.11.0` (versionCode `66`).
+
+## [0.9.9.0] - 2026-09-24
+
+### Added & Improved
+- **Creativity Slider & Colored Profile Labels**:
+  - Unified Creativity slider for model profiles with smooth sampling parameter translation.
+  - Colored profile badges and quick filtering in new conversation model selection.
+- **Reusable Provider Connections & Remote Agent Flight Recorder**:
+  - Separated provider connection credentials from profile configurations.
+  - Live remote tool telemetry and structured execution traces in Agent Flight Recorder.
+- **Version Bump**:
+  - Bumped version name to `0.9.9.0` (versionCode `65`).
+
+## [0.9.8.0] - 2026-09-24
+
+### Added & Improved
+- **Agent Flight Recorder & Gateway Efficiency**:
+  - Live tracking of active Gateway and agent execution state directly within chat.
+  - Work-state UI: Starting, Exploring, Focused, Using Tools, Recovering, Synthesizing, Finalizing.
+- **Combined Multi-Model Mode**:
+  - Parallel multi-model conversation synthesis and Room schema v24 migration.
+- **Passwordless Encrypted Complete Backup (GPTFULL2)**:
+  - AES-256-GCM authenticated archives protected by Android Keystore.
+- **Remote Streaming Longevity**:
+  - Inactivity timeouts extended to 5 minutes with unbounded request deadlines.
+- **Version Bump**:
+  - Bumped version name to `0.9.8.0` (versionCode `64`).
+
 ## [0.9.7.0] - 2026-09-22
 
 ### Added & Improved

@@ -24,7 +24,7 @@ data class ChatCompletionRequest(
 
     @SerialName("stream_options")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val streamOptions: ChatStreamOptions? = ChatStreamOptions(),
+    val streamOptions: ChatStreamOptions? = null,
 
     @SerialName("temperature")
     @EncodeDefault(EncodeDefault.Mode.NEVER)

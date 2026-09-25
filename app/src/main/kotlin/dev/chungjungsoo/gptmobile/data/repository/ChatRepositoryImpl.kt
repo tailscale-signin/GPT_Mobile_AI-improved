@@ -598,6 +598,17 @@ class ChatRepositoryImpl(
         )
     }
 
+    override suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2 {
+        val sanitized = platformUids.filter(String::isNotBlank).distinct()
+        require(sanitized.isNotEmpty()) { "A conversation must keep at least one AI profile." }
+        val updated = chatRoom.copy(
+            enabledPlatform = sanitized,
+            updatedAt = System.currentTimeMillis() / 1000
+        )
+        chatRoomV2Dao.editChatRoom(updated)
+        return updated
+    }
+
     override suspend fun generateAiTitle(
         userMessage: String,
         assistantMessage: String,

@@ -43,6 +43,12 @@ class OpenRouterBatchWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val batchId = inputData.getString(KEY_BATCH_ID)
+        if (batchId.isNullOrBlank() && inputData.getString(KEY_PROMPT).isNullOrBlank()) {
+            Log.e(TAG, "Missing prompt for OpenRouter native batch")
+            return@withContext Result.failure(errorData("Prompt is required."))
+        }
+
         val settings = openRouterSettingsRepository.loadSettings()
         val apiKey = inputData.getString(KEY_API_KEY)?.takeIf { it.isNotBlank() } ?: settings.apiKey
         if (apiKey.isBlank()) {
@@ -58,7 +64,6 @@ class OpenRouterBatchWorker @AssistedInject constructor(
             baseUrl = settings.baseUrl
         )
 
-        val batchId = inputData.getString(KEY_BATCH_ID)
         if (!batchId.isNullOrBlank()) {
             return@withContext monitorBatch(client, batchId)
         }

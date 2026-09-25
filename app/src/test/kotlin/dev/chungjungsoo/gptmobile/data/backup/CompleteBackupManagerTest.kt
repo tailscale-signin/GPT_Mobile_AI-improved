@@ -116,7 +116,8 @@ class CompleteBackupManagerTest {
         assertEquals(setOf("work", "personal"), preferences.data.first()[stringSetPreferencesKey("favorite_groups")])
         assertEquals(null, preferences.data.first()[intPreferencesKey("new_setting")])
         assertEquals("{\"stableToolSurface\":false}", context.getSharedPreferences("llama_settings", 0).getString("advanced_settings", null))
-        assertFalse(File(context.filesDir, "remove.txt").exists())
+        // Restoring selected portable files must not erase unrelated app data.
+        assertEquals("newer data", File(context.filesDir, "remove.txt").readText())
         assertEquals("model", database.chatPlatformModelDao().getByChatId(7).single().model)
         assertEquals("READY", database.localModelDao().getAll().single().status)
         assertEquals("model bytes", File(context.getExternalFilesDir(null), "models/local/revision/model.bin").readText())
@@ -147,9 +148,11 @@ class CompleteBackupManagerTest {
         vault.put("provider", "current-token".toByteArray())
         File(context.filesDir, "current.txt").writeText("current file")
         val encryptedBytes = archive.readBytes()
-        archive.writeBytes(encryptedBytes.copyOf().also { bytes ->
-            bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte()
-        })
+        archive.writeBytes(
+            encryptedBytes.copyOf().also { bytes ->
+                bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte()
+            }
+        )
         assertFalse(manager.restore(Uri.fromFile(archive)).success)
         archive.writeBytes(encryptedBytes)
         vault.failNextPut = true

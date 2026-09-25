@@ -115,13 +115,14 @@ object ChatResponseActionParser {
             return true
         }
 
-        return isLastMessage && (
-            lastLower.endsWith("continue") ||
-            lastLower.endsWith("continue?") ||
-            lastLower.endsWith("next?") ||
-            lastLower.contains("let me know if you would like me to") ||
-            lastLower.contains("let me know how you would like to proceed")
-        )
+        return isLastMessage &&
+            (
+                lastLower.endsWith("continue") ||
+                    lastLower.endsWith("continue?") ||
+                    lastLower.endsWith("next?") ||
+                    lastLower.contains("let me know if you would like me to") ||
+                    lastLower.contains("let me know how you would like to proceed")
+                )
     }
 
     /**
@@ -335,9 +336,9 @@ object ChatResponseActionParser {
         for (w in words) {
             val cleanWord = w.replace(Regex("""[^A-Za-z0-9\-]"""), "")
             if (cleanWord.isBlank()) continue
-            if (filteredWords.isEmpty() && cleanWord.lowercase(Locale.ROOT) in stopWords) continue
+            if (cleanWord.lowercase(Locale.ROOT) in stopWords) continue
             filteredWords.add(cleanWord.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() })
-            if (filteredWords.size >= 3) break
+            if (filteredWords.size >= 2) break
         }
 
         val candidate = filteredWords.joinToString(" ")
@@ -367,12 +368,10 @@ object ChatResponseActionParser {
      * Formats a high-efficiency on-device prompt for Local QNN / LiteRT to generate
      * 2-4 clean, short response options for an assistant message when required.
      */
-    fun buildLocalQuickReplyPrompt(assistantMessage: String): String {
-        return """
+    fun buildLocalQuickReplyPrompt(assistantMessage: String): String = """
             Extract or suggest 2 to 4 very short user replies (1-3 words each) for this assistant message.
             Format output strictly as a comma-separated list of short replies.
             Message: "${assistantMessage.takeLast(250).replace('"', '\'')}"
             Replies:
-        """.trimIndent()
-    }
+    """.trimIndent()
 }

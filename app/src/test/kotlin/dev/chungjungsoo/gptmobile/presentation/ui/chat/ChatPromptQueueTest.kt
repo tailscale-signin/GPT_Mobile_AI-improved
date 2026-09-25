@@ -146,6 +146,25 @@ class ChatPromptQueueTest {
         model.askQuestion()
     }
 
+    @Test
+    fun `queue waits while every profile is paused and resumes without losing the draft`() = runTest(dispatcher) {
+        val model = createViewModel()
+        runCurrent()
+        model.togglePlatformDisabled("profile-1")
+        send(model, "Queued while paused")
+        model.question.setTextAndPlaceCursorAtEnd("Next draft")
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        assertTrue(submissions.isEmpty())
+        assertEquals(1, model.queuedPromptCount.value)
+        model.togglePlatformDisabled("profile-1")
+        runCurrent()
+        assertEquals(listOf("Queued while paused"), submissions.map { it.userMessage.content })
+        assertEquals("Next draft", model.question.text.toString())
+        assertEquals(0, model.queuedPromptCount.value)
+    }
+
     private fun completePersistedRuns() {
         messages.value = messages.value.map { message ->
             if (message.platformType != null) message.copy(content = "Finished response") else message

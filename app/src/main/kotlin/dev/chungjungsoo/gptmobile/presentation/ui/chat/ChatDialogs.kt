@@ -202,7 +202,7 @@ fun ChatModelDialog(
                             singleLine = true,
                             label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
                             trailingIcon = {
-                                IconButton(onClick = { activeUnifiedPickerPlatformUid = platformUid }) {
+                                IconButton(onClick = { activeCloudPickerUid = platformUid }) {
                                     Icon(
                                         imageVector = Icons.Default.ArrowDropDown,
                                         contentDescription = stringResource(R.string.unified_model_picker)

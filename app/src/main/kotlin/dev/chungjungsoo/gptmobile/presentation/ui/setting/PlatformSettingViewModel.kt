@@ -316,7 +316,7 @@ class PlatformSettingViewModel @Inject constructor(
     }
 
     fun maxTokensCap(): Int = resolvedEngineMaxTokens(
-        requestedMaxTokens = platformState.value?.maxTokens ?: DEFAULT_MAX_TOKENS_CAP,
+        requestedMaxTokens = DEFAULT_MAX_TOKENS_CAP,
         accelerator = platformState.value?.accelerator.orEmpty(),
         entry = _catalogEntries.value.firstOrNull { it.id == platformState.value?.model },
         deviceSocModel = deviceSocModel,

@@ -103,6 +103,7 @@ class AgentToolResolver @Inject constructor(
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
+            .distinctBy { it.binding.toolName }
             .forEach { binding ->
                 val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
                 val isLocalBinding = !isRemoteBinding
@@ -143,7 +144,7 @@ class AgentToolResolver @Inject constructor(
                         tool.realToolName,
                         tool.connectionUid
                     )
-                    candidateIds.all { chatToolConfig.isToolEnabled(it) }
+                    chatToolConfig.isToolEnabled(candidateIds)
                 }
             }
             .sortedBy { it.modelToolName }

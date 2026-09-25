@@ -512,9 +512,9 @@ fun ChatScreen(
                 locationToolsEnabled = locationToolIds.isNotEmpty() &&
                     availableChatTools.any { it.id in locationToolIds && it.isEnabled && chatToolConfig.isToolEnabled(it.id) },
                 webSearchToolsEnabled = webSearchToolIds.isNotEmpty() &&
-                    webSearchToolIds.any(chatToolConfig::isToolEnabled),
+                    availableChatTools.any { it.id in webSearchToolIds && it.isEnabled && chatToolConfig.isToolEnabled(it.id) },
                 locationToolsAvailable = locationToolIds.isNotEmpty(),
-                webSearchToolsAvailable = webSearchToolIds.isNotEmpty(),
+                webSearchToolsAvailable = availableChatTools.any { it.id in webSearchToolIds && it.isEnabled },
                 disabledPlatformUids = disabledPlatformUids,
                 onPlatformActiveChanged = chatViewModel::setPlatformMembership,
                 onLocationToolsChanged = { enabled ->

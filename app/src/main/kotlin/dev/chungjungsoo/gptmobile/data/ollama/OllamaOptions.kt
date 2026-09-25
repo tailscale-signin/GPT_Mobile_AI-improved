@@ -13,75 +13,75 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class OllamaOptions(
     @SerialName("num_gpu")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val numGpu: Int? = DEFAULT_NUM_GPU,
 
     @SerialName("num_ctx")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val numCtx: Int? = DEFAULT_NUM_CTX,
 
     @SerialName("num_batch")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val numBatch: Int? = DEFAULT_NUM_BATCH,
 
     @SerialName("num_thread")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val numThread: Int? = DEFAULT_NUM_THREAD,
 
     @SerialName("temperature")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val temperature: Float? = DEFAULT_TEMPERATURE,
 
     @SerialName("top_p")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val topP: Float? = DEFAULT_TOP_P,
 
     @SerialName("top_k")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val topK: Int? = DEFAULT_TOP_K,
 
     @SerialName("repeat_penalty")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val repeatPenalty: Float? = DEFAULT_REPEAT_PENALTY,
 
     @SerialName("seed")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val seed: Int? = DEFAULT_SEED,
 
     @SerialName("stop")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val stop: List<String>? = DEFAULT_STOP,
 
     @SerialName("flash_attention")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val flashAttention: Boolean? = DEFAULT_FLASH_ATTENTION,
 
     @SerialName("kv_cache_type")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val kvCacheType: String? = DEFAULT_KV_CACHE_TYPE,
 
     @SerialName("keep_alive")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val keepAlive: String? = DEFAULT_KEEP_ALIVE,
 
     @SerialName("num_parallel")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val numParallel: Int? = DEFAULT_NUM_PARALLEL,
 
     @SerialName("gpu_overhead")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val gpuOverhead: Long? = DEFAULT_GPU_OVERHEAD,
 
     @SerialName("auto_continue")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val autoContinue: Boolean? = DEFAULT_AUTO_CONTINUE,
 
     @SerialName("max_auto_continues")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val maxAutoContinues: Int? = DEFAULT_MAX_AUTO_CONTINUES,
 
     @SerialName("auto_continue_token_threshold")
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val autoContinueTokenThreshold: Int? = DEFAULT_AUTO_CONTINUE_TOKEN_THRESHOLD
 ) {
     companion object {

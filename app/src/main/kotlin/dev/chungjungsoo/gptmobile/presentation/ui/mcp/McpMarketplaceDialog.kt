@@ -677,7 +677,7 @@ fun McpMarketplaceDetailCard(
                         color = Color(0xFF2E7D32).copy(alpha = 0.14f)
                     ) {
                         Text(
-                            text = "Verified endpoint",
+                            text = "Documented endpoint",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF2E7D32),

@@ -915,6 +915,21 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test
+    fun `groq forwards usage from either documented stream envelope`() = runBlocking {
+        for (fixture in listOf(
+            """{"choices":[],"x_groq":{"usage":{"prompt_tokens":10,"completion_tokens":7,"total_tokens":17}}}""",
+            """{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":7,"total_tokens":17}}"""
+        )) {
+            val chunk = NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(fixture)
+            val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(chunk))))
+            val events = OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder())
+                .openSession(turns(), platform(ClientType.GROQ))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(ProviderEvent.Usage(10, 7, 17), events.filterIsInstance<ProviderEvent.Usage>().single())
+        }
+    }
+
     private fun turns() = listOf(
         ConversationTurn(
             userMessage = MessageV2(content = "hello", platformType = null),

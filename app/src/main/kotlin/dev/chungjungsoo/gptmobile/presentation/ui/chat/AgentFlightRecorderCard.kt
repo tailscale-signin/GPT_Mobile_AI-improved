@@ -2,20 +2,19 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,8 +32,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.res.stringResource
@@ -94,61 +91,34 @@ internal fun CompactAgentActivityBar(
 
     val liveText = overrideText?.takeIf(String::isNotBlank) ?: inferredText
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.88f),
-        tonalElevation = 1.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-                Spacer(Modifier.width(9.dp))
-                AnimatedContent(
-                    targetState = liveText,
-                    transitionSpec = {
-                        fadeIn(tween(280)) togetherWith fadeOut(tween(180))
-                    },
-                    label = "agentLiveActivity",
-                    modifier = Modifier.weight(1f)
-                ) { text ->
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 37.dp, top = 6.dp)
-                    .height(2.dp)
-                    .clip(RoundedCornerShape(99.dp)),
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    Column(modifier = modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
             )
+            Spacer(Modifier.width(10.dp))
+            AnimatedContent(
+                targetState = liveText,
+                transitionSpec = { fadeIn(tween(280)) togetherWith fadeOut(tween(180)) },
+                label = "agentLiveActivity",
+                modifier = Modifier.weight(1f)
+            ) { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
+        LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(2.dp),
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+        )
     }
 }
 
@@ -247,8 +217,11 @@ internal fun AgentFlightRecorderCard(
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = stringResource(
-                        if (expanded) R.string.tool_trace_collapse_content_description
-                        else R.string.tool_trace_expand_content_description
+                        if (expanded) {
+                            R.string.tool_trace_collapse_content_description
+                        } else {
+                            R.string.tool_trace_expand_content_description
+                        }
                     ),
                     modifier = Modifier.rotate(if (expanded) 180f else 0f)
                 )

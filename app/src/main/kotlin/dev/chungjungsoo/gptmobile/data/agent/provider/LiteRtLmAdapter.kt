@@ -19,7 +19,6 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalSamplerConfig
@@ -286,13 +285,8 @@ class LiteRtLmAdapter(
                     throw error
                 } catch (error: LocalEngineLoadException) {
                     isConversationDirty = true
-                    val detail = error.cause?.message?.takeIf { it.isNotBlank() } ?: error.message
-                    val message = if (!detail.isNullOrBlank() && detail != engineLoadFailedError) {
-                        "$engineLoadFailedError: $detail"
-                    } else {
-                        engineLoadFailedError
-                    }
-                    send(ProviderEvent.Failed(message))
+                    // Native diagnostics are retained in Logcat; keep the conversation error readable.
+                    send(ProviderEvent.Failed(engineLoadFailedError))
                 } catch (error: Exception) {
                     isConversationDirty = true
                     send(ProviderEvent.Failed(error.message ?: "Local inference failed"))
@@ -500,7 +494,7 @@ class LiteRtLmAdapter(
     ): String {
         if (metrics.totalDurationMs <= 0L && metrics.totalChunks <= 0) return ""
         val tpsFormatted = String.format(Locale.US, "%.1f", metrics.tokensPerSecond)
-        val baseNotice = "Local: ${tpsFormatted} tok/s · TTFT ${metrics.timeToFirstTokenMs}ms · ~${metrics.estimatedTokens} tokens"
+        val baseNotice = "Local: $tpsFormatted tok/s · TTFT ${metrics.timeToFirstTokenMs}ms · ~${metrics.estimatedTokens} tokens"
 
         val hwState = runtime.getHardwareState()
         val throttleSuffix = when {

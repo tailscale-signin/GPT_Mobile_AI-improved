@@ -36,36 +36,32 @@ data class ChatMcpToolConfig(
         }
     }
 
-    fun withToolDisabled(toolId: String): ChatMcpToolConfig {
-        return copy(
-            disabledToolIds = disabledToolIds + toolId,
-            enabledToolIds = enabledToolIds - toolId
-        )
+    /** A connection, model alias or original tool name may identify the same tool. */
+    fun isToolEnabled(candidateIds: Collection<String>): Boolean =
+        !allToolsDisabled &&
+            candidateIds.none { it in disabledToolIds } &&
+            (allowAllByDefault || candidateIds.any { it in enabledToolIds })
+
+    fun withToolDisabled(toolId: String): ChatMcpToolConfig = copy(
+        disabledToolIds = disabledToolIds + toolId,
+        enabledToolIds = enabledToolIds - toolId
+    )
+
+    fun withToolEnabled(toolId: String): ChatMcpToolConfig = copy(
+        enabledToolIds = enabledToolIds + toolId,
+        disabledToolIds = disabledToolIds - toolId,
+        allToolsDisabled = false
+    )
+
+    fun toggleTool(toolId: String): ChatMcpToolConfig = if (isToolEnabled(toolId)) {
+        withToolDisabled(toolId)
+    } else {
+        withToolEnabled(toolId)
     }
 
-    fun withToolEnabled(toolId: String): ChatMcpToolConfig {
-        return copy(
-            enabledToolIds = enabledToolIds + toolId,
-            disabledToolIds = disabledToolIds - toolId,
-            allToolsDisabled = false
-        )
-    }
+    fun withMaxTools(limit: Int?): ChatMcpToolConfig = copy(maxTools = limit?.coerceAtLeast(0))
 
-    fun toggleTool(toolId: String): ChatMcpToolConfig {
-        return if (isToolEnabled(toolId)) {
-            withToolDisabled(toolId)
-        } else {
-            withToolEnabled(toolId)
-        }
-    }
-
-    fun withMaxTools(limit: Int?): ChatMcpToolConfig {
-        return copy(maxTools = limit?.coerceAtLeast(0))
-    }
-
-    fun withMaxToolCalls(limit: Int?): ChatMcpToolConfig {
-        return copy(maxToolCalls = limit?.coerceAtLeast(0))
-    }
+    fun withMaxToolCalls(limit: Int?): ChatMcpToolConfig = copy(maxToolCalls = limit?.coerceAtLeast(0))
 
     /**
      * Applies the maxTools limit to a candidate list of tools.

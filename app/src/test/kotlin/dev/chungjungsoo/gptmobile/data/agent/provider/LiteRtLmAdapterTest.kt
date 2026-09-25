@@ -1246,7 +1246,7 @@ class LiteRtLmAdapterTest {
         val anchor = completedTurn("Anchor turn prompt setup", "Anchor reply")
         // Create 20 historical turns with 300 chars each (~6000 chars total, which exceeds 1024 tokens / ~4096 chars)
         val intermediateTurns = (1..20).map { i ->
-            completedTurn("Intermediate user question turn $i with repeating text to occupy buffer space 1234567890 1234567890 1234567890", "Intermediate answer $i with reply words filling context room 1234567890 1234567890")
+            completedTurn("Intermediate user question turn $i ".repeat(10), "Intermediate answer $i with reply words filling context room 1234567890 1234567890")
         }
         val current = pendingTurn("Current user message")
 
@@ -1299,7 +1299,7 @@ class LiteRtLmAdapterTest {
             scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("ok"), LocalRuntimeEvent.Done))
         }
         val adapter = adapter(runtime)
-        val platform = localPlatform().copy(maxTokens = 60) // 240 chars budget
+        val platform = localPlatform().copy(maxTokens = 40) // 160 chars: anchor and recent pair fit, middle turns do not
 
         val anchor = completedTurn("Anchor prompt setup instructions", "Anchor reply confirmation")
         val middle1 = completedTurn("Intermediate step 1 with lots and lots of text that overflows", "Intermediate reply 1")

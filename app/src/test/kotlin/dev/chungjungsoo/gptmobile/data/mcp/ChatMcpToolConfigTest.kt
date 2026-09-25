@@ -79,4 +79,14 @@ class ChatMcpToolConfigTest {
         assertFalse(config.isToolEnabled("toolB"))
         assertTrue(config.withToolEnabled("toolA").isToolEnabled("toolA"))
     }
+
+    @Test
+    fun `one allowed alias enables a remote tool while any explicit deny wins`() {
+        val ids = listOf("server:search", "docs_search", "search", "server")
+        val selected = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf("server"))
+        assertTrue(selected.isToolEnabled(ids))
+        assertFalse(selected.withToolDisabled("search").isToolEnabled(ids))
+        assertFalse(selected.copy(allToolsDisabled = true).isToolEnabled(ids))
+        assertFalse(selected.copy(enabledToolIds = setOf("different-server")).isToolEnabled(ids))
+    }
 }

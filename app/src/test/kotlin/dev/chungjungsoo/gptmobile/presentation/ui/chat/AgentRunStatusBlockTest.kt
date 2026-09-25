@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class AgentRunStatusBlockTest {
@@ -53,7 +54,7 @@ class AgentRunStatusBlockTest {
     }
 
     @Test
-    fun `buildDiagnosticsHudText returns only telemetry notice when debug mode disabled`() {
+    fun `buildDiagnosticsHudText hides telemetry when debug mode disabled`() {
         val run = AgentRun(
             runId = "run-1",
             chatId = 7,
@@ -71,7 +72,7 @@ class AgentRunStatusBlockTest {
             telemetryNotice = "Local: 30 tok/s",
             debugMode = false
         )
-        assertEquals("Local: 30 tok/s", result)
+        assertNull(result)
 
         val nullResult = buildDiagnosticsHudText(
             agentRun = run,

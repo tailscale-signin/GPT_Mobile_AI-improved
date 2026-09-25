@@ -38,12 +38,22 @@ import io.ktor.client.engine.cio.CIO
 import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PlatformSettingViewModelTest {
+    @org.junit.Before fun setMainDispatcher() {
+        kotlinx.coroutines.Dispatchers.setMain(kotlinx.coroutines.test.UnconfinedTestDispatcher())
+    }
+
+    @org.junit.After fun resetMainDispatcher() {
+        kotlinx.coroutines.Dispatchers.resetMain()
+    }
 
     @Test
     fun `initializes non-local platform with default settings`() = runTest {
@@ -168,7 +178,7 @@ class PlatformSettingViewModelTest {
         deviceRamGb: Long = 8L,
         openRouterCreditsRepository: OpenRouterCreditsRepository = OpenRouterCreditsRepository(),
         ollamaServerRepository: OllamaServerRepository = OllamaServerRepository(),
-        platformUid: String = "profile-1"
+        platformUid: String = "local-1"
     ): PlatformSettingViewModel {
         val networkClient = NetworkClient(CIO)
         val connectionRepository = ToolConnectionRepository(dao, vault)

@@ -27,6 +27,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveRunId
@@ -294,12 +295,16 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
-        if (isGenerationBusy()) {
+        if (isGenerationBusy() || !hasUnpausedProfile()) {
             queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList()))
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
             _selectedAttachments.value = emptyList()
-            _attachmentNotice.value = "Queued — sends automatically after the current response."
+            _attachmentNotice.value = if (hasUnpausedProfile()) {
+                "Queued — sends automatically after the current response."
+            } else {
+                "Queued — resume an AI profile to send."
+            }
             return
         }
         sendQuestion(questionText, attachments)
@@ -311,11 +316,13 @@ class ChatViewModel @Inject constructor(
             agentRunCoordinator.activeRuns.value.values.any { it.chatId == _chatRoom.value.id }
 
     private fun drainPromptQueueIfIdle() {
-        if (isGenerationBusy() || queuedPrompts.isEmpty()) return
+        if (isGenerationBusy() || queuedPrompts.isEmpty() || !hasUnpausedProfile()) return
         val next = queuedPrompts.removeFirst()
         _queuedPromptCount.value = queuedPrompts.size
         sendQuestion(next.text, next.attachments, clearComposer = false)
     }
+
+    private fun hasUnpausedProfile(): Boolean = _activePlatformUids.value.any { it !in _disabledPlatformUids.value }
 
     fun togglePlatformDisabled(platformUid: String) {
         if (platformUid !in _activePlatformUids.value) return
@@ -323,15 +330,10 @@ class ChatViewModel @Inject constructor(
             if (platformUid in disabled) {
                 disabled - platformUid
             } else {
-                val activeCount = _activePlatformUids.value.count { it !in disabled }
-                if (activeCount <= 1) {
-                    _attachmentNotice.value = "At least one AI profile must remain active."
-                    disabled
-                } else {
-                    disabled + platformUid
-                }
+                disabled + platformUid
             }
         }
+        advancePendingGeneration()
     }
 
     fun setPlatformMembership(platformUid: String, active: Boolean) {
@@ -469,8 +471,7 @@ class ChatViewModel @Inject constructor(
                 val disabled = config.disabledToolIds + ids
                 config.copy(
                     disabledToolIds = disabled,
-                    enabledToolIds = config.enabledToolIds - ids,
-                    allToolsDisabled = disabled.containsAll(_availableChatTools.value.map { it.id })
+                    enabledToolIds = config.enabledToolIds - ids
                 )
             }
         }
@@ -499,11 +500,22 @@ class ChatViewModel @Inject constructor(
     private fun loadAvailableChatTools() {
         viewModelScope.launch {
             val connections = toolConnectionRepository.getAllConnections()
-            val bindings = _activePlatformUids.value.flatMap { toolConnectionRepository.listBindingsByProfile(it) }
-            val boundConnectionIds = bindings.mapNotNull { it.connectionUid }.toSet()
-            val locationEnabled = bindings.any { it.toolName == dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool.DEVICE_LOCATION }
-            _availableChatTools.value = ChatToolUtils.buildAvailableChatTools(connections.filter { it.connectionUid in boundConnectionIds }) + listOf(
-                AvailableChatTool("web_search", "Web search", "Built-in web search", "Built-in"),
+            val profiles = settingRepository.fetchPlatformV2s().filter { it.uid in _activePlatformUids.value && !it.disableAllTools }
+            val features = settingRepository.getFeatureSettings()
+            val bindings = profiles.flatMap { toolConnectionRepository.listBindingsByProfile(it.uid) }
+            val remoteProfiles = profiles.filterNot { it.disableRemoteTools }.mapTo(mutableSetOf()) { it.uid }
+            val localProfiles = profiles.filterNot { it.disableLocalTools }.mapTo(mutableSetOf()) { it.uid }
+            val boundConnectionIds = bindings.filter { it.profileUid in remoteProfiles }.mapNotNull { it.connectionUid }.toSet()
+            val locationEnabled = features.deviceLocationTool &&
+                bindings.any {
+                    it.profileUid in localProfiles && it.toolName == dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool.DEVICE_LOCATION
+                }
+            _availableChatTools.value = ChatToolUtils.buildAvailableChatTools(
+                connections.filter {
+                    it.connectionUid in boundConnectionIds && (it.type != ToolConnectionType.MCP || features.remoteMcpConnections)
+                }
+            ) + listOf(
+                AvailableChatTool("web_search", "Web search", "Built-in web search", "Built-in", remoteProfiles.isNotEmpty()),
                 AvailableChatTool("device_location", "Device location", "Phone GPS location", "Built-in", locationEnabled)
             )
         }

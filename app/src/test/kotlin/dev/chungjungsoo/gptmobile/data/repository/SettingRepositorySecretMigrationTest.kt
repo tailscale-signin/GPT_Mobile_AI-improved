@@ -5,11 +5,11 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -51,7 +51,7 @@ class SettingRepositorySecretMigrationTest {
         val p1 = platformDao.getPlatform(1)
         val p2 = platformDao.getPlatform(2)
 
-        assertEquals("", p1?.token)
+        assertNull(p1?.token)
         assertTrue(p1?.secretRef?.isNotBlank() == true)
         assertEquals("legacy-token-1", secretVault.read(p1!!.secretRef!!)?.decodeToString())
 
@@ -84,7 +84,7 @@ class SettingRepositorySecretMigrationTest {
         val errors = repository.migrateSecrets()
 
         assertEquals(1, errors.size)
-        assertEquals("p1", errors.first().source)
+        assertEquals("profile:p1", errors.first().source)
 
         val p1 = platformDao.getPlatform(1)
         assertEquals("legacy-token-1", p1?.token)

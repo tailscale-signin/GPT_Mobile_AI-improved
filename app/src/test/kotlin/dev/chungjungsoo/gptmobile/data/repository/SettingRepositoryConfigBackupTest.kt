@@ -5,11 +5,11 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -64,7 +64,7 @@ class SettingRepositoryConfigBackupTest {
     }
 
     @Test
-    fun `import skips already existing platforms by matching API type`() = runBlocking {
+    fun `import updates an existing profile by name without duplicating it`() = runBlocking {
         val existingPlatform = PlatformV2(
             id = 1,
             uid = "existing-p1",
@@ -90,7 +90,9 @@ class SettingRepositoryConfigBackupTest {
                 {
                   "uid": "remote-p1",
                   "name": "local ollama",
-                  "compatibleType": "OLLAMA",
+                  "compatibleType": ${ClientType.OLLAMA.ordinal},
+                  "enabled": true,
+                  "token": "",
                   "apiUrl": "http://192.168.1.100:11434",
                   "model": "deepseek-r1:8b"
                 }

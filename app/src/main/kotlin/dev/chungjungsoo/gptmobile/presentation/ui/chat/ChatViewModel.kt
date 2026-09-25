@@ -378,6 +378,27 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun setChatToolsEnabled(toolIds: Collection<String>, enabled: Boolean) {
+        if (toolIds.isEmpty()) return
+        val ids = toolIds.toSet()
+        _chatToolConfig.update { config ->
+            if (enabled) {
+                config.copy(
+                    disabledToolIds = config.disabledToolIds - ids,
+                    enabledToolIds = config.enabledToolIds + ids,
+                    allToolsDisabled = false
+                )
+            } else {
+                val disabled = config.disabledToolIds + ids
+                config.copy(
+                    disabledToolIds = disabled,
+                    enabledToolIds = config.enabledToolIds - ids,
+                    allToolsDisabled = disabled.containsAll(_availableChatTools.value.map { it.id })
+                )
+            }
+        }
+    }
+
     fun enableAllChatTools() {
         _chatToolConfig.update { config ->
             config.copy(

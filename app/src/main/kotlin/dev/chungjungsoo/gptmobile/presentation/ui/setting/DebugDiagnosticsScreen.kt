@@ -167,6 +167,29 @@ fun DebugDiagnosticsScreen(
             }
 
             item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard("Tracked tokens", formatTokenCount(analytics.totalTrackedTokens), Modifier.weight(1f))
+                    MetricCard(
+                        "Runs with usage",
+                        analytics.recentRuns.count { it.totalTokens != null }.toString(),
+                        Modifier.weight(1f)
+                    )
+                }
+            }
+
+            item {
+                DiagnosticsPanelCard("Tokens by model", Icons.Default.Speed) {
+                    TokenUsageBars(analytics.modelTokenUsage)
+                }
+            }
+
+            item {
+                DiagnosticsPanelCard("Tokens by AI profile", Icons.Default.BugReport) {
+                    TokenUsageBars(analytics.profileTokenUsage)
+                }
+            }
+
+            item {
                 DiagnosticsPanelCard("Display in Debug Mode", Icons.Default.Terminal) {
                     DebugMetric.entries.forEach { metric ->
                         val checked = when (metric) {
@@ -318,6 +341,32 @@ private fun DiagnosticsLine(label: String, value: String) {
 }
 
 @Composable
+private fun TokenUsageBars(values: List<Pair<String, Long>>) {
+    if (values.isEmpty()) {
+        Text("No provider token usage reported yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    val max = values.maxOf { it.second }.coerceAtLeast(1L)
+    values.forEach { (label, tokens) ->
+        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                Text(formatTokenCount(tokens), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { tokens.toFloat() / max.toFloat() },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+private fun formatTokenCount(tokens: Long): String = when {
+    tokens >= 1_000_000L -> "%.1fM".format(tokens / 1_000_000.0)
+    tokens >= 1_000L -> "%.1fK".format(tokens / 1_000.0)
+    else -> tokens.toString()
+}
+
 private fun UsageBars(values: List<Pair<String, Int>>) {
     if (values.isEmpty()) {
         Text("No usage data yet", color = MaterialTheme.colorScheme.onSurfaceVariant)

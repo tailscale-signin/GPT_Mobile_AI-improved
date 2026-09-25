@@ -237,6 +237,8 @@ class ChatViewModel @Inject constructor(
     private val queuedPrompts = ArrayDeque<QueuedPrompt>()
     private val _queuedPromptCount = MutableStateFlow(0)
     val queuedPromptCount = _queuedPromptCount.asStateFlow()
+    private val _disabledPlatformUids = MutableStateFlow<Set<String>>(emptySet())
+    val disabledPlatformUids = _disabledPlatformUids.asStateFlow()
     private var lastAutoTitleUserTurnCount = 0
     private val combinedSynthesisTurns = mutableSetOf<Int>()
 
@@ -310,8 +312,15 @@ class ChatViewModel @Inject constructor(
         sendQuestion(next.text, next.attachments)
     }
 
+    fun togglePlatformDisabled(platformUid: String) {
+        if (platformUid !in enabledPlatformsInChat) return
+        _disabledPlatformUids.update { disabled ->
+            if (platformUid in disabled) disabled - platformUid else disabled + platformUid
+        }
+    }
+
     fun sendContinueResponse() {
-        sendQuestion("continue", emptyList())
+        submitOrQueueQuestion("continue", emptyList())
     }
 
     fun sendPromptResponse(promptText: String) {
@@ -771,7 +780,9 @@ class ChatViewModel @Inject constructor(
         val turnIndex = _groupedMessages.value.assistantMessages.lastIndex
 
         viewModelScope.launch {
+            val disabled = _disabledPlatformUids.value
             val platforms = resolveSelectedPlatforms(enabledPlatformsInChat, _platformsInApp.value)
+                .filter { it.value.uid !in disabled }
                 .map { IndexedValue(it.index, resolvePlatformModel(it.value)) }
             val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
             _loadingStates.update { states ->
@@ -1263,7 +1274,8 @@ class ChatViewModel @Inject constructor(
 
     private fun maybeStartCombinedSynthesis(runsById: Map<String, AgentRun>) {
         val room = _chatRoom.value
-        if (room.conversationMode != ConversationMode.COMBINED || enabledPlatformsInChat.size < 2) return
+        val activeCombinedPlatforms = enabledPlatformsInChat.filterNot { it in _disabledPlatformUids.value }
+        if (room.conversationMode != ConversationMode.COMBINED || activeCombinedPlatforms.size < 2) return
 
         val grouped = _groupedMessages.value
         grouped.userMessages.indices.forEach { turnIndex ->

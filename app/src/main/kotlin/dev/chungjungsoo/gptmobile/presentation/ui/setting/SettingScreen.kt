@@ -132,7 +132,7 @@ fun SettingScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-             item {
+            item {
                 SettingsCategory(
                     title = "AI & models",
                     subtitle = "Providers own connectivity; AI profiles own model behavior.",

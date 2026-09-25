@@ -140,6 +140,7 @@ val unspecified_scheme = ColorFamily(Color.Unspecified, Color.Unspecified, Color
 fun GPTMobileTheme(
     dynamicTheme: DynamicTheme = DynamicTheme.OFF,
     themeMode: ThemeMode = ThemeMode.LIGHT,
+    customPrimaryArgb: Long? = null,
     content: @Composable () -> Unit
 ) {
     val useDarkTheme = when (themeMode) {
@@ -148,7 +149,18 @@ fun GPTMobileTheme(
         ThemeMode.LIGHT -> false
     }
     val context = LocalContext.current
+    val customPrimary = customPrimaryArgb?.let(::Color)
     val colorScheme = when {
+        customPrimary != null && useDarkTheme -> darkScheme.copy(
+            primary = customPrimary,
+            secondary = customPrimary,
+            tertiary = customPrimary
+        )
+        customPrimary != null -> lightScheme.copy(
+            primary = customPrimary,
+            secondary = customPrimary,
+            tertiary = customPrimary
+        )
         useDarkTheme -> darkScheme
         dynamicTheme == DynamicTheme.ON -> dynamicLightColorScheme(context)
         else -> lightScheme

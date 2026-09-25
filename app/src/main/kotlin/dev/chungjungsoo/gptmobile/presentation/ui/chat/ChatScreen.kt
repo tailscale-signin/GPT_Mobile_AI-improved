@@ -425,7 +425,7 @@ fun ChatScreen(
             ChatInputBox(
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
-                sendButtonEnabled = isIdle,
+                sendButtonEnabled = true,
                 isRunning = !isIdle,
                 selectedAttachments = selectedAttachments,
                 onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
@@ -1276,8 +1276,8 @@ fun ChatInputBox(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            enabled = chatEnabled && !isRunning,
-                            onClick = { filePickerLauncher.launch("image/*") }
+                            enabled = chatEnabled,
+                            onClick = { filePickerLauncher.launch("*/*") }
                         ) {
                             Icon(
                                 imageVector = ImageVector.vectorResource(R.drawable.ic_attach_file),
@@ -1299,11 +1299,12 @@ fun ChatInputBox(
                                 innerTextField()
                             }
                         }
+                        val showStop = isRunning && !hasQuestionText && selectedAttachments.isEmpty()
                         IconButton(
-                            enabled = isRunning || (chatEnabled && sendButtonEnabled && hasQuestionText),
-                            onClick = if (isRunning) onCancelButtonClick else onSendButtonClick
+                            enabled = showStop || (chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty())),
+                            onClick = if (showStop) onCancelButtonClick else onSendButtonClick
                         ) {
-                            if (isRunning) {
+                            if (showStop) {
                                 Icon(
                                     imageVector = Icons.Filled.Stop,
                                     contentDescription = stringResource(R.string.cancel_active_runs)

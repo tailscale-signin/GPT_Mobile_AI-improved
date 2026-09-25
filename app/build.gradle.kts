@@ -207,6 +207,7 @@ dependencies {
 
     // Location
     implementation(libs.play.services.location)
+    implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation(libs.kotlinx.coroutines.play.services)
 
     // SplashScreen

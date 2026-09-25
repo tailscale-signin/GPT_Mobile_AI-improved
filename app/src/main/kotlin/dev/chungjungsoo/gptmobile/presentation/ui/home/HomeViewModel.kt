@@ -45,7 +45,9 @@ class HomeViewModel @Inject constructor(
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
         const val GROUP_ALL = "All"
-        val DEFAULT_GROUPS = listOf(GROUP_ALL, "Starred", "Work", "Personal")
+        val DEFAULT_GROUPS = listOf(GROUP_ALL)
+        val INITIAL_GROUPS = listOf(GROUP_ALL, "Starred", "Work", "Personal")
+        private const val EMPTY_GROUP_SENTINEL = "__NO_FAVORITE_GROUPS__"
     }
 
     data class ChatListState(
@@ -140,10 +142,10 @@ class HomeViewModel @Inject constructor(
         // Observe persisted favorite groups and message-to-group mappings
         settingRepository.observeFavoriteGroups()
             .onEach { savedGroups ->
-                val merged = if (savedGroups.isEmpty()) {
-                    DEFAULT_GROUPS
-                } else {
-                    (DEFAULT_GROUPS + savedGroups).distinct()
+                val merged = when {
+                    EMPTY_GROUP_SENTINEL in savedGroups -> DEFAULT_GROUPS
+                    savedGroups.isEmpty() -> INITIAL_GROUPS
+                    else -> (DEFAULT_GROUPS + savedGroups).distinct()
                 }
                 _favoriteGroups.update { merged }
             }
@@ -192,7 +194,9 @@ class HomeViewModel @Inject constructor(
             _favoriteGroups.update { updated }
             _selectedFavoriteGroup.update { trimmed }
             viewModelScope.launch {
-                settingRepository.saveFavoriteGroups(updated.filter { it !in DEFAULT_GROUPS })
+                settingRepository.saveFavoriteGroups(
+                    updated.filter { it !in DEFAULT_GROUPS }.ifEmpty { listOf(EMPTY_GROUP_SENTINEL) }
+                )
             }
         }
     }
@@ -211,7 +215,7 @@ class HomeViewModel @Inject constructor(
 
     fun renameFavoriteGroup(groupName: String, newName: String) {
         val normalized = newName.trim()
-        if (groupName in DEFAULT_GROUPS || normalized.isBlank() || normalized == groupName) return
+        if (groupName == GROUP_ALL || normalized.isBlank() || normalized == groupName) return
         if (_favoriteGroups.value.any { it.equals(normalized, ignoreCase = true) }) return
 
         val updatedGroups = _favoriteGroups.value.map { if (it == groupName) normalized else it }
@@ -224,13 +228,15 @@ class HomeViewModel @Inject constructor(
             _selectedFavoriteGroup.value = normalized
         }
         viewModelScope.launch {
-            settingRepository.saveFavoriteGroups(updatedGroups.filter { it !in DEFAULT_GROUPS })
+            settingRepository.saveFavoriteGroups(
+                updatedGroups.filter { it !in DEFAULT_GROUPS }.ifEmpty { listOf(EMPTY_GROUP_SENTINEL) }
+            )
             settingRepository.saveFavoriteMessageGroups(updatedMappings)
         }
     }
 
     fun deleteFavoriteGroup(groupName: String) {
-        if (groupName in DEFAULT_GROUPS) return
+        if (groupName == GROUP_ALL) return
         val updatedGroups = _favoriteGroups.value.filterNot { it == groupName }
         // Removing the assignment moves those favorites back to the general "All" view.
         val updatedMappings = _messageGroups.value.filterValues { it != groupName }

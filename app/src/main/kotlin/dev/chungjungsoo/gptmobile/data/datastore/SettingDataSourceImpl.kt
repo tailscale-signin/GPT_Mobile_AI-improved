@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -73,6 +74,7 @@ class SettingDataSourceImpl @Inject constructor(
     )
     val dynamicThemeKey = intPreferencesKey("dynamic_mode")
     val themeModeKey = intPreferencesKey("theme_mode")
+    val customPrimaryArgbKey = longPreferencesKey("custom_primary_argb")
     val localRuntimeBackendKey = stringPreferencesKey("local_runtime_backend")
     val debugModeKey = booleanPreferencesKey("debug_mode")
     val featureSettingsKey = stringPreferencesKey("advanced_feature_settings_json")
@@ -88,6 +90,14 @@ class SettingDataSourceImpl @Inject constructor(
             pref[dynamicThemeKey] = theme.ordinal
         }
     }
+
+    override suspend fun updateCustomPrimaryArgb(argb: Long?) {
+        dataStore.edit { pref ->
+            if (argb == null) pref.remove(customPrimaryArgbKey) else pref[customPrimaryArgbKey] = argb
+        }
+    }
+
+    override suspend fun getCustomPrimaryArgb(): Long? = dataStore.data.map { pref -> pref[customPrimaryArgbKey] }.first()
 
     override suspend fun updateThemeMode(themeMode: ThemeMode) {
         dataStore.edit { pref ->

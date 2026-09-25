@@ -89,7 +89,7 @@ class ChatDatabaseV2MigrationsTest {
         }
 
         assertEquals(10, ChatDatabaseV2Migrations.ALL_MIGRATIONS.first().startVersion)
-        assertEquals(25, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
+        assertEquals(27, ChatDatabaseV2Migrations.ALL_MIGRATIONS.last().endVersion)
 
         assertEquals(10, ChatDatabaseV2Migrations.MIGRATION_10_11.startVersion)
         assertEquals(11, ChatDatabaseV2Migrations.MIGRATION_10_11.endVersion)
@@ -135,6 +135,12 @@ class ChatDatabaseV2MigrationsTest {
 
         assertEquals(24, ChatDatabaseV2Migrations.MIGRATION_24_25.startVersion)
         assertEquals(25, ChatDatabaseV2Migrations.MIGRATION_24_25.endVersion)
+
+        assertEquals(25, ChatDatabaseV2Migrations.MIGRATION_25_26.startVersion)
+        assertEquals(26, ChatDatabaseV2Migrations.MIGRATION_25_26.endVersion)
+
+        assertEquals(26, ChatDatabaseV2Migrations.MIGRATION_26_27.startVersion)
+        assertEquals(27, ChatDatabaseV2Migrations.MIGRATION_26_27.endVersion)
     }
 
     @Test
@@ -199,7 +205,8 @@ class ChatDatabaseV2MigrationsTest {
 
     @Test
     fun `combined conversation defaults to standard and normalizes values`() {
-        val chatRoom = ChatRoomV2(title = "Test Room")
+        val chatRoom = ChatRoomV2(title = "Test Room", enabledPlatform = listOf("profile-1"))
+        assertEquals(listOf("profile-1"), chatRoom.activePlatform)
         assertEquals(ConversationMode.STANDARD, chatRoom.conversationMode)
         assertEquals(ConversationMode.COMBINED, ConversationMode.normalize("combined"))
         assertEquals(ConversationMode.STANDARD, ConversationMode.normalize("anything-else"))

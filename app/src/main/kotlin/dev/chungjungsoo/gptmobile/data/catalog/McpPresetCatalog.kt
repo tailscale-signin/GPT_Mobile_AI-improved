@@ -172,6 +172,77 @@ object McpPresetCatalog {
             ),
             websiteUrl = "https://exa.ai/mcp",
             verifiedRemote = true
+        ),
+        McpPreset(
+            id = "context7", name = "Context7 Documentation", description = "Up-to-date library and framework documentation from the official Context7 remote MCP service.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.context7.com/mcp", author = "Upstash",
+            alias = "context7", suggestedAuthType = "API_KEY", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("Context7 API key (optional for higher limits)"),
+            toolCapabilities = listOf("Resolve library identifiers", "Search current library documentation"),
+            websiteUrl = "https://github.com/upstash/context7", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "sentry", name = "Sentry", description = "Official hosted Sentry MCP for issues, events, traces, releases and debugging workflows.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.sentry.dev/mcp", author = "Sentry",
+            alias = "sentry", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Inspect issues and events", "Query traces and projects", "Debug releases and errors"),
+            websiteUrl = "https://github.com/getsentry/sentry-mcp", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "notion", name = "Notion", description = "Official hosted Notion MCP for semantic workspace search plus page reading and editing.",
+            category = McpCategory.PRODUCTIVITY, commandOrUrl = "https://mcp.notion.com/mcp", author = "Notion",
+            alias = "notion", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Semantic workspace search", "Read pages as Markdown", "Create and edit workspace content"),
+            websiteUrl = "https://github.com/makenotion/notion-mcp-server", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "linear", name = "Linear", description = "Official hosted Linear MCP for issues, projects, initiatives, comments and team workflows.",
+            category = McpCategory.PRODUCTIVITY, commandOrUrl = "https://mcp.linear.app/mcp", author = "Linear",
+            alias = "linear", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Find and update issues", "Work with projects and initiatives", "Create comments and project updates"),
+            websiteUrl = "https://github.com/linear/linear", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "cloudflare", name = "Cloudflare", description = "Official Cloudflare remote MCP for Workers, DNS, storage, Zero Trust and account resources.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.cloudflare.com/mcp", author = "Cloudflare",
+            alias = "cloudflare", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Inspect Cloudflare resources", "Manage Workers and storage", "Query DNS and Zero Trust configuration"),
+            websiteUrl = "https://github.com/cloudflare/mcp-server-cloudflare", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "vercel", name = "Vercel", description = "Official Vercel remote MCP for projects, deployments, logs and platform documentation.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.vercel.com", author = "Vercel",
+            alias = "vercel", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Inspect projects and deployments", "Analyze deployment logs", "Search Vercel documentation"),
+            websiteUrl = "https://github.com/vercel", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "datadog", name = "Datadog", description = "Official Datadog MCP for APM, logs, metrics, monitors, dashboards and security signals.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.datadoghq.com/v1/mcp", author = "Datadog",
+            alias = "datadog", suggestedAuthType = "OAUTH", pricing = McpPricingType.PAID,
+            toolCapabilities = listOf("Query logs and metrics", "Inspect APM and monitors", "Analyze dashboards and security signals"),
+            websiteUrl = "https://github.com/DataDog", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "grafana-cloud", name = "Grafana Cloud", description = "Official Grafana Cloud MCP for metrics, logs, dashboards, alerts and incident investigations.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.grafana.com/mcp", author = "Grafana Labs",
+            alias = "grafana_cloud", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Query metrics and logs", "Inspect dashboards and alerts", "Investigate incidents"),
+            websiteUrl = "https://github.com/grafana", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "new-relic", name = "New Relic", description = "Official New Relic remote MCP for observability discovery, NRQL, alerts and performance analysis.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.newrelic.com/mcp/", author = "New Relic",
+            alias = "new_relic", suggestedAuthType = "OAUTH", pricing = McpPricingType.FREE_WITH_SIGNUP,
+            toolCapabilities = listOf("Run observability discovery", "Query NRQL data", "Analyze alerts and performance"),
+            websiteUrl = "https://github.com/newrelic", verifiedRemote = true
+        ),
+        McpPreset(
+            id = "grep-vercel", name = "Grep by Vercel", description = "Hosted MCP for searching real-world code examples across public GitHub repositories.",
+            category = McpCategory.DEVELOPMENT, commandOrUrl = "https://mcp.grep.app", author = "Vercel",
+            alias = "grep_vercel", suggestedAuthType = "NONE", pricing = McpPricingType.FREE,
+            toolCapabilities = listOf("Search public GitHub code", "Find implementation examples across repositories"),
+            websiteUrl = "https://github.com/vercel", verifiedRemote = true
         )
     )
 

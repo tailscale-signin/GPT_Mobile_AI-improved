@@ -48,6 +48,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
+import dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPrimaryArgb
 import dev.chungjungsoo.gptmobile.presentation.common.LocalDynamicTheme
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeMode
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeViewModel
@@ -115,16 +119,7 @@ fun SettingScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text(stringResource(R.string.settings))
-                        Text(
-                            "Models, tools, experience, diagnostics and app data",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
+                title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
                         Icon(
@@ -142,30 +137,17 @@ fun SettingScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             item {
-                SettingsHeroCard(
-                    activeProfiles = platforms.count { it.enabled },
-                    totalProfiles = platforms.size,
-                    providerCount = providerConnections.size,
-                    runtime = localRuntimeBackend.displayName
-                )
-            }
-
-            item {
                 SettingsCategory(
-                    title = "AI & models",
-                    subtitle = "Providers own connectivity; AI profiles own model behavior.",
-                    icon = Icons.Default.SmartToy
+                    title = "AI & models"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.SmartToy,
                         title = "AI Platforms & Profiles",
-                        subtitle = "${providerConnections.size} providers • ${platforms.size} profiles • ${platforms.count { it.enabled }} active",
                         onClick = onNavigateToAiPlatforms
                     )
                     SettingsDestination(
                         icon = Icons.Default.Storage,
                         title = stringResource(R.string.local_models),
-                        subtitle = "Manage, search, download and validate on-device models",
                         onClick = onNavigateToLocalModels
                     )
                 }
@@ -173,14 +155,11 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Tools & connectivity",
-                    subtitle = "Built-in tools, installed connections and remote MCP servers.",
-                    icon = Icons.Default.Build
+                    title = "Tools & connectivity"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Build,
                         title = stringResource(R.string.tool_connections),
-                        subtitle = "View active tools, connection health and the MCP marketplace",
                         onClick = onNavigateToToolConnections
                     )
                 }
@@ -188,24 +167,16 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Experience",
-                    subtitle = "Appearance and optional app behavior.",
-                    icon = Icons.Default.Palette
+                    title = "Experience"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Palette,
                         title = stringResource(R.string.theme_settings),
-                        subtitle = stringResource(R.string.theme_description),
                         onClick = settingViewModel::openThemeDialog
                     )
                     SettingsDestination(
                         icon = Icons.Default.Tune,
                         title = "Advanced Settings",
-                        subtitle = buildString {
-                            append(if (featureSettings.backgroundGeneration) "Background AI on" else "Background AI off")
-                            append(" • ")
-                            append(if (featureSettings.remoteMcpConnections) "Remote MCP on" else "Remote MCP off")
-                        },
                         onClick = onNavigateToAdvancedSettings
                     )
                 }
@@ -213,26 +184,17 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Diagnostics & data",
-                    subtitle = "Analyze performance and control what the app stores or exports.",
-                    icon = Icons.Default.Security
+                    title = "Diagnostics & data"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.BugReport,
                         title = "Debug & Diagnostics",
-                        subtitle = if (debugMode) "Diagnostics HUD enabled" else "Runtime, token and tool-call analytics",
                         onClick = onNavigateToDebugDiagnostics
                     )
-
-                    val backupSubtitle = backupStatus.lastBackupEpochMs?.let {
-                        val date = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.getDefault()).format(Date(it))
-                        "Last backup: $date • ${backupStatus.backupCount} total"
-                    } ?: stringResource(R.string.backup_and_restore_description)
 
                     SettingsDestination(
                         icon = Icons.Default.Backup,
                         title = stringResource(R.string.backup_and_restore),
-                        subtitle = backupSubtitle,
                         onClick = settingViewModel::openBackupRestoreDialog
                     )
                 }
@@ -240,14 +202,11 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "About",
-                    subtitle = "Version, licenses and application information.",
-                    icon = Icons.Default.Info
+                    title = "About"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.Info,
                         title = stringResource(R.string.about),
-                        subtitle = stringResource(R.string.about_description),
                         onClick = onNavigateToAboutPage
                     )
                 }
@@ -376,24 +335,11 @@ private fun SettingsStat(value: String, label: String, modifier: Modifier = Modi
 @Composable
 private fun SettingsCategory(
     title: String,
-    subtitle: String,
-    icon: ImageVector,
     content: @Composable () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-        ) {
-            Column(Modifier.fillMaxWidth()) { content() }
-        }
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxWidth()) { content() }
     }
 }
 
@@ -401,7 +347,6 @@ private fun SettingsCategory(
 private fun SettingsDestination(
     icon: ImageVector,
     title: String,
-    subtitle: String,
     onClick: () -> Unit
 ) {
     Row(
@@ -410,10 +355,12 @@ private fun SettingsDestination(
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
@@ -425,6 +372,18 @@ private fun SettingsDestination(
 @Composable
 fun ThemeSettingDialog(settingViewModel: SettingViewModelV2) {
     val themeViewModel = LocalThemeViewModel.current
+    val currentCustomColor = LocalCustomPrimaryArgb.current
+    var customHex by remember(currentCustomColor) {
+        mutableStateOf(currentCustomColor?.let { "#%06X".format(it and 0xFFFFFF) }.orEmpty())
+    }
+    val parsedCustomArgb = remember(customHex) {
+        val normalized = customHex.trim().removePrefix("#")
+        if (normalized.length == 6 && normalized.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+            normalized.toLongOrNull(16)?.let { 0xFF000000L or it }
+        } else {
+            null
+        }
+    }
     AlertDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -439,6 +398,68 @@ fun ThemeSettingDialog(settingViewModel: SettingViewModelV2) {
                     ) {
                         themeViewModel.updateDynamicTheme(theme)
                     }
+                }
+                Spacer(Modifier.fillMaxWidth().height(24.dp))
+                Text("Accent color", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.fillMaxWidth().height(8.dp))
+                val accentChoices = listOf(
+                    "Current theme" to null,
+                    "Cyan" to 0xFF00BCD4L,
+                    "Blue" to 0xFF2196F3L,
+                    "Purple" to 0xFF9C27B0L,
+                    "Green" to 0xFF4CAF50L,
+                    "Orange" to 0xFFFF9800L,
+                    "Red" to 0xFFF44336L
+                )
+                accentChoices.forEach { (label, argb) ->
+                    RadioItem(
+                        title = label,
+                        description = null,
+                        value = label,
+                        selected = LocalCustomPrimaryArgb.current == argb
+                    ) {
+                        themeViewModel.updateCustomPrimaryArgb(argb)
+                    }
+                }
+                Spacer(Modifier.fillMaxWidth().height(12.dp))
+                OutlinedTextField(
+                    value = customHex,
+                    onValueChange = { value ->
+                        customHex = value.take(7)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Custom color") },
+                    placeholder = { Text("#6750A4") },
+                    supportingText = {
+                        Text(
+                            if (customHex.isBlank() || parsedCustomArgb != null) {
+                                "Enter any 6-digit HEX color."
+                            } else {
+                                "Use a valid color such as #6750A4."
+                            }
+                        )
+                    },
+                    isError = customHex.isNotBlank() && parsedCustomArgb == null,
+                    singleLine = true,
+                    trailingIcon = {
+                        if (parsedCustomArgb != null) {
+                            Card(
+                                modifier = Modifier.width(28.dp).height(28.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = androidx.compose.ui.graphics.Color(parsedCustomArgb)
+                                )
+                            ) {}
+                        }
+                    }
+                )
+                Button(
+                    onClick = {
+                        parsedCustomArgb?.let(themeViewModel::updateCustomPrimaryArgb)
+                    },
+                    enabled = parsedCustomArgb != null,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Text("Apply custom color")
                 }
                 Spacer(Modifier.fillMaxWidth().height(24.dp))
                 Text(stringResource(R.string.dark_mode), style = MaterialTheme.typography.titleMedium)

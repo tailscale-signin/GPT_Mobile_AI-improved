@@ -81,7 +81,16 @@ data class AgentRun(
     val gatewayBaseUrl: String? = null,
 
     @ColumnInfo(name = "gateway_last_sequence")
-    val gatewayLastSequence: Int = -1
+    val gatewayLastSequence: Int = -1,
+
+    @ColumnInfo(name = "input_tokens")
+    val inputTokens: Int? = null,
+
+    @ColumnInfo(name = "output_tokens")
+    val outputTokens: Int? = null,
+
+    @ColumnInfo(name = "total_tokens")
+    val totalTokens: Int? = null
 )
 
 data class AgentRunDraft(

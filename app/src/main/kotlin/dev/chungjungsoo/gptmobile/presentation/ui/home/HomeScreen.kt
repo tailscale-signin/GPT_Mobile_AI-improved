@@ -556,8 +556,11 @@ fun FancySwipeChatCard(
     modifier: Modifier = Modifier
 ) {
     val progress = dismissState.progress
-    val isSwipingStartToEnd = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
-    val isSwipingEndToStart = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+    val swipeDirection = dismissState.dismissDirection
+    val isSwipingStartToEnd = swipeDirection == SwipeToDismissBoxValue.StartToEnd ||
+        dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
+    val isSwipingEndToStart = swipeDirection == SwipeToDismissBoxValue.EndToStart ||
+        dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
 
     // Pulse animation spec for revealed swipe icons
     val infiniteTransition = rememberInfiniteTransition(label = "icon_pulse")
@@ -577,10 +580,10 @@ fun FancySwipeChatCard(
 
     // Card surface tint dynamically reacting to swipe progress
     val cardContainerColor = when {
-        isSwipingStartToEnd && progress > 0.01f ->
-            archiveColor.copy(alpha = (0.18f + progress * 0.38f).coerceIn(0.18f, 0.52f))
-        isSwipingEndToStart && progress > 0.01f ->
-            deleteColor.copy(alpha = (0.18f + progress * 0.38f).coerceIn(0.18f, 0.52f))
+        isSwipingStartToEnd && progress > 0.001f ->
+            archiveColor.copy(alpha = (0.45f + progress * 0.45f).coerceIn(0.45f, 0.90f))
+        isSwipingEndToStart && progress > 0.001f ->
+            deleteColor.copy(alpha = (0.45f + progress * 0.45f).coerceIn(0.45f, 0.90f))
         else -> MaterialTheme.colorScheme.surface
     }
 
@@ -598,8 +601,8 @@ fun FancySwipeChatCard(
             .padding(horizontal = 4.dp, vertical = 2.dp),
         state = dismissState,
         backgroundContent = {
-            val isArchiveTarget = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd
-            val isDeleteTarget = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+            val isArchiveTarget = isSwipingStartToEnd
+            val isDeleteTarget = isSwipingEndToStart
 
             Box(
                 modifier = Modifier
@@ -903,11 +906,7 @@ fun FavoritesList(
                     Surface(
                         modifier = Modifier.combinedClickable(
                             onClick = { onSelectGroup(group) },
-                            onLongClick = {
-                                if (group !in HomeViewModel.DEFAULT_GROUPS) {
-                                    groupMenu = group
-                                }
-                            }
+                            onLongClick = { groupMenu = group }
                         ),
                         shape = RoundedCornerShape(18.dp),
                         color = if (selected) {
@@ -1258,7 +1257,7 @@ fun SelectPlatformDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    var sortOrder by remember { mutableStateOf(PlatformSortOrder.DEFAULT) }
+    val sortOrder = PlatformSortOrder.ENABLED_FIRST
     var combinedMode by rememberSaveable { mutableStateOf(false) }
     val selectedCount = selectedPlatforms.count { it }
     val canCombine = selectedCount >= 2
@@ -1267,18 +1266,9 @@ fun SelectPlatformDialog(
         if (!canCombine) combinedMode = false
     }
 
-    val allLabels = remember(platforms) {
-        collectReusableProfileLabels(platforms.map { it.labels })
-    }
-    var selectedLabelFilter by remember { mutableStateOf<String?>(null) }
-
     // Map platform indices for stable checkbox selection even when sorted
-    val indexedPlatforms = remember(platforms, sortOrder, selectedLabelFilter) {
+    val indexedPlatforms = remember(platforms, sortOrder) {
         val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
-            .filter { (_, platform) ->
-                selectedLabelFilter == null ||
-                    parseProfileLabels(platform.labels).any { it.key == selectedLabelFilter }
-            }
         when (sortOrder) {
             PlatformSortOrder.DEFAULT -> list
             PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
@@ -1326,72 +1316,7 @@ fun SelectPlatformDialog(
                         label = { Text(stringResource(R.string.chat_mode_combined)) }
                     )
                 }
-                Text(
-                    text = stringResource(
-                        if (combinedMode) R.string.chat_mode_combined_description
-                        else R.string.chat_mode_standard_description
-                    ),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                // Interactive Sort Chips
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.DEFAULT,
-                        onClick = { sortOrder = PlatformSortOrder.DEFAULT },
-                        label = { Text("Default") }
-                    )
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.NAME,
-                        onClick = { sortOrder = PlatformSortOrder.NAME },
-                        label = { Text("Name") }
-                    )
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.PROVIDER,
-                        onClick = { sortOrder = PlatformSortOrder.PROVIDER },
-                        label = { Text("Provider") }
-                    )
-                    FilterChip(
-                        selected = sortOrder == PlatformSortOrder.ENABLED_FIRST,
-                        onClick = { sortOrder = PlatformSortOrder.ENABLED_FIRST },
-                        label = { Text("Enabled") }
-                    )
-                }
 
-                if (allLabels.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilterChip(
-                            selected = selectedLabelFilter == null,
-                            onClick = { selectedLabelFilter = null },
-                            label = { Text("All Labels") }
-                        )
-                        allLabels.forEach { label ->
-                            BeveledProfileLabel(
-                                label = label,
-                                selected = selectedLabelFilter == label.key,
-                                onClick = {
-                                    selectedLabelFilter =
-                                        if (selectedLabelFilter == label.key) null else label.key
-                                }
-                            )
-                        }
-                    }
-                }
             }
         },
         text = {

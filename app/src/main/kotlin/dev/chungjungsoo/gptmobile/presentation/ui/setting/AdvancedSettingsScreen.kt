@@ -114,6 +114,7 @@ fun AdvancedSettingsScreen(
                     icon = Icons.Default.Cloud
                 ) {
                     FeatureSwitch(AppFeature.REMOTE_MCP, settings.remoteMcpConnections, Icons.Default.Cloud, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.SHARED_TOOL_CALLS, settings.sharedReadOnlyToolCalls, Icons.Default.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.DEVICE_LOCATION, settings.deviceLocationTool, Icons.Default.LocationOn, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.MODEL_DISCOVERY, settings.providerModelDiscovery, Icons.Default.Tune, viewModel::updateFeature)
                 }

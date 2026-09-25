@@ -173,6 +173,21 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_25_26 = object : Migration(25, 26) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `input_tokens` INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `output_tokens` INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `total_tokens` INTEGER DEFAULT NULL")
+        }
+    }
+
+    val MIGRATION_26_27 = object : Migration(26, 27) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `chats_v2` ADD COLUMN `active_platform` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("UPDATE `chats_v2` SET `active_platform` = `enabled_platform`")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -188,6 +203,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_21_22,
         MIGRATION_22_23,
         MIGRATION_23_24,
-        MIGRATION_24_25
+        MIGRATION_24_25,
+        MIGRATION_25_26,
+        MIGRATION_26_27
     )
 }

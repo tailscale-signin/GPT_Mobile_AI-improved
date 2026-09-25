@@ -29,7 +29,22 @@ data class ChatCompletionChunk(
     val gatewayMetadata: GatewayResponseMetadata? = null,
 
     @SerialName("error")
-    val error: ErrorDetail? = null
+    val error: ErrorDetail? = null,
+
+    @SerialName("usage")
+    val usage: ChatCompletionUsage? = null
+)
+
+@Serializable
+data class ChatCompletionUsage(
+    @SerialName("prompt_tokens")
+    val promptTokens: Int? = null,
+
+    @SerialName("completion_tokens")
+    val completionTokens: Int? = null,
+
+    @SerialName("total_tokens")
+    val totalTokens: Int? = null
 )
 
 @Serializable

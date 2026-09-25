@@ -50,6 +50,7 @@ interface ChatRepository {
     suspend fun getRecoverableGatewayRuns(): List<AgentRun>
     fun generateDefaultChatTitle(messages: List<MessageV2>): String?
     suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean = false)
+    suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2
     suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2): String?
     suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2
     suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2

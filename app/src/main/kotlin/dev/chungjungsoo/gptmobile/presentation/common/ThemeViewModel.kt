@@ -45,6 +45,12 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
         }
     }
 
+    fun updateCustomPrimaryArgb(argb: Long?) {
+        viewModelScope.launch {
+            persistTheme { it.copy(customPrimaryArgb = argb) }
+        }
+    }
+
     private suspend fun persistTheme(transform: (ThemeSetting) -> ThemeSetting) {
         themeMutex.withLock {
             val updated = transform(_themeSetting.value)

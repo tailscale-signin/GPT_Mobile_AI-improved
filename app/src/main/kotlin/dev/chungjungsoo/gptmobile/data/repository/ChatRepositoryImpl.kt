@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAttachmentEncoder
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
@@ -88,6 +89,7 @@ class ChatRepositoryImpl(
     private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder)
     private val anthropicMessagesAdapter = AnthropicMessagesAdapter(anthropicAPI, providerAttachmentEncoder)
     private val geminiAdapter = GeminiAdapter(googleAPI, providerAttachmentEncoder)
+    private val sharedToolCallBroker = SharedToolCallBroker()
     private val liteRtLmAdapter = LiteRtLmAdapter(
         localRuntime = localRuntime,
         localModelRepository = localModelRepository,
@@ -149,7 +151,20 @@ class ChatRepositoryImpl(
             val resolvedTools = if (platform.disableAllTools) {
                 emptyList()
             } else {
-                agentToolResolver.resolve(platform.uid, chatToolConfig)
+                val sharingEnabled = runCatching {
+                    settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
+                }.getOrDefault(true)
+                val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
+                agentToolResolver.resolve(platform.uid, chatToolConfig).map { resolved ->
+                    resolved.copy(
+                        tool = sharedToolCallBroker.wrap(
+                            scopeId = shareScope,
+                            toolIdentity = buildSharedToolIdentity(resolved),
+                            shareableReadOnly = sharingEnabled && resolved.shareableReadOnly,
+                            tool = resolved.tool
+                        )
+                    )
+                }
             }
             val requestPlatform = platform.copy(
                 systemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName })
@@ -189,6 +204,12 @@ class ChatRepositoryImpl(
             var providerToolFailures = 0
             var providerThinkingSeen = false
             var providerTextSeen = false
+            var accumulatedInputTokens = 0L
+            var accumulatedOutputTokens = 0L
+            var accumulatedTotalTokens = 0L
+            var hasInputTokenUsage = false
+            var hasOutputTokenUsage = false
+            var hasTotalTokenUsage = false
             val providerRoute = platform.compatibleType.name.lowercase()
 
             fun providerProgress(
@@ -268,6 +289,39 @@ class ChatRepositoryImpl(
                         is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent))
 
                         is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
+
+                        is ProviderEvent.Usage -> {
+                            providerEvent.inputTokens?.let {
+                                accumulatedInputTokens = if (providerEvent.cumulative) {
+                                    maxOf(accumulatedInputTokens, it.toLong())
+                                } else {
+                                    accumulatedInputTokens + it
+                                }
+                                hasInputTokenUsage = true
+                            }
+                            providerEvent.outputTokens?.let {
+                                accumulatedOutputTokens = if (providerEvent.cumulative) {
+                                    maxOf(accumulatedOutputTokens, it.toLong())
+                                } else {
+                                    accumulatedOutputTokens + it
+                                }
+                                hasOutputTokenUsage = true
+                            }
+                            providerEvent.totalTokens?.let {
+                                accumulatedTotalTokens = if (providerEvent.cumulative) {
+                                    maxOf(accumulatedTotalTokens, it.toLong())
+                                } else {
+                                    accumulatedTotalTokens + it
+                                }
+                                hasTotalTokenUsage = true
+                            }
+                            agentRunDao.updateUsage(
+                                runId = runId,
+                                inputTokens = if (hasInputTokenUsage) accumulatedInputTokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null,
+                                outputTokens = if (hasOutputTokenUsage) accumulatedOutputTokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null,
+                                totalTokens = if (hasTotalTokenUsage) accumulatedTotalTokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null
+                            )
+                        }
 
                         is ProviderEvent.GatewayMetadataCaptured -> {
                             providerEvent.metadata.jobId?.let { jobId ->
@@ -367,6 +421,18 @@ class ChatRepositoryImpl(
         emit(ApiState.Error(classified.userMessage))
     }.onCompletion {
         emit(ApiState.Done)
+    }
+
+    private fun buildSharedToolScope(contextTurns: List<ConversationTurn>): String? {
+        val latestUserMessage = contextTurns.lastOrNull()?.userMessage ?: return null
+        if (latestUserMessage.chatId <= 0 || latestUserMessage.id <= 0) return null
+        return "chat:${latestUserMessage.chatId}:turn:${latestUserMessage.id}"
+    }
+
+    private fun buildSharedToolIdentity(tool: ResolvedAgentTool): String = buildString {
+        append(tool.connectionUid ?: "builtin")
+        append(':')
+        append(tool.realToolName)
     }
 
     private suspend fun buildContextTurns(
@@ -569,6 +635,21 @@ class ChatRepositoryImpl(
             title = cleanedTitle,
             isCustomized = isCustomized
         )
+    }
+
+    override suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2 {
+        val activeProfiles = platformUids.filter(String::isNotBlank).distinct()
+        require(activeProfiles.isNotEmpty()) { "A conversation must keep at least one AI profile." }
+        val stableProfileSlots = (chatRoom.enabledPlatform + activeProfiles).filter(String::isNotBlank).distinct()
+        val updated = chatRoom.copy(
+            enabledPlatform = stableProfileSlots,
+            activePlatform = activeProfiles,
+            updatedAt = System.currentTimeMillis() / 1000
+        )
+        if (chatRoom.id > 0) {
+            chatRoomV2Dao.editChatRoom(updated)
+        }
+        return updated
     }
 
     override suspend fun generateAiTitle(

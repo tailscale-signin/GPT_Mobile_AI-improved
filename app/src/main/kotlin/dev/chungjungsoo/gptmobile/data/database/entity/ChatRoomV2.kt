@@ -33,6 +33,14 @@ data class ChatRoomV2(
     @ColumnInfo(name = "enabled_platform")
     val enabledPlatform: List<String> = emptyList(),
 
+    /**
+     * Profiles that currently participate in new generations. enabledPlatform is
+     * the stable historical slot registry and must not shrink when a profile is
+     * removed from an active conversation.
+     */
+    @ColumnInfo(name = "active_platform", defaultValue = "''")
+    val activePlatform: List<String> = enabledPlatform,
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis() / 1000,
 

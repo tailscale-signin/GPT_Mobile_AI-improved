@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -19,6 +21,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -38,6 +41,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -47,6 +51,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.*
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
@@ -95,6 +101,11 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
@@ -142,8 +153,8 @@ fun UserChatBubble(
                     ) {
                         Text(
                             text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f)
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.24f)
                         )
                     }
                 }
@@ -169,6 +180,109 @@ fun UserChatBubble(
 }
 
 @Composable
+private fun LocationToolMapPreview(
+    toolEvents: List<ToolEvent>,
+    modifier: Modifier = Modifier
+) {
+    val coordinates = remember(toolEvents) {
+        toolEvents.asReversed().firstNotNullOfOrNull { event ->
+            if (event.status != ToolEventStatus.COMPLETED || event.isError) return@firstNotNullOfOrNull null
+            val identity = (event.toolName + " " + event.modelToolName + " " + (event.connectionNameSnapshot ?: "")).lowercase()
+            if ("location" !in identity && "geo" !in identity && "map" !in identity) return@firstNotNullOfOrNull null
+            extractLocationCoordinates(event.result.orEmpty())
+        }
+    } ?: return
+    val context = LocalContext.current
+    val (latitude, longitude) = coordinates
+    var mapView by remember { mutableStateOf<MapView?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mapView?.onStop()
+            mapView?.onDestroy()
+            mapView = null
+        }
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().height(220.dp),
+                factory = { mapContext ->
+                    MapView(mapContext).also { view ->
+                        mapView = view
+                        view.onCreate(null)
+                        view.onStart()
+                        view.getMapAsync { map ->
+                            map.cameraPosition = CameraPosition.Builder()
+                                .target(LatLng(latitude, longitude))
+                                .zoom(15.0)
+                                .build()
+                            map.setStyle(Style.Builder().fromUri(MAPLIBRE_DEMO_STYLE))
+                        }
+                    }
+                },
+                update = { view ->
+                    view.getMapAsync { map ->
+                        map.cameraPosition = CameraPosition.Builder()
+                            .target(LatLng(latitude, longitude))
+                            .zoom(15.0)
+                            .build()
+                    }
+                }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Location", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "%.5f, %.5f".format(Locale.US, latitude, longitude),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
+                    )
+                    Text(
+                        "Interactive MapLibre preview",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude")
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                    }
+                ) {
+                    Text("Open")
+                }
+            }
+        }
+    }
+}
+
+private const val MAPLIBRE_DEMO_STYLE = "https://demotiles.maplibre.org/style.json"
+
+private fun extractLocationCoordinates(result: String): Pair<Double, Double>? {
+    val latitude = Regex("""["']?latitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        ?: Regex("""["']?lat["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+            .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+    val longitude = Regex("""["']?longitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        ?: Regex("""["']?(?:lon|lng)["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+            .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+    if (latitude == null || longitude == null || latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return null
+    return latitude to longitude
+}
+
+@Composable
 private fun GatewayActivityBar(
     isLoading: Boolean,
     toolEvents: List<ToolEvent>,
@@ -181,38 +295,11 @@ private fun GatewayActivityBar(
             it.connectionUidSnapshot?.startsWith("gateway:", ignoreCase = true) == true
         }
     }
-
-    val running = gatewayEvents.count { it.status == ToolEventStatus.RUNNING }
-    val completed = gatewayEvents.count { it.status == ToolEventStatus.COMPLETED }
-    val failed = gatewayEvents.count { it.status == ToolEventStatus.FAILED }
-
     val latestRunning = gatewayEvents
         .filter { it.status == ToolEventStatus.RUNNING }
         .maxByOrNull { it.sequence }
-
-    val title = if (gatewayEvents.isEmpty()) {
-        "AI is working"
-    } else {
-        buildString {
-            append("Gateway working")
-            append(" • ")
-            append(completed)
-            append(" completed")
-            if (running > 0) {
-                append(" • ")
-                append(running)
-                append(" running")
-            }
-            if (failed > 0) {
-                append(" • ")
-                append(failed)
-                append(" failed")
-            }
-        }
-    }
-
     val detail = latestRunning?.let { event ->
-        val server = event.connectionNameSnapshot ?: "GATEWAY"
+        val server = event.connectionNameSnapshot ?: "Gateway"
         val tool = event.toolName
             .ifBlank { event.modelToolName }
             .substringAfterLast("__")
@@ -224,49 +311,27 @@ private fun GatewayActivityBar(
         "Preparing model, memory, and tools…"
     }
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f)
-                )
-                if (gatewayEvents.isNotEmpty()) {
-                    Text(
-                        text = "GATEWAY",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(6.dp))
-
-            // Indeterminate is intentional: the gateway knows whether work
-            // is progressing, but not the future number of model/tool steps.
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(Modifier.height(6.dp))
-
+        Icon(
+            imageVector = Icons.Default.AutoAwesome,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = detail,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -493,6 +558,11 @@ fun OpponentChatBubble(
                     }
                 }
 
+                LocationToolMapPreview(
+                    toolEvents = toolEvents,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+
                 MessageFileThumbnailRow(
                     files = attachments,
                     usePrimaryColors = false,
@@ -680,8 +750,8 @@ fun OpponentChatBubble(
                     if (formattedTime.isNotBlank()) {
                         Text(
                             text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f),
                             modifier = Modifier.padding(end = 8.dp)
                         )
                     }
@@ -742,15 +812,6 @@ fun OpponentChatBubble(
                             )
                         )
                     }
-                }
-
-                if (!isLoading && canRetry) {
-                    Text(
-                        text = stringResource(R.string.retry_tools_warning),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-                    )
                 }
 
                 if (!isLoading) {
@@ -1110,21 +1171,69 @@ fun GPTMobileIcon(loading: Boolean) {
 }
 
 @Composable
-fun PlatformButton(isLoading: Boolean, name: String, selected: Boolean, onPlatformClick: () -> Unit) {
+fun PlatformButton(
+    isLoading: Boolean,
+    name: String,
+    selected: Boolean,
+    disabled: Boolean = false,
+    onPlatformClick: () -> Unit,
+    onPlatformLongPress: () -> Unit = {}
+) {
+    val haptic = LocalHapticFeedback.current
     val content: @Composable RowScope.() -> Unit = {
         Spacer(Modifier.width(12.dp))
-        if (isLoading) { CircularProgressIndicator(Modifier.size(16.dp)); Spacer(Modifier.width(8.dp)) }
+        if (isLoading) {
+            CircularProgressIndicator(Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
-            name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            name,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary
         )
-        Spacer(Modifier.width(12.dp)); if (isLoading) Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(12.dp))
+        if (isLoading) Spacer(Modifier.width(4.dp))
     }
-    TextButton(
-        modifier = Modifier.widthIn(max = 160.dp), onClick = onPlatformClick,
-        colors = if (selected) ButtonDefaults.filledTonalButtonColors() else ButtonDefaults.textButtonColors(),
-        content = content
-    )
+    Surface(
+        modifier = Modifier
+            .widthIn(max = 160.dp)
+            .alpha(if (disabled) 0.5f else 1f)
+            .clip(RoundedCornerShape(24.dp))
+            .pointerInput(name, disabled) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitFirstDown(requireUnconsumed = false)
+                        val releasedBeforeLongPress = withTimeoutOrNull(1000L) {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.any { !it.pressed }) return@withTimeoutOrNull true
+                            }
+                            @Suppress("UNREACHABLE_CODE")
+                            false
+                        }
+                        if (releasedBeforeLongPress == null) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onPlatformLongPress()
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.all { !it.pressed }) break
+                            }
+                        } else {
+                            onPlatformClick()
+                        }
+                    }
+                }
+            },
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
+    }
 }
 
 @Composable private fun CopyTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {

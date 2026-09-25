@@ -4,6 +4,8 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.DocumentContent as AnthropicDocumentContent
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.DocumentSource
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ImageContent as AnthropicImageContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ImageSource
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MediaType
@@ -107,6 +109,12 @@ open class ProviderAttachmentEncoder @Inject constructor(
             message.attachments.forEach { attachment ->
                 val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
                 val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
+                if (!FileUtils.isImage(mimeType)) {
+                    throw IllegalStateException(
+                        "This OpenAI-compatible Chat Completions provider supports image attachments only. " +
+                            "Use an OpenAI Responses, Anthropic, or Gemini profile for document attachments."
+                    )
+                }
                 encodedAttachment(filePath, mimeType)?.let { encoded ->
                     content += OpenAIImageContent(ImageUrl("data:${encoded.mimeType};base64,${encoded.base64Data}"))
                 }
@@ -125,15 +133,7 @@ open class ProviderAttachmentEncoder @Inject constructor(
     ): ResponseInputMessage {
         val text = message.modelVisibleText(isUser)
         val ctx = context
-        val images = if (ctx != null) {
-            message.attachments.filter { attachment ->
-                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                FileUtils.isImage(attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) })
-            }
-        } else {
-            emptyList()
-        }
-        if (images.isEmpty()) {
+        if (message.attachments.isEmpty()) {
             return ResponseInputMessage(
                 role = if (isUser) "user" else "assistant",
                 content = ResponseInputContent.text(text)
@@ -142,13 +142,19 @@ open class ProviderAttachmentEncoder @Inject constructor(
 
         val parts = buildList {
             if (text.isNotBlank()) add(ResponseContentPart.text(text))
-            images.forEach { attachment ->
+            message.attachments.forEach { attachment ->
                 val providerRef = attachment.providerRefFor(platformUid)
+                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+                val mimeType = attachment.mimeType.ifBlank {
+                    if (ctx != null) FileUtils.getMimeType(ctx, filePath) else FileUtils.getMimeTypeFromPath(filePath)
+                }
                 if (providerRef?.remoteType == AttachmentRemoteType.OPENAI_FILE) {
-                    add(ResponseContentPart.imageFile(providerRef.remoteId))
-                } else if (ctx != null) {
-                    val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
+                    if (FileUtils.isImage(mimeType)) {
+                        add(ResponseContentPart.imageFile(providerRef.remoteId))
+                    } else {
+                        add(ResponseContentPart.file(providerRef.remoteId))
+                    }
+                } else if (ctx != null && FileUtils.isImage(mimeType)) {
                     encodedAttachment(filePath, mimeType)?.let { encoded ->
                         add(ResponseContentPart.image("data:${encoded.mimeType};base64,${encoded.base64Data}"))
                     }
@@ -174,14 +180,29 @@ open class ProviderAttachmentEncoder @Inject constructor(
         if (ctx != null) {
             message.attachments.forEach { attachment ->
                 val providerRef = attachment.providerRefFor(platformUid)
+                val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
+                val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
                 if (providerRef?.remoteType == AttachmentRemoteType.ANTHROPIC_FILE) {
-                    content += AnthropicImageContent(ImageSource.file(providerRef.remoteId))
-                } else {
-                    val filePath = attachment.preparedFilePath.ifBlank { attachment.localFilePath }
-                    val mimeType = attachment.mimeType.ifBlank { FileUtils.getMimeType(ctx, filePath) }
+                    when {
+                        FileUtils.isImage(mimeType) ->
+                            content += AnthropicImageContent(ImageSource.file(providerRef.remoteId))
+                        mimeType == "application/pdf" || mimeType.startsWith("text/") ->
+                            content += AnthropicDocumentContent(DocumentSource.file(providerRef.remoteId))
+                        else -> throw IllegalStateException(
+                            "Anthropic document attachments currently support PDF and text files. " +
+                                "Convert ${attachment.resolvedDisplayName} to PDF or text before sending."
+                        )
+                    }
+                } else if (FileUtils.isImage(mimeType)) {
                     encodedAttachment(filePath, mimeType)?.let { encoded ->
                         content += AnthropicImageContent(
                             ImageSource.base64(encoded.mimeType.toAnthropicMediaType(), encoded.base64Data)
+                        )
+                    }
+                } else if (mimeType == "application/pdf") {
+                    encodedAttachment(filePath, mimeType)?.let { encoded ->
+                        content += AnthropicDocumentContent(
+                            DocumentSource.base64(encoded.mimeType, encoded.base64Data)
                         )
                     }
                 }

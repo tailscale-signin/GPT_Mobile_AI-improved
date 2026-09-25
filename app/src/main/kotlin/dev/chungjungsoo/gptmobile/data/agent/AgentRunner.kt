@@ -101,6 +101,27 @@ class AgentRunner(
             val calls = mutableListOf<ProviderEvent.ToolCall>()
             var completed = false
             var failed = false
+            var roundInputTokens = 0L
+            var roundOutputTokens = 0L
+            var roundTotalTokens = 0L
+            var hasRoundInputUsage = false
+            var hasRoundOutputUsage = false
+            var hasRoundTotalUsage = false
+
+            suspend fun emitRoundUsage() {
+                if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage) return
+                emit(
+                    AgentRunEvent.Provider(
+                        ProviderEvent.Usage(
+                            inputTokens = roundInputTokens.takeIf { hasRoundInputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                            outputTokens = roundOutputTokens.takeIf { hasRoundOutputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                            totalTokens = roundTotalTokens.takeIf { hasRoundTotalUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                            cumulative = false
+                        )
+                    )
+                )
+            }
+
             try {
                 session.streamRound(exposedDefinitions, exchanges)
                     .collect { event ->
@@ -122,6 +143,33 @@ class AgentRunner(
 
                             is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
 
+                            is ProviderEvent.Usage -> {
+                                event.inputTokens?.let { tokens ->
+                                    roundInputTokens = if (event.cumulative) {
+                                        maxOf(roundInputTokens, tokens.toLong())
+                                    } else {
+                                        roundInputTokens + tokens
+                                    }
+                                    hasRoundInputUsage = true
+                                }
+                                event.outputTokens?.let { tokens ->
+                                    roundOutputTokens = if (event.cumulative) {
+                                        maxOf(roundOutputTokens, tokens.toLong())
+                                    } else {
+                                        roundOutputTokens + tokens
+                                    }
+                                    hasRoundOutputUsage = true
+                                }
+                                event.totalTokens?.let { tokens ->
+                                    roundTotalTokens = if (event.cumulative) {
+                                        maxOf(roundTotalTokens, tokens.toLong())
+                                    } else {
+                                        roundTotalTokens + tokens
+                                    }
+                                    hasRoundTotalUsage = true
+                                }
+                            }
+
                             ProviderEvent.Completed -> completed = true
 
                             else -> emit(AgentRunEvent.Provider(event))
@@ -141,11 +189,13 @@ class AgentRunner(
                 emit(failed(error.message ?: "Tools are unavailable for this model."))
                 return
             } catch (error: Throwable) {
+                emitRoundUsage()
                 val classifiedMessage = ErrorClassification.classify(error).userMessage
                 emit(failed(classifiedMessage))
                 return
             }
 
+            emitRoundUsage()
             if (failed) return
             if (calls.isEmpty()) {
                 if (completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))

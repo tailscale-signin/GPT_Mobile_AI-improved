@@ -24,7 +24,13 @@ data class DebugAnalyticsState(
     val completedToolCalls: Int = 0,
     val failedToolCalls: Int = 0,
     val averageRunDurationMs: Long? = null,
-    val averageToolDurationMs: Long? = null
+    val averageToolDurationMs: Long? = null,
+    val modelUsage: List<Pair<String, Int>> = emptyList(),
+    val providerUsage: List<Pair<String, Int>> = emptyList(),
+    val profileUsage: List<Pair<String, Int>> = emptyList(),
+    val modelTokenUsage: List<Pair<String, Long>> = emptyList(),
+    val profileTokenUsage: List<Pair<String, Long>> = emptyList(),
+    val totalTrackedTokens: Long = 0L
 )
 
 @HiltViewModel
@@ -49,6 +55,23 @@ class DebugDiagnosticsViewModel @Inject constructor(
                 val end = run.completedAt ?: return@mapNotNull null
                 ((end - start) * 1000L).coerceAtLeast(0L)
             }.takeIf { it.isNotEmpty() }?.average()?.toLong(),
+            modelUsage = runs.groupingBy { it.modelSnapshot.ifBlank { "Unknown model" } }
+                .eachCount().entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
+            providerUsage = runs.groupingBy { it.providerSnapshot.ifBlank { "Unknown provider" } }
+                .eachCount().entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
+            profileUsage = runs.groupingBy { it.profileUid.ifBlank { "Unknown profile" } }
+                .eachCount().entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
+            modelTokenUsage = runs
+                .mapNotNull { run -> run.totalTokens?.let { run.modelSnapshot.ifBlank { "Unknown model" } to it.toLong() } }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { (_, tokens) -> tokens.sum() }
+                .entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
+            profileTokenUsage = runs
+                .mapNotNull { run -> run.totalTokens?.let { run.profileUid.ifBlank { "Unknown profile" } to it.toLong() } }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { (_, tokens) -> tokens.sum() }
+                .entries.sortedByDescending { it.value }.take(8).map { it.key to it.value },
+            totalTrackedTokens = runs.sumOf { it.totalTokens?.toLong() ?: 0L },
             averageToolDurationMs = tools.mapNotNull { event ->
                 val start = event.startedAt ?: return@mapNotNull null
                 val end = event.completedAt ?: return@mapNotNull null

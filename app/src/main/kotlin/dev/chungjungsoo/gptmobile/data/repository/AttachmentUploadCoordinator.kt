@@ -88,7 +88,7 @@ class AttachmentUploadCoordinator @Inject constructor(
 
         if (totalPreparedBytes > maxInlineBytes) {
             throw IllegalStateException(
-                "These images are too large to upload safely on this provider. Remove some images or use OpenAI, Anthropic, or Google."
+                "These attachments are too large to upload safely on this provider. Remove some files or use OpenAI, Anthropic, or Google."
             )
         }
     }

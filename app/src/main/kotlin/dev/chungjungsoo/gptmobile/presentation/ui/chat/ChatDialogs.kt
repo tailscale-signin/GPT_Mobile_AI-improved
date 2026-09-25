@@ -23,6 +23,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -59,15 +61,25 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ChatModelDialog(
     platformOrder: List<String>,
+    activePlatformUids: Set<String>,
     initialModels: Map<String, String>,
     platformNames: Map<String, String>,
     platformClientTypes: Map<String, ClientType> = emptyMap(),
     platformApiUrls: Map<String, String> = emptyMap(),
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
     ollamaModels: List<UnifiedModelOption.Ollama> = emptyList(),
+    initialCreativity: Float = 0.5f,
+    locationToolsEnabled: Boolean = false,
+    webSearchToolsEnabled: Boolean = false,
+    locationToolsAvailable: Boolean = true,
+    webSearchToolsAvailable: Boolean = true,
+    disabledPlatformUids: Set<String> = emptySet(),
+    onPlatformActiveChanged: (String, Boolean) -> Unit = { _, _ -> },
+    onLocationToolsChanged: (Boolean) -> Unit = {},
+    onWebSearchToolsChanged: (Boolean) -> Unit = {},
     onNavigateToLocalModels: () -> Unit = {},
     onDismissRequest: () -> Unit,
-    onConfirmRequest: (Map<String, String>) -> Unit
+    onConfirmRequest: (Map<String, String>, Float) -> Unit
 ) {
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -78,6 +90,8 @@ fun ChatModelDialog(
 
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
+    var modelSearch by rememberSaveable { mutableStateOf("") }
+    var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -87,13 +101,65 @@ fun ChatModelDialog(
         title = { Text(text = stringResource(R.string.chat_models)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    text = stringResource(R.string.chat_models_description),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                OutlinedTextField(
+                    value = modelSearch,
+                    onValueChange = { modelSearch = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                    label = { Text("Search models") },
+                    singleLine = true
                 )
-                platformOrder.forEach { platformUid ->
+                Text("Creativity", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                Slider(
+                    value = creativity,
+                    onValueChange = { creativity = it },
+                    valueRange = 0f..2f,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Location tools", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = locationToolsEnabled,
+                        enabled = locationToolsAvailable,
+                        onCheckedChange = onLocationToolsChanged
+                    )
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Web search tools", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = webSearchToolsEnabled,
+                        enabled = webSearchToolsAvailable,
+                        onCheckedChange = onWebSearchToolsChanged
+                    )
+                }
+                Text(
+                    text = "Models in this conversation",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                )
+                platformOrder.filter { uid ->
+                    modelSearch.isBlank() ||
+                        platformNames[uid].orEmpty().contains(modelSearch, ignoreCase = true) ||
+                        models[uid].orEmpty().contains(modelSearch, ignoreCase = true)
+                }.forEach { platformUid ->
                     val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
                     val clientType = platformClientTypes[platformUid]
+                    val isMember = platformUid in activePlatformUids
+                    val isTemporarilyEnabled = platformUid !in disabledPlatformUids
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                        Text(if (isMember) "Added" else "Available", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.width(8.dp))
+                        Switch(
+                            checked = isMember,
+                            enabled = isTemporarilyEnabled || !isMember,
+                            onCheckedChange = { active -> onPlatformActiveChanged(platformUid, active) }
+                        )
+                    }
 
                     if (clientType == ClientType.LITERT_LM) {
                         Text(
@@ -183,7 +249,8 @@ fun ChatModelDialog(
                 enabled = !hasBlank,
                 onClick = {
                     onConfirmRequest(
-                        models.mapValues { (_, model) -> model.trim() }
+                        models.mapValues { (_, model) -> model.trim() },
+                        creativity
                     )
                 }
             ) {
@@ -357,7 +424,7 @@ fun UserMessageEditDialog(
                 )
                 AttachmentEditorSection(
                     attachments = attachments,
-                    onAttachFileClick = { filePickerLauncher.launch("image/*") },
+                    onAttachFileClick = { filePickerLauncher.launch("*/*") },
                     onFileRemoved = onFileRemoved
                 )
             }

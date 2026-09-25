@@ -185,6 +185,8 @@ fun ChatScreen(
     val toolEventsByRun by chatViewModel.toolEventsByRun.collectAsStateWithLifecycle()
     val indexStates by chatViewModel.indexStates.collectAsStateWithLifecycle()
     val loadingStates by chatViewModel.loadingStates.collectAsStateWithLifecycle()
+    val disabledPlatformUids by chatViewModel.disabledPlatformUids.collectAsStateWithLifecycle()
+    val activePlatformUids by chatViewModel.activePlatformUids.collectAsStateWithLifecycle()
     val isChatTitleDialogOpen by chatViewModel.isChatTitleDialogOpen.collectAsStateWithLifecycle()
     val isChatModelDialogOpen by chatViewModel.isChatModelDialogOpen.collectAsStateWithLifecycle()
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
@@ -195,10 +197,13 @@ fun ChatScreen(
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
+    val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
+    val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
-    val enabledPlatformLookup = remember(appEnabledPlatforms) { appEnabledPlatforms.associateBy { it.uid } }
-    val canUseChat = (chatViewModel.enabledPlatformsInChat.toSet() - appEnabledPlatforms.map { it.uid }.toSet()).isEmpty()
+    val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
+    val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
+    val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
@@ -368,6 +373,8 @@ fun ChatScreen(
                             loadingStates = loadingStates,
                             enabledPlatformsInChat = chatViewModel.enabledPlatformsInChat,
                             enabledPlatformLookup = enabledPlatformLookup,
+                            disabledPlatformUids = disabledPlatformUids,
+                            activePlatformUids = activePlatformUids.toSet(),
                             canUseChat = canUseChat,
                             isIdle = isIdle,
                             isActiveMessage = index == lastMessageIndex,
@@ -386,6 +393,7 @@ fun ChatScreen(
                                 }
                             },
                             onPlatformClick = chatViewModel::updateChatPlatformIndex,
+                            onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                             onSelectText = chatViewModel::openSelectTextSheet,
                             onRetry = chatViewModel::retryChat,
                             onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
@@ -425,7 +433,7 @@ fun ChatScreen(
             ChatInputBox(
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
-                sendButtonEnabled = isIdle,
+                sendButtonEnabled = true,
                 isRunning = !isIdle,
                 selectedAttachments = selectedAttachments,
                 onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
@@ -461,20 +469,56 @@ fun ChatScreen(
         }
 
         if (isChatModelDialogOpen) {
-            val platformNames = chatViewModel.enabledPlatformsInChat.associateWith { uid ->
-                appAllPlatforms.find { it.uid == uid }?.name ?: stringResource(R.string.unknown)
-            }
+            val dialogPlatformOrder = appAllPlatforms.filter { it.enabled }.map { it.uid }
+            val platformNames = appAllPlatforms.associate { it.uid to it.name }
+            val locationToolIds = availableChatTools.filter { tool ->
+                val searchable = (tool.name + " " + tool.description + " " + tool.source).lowercase()
+                "location" in searchable || "maps" in searchable || "geolocation" in searchable
+            }.map { it.id }
+            val webSearchToolIds = availableChatTools.filter { tool ->
+                val searchable = (tool.name + " " + tool.description + " " + tool.source).lowercase()
+                "web search" in searchable ||
+                    "web-search" in searchable ||
+                    "search web" in searchable ||
+                    "firecrawl" in searchable ||
+                    "perplexity" in searchable ||
+                    "exa" in searchable
+            }.map { it.id }
+            val initialCreativity = appAllPlatforms
+                .filter { it.uid in activePlatformUids }
+                .mapNotNull { it.temperature }
+                .average()
+                .takeIf { !it.isNaN() }
+                ?.toFloat()
+                ?: 0.5f
             ChatModelDialog(
-                platformOrder = chatViewModel.enabledPlatformsInChat,
+                platformOrder = dialogPlatformOrder,
+                activePlatformUids = activePlatformUids.toSet(),
                 initialModels = chatPlatformModels,
                 platformNames = platformNames,
                 platformClientTypes = appAllPlatforms.associate { it.uid to it.compatibleType },
                 platformApiUrls = appAllPlatforms.associate { it.uid to it.apiUrl },
                 downloadedLocalModels = downloadedLocalModels,
+                initialCreativity = initialCreativity,
+                locationToolsEnabled = locationToolIds.isNotEmpty() &&
+                    locationToolIds.any(chatToolConfig::isToolEnabled),
+                webSearchToolsEnabled = webSearchToolIds.isNotEmpty() &&
+                    webSearchToolIds.any(chatToolConfig::isToolEnabled),
+                locationToolsAvailable = locationToolIds.isNotEmpty(),
+                webSearchToolsAvailable = webSearchToolIds.isNotEmpty(),
+                disabledPlatformUids = disabledPlatformUids,
+                onPlatformActiveChanged = chatViewModel::setPlatformMembership,
+                onLocationToolsChanged = { enabled ->
+                    chatViewModel.setChatToolsEnabled(locationToolIds, enabled)
+                },
+                onWebSearchToolsChanged = { enabled ->
+                    chatViewModel.setChatToolsEnabled(webSearchToolIds, enabled)
+                },
                 onNavigateToLocalModels = onNavigateToLocalModels,
                 onDismissRequest = chatViewModel::closeChatModelDialog,
-                onConfirmRequest = { models ->
+                onConfirmRequest = { models, creativity ->
                     chatViewModel.updateChatPlatformModels(models)
+                    chatViewModel.updateChatCreativity(creativity)
                     chatViewModel.closeChatModelDialog()
                 }
             )
@@ -545,6 +589,8 @@ private fun ChatMessagePair(
     loadingStates: List<ChatViewModel.LoadingState>,
     enabledPlatformsInChat: List<String>,
     enabledPlatformLookup: Map<String, PlatformV2>,
+    disabledPlatformUids: Set<String>,
+    activePlatformUids: Set<String>,
     canUseChat: Boolean,
     isIdle: Boolean,
     isActiveMessage: Boolean,
@@ -559,6 +605,7 @@ private fun ChatMessagePair(
     onEditAssistant: (Int, Int) -> Unit,
     onCopyText: (String) -> Unit,
     onPlatformClick: (Int, Int) -> Unit,
+    onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onFavoriteClick: () -> Unit,
@@ -568,8 +615,20 @@ private fun ChatMessagePair(
     onContinueClick: () -> Unit = {},
     onActionClick: (String) -> Unit = {}
 ) {
-    val isCombinedConversation = combinedMode && enabledPlatformsInChat.size > 1
-    val displayPlatformIndex = if (isCombinedConversation) 0 else platformIndexState
+    val combinedSynthesisIndex = assistantMessages.indexOfFirst { response ->
+        response.currentRunId?.startsWith(ChatViewModel.COMBINED_RUN_PREFIX) == true ||
+            response.combinedSources.isNotEmpty()
+    }
+    val activeSlotIndexes = enabledPlatformsInChat.mapIndexedNotNull { index, uid ->
+        index.takeIf { uid in activePlatformUids && uid !in disabledPlatformUids }
+    }
+    val isCombinedConversation = combinedMode &&
+        (combinedSynthesisIndex >= 0 || (isActiveMessage && activeSlotIndexes.size > 1))
+    val displayPlatformIndex = when {
+        combinedSynthesisIndex >= 0 -> combinedSynthesisIndex
+        isCombinedConversation -> activeSlotIndexes.firstOrNull() ?: platformIndexState
+        else -> platformIndexState
+    }
     val selectedAssistantMessage = assistantMessages.getOrNull(displayPlatformIndex)
     val responseBringIntoViewRequester = remember { BringIntoViewRequester() }
     val isTargetAssistantResponse = targetMessageId > 0 && selectedAssistantMessage?.id == targetMessageId
@@ -604,10 +663,9 @@ private fun ChatMessagePair(
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
     val activeAgentRun = if (isCombinedConversation) {
-        assistantMessages
-            .take(enabledPlatformsInChat.size)
+        activeSlotIndexes
             .asSequence()
-            .mapNotNull { it.currentRunId?.let(activeAgentRuns::get) }
+            .mapNotNull { index -> assistantMessages.getOrNull(index)?.currentRunId?.let(activeAgentRuns::get) }
             .firstOrNull()
     } else {
         selectedRunId?.let(activeAgentRuns::get)
@@ -623,7 +681,9 @@ private fun ChatMessagePair(
     } ?: false)
     val selectedPlatformUid = enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
     val isCurrentPlatformLoading = if (isCombinedConversation) {
-        loadingStates.any { it == ChatViewModel.LoadingState.Loading }
+        activeSlotIndexes.any { index ->
+            loadingStates.getOrNull(index) == ChatViewModel.LoadingState.Loading
+        }
     } else {
         loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } ==
             ChatViewModel.LoadingState.Loading
@@ -635,6 +695,7 @@ private fun ChatMessagePair(
                 val content = response.effectiveContent().trim()
                 if (content.isBlank() || isAssistantErrorMessage(content)) return@mapIndexedNotNull null
                 val uid = enabledPlatformsInChat.getOrNull(index) ?: return@mapIndexedNotNull null
+                if (uid !in activePlatformUids || uid in disabledPlatformUids) return@mapIndexedNotNull null
                 CombinedModelResponse(
                     platformUid = uid,
                     platformName = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
@@ -705,7 +766,7 @@ private fun ChatMessagePair(
                             Text(
                                 text = stringResource(
                                     R.string.combined_models_label,
-                                    enabledPlatformsInChat.size
+                                    combinedSources.size.takeIf { it > 0 } ?: activeSlotIndexes.size
                                 ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -724,7 +785,9 @@ private fun ChatMessagePair(
                                     isLoading = isActiveMessage && loadingStates[platformIndex] == ChatViewModel.LoadingState.Loading,
                                     name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
                                     selected = platformIndexState == platformIndex,
-                                    onPlatformClick = { onPlatformClick(messageIndex, platformIndex) }
+                                    disabled = uid in disabledPlatformUids,
+                                    onPlatformClick = { onPlatformClick(messageIndex, platformIndex) },
+                                    onPlatformLongPress = { onPlatformLongPress(uid) }
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
@@ -753,6 +816,7 @@ private fun ChatMessagePair(
                 OpponentChatBubble(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .alpha(if (!isCombinedConversation && selectedPlatformUid in disabledPlatformUids) 0.5f else 1f)
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle,
@@ -770,7 +834,7 @@ private fun ChatMessagePair(
                     runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
                     toolEvents = toolEvents,
                     contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
-                    revisionIndexLabel = selectedAssistantMessage?.let { assistantMessage ->
+                    revisionIndexLabel = selectedAssistantMessage?.takeIf { it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1
                         if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
                             stringResource(
@@ -1276,8 +1340,8 @@ fun ChatInputBox(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            enabled = chatEnabled && !isRunning,
-                            onClick = { filePickerLauncher.launch("image/*") }
+                            enabled = chatEnabled,
+                            onClick = { filePickerLauncher.launch("*/*") }
                         ) {
                             Icon(
                                 imageVector = ImageVector.vectorResource(R.drawable.ic_attach_file),
@@ -1299,11 +1363,12 @@ fun ChatInputBox(
                                 innerTextField()
                             }
                         }
+                        val showStop = isRunning && !hasQuestionText && selectedAttachments.isEmpty()
                         IconButton(
-                            enabled = isRunning || (chatEnabled && sendButtonEnabled && hasQuestionText),
-                            onClick = if (isRunning) onCancelButtonClick else onSendButtonClick
+                            enabled = showStop || (chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty())),
+                            onClick = if (showStop) onCancelButtonClick else onSendButtonClick
                         ) {
-                            if (isRunning) {
+                            if (showStop) {
                                 Icon(
                                     imageVector = Icons.Filled.Stop,
                                     contentDescription = stringResource(R.string.cancel_active_runs)

@@ -5,7 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,9 +42,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -145,6 +150,79 @@ fun DebugDiagnosticsScreen(
                         analytics.averageToolDurationMs?.let { "${it}ms" } ?: "—",
                         Modifier.weight(1f)
                     )
+                }
+            }
+
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard("Success", analytics.successRatePercent.toString() + "%", Modifier.weight(1f))
+                    MetricCard("Est. output tokens", analytics.estimatedGeneratedTokens.toString(), Modifier.weight(1f))
+                    MetricCard("Models", analytics.modelUsage.size.toString(), Modifier.weight(1f))
+                }
+            }
+
+            item {
+                DiagnosticsPanelCard("Model & profile usage", Icons.Default.Speed) {
+                    val maxTokens = analytics.modelUsage.maxOfOrNull { it.estimatedOutputTokens }?.coerceAtLeast(1) ?: 1
+                    if (analytics.modelUsage.isEmpty()) {
+                        Text("No model usage recorded yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        analytics.modelUsage.take(10).forEach { stat ->
+                            Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(stat.model, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            stat.provider + " • " + stat.runs + " runs",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        stat.estimatedOutputTokens.toString() + " est. tokens",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Box(
+                                    Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(99.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                ) {
+                                    Box(
+                                        Modifier.fillMaxWidth(stat.estimatedOutputTokens.toFloat() / maxTokens.toFloat())
+                                            .height(9.dp)
+                                            .clip(RoundedCornerShape(99.dp))
+                                            .background(MaterialTheme.colorScheme.primary)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                DiagnosticsPanelCard("Most-used tools", Icons.Default.Terminal) {
+                    val maxCalls = analytics.topTools.maxOfOrNull { it.calls }?.coerceAtLeast(1) ?: 1
+                    analytics.topTools.forEach { stat ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(stat.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Box(
+                                Modifier.weight(1f).height(7.dp).clip(RoundedCornerShape(99.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            ) {
+                                Box(
+                                    Modifier.fillMaxWidth(stat.calls.toFloat() / maxCalls.toFloat()).height(7.dp)
+                                        .background(MaterialTheme.colorScheme.secondary)
+                                )
+                            }
+                            Text(stat.calls.toString(), fontFamily = FontFamily.Monospace)
+                        }
+                    }
                 }
             }
 

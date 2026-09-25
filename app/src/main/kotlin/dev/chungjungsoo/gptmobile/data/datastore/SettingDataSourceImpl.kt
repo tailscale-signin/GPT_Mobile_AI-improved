@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -73,6 +74,7 @@ class SettingDataSourceImpl @Inject constructor(
     )
     val dynamicThemeKey = intPreferencesKey("dynamic_mode")
     val themeModeKey = intPreferencesKey("theme_mode")
+    val customAccentKey = longPreferencesKey("custom_accent_argb")
     val localRuntimeBackendKey = stringPreferencesKey("local_runtime_backend")
     val debugModeKey = booleanPreferencesKey("debug_mode")
     val featureSettingsKey = stringPreferencesKey("advanced_feature_settings_json")
@@ -93,6 +95,12 @@ class SettingDataSourceImpl @Inject constructor(
     override suspend fun updateThemeMode(themeMode: ThemeMode) {
         dataStore.edit { pref ->
             pref[themeModeKey] = themeMode.ordinal
+        }
+    }
+
+    override suspend fun updateCustomAccent(argb: Long?) {
+        dataStore.edit { pref ->
+            if (argb == null) pref.remove(customAccentKey) else pref[customAccentKey] = argb
         }
     }
 
@@ -197,6 +205,9 @@ class SettingDataSourceImpl @Inject constructor(
 
         return ThemeMode.getByValue(mode)
     }
+
+    override suspend fun getCustomAccent(): Long? =
+        dataStore.data.map { pref -> pref[customAccentKey] }.first()
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend {
         val backendStr = dataStore.data.map { pref ->

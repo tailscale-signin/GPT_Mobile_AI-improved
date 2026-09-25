@@ -180,6 +180,14 @@ class SettingRepositoryImpl @Inject constructor(
 
     override fun observeFavoriteGroups(): Flow<List<String>> = settingDataSource.observeFavoriteGroups()
 
+    override suspend fun getSelectedFavoriteGroup(): String? = settingDataSource.getSelectedFavoriteGroup()
+
+    override suspend fun saveSelectedFavoriteGroup(group: String) =
+        settingDataSource.saveSelectedFavoriteGroup(group)
+
+    override fun observeSelectedFavoriteGroup(): Flow<String?> =
+        settingDataSource.observeSelectedFavoriteGroup()
+
     override suspend fun getFavoriteMessageGroups(): Map<Int, String> = settingDataSource.getFavoriteMessageGroups()
 
     override suspend fun saveFavoriteMessageGroups(messageGroups: Map<Int, String>) =

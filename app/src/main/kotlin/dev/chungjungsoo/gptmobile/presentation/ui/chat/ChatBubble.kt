@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import android.content.Intent
+import android.net.Uri
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -39,6 +42,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -167,6 +171,67 @@ fun UserChatBubble(
         }
         MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
     }
+}
+
+@Composable
+private fun LocationToolMapPreview(
+    toolEvents: List<ToolEvent>,
+    modifier: Modifier = Modifier
+) {
+    val coordinates = remember(toolEvents) {
+        toolEvents.asReversed().firstNotNullOfOrNull { event ->
+            if (event.status != ToolEventStatus.COMPLETED || event.isError) return@firstNotNullOfOrNull null
+            val identity = (event.toolName + " " + event.modelToolName + " " + (event.connectionNameSnapshot ?: "")).lowercase()
+            if ("location" !in identity && "geo" !in identity && "map" !in identity) return@firstNotNullOfOrNull null
+            extractLocationCoordinates(event.result.orEmpty())
+        }
+    } ?: return
+    val context = LocalContext.current
+    val (latitude, longitude) = coordinates
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable {
+                val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude")
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+            },
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Location", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "%.5f, %.5f".format(Locale.US, latitude, longitude),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
+                )
+                Text(
+                    "Open map preview",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+private fun extractLocationCoordinates(result: String): Pair<Double, Double>? {
+    val latitude = Regex("""["']?latitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        ?: Regex("""["']?lat["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+            .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+    val longitude = Regex("""["']?longitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+        .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        ?: Regex("""["']?(?:lon|lng)["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+            .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+    if (latitude == null || longitude == null || latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return null
+    return latitude to longitude
 }
 
 @Composable
@@ -493,6 +558,11 @@ fun OpponentChatBubble(
                         )
                     }
                 }
+
+                LocationToolMapPreview(
+                    toolEvents = toolEvents,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
 
                 MessageFileThumbnailRow(
                     files = attachments,

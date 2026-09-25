@@ -1386,18 +1386,25 @@ class ChatViewModel @Inject constructor(
 
     private fun maybeStartCombinedSynthesis(runsById: Map<String, AgentRun>) {
         val room = _chatRoom.value
-        val activeCombinedPlatforms = _activePlatformUids.value.filterNot { it in _disabledPlatformUids.value }
-        if (room.conversationMode != ConversationMode.COMBINED || activeCombinedPlatforms.size < 2) return
+        val activeCombinedUids = _activePlatformUids.value
+            .filterNot { it in _disabledPlatformUids.value }
+            .toSet()
+        val slotUids = enabledPlatformsInChat
+        val activeSlotIndexes = slotUids.mapIndexedNotNull { index, uid ->
+            index.takeIf { uid in activeCombinedUids }
+        }
+        if (room.conversationMode != ConversationMode.COMBINED || activeSlotIndexes.size < 2) return
 
         val grouped = _groupedMessages.value
         grouped.userMessages.indices.forEach { turnIndex ->
             if (turnIndex in combinedSynthesisTurns) return@forEach
-            val row = grouped.assistantMessages.getOrNull(turnIndex)
-                ?.take(enabledPlatformsInChat.size)
-                .orEmpty()
-            if (row.size < 2) return@forEach
+            val row = grouped.assistantMessages.getOrNull(turnIndex).orEmpty()
+            val activeRow = activeSlotIndexes.mapNotNull { index ->
+                row.getOrNull(index)?.let { message -> index to message }
+            }
+            if (activeRow.size < 2) return@forEach
 
-            val runIds = row.map { it.currentRunId }
+            val runIds = activeRow.map { (_, message) -> message.currentRunId }
             if (runIds.any { it.isNullOrBlank() }) return@forEach
             if (runIds.any { it?.startsWith(COMBINED_RUN_PREFIX) == true }) {
                 combinedSynthesisTurns += turnIndex
@@ -1409,12 +1416,12 @@ class ChatViewModel @Inject constructor(
                 return@forEach
             }
 
-            val sources = row.mapIndexedNotNull { index, message ->
+            val sources = activeRow.mapNotNull { (index, message) ->
                 val content = message.effectiveContent().trim()
-                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapIndexedNotNull null
-                val uid = enabledPlatformsInChat.getOrNull(index)
+                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapNotNull null
+                val uid = slotUids.getOrNull(index)
                     ?: message.platformType
-                    ?: return@mapIndexedNotNull null
+                    ?: return@mapNotNull null
                 val platform = _platformsInApp.value.firstOrNull { it.uid == uid }
                 CombinedModelResponse(
                     platformUid = uid,
@@ -1449,10 +1456,11 @@ class ChatViewModel @Inject constructor(
     ) {
         val grouped = _groupedMessages.value
         val userMessage = grouped.userMessages.getOrNull(turnIndex) ?: return
-        val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.firstOrNull() ?: return
+        val leadUid = sources.firstOrNull()?.platformUid ?: return
+        val leadIndex = enabledPlatformsInChat.indexOf(leadUid).takeIf { it >= 0 } ?: return
+        val leadMessage = grouped.assistantMessages.getOrNull(turnIndex)?.getOrNull(leadIndex) ?: return
         if (leadMessage.id <= 0) return
 
-        val leadUid = enabledPlatformsInChat.firstOrNull() ?: return
         val leadPlatform = _platformsInApp.value
             .firstOrNull { it.uid == leadUid && it.enabled }
             ?.let(::resolvePlatformModel)
@@ -1476,11 +1484,11 @@ class ChatViewModel @Inject constructor(
         )
 
         _groupedMessages.update { current ->
-            updateAssistantSlot(current, turnIndex, 0) { persisted.assistantMessage }
+            updateAssistantSlot(current, turnIndex, leadIndex) { persisted.assistantMessage }
         }
         _loadingStates.update {
             List(enabledPlatformsInChat.size) { index ->
-                if (index == 0) LoadingState.Loading else LoadingState.Idle
+                if (index == leadIndex) LoadingState.Loading else LoadingState.Idle
             }
         }
 
@@ -1568,7 +1576,9 @@ class ChatViewModel @Inject constructor(
         if (anyActive) return
 
         if (room.conversationMode == ConversationMode.COMBINED) {
-            val leadRunId = latestAssistantMessages.firstOrNull()?.currentRunId
+            val leadRunId = latestAssistantMessages
+                .firstOrNull { it.currentRunId?.startsWith(COMBINED_RUN_PREFIX) == true }
+                ?.currentRunId
             if (leadRunId?.startsWith(COMBINED_RUN_PREFIX) != true ||
                 runsById[leadRunId]?.status != AgentRunStatus.COMPLETED
             ) {
@@ -1593,7 +1603,8 @@ class ChatViewModel @Inject constructor(
 
         lastAutoTitleUserTurnCount = userTurnCount
         viewModelScope.launch(Dispatchers.IO) {
-            val platform = _platformsInApp.value.firstOrNull { it.uid in enabledPlatformsInChat && it.enabled }
+            val activeUids = _activePlatformUids.value.toSet()
+            val platform = _platformsInApp.value.firstOrNull { it.uid in activeUids && it.enabled }
                 ?: _platformsInApp.value.firstOrNull()
                 ?: return@launch
 

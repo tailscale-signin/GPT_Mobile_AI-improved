@@ -67,9 +67,14 @@ fun ChatModelDialog(
     platformApiUrls: Map<String, String> = emptyMap(),
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
     ollamaModels: List<UnifiedModelOption.Ollama> = emptyList(),
+    initialCreativity: Float = 0.5f,
+    locationToolsEnabled: Boolean = false,
+    webSearchToolsEnabled: Boolean = false,
+    onLocationToolsChanged: (Boolean) -> Unit = {},
+    onWebSearchToolsChanged: (Boolean) -> Unit = {},
     onNavigateToLocalModels: () -> Unit = {},
     onDismissRequest: () -> Unit,
-    onConfirmRequest: (Map<String, String>) -> Unit
+    onConfirmRequest: (Map<String, String>, Float) -> Unit
 ) {
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
@@ -81,9 +86,7 @@ fun ChatModelDialog(
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var modelSearch by rememberSaveable { mutableStateOf("") }
-    var creativity by rememberSaveable { mutableStateOf(0.5f) }
-    var locationToolsEnabled by rememberSaveable { mutableStateOf(true) }
-    var webSearchToolsEnabled by rememberSaveable { mutableStateOf(true) }
+    var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
 
     AlertDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -108,11 +111,11 @@ fun ChatModelDialog(
                 )
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Location tools", modifier = Modifier.weight(1f))
-                    Switch(checked = locationToolsEnabled, onCheckedChange = { locationToolsEnabled = it })
+                    Switch(checked = locationToolsEnabled, onCheckedChange = onLocationToolsChanged)
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Web search tools", modifier = Modifier.weight(1f))
-                    Switch(checked = webSearchToolsEnabled, onCheckedChange = { webSearchToolsEnabled = it })
+                    Switch(checked = webSearchToolsEnabled, onCheckedChange = onWebSearchToolsChanged)
                 }
                 Text(
                     text = "Models in this conversation",
@@ -216,7 +219,8 @@ fun ChatModelDialog(
                 enabled = !hasBlank,
                 onClick = {
                     onConfirmRequest(
-                        models.mapValues { (_, model) -> model.trim() }
+                        models.mapValues { (_, model) -> model.trim() },
+                        creativity
                     )
                 }
             ) {

@@ -508,7 +508,7 @@ class ChatViewModel @Inject constructor(
 
     fun updateChatCreativity(temperature: Float) {
         val clamped = temperature.coerceIn(0f, 2f)
-        val targetUids = enabledPlatformsInChat.toSet()
+        val targetUids = _activePlatformUids.value.toSet()
         _platformsInApp.update { platforms ->
             platforms.map { platform ->
                 if (platform.uid in targetUids) platform.copy(temperature = clamped) else platform

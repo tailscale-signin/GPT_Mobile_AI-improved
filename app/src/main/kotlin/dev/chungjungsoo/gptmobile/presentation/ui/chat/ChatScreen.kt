@@ -498,14 +498,10 @@ fun ChatScreen(
                 webSearchToolsEnabled = webSearchToolIds.isNotEmpty() &&
                     webSearchToolIds.any(chatToolConfig::isToolEnabled),
                 onLocationToolsChanged = { enabled ->
-                    locationToolIds.forEach { id ->
-                        if (chatToolConfig.isToolEnabled(id) != enabled) chatViewModel.toggleChatTool(id)
-                    }
+                    chatViewModel.setChatToolsEnabled(locationToolIds, enabled)
                 },
                 onWebSearchToolsChanged = { enabled ->
-                    webSearchToolIds.forEach { id ->
-                        if (chatToolConfig.isToolEnabled(id) != enabled) chatViewModel.toggleChatTool(id)
-                    }
+                    chatViewModel.setChatToolsEnabled(webSearchToolIds, enabled)
                 },
                 onNavigateToLocalModels = onNavigateToLocalModels,
                 onDismissRequest = chatViewModel::closeChatModelDialog,

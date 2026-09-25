@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import android.content.Context
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
-import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -237,7 +236,6 @@ class ChatViewModel @Inject constructor(
                 dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
             )
 
-    private var pendingQuestionText: String? = null
     private data class QueuedPrompt(val text: String, val attachments: List<ChatAttachmentDraft>)
     private val queuedPrompts = ArrayDeque<QueuedPrompt>()
     private val _queuedPromptCount = MutableStateFlow(0)
@@ -285,9 +283,8 @@ class ChatViewModel @Inject constructor(
         }
 
         if (hasPreparingAttachments) {
-            pendingQuestionText = questionText
-            question.clearText()
-            trySendPendingQuestionIfReady()
+            // Do not accept a half-prepared submission or clear a newer composer draft.
+            _attachmentNotice.value = "Preparing attachments. Your draft is kept until they are ready."
             return
         }
 
@@ -696,7 +693,6 @@ class ChatViewModel @Inject constructor(
             updateAttachments = { attachments -> _selectedAttachments.update { attachments } },
             filePath = filePath
         )
-        trySendPendingQuestionIfReady()
     }
 
     fun addMessageEditFile(filePath: String) {
@@ -1070,7 +1066,6 @@ class ChatViewModel @Inject constructor(
             removedAttachment.let(::deleteDraftFiles)
         }
         updateAttachments(currentAttachments().filter { it.sourceFilePath != filePath })
-        trySendPendingQuestionIfReady()
     }
 
     private fun preprocessDraftAttachment(
@@ -1091,7 +1086,6 @@ class ChatViewModel @Inject constructor(
                     filePath = filePath,
                     notice = "Unsupported attachment type. Use images, PDF, Word, Excel, PowerPoint, text, CSV, JSON, XML or Markdown files."
                 )
-                trySendPendingQuestionIfReady()
                 return@launch
             }
 
@@ -1106,7 +1100,6 @@ class ChatViewModel @Inject constructor(
                     filePath = filePath,
                     notice = "Files larger than 50 MB cannot be attached."
                 )
-                trySendPendingQuestionIfReady()
                 return@launch
             }
 
@@ -1123,7 +1116,6 @@ class ChatViewModel @Inject constructor(
                     filePath = filePath,
                     notice = "Total attachments cannot exceed 50 MB."
                 )
-                trySendPendingQuestionIfReady()
                 return@launch
             }
 
@@ -1133,7 +1125,6 @@ class ChatViewModel @Inject constructor(
                 throw cancel
             } catch (error: Exception) {
                 rejectDraftAttachment(currentAttachments, updateAttachments, filePath, error.message ?: "Could not read this document.")
-                trySendPendingQuestionIfReady()
                 return@launch
             }
 
@@ -1176,32 +1167,7 @@ class ChatViewModel @Inject constructor(
             } else if (preparationResult == null) {
                 onNotice("Failed to prepare attachment.")
             }
-
-            trySendPendingQuestionIfReady()
         }
-    }
-
-    private fun trySendPendingQuestionIfReady() {
-        val queuedQuestion = pendingQuestionText ?: return
-        val attachments = _selectedAttachments.value
-
-        if (attachments.any { it.status == ChatAttachmentDraft.Status.Failed }) {
-            restoreQueuedQuestion(queuedQuestion)
-            pendingQuestionText = null
-            return
-        }
-
-        if (attachments.any { it.status == ChatAttachmentDraft.Status.Preparing }) {
-            return
-        }
-
-        if (queuedQuestion.isBlank() && attachments.none { it.status == ChatAttachmentDraft.Status.Ready }) {
-            pendingQuestionText = null
-            return
-        }
-
-        pendingQuestionText = null
-        submitOrQueueQuestion(queuedQuestion, attachments)
     }
 
     private fun sendQuestion(
@@ -1236,11 +1202,6 @@ class ChatViewModel @Inject constructor(
         }
         updateAttachments(currentAttachments().filter { it.sourceFilePath != filePath })
         _attachmentNotice.update { notice }
-    }
-
-    private fun restoreQueuedQuestion(questionText: String) {
-        if (questionText.isBlank()) return
-        question.setTextAndPlaceCursorAtEnd(questionText)
     }
 
     private fun deleteDraftFiles(attachment: ChatAttachmentDraft) {

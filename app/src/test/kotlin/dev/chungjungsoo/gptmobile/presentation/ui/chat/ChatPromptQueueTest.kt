@@ -165,6 +165,25 @@ class ChatPromptQueueTest {
         assertEquals(0, model.queuedPromptCount.value)
     }
 
+    @Test
+    fun `sending during attachment preparation keeps the draft and does not enqueue incomplete content`() = runTest(dispatcher) {
+        val model = createViewModel()
+        runCurrent()
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val file = java.io.File(context.cacheDir, "preparing.txt").apply { writeText("Document content") }
+        try {
+            model.addSelectedFile(file.absolutePath)
+            model.question.setTextAndPlaceCursorAtEnd("Read this document")
+            model.askQuestion()
+            assertEquals("Read this document", model.question.text.toString())
+            assertEquals(0, model.queuedPromptCount.value)
+            assertTrue(submissions.isEmpty())
+        } finally {
+            store.clear()
+            file.delete()
+        }
+    }
+
     private fun completePersistedRuns() {
         messages.value = messages.value.map { message ->
             if (message.platformType != null) message.copy(content = "Finished response") else message

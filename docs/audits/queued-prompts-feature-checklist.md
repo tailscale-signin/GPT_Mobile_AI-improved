@@ -10,7 +10,7 @@ Paths in this table are relative to `app/src/main/kotlin/dev/chungjungsoo/gptmob
 
 | # | Requested behavior | Implementation and integration evidence |
 | --- | --- | --- |
-| 1 | Queue prompts while generating; typing changes Stop to Send | `presentation/ui/chat/ChatScreen.kt` keeps the composer enabled and chooses Send when text/attachments exist. `ChatViewModel.kt` captures a FIFO queue, reserves persistence/dispatch work synchronously and waits for all profile runs and combined synthesis. Later prompts use the completed conversation as follow-up context. Unsent text survives queue draining. Queues also wait when all profiles are paused. |
+| 1 | Queue prompts while generating; typing changes Stop to Send | `presentation/ui/chat/ChatScreen.kt` keeps the composer enabled and chooses Send when text/attachments exist. `ChatViewModel.kt` captures a FIFO queue, reserves persistence/dispatch work synchronously and waits for all profile runs and combined synthesis. Later prompts use the completed conversation as follow-up context. Unsent text survives queue draining. Send waits for attachment preparation without clearing the draft or accepting incomplete file content. Queues also wait when all profiles are paused. |
 | 2 | Remove retry warning | Retry actions no longer display the warning; obsolete translations were removed from resources. |
 | 3 | Hide revision arrows for a single response | `ChatScreen.kt` supplies a revision label only when stored revisions exist; `ChatBubble.kt` renders the arrow/count group only with that label. |
 | 4 | Models popup with search, tools and creativity | `ChatDialogs.kt`, `CloudModelPickerDialog.kt` and `data/repository/ProfileModelCatalog.kt` connect provider model discovery/search, chat model overrides, MCP connection switches, permission-aware phone location, web search, creativity and profile membership. Local downloaded models retain their picker; Ollama queries `/api/tags`. |
@@ -25,7 +25,7 @@ Paths in this table are relative to `app/src/main/kotlin/dev/chungjungsoo/gptmob
 | 13 | Enabled-only platform picker; Separate/Combined controls | `HomeScreen.SelectPlatformDialog` filters enabled profiles while preserving original selection indices; selected count and confirmation also exclude disabled profiles. Only Separate and Combined mode chips remain. |
 | 14 | Plain preparing indicator; lighter timestamps | The actual `CompactAgentActivityBar` call path and gateway indicator use no background bubble. Status text is larger with a left icon and progress bar. Both message timestamp styles use light weight and reduced opacity. |
 | 15 | Real document attachments | `util/DocumentTextExtractor.kt` reads PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX and text/CSV/TSV/JSON/Markdown/XML. Bounded extraction occurs during attachment preparation. `ChatRepositoryImpl` inserts excerpts before context budgeting, uses native PDFs where supported and preserves original attachment metadata in storage. Unsupported/unreadable files get an error rather than silently disappearing. |
-| 16 | Embedded maps from location tools | `ChatBubble.LocationToolMapPreview` renders successful coordinate-bearing results with a MapLibre street map and marker, lifecycle cleanup, coordinate-keyed view replacement and an external map action. |
+| 16 | Embedded maps from location tools | `ChatBubble.LocationToolMapPreview` renders successful coordinate-bearing results with explicit SDK initialization, a MapLibre street map and marker, lifecycle cleanup, coordinate-keyed view replacement and an external map action. |
 | 17 | Immediate red/cyan swipe feedback | `HomeScreen.FancySwipeChatRow` immediately reveals red for delete and cyan for archive, including an early foreground tint and visible action icons. |
 
 ## Regression coverage
@@ -40,7 +40,11 @@ Paths in this table are relative to `app/src/main/kotlin/dev/chungjungsoo/gptmob
 
 ## Validation
 
-Validation results will be recorded after the final build completes.
+- Full JVM/Robolectric suite: **863 tests, 0 failures, 0 skipped**.
+- `:app:assembleDebug`: passed; debug APK generated.
+- Changed-file ktlint 1.3.1 and Android resource preflight: passed.
+- Final Android lint/release results are tracked in PR #493.
+- No Android device/emulator or authenticated third-party accounts were available for the manual acceptance steps below.
 
 ## Manual acceptance on an Android device
 

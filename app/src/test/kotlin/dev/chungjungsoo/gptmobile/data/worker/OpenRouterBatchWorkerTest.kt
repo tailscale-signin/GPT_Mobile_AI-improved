@@ -76,7 +76,7 @@ class OpenRouterBatchWorkerTest {
     fun `enqueueBatchRequest enqueues WorkRequest without throwing`() {
         val manager = mockk<androidx.work.WorkManager>(relaxed = true)
         val request = io.mockk.slot<androidx.work.OneTimeWorkRequest>()
-        io.mockk.mockkStatic(androidx.work.WorkManager::class)
+        io.mockk.mockkObject(androidx.work.WorkManager.Companion)
         try {
             io.mockk.every { androidx.work.WorkManager.getInstance(context) } returns manager
             OpenRouterBatchWorker.enqueueBatchRequest(
@@ -89,7 +89,7 @@ class OpenRouterBatchWorkerTest {
             org.junit.Assert.assertEquals("req-12345", request.captured.workSpec.input.getString(OpenRouterBatchWorker.KEY_REQUEST_ID))
             org.junit.Assert.assertEquals(androidx.work.NetworkType.CONNECTED, request.captured.workSpec.constraints.requiredNetworkType)
         } finally {
-            io.mockk.unmockkStatic(androidx.work.WorkManager::class)
+            io.mockk.unmockkObject(androidx.work.WorkManager.Companion)
         }
     }
 }

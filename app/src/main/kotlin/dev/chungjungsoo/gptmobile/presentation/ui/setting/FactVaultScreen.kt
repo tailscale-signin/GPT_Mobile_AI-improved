@@ -49,7 +49,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
         TopAppBar(
             title = { Text("Fact Vault") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { TextButton(onClick = { clearing = true }, enabled = !busy && (vault.facts.isNotEmpty() || vault.suppressedIds.isNotEmpty() || vault.enabled)) { Text("Clear") } }
+            actions = { TextButton(onClick = { clearing = true }, enabled = !busy && (vault.facts.isNotEmpty() || vault.suppressedIds.isNotEmpty() || vault.enabled || error != null)) { Text("Clear") } }
         )
     }) { padding ->
         LazyColumn(

@@ -125,7 +125,6 @@ class KnowledgeGraphEngine @Inject constructor() {
     fun queryContextualFacts(queryText: String, maxResults: Int = 5): List<KnowledgeFact> {
         val words = queryText.lowercase(Locale.ROOT).split(Regex("\\W+"))
         val tokens = words.filter { it.length > 2 }.toMutableSet()
-        if (words.any { it in setOf("i", "me", "my", "mine") }) tokens.add("user")
         if (tokens.isEmpty()) return emptyList()
 
         // Match seed entities that overlap with tokens
@@ -134,8 +133,15 @@ class KnowledgeGraphEngine @Inject constructor() {
             entityTokens.any { tokens.contains(it) } || tokens.contains(entity.id)
         }
 
+        // Resolve first-person memory questions only when no named entity matched.
+        // A generic “help me” must not pull in every unrelated user fact.
+        val personalQuestion = words.any { it in setOf("i", "me", "my", "mine") } &&
+            words.any { it in setOf("prefer", "preferences", "preference", "like", "use", "work", "live", "remember", "facts") }
+        val seeds = matchedEntities.ifEmpty {
+            if (personalQuestion) listOfNotNull(entities["user"]) else emptyList()
+        }
         val collectedFacts = mutableListOf<KnowledgeFact>()
-        for (seed in matchedEntities) {
+        for (seed in seeds) {
             collectedFacts.addAll(querySubgraph(seed.id, maxDepth = 2))
             // A query can name the target (e.g. Kotlin) rather than the subject (User).
             getRelationsFor(seed.id).forEach { relation ->
@@ -164,10 +170,17 @@ class KnowledgeGraphEngine @Inject constructor() {
 
         for (line in lines) {
             val trimmed = line.trim()
-            if (trimmed.isEmpty()) continue
+            // Only affirmative statements are candidates. Questions and negation can
+            // otherwise become false facts such as “not PREFERS Kotlin”.
+            if (trimmed.isEmpty() ||
+                '?' in trimmed ||
+                Regex("(?i)\\b(?:not|never|no longer)\\b|n['’]t\\b").containsMatchIn(trimmed)
+            ) {
+                continue
+            }
 
             for ((pattern, relType) in relationKeywords) {
-                val match = pattern.find(trimmed)
+                val match = pattern.matchAt(trimmed, 0)
                 if (match != null && match.groupValues.size >= 3) {
                     val subject = match.groupValues[1].trim()
                     val target = match.groupValues[2].trim()

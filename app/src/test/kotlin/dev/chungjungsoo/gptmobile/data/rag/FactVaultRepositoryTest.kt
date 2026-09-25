@@ -10,6 +10,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FactVaultRepositoryTest {
+    @Test
+    fun `same turn exclusions do not consume the recall limit`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn((1..5).joinToString("\n") { "I prefer Item$it" }, 1, 1)
+        repository.prepareTurn("I prefer Kotlin", 1, 2)
+        val recall = repository.prepareTurn("What are my preferences?", 1, 1)
+        assertEquals(listOf("Kotlin"), recall.facts.map { it.fact.target.name })
+    }
+
+    @Test
+    fun `clear recovers an unreadable vault`() = runBlocking {
+        val storage = MemoryVault()
+        storage.values[FactVaultRepository.VAULT_REFERENCE] = "broken json".encodeToByteArray()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        assertTrue(runCatching { repository.load() }.isFailure)
+        repository.clear()
+        repository.load()
+        assertTrue(repository.state.value.facts.isEmpty())
+        assertFalse(repository.state.value.enabled)
+    }
+
+    @Test
+    fun `specific recall is not crowded out by unrelated personal facts`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn((1..6).joinToString("\n") { "I prefer Item$it" }, 1, 1)
+        repository.prepareTurn("I prefer Kotlin", 1, 2)
+        val recall = repository.prepareTurn("Help me with Kotlin", 1, 3)
+        assertEquals(listOf("Kotlin"), recall.facts.map { it.fact.target.name })
+        assertTrue(repository.prepareTurn("Tell me the weather", 1, 4).facts.isEmpty())
+    }
+
+    @Test
+    fun `questions negation and quoted statements are not learned as facts`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        for (text in listOf("Do I prefer Kotlin?", "I do not like Kotlin", "I don't like Kotlin", "Someone said I prefer Kotlin", "\"I prefer Kotlin\"")) {
+            repository.prepareTurn(text, 1, 1)
+        }
+        assertTrue(repository.state.value.facts.isEmpty())
+        repository.prepareTurn("I prefer Kotlin", 1, 2)
+        assertEquals(1, repository.state.value.facts.size)
+    }
+
     private class MemoryVault : SecretVault {
         val values = mutableMapOf<String, ByteArray>()
         var failWrites = false

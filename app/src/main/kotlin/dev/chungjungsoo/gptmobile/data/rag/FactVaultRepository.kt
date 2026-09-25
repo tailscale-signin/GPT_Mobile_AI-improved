@@ -78,7 +78,7 @@ class FactVaultRepository @Inject constructor(
     }
 
     suspend fun clear() = mutex.withLock {
-        loadLocked()
+        // Clearing must work even when the existing payload cannot be decoded.
         persist(FactVaultSnapshot(enabled = false))
     }
 
@@ -86,7 +86,7 @@ class FactVaultRepository @Inject constructor(
         loadLocked()
         if (!_state.value.enabled) return@withLock FactRecall()
         val current = _state.value
-        val selectedIds = graph.queryContextualFacts(query.take(MAX_QUERY_CHARS), maxResults = MAX_RECALL)
+        val selectedIds = graph.queryContextualFacts(query.take(MAX_QUERY_CHARS), maxResults = MAX_FACTS)
             .map(::factId).toSet()
         val recall = FactRecall(current.facts.filter { it.enabled && it.id in selectedIds && !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId) }.take(MAX_RECALL))
         // Only extract user-provided text. Never learn from assistant output or tool responses.

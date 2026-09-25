@@ -30,7 +30,7 @@ class OpenRouterOptionsTest {
         assertEquals(0.0f, options.presencePenalty ?: 0f, 0.001f)
         assertEquals(1.03f, options.repetitionPenalty ?: 0f, 0.001f)
         assertEquals(42, options.seed)
-        assertEquals("price-asc", options.provider?.sort)
+        assertEquals("price", options.provider?.sort)
         assertEquals(true, options.provider?.allowFallbacks)
         assertEquals(null, options.provider?.ignore)
     }
@@ -38,7 +38,7 @@ class OpenRouterOptionsTest {
     @Test
     fun `request serializes OpenRouter options and provider fields when provided`() {
         val routing = OpenRouterProviderRouting(
-            sort = "price-asc",
+            sort = "price",
             allowFallbacks = true,
             ignore = listOf("Mancer")
         )
@@ -69,7 +69,7 @@ class OpenRouterOptionsTest {
         assertTrue(encoded.contains("\"repetition_penalty\":1.03"))
         assertTrue(encoded.contains("\"seed\":42"))
         assertTrue(encoded.contains("\"provider\":{"))
-        assertTrue(encoded.contains("\"sort\":\"price-asc\""))
+        assertTrue(encoded.contains("\"sort\":\"price\""))
         assertTrue(encoded.contains("\"allow_fallbacks\":true"))
         assertTrue(encoded.contains("\"ignore\":[\"Mancer\"]"))
     }

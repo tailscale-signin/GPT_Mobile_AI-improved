@@ -35,7 +35,14 @@ data class OpenRouterProviderRouting(
     @SerialName("z_weight")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val zWeight: Float? = null
-)
+) {
+    fun normalized(): OpenRouterProviderRouting = copy(
+        sort = when (sort) {
+            "price-asc" -> "price"
+            else -> sort
+        }
+    )
+}
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -124,7 +131,7 @@ data class OpenRouterOptions(
         const val DEFAULT_PRESENCE_PENALTY = 0.0f
         const val DEFAULT_REPETITION_PENALTY = 1.03f
         const val DEFAULT_SEED = 42
-        const val DEFAULT_PROVIDER_SORT = "price-asc"
+        const val DEFAULT_PROVIDER_SORT = "price"
         const val DEFAULT_PROVIDER_ALLOW_FALLBACKS = true
 
         val DEFAULT_PROVIDER = OpenRouterProviderRouting(

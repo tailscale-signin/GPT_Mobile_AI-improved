@@ -26,23 +26,7 @@ if (( ${#missing[@]} == 0 )); then
   echo "KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
   echo "Release keystore validated and exported."
 else
-  echo "Notice: Repository signing secrets not set (${missing[*]})."
-  echo "Generating a deterministic fallback signing keystore for automated release CI..."
-  FALLBACK_KEY_PASS="gptmobile-deterministic-release-key"
-  keytool -genkeypair -v \
-    -keystore release.keystore \
-    -alias gptmobile \
-    -keyalg RSA \
-    -keysize 2048 \
-    -validity 10000 \
-    -storepass "$FALLBACK_KEY_PASS" \
-    -keypass "$FALLBACK_KEY_PASS" \
-    -dname "CN=GPT Mobile Improved, OU=Development, O=OpenSource, L=Global, ST=Global, C=XX"
-  chmod 600 release.keystore
-
-  echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
-  echo "KEYSTORE_PASSWORD=$FALLBACK_KEY_PASS" >> "$GITHUB_ENV"
-  echo "KEY_ALIAS=gptmobile" >> "$GITHUB_ENV"
-  echo "KEY_PASSWORD=$FALLBACK_KEY_PASS" >> "$GITHUB_ENV"
-  echo "Deterministic release keystore ready."
+  echo "::error::Missing release signing secrets: ${missing[*]}. Configure the existing release key before publishing."
+  echo "A replacement key is not generated because it would prevent upgrades of existing installations."
+  exit 1
 fi

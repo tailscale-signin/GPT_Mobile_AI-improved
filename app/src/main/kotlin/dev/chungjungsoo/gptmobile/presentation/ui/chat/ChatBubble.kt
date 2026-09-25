@@ -744,15 +744,6 @@ fun OpponentChatBubble(
                     }
                 }
 
-                if (!isLoading && canRetry) {
-                    Text(
-                        text = stringResource(R.string.retry_tools_warning),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-                    )
-                }
-
                 if (!isLoading) {
                     revisionIndexLabel?.let { label ->
                         Row(

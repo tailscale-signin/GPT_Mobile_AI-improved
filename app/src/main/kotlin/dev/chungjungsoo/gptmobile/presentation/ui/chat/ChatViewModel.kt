@@ -46,6 +46,8 @@ import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import dev.chungjungsoo.gptmobile.data.queue.GenerationQueueItem
+import dev.chungjungsoo.gptmobile.data.queue.GenerationQueueManager
 import dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOption
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
@@ -86,7 +88,8 @@ class ChatViewModel @Inject constructor(
     private val agentRunCoordinator: AgentRunCoordinator,
     private val toolConnectionRepository: ToolConnectionRepository,
     private val localModelRepository: LocalModelRepository,
-    private val modelCatalogRepository: ModelCatalogRepository
+    private val modelCatalogRepository: ModelCatalogRepository,
+    private val generationQueueManager: GenerationQueueManager
 ) : ViewModel() {
     sealed class LoadingState {
         data object Idle : LoadingState()
@@ -186,6 +189,7 @@ class ChatViewModel @Inject constructor(
     // Selected attachment drafts for current message
     private val _selectedAttachments = MutableStateFlow(listOf<ChatAttachmentDraft>())
     val selectedAttachments = _selectedAttachments.asStateFlow()
+    val queuedMessages: StateFlow<List<GenerationQueueItem>> = generationQueueManager.queue
 
     private val _attachmentNotice = MutableStateFlow<String?>(null)
     val attachmentNotice = _attachmentNotice.asStateFlow()
@@ -280,7 +284,32 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        sendQuestion(questionText, _selectedAttachments.value)
+        if (isGenerationBusy()) {
+            enqueueQuestion(questionText, _selectedAttachments.value)
+        } else {
+            sendQuestion(questionText, _selectedAttachments.value)
+        }
+    }
+
+    fun removeQueuedMessage(id: String) {
+        generationQueueManager.remove(id)
+    }
+
+    fun clearQueuedMessages() {
+        generationQueueManager.cancelAll()
+        generationQueueManager.setProcessingState(dev.chungjungsoo.gptmobile.data.queue.QueueProcessingState.IDLE)
+    }
+
+    private fun enqueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
+        generationQueueManager.enqueue(questionText, attachments)
+        question.clearText()
+        _selectedAttachments.update { emptyList() }
+    }
+
+    private fun isGenerationBusy(): Boolean {
+        if (_loadingStates.value.any { it == LoadingState.Loading }) return true
+        val activeChatId = _chatRoom.value.id
+        return activeChatId > 0 && agentRunCoordinator.activeRuns.value.values.any { it.chatId == activeChatId }
     }
 
     fun sendContinueResponse() {
@@ -1018,7 +1047,11 @@ class ChatViewModel @Inject constructor(
         }
 
         pendingQuestionText = null
-        sendQuestion(queuedQuestion, attachments)
+        if (isGenerationBusy()) {
+            enqueueQuestion(queuedQuestion, attachments)
+        } else {
+            sendQuestion(queuedQuestion, attachments)
+        }
     }
 
     private fun sendQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
@@ -1494,6 +1527,17 @@ class ChatViewModel @Inject constructor(
                 activeRunIds = activeRunIds
             )
         }
+        processNextQueuedMessageIfIdle()
+    }
+
+    private fun processNextQueuedMessageIfIdle() {
+        if (isGenerationBusy()) return
+
+        generationQueueManager.currentlyProcessingItem.value?.let {
+            generationQueueManager.markCurrentCompleted()
+        }
+        val next = generationQueueManager.dequeue() ?: return
+        sendQuestion(next.text, next.attachments)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

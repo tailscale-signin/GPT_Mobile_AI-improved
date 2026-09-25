@@ -87,6 +87,42 @@ class AgentRunnerTest {
     }
 
     @Test
+    fun `usage snapshots collapse within a round and add across tool rounds`() = runBlocking {
+        val providerCalls = AtomicInteger()
+        val session = session { _, _ ->
+            when (providerCalls.getAndIncrement()) {
+                0 -> flow {
+                    emit(ProviderEvent.Usage(inputTokens = 100, outputTokens = 10, totalTokens = 110))
+                    emit(ProviderEvent.Usage(inputTokens = 100, outputTokens = 20, totalTokens = 120))
+                    emit(toolCall("usage_call"))
+                    emit(ProviderEvent.Completed)
+                }
+
+                else -> flow {
+                    emit(ProviderEvent.Usage(inputTokens = 150, outputTokens = 25, totalTokens = 175))
+                    emit(ProviderEvent.Usage(inputTokens = 150, outputTokens = 30, totalTokens = 180))
+                    emit(ProviderEvent.TextDelta("done"))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        }
+
+        val events = AgentRunner().run(session, listOf(tool())).toList()
+        val usage = events
+            .filterIsInstance<AgentRunEvent.Provider>()
+            .mapNotNull { it.event as? ProviderEvent.Usage }
+
+        assertEquals(
+            listOf(
+                ProviderEvent.Usage(inputTokens = 100, outputTokens = 20, totalTokens = 120, cumulative = false),
+                ProviderEvent.Usage(inputTokens = 150, outputTokens = 30, totalTokens = 180, cumulative = false)
+            ),
+            usage
+        )
+        assertEquals(300, usage.sumOf { it.totalTokens ?: 0 })
+    }
+
+    @Test
     fun `provider completion is emitted only after the final tool round`() = runBlocking {
         val providerCalls = AtomicInteger()
         val session = session { _, _ ->

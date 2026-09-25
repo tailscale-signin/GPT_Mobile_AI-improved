@@ -10,6 +10,7 @@ data class AppFeatureSettings(
     val archiveOlderAssistantReplies: Boolean = true,
     val smartSuggestions: Boolean = true,
     val remoteMcpConnections: Boolean = true,
+    val sharedReadOnlyToolCalls: Boolean = true,
     val deviceLocationTool: Boolean = true,
     val providerModelDiscovery: Boolean = true,
     val diagnosticsCollection: Boolean = false,
@@ -30,6 +31,7 @@ data class AppFeatureSettings(
         AppFeature.ARCHIVE_OLDER_REPLIES -> copy(archiveOlderAssistantReplies = enabled)
         AppFeature.SMART_SUGGESTIONS -> copy(smartSuggestions = enabled)
         AppFeature.REMOTE_MCP -> copy(remoteMcpConnections = enabled)
+        AppFeature.SHARED_TOOL_CALLS -> copy(sharedReadOnlyToolCalls = enabled)
         AppFeature.DEVICE_LOCATION -> copy(deviceLocationTool = enabled)
         AppFeature.MODEL_DISCOVERY -> copy(providerModelDiscovery = enabled)
         AppFeature.DIAGNOSTICS -> copy(diagnosticsCollection = enabled)
@@ -85,6 +87,10 @@ enum class AppFeature(
     REMOTE_MCP(
         "Remote MCP connections",
         "Allow profiles to discover and call tools from remote MCP servers."
+    ),
+    SHARED_TOOL_CALLS(
+        "Shared read-only tool calls",
+        "Reuse identical safe tool results across AIs in the same conversation turn."
     ),
     DEVICE_LOCATION(
         "Device location tool",

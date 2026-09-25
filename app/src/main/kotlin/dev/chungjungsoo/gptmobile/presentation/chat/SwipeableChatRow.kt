@@ -222,7 +222,7 @@ private fun SwipeActionBackground(
                     .weight(1f)
                     .fillMaxHeight()
                     .background(
-                        Color(0xFF4CAF50).copy(alpha = progress),
+                        Color(0xFF2E7D32).copy(alpha = (0.45f + progress * 0.55f).coerceIn(0f, 1f)),
                         RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
                     ),
                 contentAlignment = Alignment.Center
@@ -244,7 +244,7 @@ private fun SwipeActionBackground(
                     .weight(1f)
                     .fillMaxHeight()
                     .background(
-                        Color(0xFFF44336).copy(alpha = progress),
+                        Color(0xFFD32F2F).copy(alpha = (0.45f + progress * 0.55f).coerceIn(0f, 1f)),
                         RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
                     ),
                 contentAlignment = Alignment.Center

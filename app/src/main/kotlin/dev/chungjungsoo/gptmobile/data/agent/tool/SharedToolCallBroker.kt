@@ -114,7 +114,9 @@ class SharedToolCallBroker(
                 "${quote(key)}:${canonicalJson(value)}"
             }
 
-        is JsonArray -> element.joinToString(prefix = "[", postfix = "]", separator = ",")(::canonicalJson)
+        is JsonArray -> element.joinToString(prefix = "[", postfix = "]", separator = ",") { value ->
+            canonicalJson(value)
+        }
         else -> element.toString()
     }
 

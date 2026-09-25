@@ -497,6 +497,8 @@ fun ChatScreen(
                     locationToolIds.any(chatToolConfig::isToolEnabled),
                 webSearchToolsEnabled = webSearchToolIds.isNotEmpty() &&
                     webSearchToolIds.any(chatToolConfig::isToolEnabled),
+                locationToolsAvailable = locationToolIds.isNotEmpty(),
+                webSearchToolsAvailable = webSearchToolIds.isNotEmpty(),
                 disabledPlatformUids = disabledPlatformUids,
                 onPlatformActiveChanged = { uid, active ->
                     val currentlyActive = uid !in disabledPlatformUids

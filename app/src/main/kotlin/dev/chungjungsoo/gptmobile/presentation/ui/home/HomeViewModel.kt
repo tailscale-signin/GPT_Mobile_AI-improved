@@ -143,7 +143,7 @@ class HomeViewModel @Inject constructor(
                 val merged = if (savedGroups.isEmpty()) {
                     DEFAULT_GROUPS
                 } else {
-                    (DEFAULT_GROUPS + savedGroups).distinct()
+                    (listOf(GROUP_ALL) + savedGroups).distinct()
                 }
                 _favoriteGroups.update { merged }
             }

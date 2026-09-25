@@ -137,5 +137,4 @@ class McpPresetCatalogTest {
             assertTrue(preset.setupInstructions.isNotBlank())
         }
     }
-
 }

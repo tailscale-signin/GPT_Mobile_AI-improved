@@ -67,9 +67,11 @@ data class McpPreset(
                 val pair = part.split("=", limit = 2)
                 URLDecoder.decode(pair.first(), "UTF-8") to URLDecoder.decode(pair.getOrElse(1) { "" }, "UTF-8")
             }.filter { it.first == parameter }.map { it.second.trim() }
-            values.size == 1 && values.single().isNotBlank() &&
+            values.size == 1 &&
+                values.single().isNotBlank() &&
                 !values.single().contains("YOUR_", ignoreCase = true) &&
-                !values.single().contains("<") && !values.single().contains("{")
+                !values.single().contains("<") &&
+                !values.single().contains("{")
         }.getOrDefault(false)
     }
 

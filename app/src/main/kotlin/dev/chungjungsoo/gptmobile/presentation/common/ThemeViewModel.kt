@@ -45,6 +45,12 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
         }
     }
 
+    fun updateCustomAccent(argb: Long?) {
+        viewModelScope.launch {
+            persistTheme { it.copy(customAccentArgb = argb) }
+        }
+    }
+
     private suspend fun persistTheme(transform: (ThemeSetting) -> ThemeSetting) {
         themeMutex.withLock {
             val updated = transform(_themeSetting.value)

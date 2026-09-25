@@ -269,6 +269,15 @@ class ChatRepositoryImpl(
 
                         is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
 
+                        is ProviderEvent.Usage -> {
+                            agentRunDao.updateUsage(
+                                runId = runId,
+                                inputTokens = providerEvent.inputTokens,
+                                outputTokens = providerEvent.outputTokens,
+                                totalTokens = providerEvent.totalTokens
+                            )
+                        }
+
                         is ProviderEvent.GatewayMetadataCaptured -> {
                             providerEvent.metadata.jobId?.let { jobId ->
                                 agentRunDao.bindGatewayJob(runId, jobId, platform.apiUrl)

@@ -1,7 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,7 +33,7 @@ class DiagnosticsTelemetryProviderTest {
         assertTrue(text.contains("Available 5400 MB / Total 12 GB"))
         assertTrue(text.contains("Thermal State: Nominal"))
         assertTrue(text.contains("Battery: 85% (Charging)"))
-        assertTrue(text.contains("QNN HTP Native Status: Ready"))
+        assertTrue(text.contains("QNN device/library prerequisites: Available (execution unverified)"))
         assertTrue(text.contains("QNN Dispatch Dir: /data/user/0/dev.melo.gptmobile.improved/no_backup/qnn_dispatch"))
         assertTrue(text.contains("QNN Skel Present: Yes"))
         assertTrue(text.contains("Local: 18.4 tok/s · TTFT 412ms · ~240 tokens"))

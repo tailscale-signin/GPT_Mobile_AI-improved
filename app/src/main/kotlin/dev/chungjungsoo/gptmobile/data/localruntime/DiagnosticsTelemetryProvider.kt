@@ -7,7 +7,6 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
-import java.io.File
 
 /**
  * Diagnostics and hardware state inspector for debug mode.
@@ -90,7 +89,7 @@ object DiagnosticsTelemetryProvider {
         appendLine("System RAM: Available ${snapshot.availableRamMb} MB / Total ${snapshot.totalRamGb} GB")
         appendLine("Thermal State: ${snapshot.thermalStatus}")
         appendLine("Battery: ${if (snapshot.batteryPct >= 0) "${snapshot.batteryPct}%" else "N/A"}${if (snapshot.isCharging) " (Charging)" else ""}")
-        appendLine("QNN HTP Native Status: ${if (snapshot.qnnReady) "Ready" else "Not Ready"}")
+        appendLine("QNN device/library prerequisites: ${if (snapshot.qnnReady) "Available (execution unverified)" else "Unavailable"}")
         appendLine("QNN Dispatch Dir: ${snapshot.dispatchDir}")
         appendLine("QNN Skel Present: ${if (snapshot.skelExists) "Yes" else "No"}")
         telemetryNotice?.takeIf { it.isNotBlank() }?.let {

@@ -42,14 +42,8 @@ object LocalModelLocator {
     const val LOCAL_COMMIT_HASH = "local"
     const val LOCAL_CATALOG_PREFIX = "local_model_"
 
-    val SUPPORTED_EXTENSIONS = setOf(
-        "bin",
-        "task",
-        "tflite",
-        "litertmodel",
-        "litertlm",
-        "gguf"
-    )
+    // This importer is wired to LiteRT-LM, not a GGUF/llama.cpp runtime.
+    val SUPPORTED_EXTENSIONS = setOf("litertlm")
 
     /**
      * Checks whether a file extension corresponds to a recognized local model type.
@@ -139,16 +133,22 @@ object LocalModelLocator {
         minSizeBytes: Long = LocalModelValidator.DEFAULT_MIN_SIZE_BYTES
     ): LocalModelImportResult {
         if (!isSupportedModelFile(fileName)) {
+            runCatching { inputStream.close() }
             return LocalModelImportResult.Failure(
                 LocalModelImportResult.Failure.Reason.UNSUPPORTED_FORMAT,
                 "Unsupported model format: $fileName. Supported formats: $SUPPORTED_EXTENSIONS"
             )
         }
 
+        if (!LocalModelDownloadPaths.isValidPathSegment(fileName)) {
+            runCatching { inputStream.close() }
+            return LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.UNSUPPORTED_FORMAT, "Invalid model file name")
+        }
         val catalogEntryId = generateCatalogEntryId(fileName)
         val relativeDir = LocalModelDownloadPaths.relativeDirectory(catalogEntryId, LOCAL_COMMIT_HASH)
         val targetDir = File(targetModelsRootDir, relativeDir)
-        val targetFile = File(targetDir, fileName)
+        val finalFile = File(targetDir, fileName)
+        val targetFile = File(targetDir, ".import-${java.util.UUID.randomUUID()}-${LocalModelDownloadPaths.partialFileName(fileName)}")
 
         try {
             if (!targetDir.exists()) {
@@ -179,6 +179,10 @@ object LocalModelLocator {
                 )
             }
             is ModelValidationResult.Valid -> {
+                if (!targetFile.renameTo(finalFile)) {
+                    targetFile.delete()
+                    return LocalModelImportResult.Failure(LocalModelImportResult.Failure.Reason.DESTINATION_WRITE_FAILED, "Could not finalize imported model")
+                }
                 val record = LocalModelRecord(
                     catalogEntryId = catalogEntryId,
                     commitHash = LOCAL_COMMIT_HASH,
@@ -188,7 +192,7 @@ object LocalModelLocator {
                 )
                 return LocalModelImportResult.Success(
                     record = record,
-                    absoluteFilePath = targetFile.absolutePath,
+                    absoluteFilePath = finalFile.absolutePath,
                     sizeBytes = validation.sizeBytes
                 )
             }

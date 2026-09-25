@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +50,8 @@ fun AdvancedSettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val settings by viewModel.featureSettings.collectAsState()
+    val backend by viewModel.localRuntimeBackend.collectAsState()
+    val runtime by viewModel.localRuntimeState.collectAsState()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -125,6 +129,23 @@ fun AdvancedSettingsScreen(
                     subtitle = "Fallback behavior and optional telemetry collection.",
                     icon = Icons.Default.Memory
                 ) {
+                    Text("Local inference engine", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.titleSmall)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LocalRuntimeBackend.entries.forEach { option ->
+                            FilterChip(
+                                selected = backend == option,
+                                onClick = { viewModel.updateLocalRuntimeBackend(option) },
+                                label = { Text(option.displayName) }
+                            )
+                        }
+                    }
+                    Text(
+                        runtime.engineSpec?.let { "Active: ${runtime.backend?.displayName} · ${it.accelerator.uppercase()} · ${it.maxTokens} context tokens" }
+                            ?: "Engine idle. Changes apply to the next local response.",
+                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    runtime.fallbackReason?.let { Text("Fallback: $it", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall) }
                     FeatureSwitch(AppFeature.QNN_AUTO_FALLBACK, settings.qnnAutomaticFallback, Icons.Default.Memory, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.DIAGNOSTICS, settings.diagnosticsCollection, Icons.Default.QueryStats, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.OPENROUTER_BATCH, settings.openRouterBatchProcessing, Icons.Default.Cloud, viewModel::updateFeature)

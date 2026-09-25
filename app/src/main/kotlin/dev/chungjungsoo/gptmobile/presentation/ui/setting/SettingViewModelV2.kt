@@ -35,7 +35,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SettingViewModelV2 @Inject constructor(
     private val settingRepository: SettingRepository,
-    private val completeBackupManager: CompleteBackupManager
+    private val completeBackupManager: CompleteBackupManager,
+    private val localRuntime: dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 ) : ViewModel() {
 
     val platformState: StateFlow<List<PlatformV2>> = settingRepository.observePlatformV2s()
@@ -44,6 +45,8 @@ class SettingViewModelV2 @Inject constructor(
     val providerConnections: StateFlow<List<ProviderConnection>> =
         settingRepository.observeProviderConnections()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val localRuntimeState = localRuntime.state
 
     val localRuntimeBackend: StateFlow<LocalRuntimeBackend> = settingRepository.observeLocalRuntimeBackend()
         .stateIn(viewModelScope, SharingStarted.Eagerly, LocalRuntimeBackend.DEFAULT)

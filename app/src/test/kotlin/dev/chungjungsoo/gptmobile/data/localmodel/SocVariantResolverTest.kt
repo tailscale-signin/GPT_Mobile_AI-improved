@@ -178,4 +178,18 @@ class SocVariantResolverTest {
         const val GEMMA3_DEFAULT_URL =
             "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/42d538a932e8d5b12e6b3b455f5572560bd60b2c/gemma3-1b-it-int4.litertlm?download=true"
     }
+
+    @Test
+    fun `runtime download uses the generic package when vendor libraries are not shipped`() {
+        val entry = dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry(
+            downloadUrl = "https://example.com/resolve/hash/generic.litertlm",
+            supportedAccelerators = listOf("gpu", "cpu", "npu"),
+            socToModelFiles = mapOf(
+                "Tensor G5" to dev.chungjungsoo.gptmobile.data.catalog.SocVariant(modelFile = "tensor.litertlm"),
+                "SM8750" to dev.chungjungsoo.gptmobile.data.catalog.SocVariant(modelFile = "qnn.litertlm")
+            )
+        )
+        assertEquals("generic.litertlm", SocVariantResolver.resolveForRuntime(entry, "Tensor G5").fileName)
+        assertEquals("qnn.litertlm", SocVariantResolver.resolveForRuntime(entry, "SM8750").fileName)
+    }
 }

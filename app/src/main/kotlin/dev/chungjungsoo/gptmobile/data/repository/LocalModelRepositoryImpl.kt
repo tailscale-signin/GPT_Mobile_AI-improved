@@ -56,7 +56,15 @@ class LocalModelRepositoryImpl(
             storageRoot(),
             LocalModelDownloadPaths.relativeFilePath(model.catalogEntryId, model.commitHash, model.fileName)
         )
-        file.takeIf { it.exists() }?.absolutePath
+        if (!file.isFile ||
+            !file.canRead() ||
+            file.length() <= 0L ||
+            (model.totalBytes > 0L && file.length() != model.totalBytes)
+        ) {
+            localModelDao.updateStatus(catalogEntryId, LocalModelStatus.FAILED, System.currentTimeMillis() / 1000)
+            return@withContext null
+        }
+        file.absolutePath
     }
 
     override suspend fun startDownload(entry: CatalogEntry) {
@@ -65,7 +73,7 @@ class LocalModelRepositoryImpl(
             if (existing?.status == LocalModelStatus.DOWNLOADING && entry.id in activeDownloadIds()) {
                 return@withContext
             }
-            val resolved = SocVariantResolver.resolve(entry, deviceSocModel)
+            val resolved = SocVariantResolver.resolveForRuntime(entry, deviceSocModel)
             LocalModelDownloadPaths.requireValidPathSegments(entry.id, resolved.commitHash, resolved.fileName)
             val relativeDirectory = LocalModelDownloadPaths.relativeDirectory(entry.id, resolved.commitHash)
             val now = System.currentTimeMillis() / 1000

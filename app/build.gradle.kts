@@ -127,11 +127,9 @@ extensions.configure<ApplicationExtension> {
                 "**/libandroidx.graphics.path.so",
                 "**/libQnn*.so"
             )
-            pickFirsts += setOf(
-                "**/libQnn*.so",
-                "**/libLiteRtDispatch_Qualcomm.so",
-                "**/libLiteRtCompilerPlugin_Qualcomm.so"
-            )
+            // LLM packages are AOT compiled. Keep one QAIRT version from qnn-runtime;
+            // do not mix it with checked-in HTP stubs/skeletons via pickFirsts.
+            excludes += setOf("**/libQnnDsp*.so", "**/libQnnGpu.so", "**/libQnnHtpPrepare.so")
         }
     }
 }
@@ -249,9 +247,8 @@ dependencies {
     // On-device LiteRT-LM serving
     implementation(libs.litertlm)
 
-    // Qualcomm AI Engine Direct (QNN) SDK and LiteRT Delegate
+    // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.
     implementation(libs.qnn.runtime)
-    implementation(libs.qnn.litert.delegate)
 
     // License page UI
     implementation(libs.auto.license.core)

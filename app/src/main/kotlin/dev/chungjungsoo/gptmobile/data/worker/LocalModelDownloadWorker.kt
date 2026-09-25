@@ -151,6 +151,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
             connectTimeoutMs = CONNECT_TIMEOUT_MS,
             readTimeoutMs = READ_TIMEOUT_MS
         )
+        var expectedTotalBytes = totalBytes
         try {
             val responseCode = connection.responseCode
             if (responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
@@ -173,7 +174,19 @@ class LocalModelDownloadWorker @AssistedInject constructor(
 
             val contentRange = connection.getHeaderField("Content-Range")
             val append = LocalModelDownloadPaths.shouldAppendToPartial(partialLength, contentRange)
-            var downloadedBytes = LocalModelDownloadPaths.downloadedBytesAfterConnect(partialLength, contentRange)
+            if (responseCode == HttpURLConnection.HTTP_PARTIAL &&
+                !append &&
+                LocalModelDownloadPaths.contentRangeStart(contentRange.orEmpty()) != 0L
+            ) {
+                throw IOException("Server returned an unexpected model byte range")
+            }
+            expectedTotalBytes = LocalModelDownloadPaths.responseTotalBytes(
+                contentRange,
+                connection.contentLengthLong,
+                if (append) partialLength else 0L,
+                totalBytes
+            )
+            var downloadedBytes = if (append) partialLength else 0L
             val bytesReadSizeBuffer = mutableListOf<Long>()
             val bytesReadLatencyBuffer = mutableListOf<Long>()
 
@@ -230,16 +243,24 @@ class LocalModelDownloadWorker @AssistedInject constructor(
             connection.disconnect()
         }
 
-        if (!LocalModelDownloadPaths.isCompleteDownload(outputTmpFile.length(), totalBytes)) {
+        if (!LocalModelDownloadPaths.isCompleteDownload(outputTmpFile.length(), expectedTotalBytes)) {
             throw IOException("Incomplete Local Model download")
         }
 
+        val validation = dev.chungjungsoo.gptmobile.data.localruntime.LocalModelValidator.validate(outputTmpFile.absolutePath)
+        if (validation is dev.chungjungsoo.gptmobile.data.localruntime.ModelValidationResult.Invalid) {
+            outputTmpFile.delete()
+            throw IOException("Invalid local model download: ${validation.details}")
+        }
         val originalFile = File(outputDir, fileName)
         if (originalFile.exists() && !originalFile.delete()) {
             throw IOException("Unable to replace existing Local Model file")
         }
         if (!outputTmpFile.renameTo(originalFile)) {
             throw IOException("Unable to finalize Local Model file")
+        }
+        localModelDao.getById(catalogEntryId)?.let { row ->
+            localModelDao.upsert(row.copy(totalBytes = originalFile.length()))
         }
     }
 

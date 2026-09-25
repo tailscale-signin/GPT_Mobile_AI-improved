@@ -94,7 +94,7 @@ class LocalEngineHolderTest {
         holder.loadEngine(cpu)
 
         assertEquals(listOf(cpu, gpu, cpu), fake.loadEngineCalls)
-        assertEquals(1, fake.unloadEngineCalls)
+        assertEquals(2, fake.unloadEngineCalls)
         assertTrue(holder.isEngineLoaded(cpu))
         assertFalse(holder.isEngineLoaded(gpu))
     }
@@ -210,5 +210,28 @@ class LocalEngineHolderTest {
         simulatedTime = 50_000L + 5 * 60 * 1000L
         assertFalse(holder.unloadIfIdle(10 * 60 * 1000L))
         assertTrue(holder.isEngineLoaded(spec))
+    }
+
+    @Test
+    fun `idle expiry during a stalled response does not cancel or unload it`() = runTest {
+        var clock = 1_000L
+        val pause = CompletableDeferred<Unit>()
+        val fake = FakeLocalRuntime().apply {
+            pauseAfterFirst = pause
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("first"), LocalRuntimeEvent.Done))
+        }
+        val holder = LocalEngineHolder(fake) { clock }
+        holder.loadEngine(LocalEngineSpec("model.litertlm", "cpu", 1024))
+        val job = launch { holder.sendMessage("hello").toList() }
+        while (fake.sendMessageCalls.isEmpty()) yield()
+        clock += 700_000
+        assertFalse(holder.unloadIfIdle(600_000))
+        assertEquals(0, fake.cancelActiveCalls)
+        assertEquals(0, fake.unloadEngineCalls)
+        pause.complete(Unit)
+        job.join()
+        assertFalse(holder.unloadIfIdle(600_000))
+        clock += 600_000
+        assertTrue(holder.unloadIfIdle(600_000))
     }
 }

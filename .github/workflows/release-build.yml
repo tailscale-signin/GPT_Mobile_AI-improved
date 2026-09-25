@@ -79,6 +79,9 @@ jobs:
           set -o pipefail
           ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2 2>&1 | tee gradle-release-build.log
 
+      - name: Verify local runtime native libraries
+        run: python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/release/*.apk
+
       - name: Build Release Bundle
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"

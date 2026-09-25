@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.backup.SanitizedChatBackup
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineHolder
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
@@ -32,6 +33,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -110,6 +113,13 @@ class GPTMobileApp :
             Log.i(TAG, "Startup maintenance completed in ${SystemClock.elapsedRealtime() - gateStartTime}ms")
         }
 
+        applicationScope.launch {
+            while (isActive) {
+                delay(60_000L)
+                startupDependencies().localRuntime().unloadIfIdle(LocalEngineHolder.DEFAULT_IDLE_UNLOAD_TIMEOUT_MS)
+            }
+        }
+
         Log.i(TAG, "GPTMobileApp.onCreate completed in ${SystemClock.elapsedRealtime() - startupStartTime}ms")
     }
 
@@ -136,7 +146,7 @@ class GPTMobileApp :
 
         if (shouldUnload) {
             applicationScope.launch {
-                startupDependencies().localRuntime().unloadEngine()
+                startupDependencies().localRuntime().unloadIfIdle(0L)
             }
         }
     }

@@ -1436,6 +1436,42 @@ class LiteRtLmAdapterTest {
         )
     }
 
+    @Test
+    fun `cancelling a queued run does not cancel the active local response`() = runBlocking {
+        val pause = CompletableDeferred<Unit>()
+        val native = FakeLocalRuntime().apply {
+            pauseAfterFirst = pause
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("active"), LocalRuntimeEvent.Done))
+        }
+        val adapter = adapter(LocalEngineHolder(native) { 1000L })
+        val firstEvents = mutableListOf<ProviderEvent>()
+        val queuedEvents = mutableListOf<ProviderEvent>()
+        val active = launch {
+            adapter.openSession(turns("first"), localPlatform()).streamRound(emptyList(), emptyList()).collect { firstEvents += it }
+        }
+        withTimeout(5000) { while (firstEvents.none { it is ProviderEvent.TextDelta }) yield() }
+        val queued = launch {
+            adapter.openSession(turns("second"), localPlatform(uid = "queued")).streamRound(emptyList(), emptyList()).collect { queuedEvents += it }
+        }
+        withTimeout(5000) { while (queuedEvents.none { it is ProviderEvent.Notice }) yield() }
+        queued.cancelAndJoin()
+        assertEquals(0, native.cancelActiveCalls)
+        pause.complete(Unit)
+        active.join()
+        assertTrue(firstEvents.last() is ProviderEvent.Completed)
+        assertEquals(listOf("first"), native.sendMessageCalls)
+    }
+
+    @Test
+    fun `disabled runtime fallback is not bypassed by adapter CPU retry`() = runBlocking {
+        val native = FakeLocalRuntime().apply {
+            failLoadEngineIf = { dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeFallbackDisabledException(IllegalStateException("QNN failed")) }
+        }
+        val events = adapter(native).openSession(turns("hello"), localPlatform()).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, native.loadEngineCalls.size)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("fallback is disabled"))
+    }
+
     private fun adapter(
         runtime: LocalRuntime,
         models: FakeLocalModelRepository = FakeLocalModelRepository(

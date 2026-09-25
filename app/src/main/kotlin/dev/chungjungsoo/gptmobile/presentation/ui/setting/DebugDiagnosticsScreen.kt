@@ -48,7 +48,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
 import dev.chungjungsoo.gptmobile.data.model.DebugMetric
-import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,16 +60,16 @@ fun DebugDiagnosticsScreen(
 ) {
     val analytics by viewModel.analytics.collectAsState()
     val settings by settingViewModel.featureSettings.collectAsState()
-    val backend by settingViewModel.localRuntimeBackend.collectAsState()
+    val runtime by settingViewModel.localRuntimeState.collectAsState()
     val debugEnabled by settingViewModel.debugMode.collectAsState()
     val context = LocalContext.current
     var refreshKey by remember { mutableIntStateOf(0) }
 
-    val hardware = remember(refreshKey, backend) {
+    val hardware = remember(refreshKey, runtime) {
         DiagnosticsTelemetryProvider.getSnapshot(
             context = context,
-            backendName = backend.displayName,
-            accelerator = if (backend == LocalRuntimeBackend.QUALCOMM_QNN) "Qualcomm Hexagon HTP" else "LiteRT"
+            backendName = runtime.backend?.displayName ?: "Idle",
+            accelerator = runtime.engineSpec?.accelerator ?: "None"
         )
     }
 
@@ -233,7 +232,7 @@ fun DebugDiagnosticsScreen(
                     DiagnosticsLine("Available RAM", "${hardware.availableRamMb} MB / ${hardware.totalRamGb} GB")
                     DiagnosticsLine("Thermal", hardware.thermalStatus)
                     DiagnosticsLine("Battery", if (hardware.batteryPct >= 0) "${hardware.batteryPct}%" else "Unknown")
-                    DiagnosticsLine("QNN", if (hardware.qnnReady) "Ready" else "Unavailable / fallback")
+                    DiagnosticsLine("QNN prerequisites", if (hardware.qnnReady) "Available" else "Unavailable")
                     FilledTonalButton(
                         onClick = {
                             val report = buildString {

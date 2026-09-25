@@ -86,7 +86,6 @@ fun SettingScreen(
     val platforms by settingViewModel.platformState.collectAsState()
     val providerConnections by settingViewModel.providerConnections.collectAsState()
     val dialogState by settingViewModel.dialogState.collectAsState()
-    val localRuntimeBackend by settingViewModel.localRuntimeBackend.collectAsState()
     val debugMode by settingViewModel.debugMode.collectAsState()
     val featureSettings by settingViewModel.featureSettings.collectAsState()
     val backupStatus by settingViewModel.backupStatus.collectAsState()

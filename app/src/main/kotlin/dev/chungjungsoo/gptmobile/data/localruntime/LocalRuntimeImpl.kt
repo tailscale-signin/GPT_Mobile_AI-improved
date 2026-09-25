@@ -23,10 +23,13 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
@@ -40,10 +43,13 @@ import kotlinx.serialization.json.put
 
 /** Production [LocalRuntime] implementation wrapping LiteRT-LM. */
 class LocalRuntimeImpl(
-    private val context: Context
+    private val context: Context,
+    private val createEngine: (EngineConfig) -> Engine = { Engine(it) }
 ) : LocalRuntime {
     private var engine: Engine? = null
     private var conversation: Conversation? = null
+
+    @Volatile private var activeRequestJob: Job? = null
     private var loadedAccelerator: String = LocalAccelerators.CPU
     private var loadedSpec: LocalEngineSpec? = null
 
@@ -65,30 +71,26 @@ class LocalRuntimeImpl(
         deviceRamGb >= 10L
     }
 
-    private val isMidRamDevice: Boolean by lazy {
-        deviceRamGb >= 6L
-    }
-
     override fun getHardwareState(): DeviceHardwareState =
         DeviceHardwareGovernor.inspectHardwareState(context)
 
-    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
-        DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), isHighRamDevice)
-
-    private fun getAvailableMemoryMb(): Long {
+    override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy {
+        val policy = DeviceHardwareGovernor.computeThrottlingPolicy(getHardwareState(), isHighRamDevice)
         val memoryInfo = ActivityManager.MemoryInfo()
         activityManager?.getMemoryInfo(memoryInfo)
-        return memoryInfo.availMem / (1024L * 1024L)
+        val lowMemory = activityManager != null &&
+            (memoryInfo.lowMemory || memoryInfo.availMem < 500L * 1024L * 1024L)
+        // Report the same limit to history compaction and engine initialization.
+        return if (lowMemory) policy.copy(maxTokensClamp = minOf(policy.maxTokensClamp ?: 1024, 1024)) else policy
     }
 
-    private fun isLowMemoryDevice(): Boolean {
-        val memoryInfo = ActivityManager.MemoryInfo()
-        activityManager?.getMemoryInfo(memoryInfo)
-        return memoryInfo.lowMemory || (memoryInfo.availMem / (1024L * 1024L) < 500L)
-    }
+    override fun loadedEngineSpec(): LocalEngineSpec? = loadedSpec
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         withContext(Dispatchers.IO) {
+            require(spec.modelPath.endsWith(".litertlm", ignoreCase = true)) {
+                "This runtime requires a LiteRT-LM (.litertlm) model package"
+            }
             // Pre-flight model integrity verification to avoid native hard crashes (SIGSEGV)
             when (val validation = LocalModelValidator.validate(spec.modelPath)) {
                 is ModelValidationResult.Invalid -> {
@@ -110,65 +112,33 @@ class LocalRuntimeImpl(
                 }
             }
 
-            // Apply memory safety guardrail: if device is under memory pressure or thermal/battery throttling, clamp maxNumTokens
-            val throttling = getAdaptiveThrottlingPolicy()
-            val effectiveMaxTokens = if (isLowMemoryDevice() && spec.maxTokens > 1024) {
-                Log.w(TAG, "Device low memory detected; throttling maxTokens from ${spec.maxTokens} to 1024")
-                1024
-            } else if (throttling.maxTokensClamp != null && spec.maxTokens > throttling.maxTokensClamp) {
-                Log.w(TAG, "Device hardware thermal/battery throttle active; clamping maxTokens from ${spec.maxTokens} to ${throttling.maxTokensClamp}")
-                throttling.maxTokensClamp
-            } else {
-                spec.maxTokens
+            require(spec.maxTokens > 0) { "Local context size must be positive" }
+            // Fallback belongs to the router/adapter so it can honor settings and report
+            // the real accelerator. Never silently mutate the caller's context budget.
+            unloadEngine()
+            val nextEngine = createEngine(
+                EngineConfig(
+                    modelPath = spec.modelPath,
+                    backend = backendFor(spec.accelerator, spec.litertDispatchLibDir),
+                    visionBackend = visionBackendFor(spec, spec.litertDispatchLibDir),
+                    audioBackend = null,
+                    maxNumTokens = spec.maxTokens,
+                    maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null,
+                    cacheDir = context.cacheDir.resolve("litert-lm").apply { mkdirs() }.absolutePath
+                )
+            )
+            try {
+                nextEngine.initialize()
+                // JNI initialization is blocking. Release the result if its caller was
+                // cancelled while native code was working.
+                coroutineContext.ensureActive()
+                engine = nextEngine
+                loadedAccelerator = LocalAccelerators.normalize(spec.accelerator)
+                loadedSpec = spec
+            } catch (error: Throwable) {
+                if (nextEngine.isInitialized()) runCatching { nextEngine.close() }
+                throw error
             }
-
-            // Try loading with the requested accelerator first; if it fails (e.g. driver issue with GPU/NPU),
-            // gracefully cascade fallback to CPU.
-            val acceleratorsToAttempt = buildList {
-                add(spec.accelerator)
-                val normalized = LocalAccelerators.normalize(spec.accelerator)
-                if (normalized == LocalAccelerators.NPU) {
-                    add(LocalAccelerators.GPU)
-                    add(LocalAccelerators.CPU)
-                } else if (normalized == LocalAccelerators.GPU) {
-                    add(LocalAccelerators.CPU)
-                }
-            }.distinct()
-
-            var lastError: Throwable? = null
-            var initializedEngine: Engine? = null
-            var actualAccelerator = spec.accelerator
-
-            for (candidateAccelerator in acceleratorsToAttempt) {
-                try {
-                    Log.i(TAG, "Attempting to initialize LiteRT-LM engine with accelerator: $candidateAccelerator")
-                    val engineConfig = EngineConfig(
-                        modelPath = spec.modelPath,
-                        backend = backendFor(candidateAccelerator, spec.litertDispatchLibDir),
-                        visionBackend = visionBackendFor(spec.copy(accelerator = candidateAccelerator), spec.litertDispatchLibDir),
-                        audioBackend = null,
-                        maxNumTokens = effectiveMaxTokens,
-                        maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null
-                    )
-                    val nextEngine = Engine(engineConfig)
-                    nextEngine.initialize()
-                    initializedEngine = nextEngine
-                    actualAccelerator = candidateAccelerator
-                    Log.i(TAG, "Successfully initialized LiteRT-LM engine with accelerator: $candidateAccelerator")
-                    break
-                } catch (t: Throwable) {
-                    Log.w(TAG, "Failed initializing LiteRT-LM engine with accelerator $candidateAccelerator: ${t.message}")
-                    lastError = t
-                }
-            }
-
-            if (initializedEngine == null) {
-                throw lastError ?: IllegalStateException("Failed to initialize LiteRT-LM engine with any accelerator")
-            }
-
-            engine = initializedEngine
-            loadedAccelerator = actualAccelerator
-            loadedSpec = spec.copy(accelerator = actualAccelerator, maxTokens = effectiveMaxTokens)
         }
     }
 
@@ -176,10 +146,10 @@ class LocalRuntimeImpl(
     override suspend fun createConversation(config: LocalConversationConfig) {
         withContext(Dispatchers.IO) {
             val currentEngine = engine ?: error("LiteRT-LM engine is not loaded")
-            conversation?.close()
+            closeConversation()
             yield() // Cooperative yield checkpoint before creating conversation and allocating KV-cache
             val toolProviders = config.tools.map { descriptor ->
-                tool(BridgedOpenApiTool(descriptor, config.toolExecutor))
+                tool(BridgedOpenApiTool(descriptor, config.toolExecutor) { activeRequestJob })
             }
             val previousConstrainedDecoding = ExperimentalFlags.enableConversationConstrainedDecoding
             ExperimentalFlags.enableConversationConstrainedDecoding = config.isConstrainedDecodingEnabled
@@ -211,6 +181,9 @@ class LocalRuntimeImpl(
                         }
                     )
                 )
+            } catch (error: Throwable) {
+                conversation = null
+                throw error
             } finally {
                 ExperimentalFlags.enableConversationConstrainedDecoding = previousConstrainedDecoding
             }
@@ -225,6 +198,9 @@ class LocalRuntimeImpl(
             return@callbackFlow
         }
 
+        val requestJob = coroutineContext[Job]
+        activeRequestJob = requestJob
+
         // Notify downstream consumers that prompt prefill is underway
         trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
 
@@ -232,79 +208,85 @@ class LocalRuntimeImpl(
         val firstTokenTimeMs = AtomicLong(0L)
         val chunkCount = AtomicInteger(0)
         val totalCharacters = AtomicInteger(0)
-        val hasEmittedAny = AtomicBoolean(false)
+        val finished = AtomicBoolean(false)
 
-        activeConversation.sendMessageAsync(
-            contentsOf(text, images),
-            object : MessageCallback {
-                override fun onMessage(message: Message) {
-                    val now = SystemClock.elapsedRealtime()
-                    if (firstTokenTimeMs.compareAndSet(0L, now)) {
-                        hasEmittedAny.set(true)
-                        trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
+        try {
+            activeConversation.sendMessageAsync(
+                contentsOf(text, images),
+                object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        val now = SystemClock.elapsedRealtime()
+                        if (firstTokenTimeMs.compareAndSet(0L, now)) {
+                            trySend(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.GENERATING))
+                        }
+
+                        message.channels[THOUGHT_CHANNEL]?.takeIf { it.isNotEmpty() }?.let { thought ->
+                            trySend(LocalRuntimeEvent.ThinkingDelta(thought))
+                        }
+                        val visibleText = message.visibleText()
+                        if (visibleText.isNotEmpty()) {
+                            chunkCount.incrementAndGet()
+                            totalCharacters.addAndGet(visibleText.length)
+                            trySend(LocalRuntimeEvent.TextDelta(visibleText))
+                        }
                     }
 
-                    message.channels[THOUGHT_CHANNEL]?.takeIf { it.isNotEmpty() }?.let { thought ->
-                        trySend(LocalRuntimeEvent.ThinkingDelta(thought))
-                    }
-                    val visibleText = message.visibleText()
-                    if (visibleText.isNotEmpty()) {
-                        chunkCount.incrementAndGet()
-                        totalCharacters.addAndGet(visibleText.length)
-                        trySend(LocalRuntimeEvent.TextDelta(visibleText))
-                    }
-                }
+                    override fun onDone() {
+                        finished.set(true)
+                        val finishTimeMs = SystemClock.elapsedRealtime()
+                        val totalDuration = finishTimeMs - startTimeMs
+                        val ttft = if (firstTokenTimeMs.get() > 0L) firstTokenTimeMs.get() - startTimeMs else totalDuration
+                        val chars = totalCharacters.get()
+                        // Rough approximation: ~4 characters per token for English/general text
+                        val estimatedTokens = (chars / 4).coerceAtLeast(chunkCount.get())
+                        val tps = if (totalDuration > 0) (estimatedTokens.toDouble() / (totalDuration.toDouble() / 1000.0)) else 0.0
 
-                override fun onDone() {
-                    val finishTimeMs = SystemClock.elapsedRealtime()
-                    val totalDuration = finishTimeMs - startTimeMs
-                    val ttft = if (firstTokenTimeMs.get() > 0L) firstTokenTimeMs.get() - startTimeMs else totalDuration
-                    val chars = totalCharacters.get()
-                    // Rough approximation: ~4 characters per token for English/general text
-                    val estimatedTokens = (chars / 4).coerceAtLeast(chunkCount.get())
-                    val tps = if (totalDuration > 0) (estimatedTokens.toDouble() / (totalDuration.toDouble() / 1000.0)) else 0.0
-
-                    val metrics = LocalInferenceMetrics(
-                        timeToFirstTokenMs = ttft,
-                        totalDurationMs = totalDuration,
-                        totalChunks = chunkCount.get(),
-                        totalCharacters = chars,
-                        estimatedTokens = estimatedTokens,
-                        tokensPerSecond = tps
-                    )
-                    trySend(LocalRuntimeEvent.Metrics(metrics))
-                    trySend(LocalRuntimeEvent.Done)
-                    close()
-                }
-
-                override fun onError(throwable: Throwable) {
-                    if (throwable is CancellationException || throwable is kotlinx.coroutines.CancellationException) {
-                        trySend(LocalRuntimeEvent.Done)
-                    } else {
-                        trySend(
-                            LocalRuntimeEvent.Error(
-                                message = throwable.message ?: "Local inference failed",
-                                cause = throwable
-                            )
+                        val metrics = LocalInferenceMetrics(
+                            timeToFirstTokenMs = ttft,
+                            totalDurationMs = totalDuration,
+                            totalChunks = chunkCount.get(),
+                            totalCharacters = chars,
+                            estimatedTokens = estimatedTokens,
+                            tokensPerSecond = tps
                         )
+                        trySend(LocalRuntimeEvent.Metrics(metrics))
+                        trySend(LocalRuntimeEvent.Done)
+                        close()
                     }
-                    close()
-                }
-            }
-        )
 
-        awaitClose {
-            runCatching { activeConversation.cancelProcess() }
+                    override fun onError(throwable: Throwable) {
+                        finished.set(true)
+                        if (throwable is CancellationException) {
+                            close(throwable)
+                            return
+                        } else {
+                            trySend(
+                                LocalRuntimeEvent.Error(
+                                    message = throwable.message ?: "Local inference failed",
+                                    cause = throwable
+                                )
+                            )
+                        }
+                        close()
+                    }
+                }
+            )
+
+            awaitClose { }
+        } finally {
+            if (!finished.get()) runCatching { activeConversation.cancelProcess() }
+            if (activeRequestJob === requestJob) activeRequestJob = null
         }
     }.buffer(Channel.UNLIMITED)
 
     override fun cancelActive() {
+        activeRequestJob?.cancel()
         runCatching { conversation?.cancelProcess() }
     }
 
     override fun hasOpenConversation(): Boolean = conversation != null
 
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = engine != null && loadedSpec == spec
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = engine != null && loadedSpec == spec
 
     override suspend fun closeConversation() {
         withContext(Dispatchers.IO) {
@@ -326,17 +308,19 @@ class LocalRuntimeImpl(
 
     private fun backendFor(accelerator: String, dispatchLibDir: String? = null): Backend = when (LocalAccelerators.normalize(accelerator)) {
         LocalAccelerators.GPU -> Backend.GPU()
-        LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = dispatchLibDir ?: context.applicationInfo.nativeLibraryDir)
+        LocalAccelerators.NPU -> {
+            val probe = QnnEnvironment.getProbeStatus(context)
+            check(probe.isReady) { probe.errorMessage ?: "NPU prerequisites are unavailable" }
+            Backend.NPU(nativeLibraryDir = dispatchLibDir ?: probe.dispatchDir)
+        }
         else -> Backend.CPU()
     }
 
     private fun visionBackendFor(spec: LocalEngineSpec, dispatchLibDir: String? = null): Backend? {
         if (!spec.isVisionEnabled) return null
-        return when (LocalAccelerators.normalize(spec.accelerator)) {
-            LocalAccelerators.CPU -> Backend.CPU()
-            LocalAccelerators.NPU -> Backend.NPU(nativeLibraryDir = dispatchLibDir ?: context.applicationInfo.nativeLibraryDir)
-            else -> Backend.GPU()
-        }
+        // Vision is a separate executor. Gemma 3n requires GPU vision even when
+        // its language model uses CPU; NPU language execution does not imply NPU vision.
+        return backendFor(spec.visionAccelerator, dispatchLibDir)
     }
 
     private fun contentsOf(text: String, images: List<ByteArray>): Contents {
@@ -368,9 +352,10 @@ class LocalRuntimeImpl(
     }
 }
 
-private class BridgedOpenApiTool(
+internal class BridgedOpenApiTool(
     private val descriptor: LocalToolDescriptor,
-    private val executor: LocalToolExecutor?
+    private val executor: LocalToolExecutor?,
+    private val requestJob: () -> Job?
 ) : OpenApiTool {
     override fun getToolDescriptionJsonString(): String = buildJsonObject {
         put("name", descriptor.name)
@@ -378,7 +363,9 @@ private class BridgedOpenApiTool(
         put("parameters", Json.parseToJsonElement(descriptor.inputSchemaJson))
     }.toString()
 
-    override fun execute(paramsJsonString: String): String = runBlocking {
+    override fun execute(paramsJsonString: String): String = runBlocking(
+        checkNotNull(requestJob()) { "No active local inference request" }
+    ) {
         val current = executor ?: error("LiteRT-LM tool executor is not registered")
         try {
             withTimeout(TOOL_EXECUTE_TIMEOUT_MS) {
@@ -386,6 +373,8 @@ private class BridgedOpenApiTool(
             }
         } catch (error: TimeoutCancellationException) {
             "Tool '${descriptor.name}' failed: ${error.message ?: "timed out"}"
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             "Tool '${descriptor.name}' failed: ${error.message ?: "unknown error"}"
         }

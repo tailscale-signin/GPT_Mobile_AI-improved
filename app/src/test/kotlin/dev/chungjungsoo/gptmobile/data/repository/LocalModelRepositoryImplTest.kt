@@ -72,6 +72,29 @@ class LocalModelRepositoryImplTest {
         assertTrue(dao.deletedIds.isEmpty())
     }
 
+    @Test
+    fun `ready record cannot resolve a truncated file`() = runTest {
+        val root = java.nio.file.Files.createTempDirectory("local-model-integrity").toFile()
+        try {
+            val directory = File(root, "models/ready-model/hash").apply { mkdirs() }
+            File(directory, "model.litertlm").writeBytes(ByteArray(99))
+            val row = LocalModel(
+                catalogEntryId = "ready-model",
+                commitHash = "hash",
+                fileName = "model.litertlm",
+                relativeDirectory = "models/ready-model/hash",
+                totalBytes = 100,
+                status = LocalModelStatus.READY
+            )
+            val dao = RecordingLocalModelDao(listOf(row))
+            val path = repository(localModelDao = dao, externalFilesDir = { root }).resolveDownloadedPath(row.catalogEntryId)
+            org.junit.Assert.assertNull(path)
+            org.junit.Assert.assertEquals(LocalModelStatus.FAILED, dao.lastStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private fun repository(
         ioDispatcher: CoroutineDispatcher = object : CoroutineDispatcher() {
             override fun dispatch(context: CoroutineContext, block: Runnable) = block.run()
@@ -104,12 +127,15 @@ private class RecordingLocalModelDao(
     private val rows: List<LocalModel>
 ) : LocalModelDao {
     val deletedIds = mutableListOf<String>()
+    var lastStatus: String? = null
 
     override fun observeAll(): Flow<List<LocalModel>> = MutableStateFlow(rows)
     override suspend fun getAll(): List<LocalModel> = rows
     override suspend fun getById(catalogEntryId: String): LocalModel? = rows.firstOrNull { it.catalogEntryId == catalogEntryId }
     override suspend fun upsert(model: LocalModel) = Unit
-    override suspend fun updateStatus(catalogEntryId: String, status: String, updatedAt: Long) = Unit
+    override suspend fun updateStatus(catalogEntryId: String, status: String, updatedAt: Long) {
+        lastStatus = status
+    }
     override suspend fun deleteById(catalogEntryId: String) {
         deletedIds += catalogEntryId
     }

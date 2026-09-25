@@ -12,6 +12,16 @@ data class ResolvedModelDownload(
 )
 
 object SocVariantResolver {
+    /** Use a vendor variant only when this APK ships the corresponding runtime. */
+    fun resolveForRuntime(entry: CatalogEntry, deviceSocModel: String): ResolvedModelDownload {
+        val eligible = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(
+            entry.supportedAccelerators,
+            entry.socToModelFiles,
+            deviceSocModel
+        )
+        return resolve(entry, deviceSocModel.takeIf { eligible }.orEmpty())
+    }
+
     fun resolve(entry: CatalogEntry, deviceSocModel: String): ResolvedModelDownload {
         val default = ResolvedModelDownload(
             fileName = LocalModelDownloadPaths.fileNameFromUrl(entry.downloadUrl),

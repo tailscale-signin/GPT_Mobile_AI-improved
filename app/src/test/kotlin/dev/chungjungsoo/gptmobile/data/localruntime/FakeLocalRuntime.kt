@@ -56,7 +56,9 @@ class FakeLocalRuntime : LocalRuntime {
         loadedSpec = effectiveSpec
     }
 
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec
+    override fun loadedEngineSpec(): LocalEngineSpec? = loadedSpec
+
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec
 
     override suspend fun createConversation(config: LocalConversationConfig) {
         val policy = getAdaptiveThrottlingPolicy()

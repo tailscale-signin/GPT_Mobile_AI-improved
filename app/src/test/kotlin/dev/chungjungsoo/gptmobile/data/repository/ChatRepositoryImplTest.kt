@@ -191,6 +191,36 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun `local documents reach native history and current prompt exactly once`() = runBlocking {
+        val runtime = FakeLocalRuntime()
+        val repository = createRepository(
+            localRuntime = runtime,
+            localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm"))
+        )
+        val document = ChatAttachment(
+            localFilePath = "/unopened/document.pdf",
+            preparedFilePath = "",
+            displayName = "document.pdf",
+            mimeType = "application/pdf",
+            sizeBytes = 12,
+            extractedText = "document contents"
+        )
+        val states = repository.completeChat(
+            userMessages = listOf(
+                MessageV2(id = 1, content = "First document", platformType = null, attachments = listOf(document.copy(extractedText = "prior document"))),
+                MessageV2(id = 2, content = "Summarize", platformType = null, attachments = listOf(document))
+            ),
+            assistantMessages = listOf(listOf(MessageV2(content = "Prior answer", platformType = localPlatform().uid))),
+            platform = localPlatform(),
+            runId = "local-documents"
+        ).toList()
+        assertFalse(states.any { it is ApiState.Error })
+        assertEquals(1, Regex("document contents").findAll(runtime.sendMessageCalls.single()).count())
+        assertEquals(1, Regex("prior document").findAll(runtime.createConversationCalls.single().initialMessages.first().text).count())
+        assertFalse(states.filterIsInstance<ApiState.Notice>().any { it.message == LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS })
+    }
+
+    @Test
     fun `litert lm path uses local runtime and streams thinking and text`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             scriptedEvents = listOf(

@@ -109,7 +109,7 @@ class PlatformSettingViewModel @Inject constructor(
     val acceleratorOptions: StateFlow<List<AcceleratorOption>> = combine(platformState, _catalogEntries) { platform, catalog ->
         val entry = catalog.firstOrNull { it.id == platform?.model }
         LocalAccelerators.choices(
-            supported = entry?.supportedAccelerators.orEmpty(),
+            supported = entry?.supportedAccelerators ?: listOf(LocalAccelerators.CPU, LocalAccelerators.GPU),
             socToModelFiles = entry?.socToModelFiles.orEmpty(),
             deviceSocModel = deviceSocModel
         )
@@ -393,7 +393,8 @@ class PlatformSettingViewModel @Inject constructor(
                     )
                 )
             } else {
-                updatePlatform(platform.copy(model = model))
+                // Imported packages have no verified NPU variant/capability metadata.
+                updatePlatform(platform.copy(model = model, accelerator = LocalAccelerators.GPU))
             }
         } else {
             updatePlatform(platform.copy(model = model))
@@ -462,8 +463,8 @@ class PlatformSettingViewModel @Inject constructor(
 
     fun updateAccelerator(accelerator: String?) {
         val platform = platformState.value ?: return
-        val allowed = acceleratorOptions.value.map { it.accelerator }.toSet()
-        val normalized = accelerator?.takeIf { it in allowed }
+        val allowed = acceleratorOptions.value.filter { it.enabled }.map { it.accelerator }.toSet()
+        val normalized = accelerator?.let { LocalAccelerators.normalize(it) }?.takeIf { it in allowed } ?: return
         updatePlatform(platform.copy(accelerator = normalized))
         closeAcceleratorDialog()
     }

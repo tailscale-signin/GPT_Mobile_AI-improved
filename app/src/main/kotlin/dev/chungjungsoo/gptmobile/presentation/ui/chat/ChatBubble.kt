@@ -1391,7 +1391,7 @@ internal fun ChatDebugDiagnosticsCard(
         DiagnosticsTelemetryProvider.getSnapshot(
             context = context,
             backendName = agentRun?.modelSnapshot ?: "On-Device",
-            accelerator = "NPU / Hexagon HTP"
+            accelerator = "See Advanced Settings for current runtime"
         )
     }
 
@@ -1453,7 +1453,7 @@ internal fun ChatDebugDiagnosticsCard(
                     fontSize = 11.sp
                 )
                 Text(
-                    text = if (snapshot.qnnReady) "Hexagon NPU: Ready" else "Hexagon NPU: Inactive",
+                    text = if (snapshot.qnnReady) "QNN libraries: Available" else "QNN libraries: Unavailable",
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,

@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
+import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 
 data class LocalEngineSpec(
@@ -8,7 +11,8 @@ data class LocalEngineSpec(
     val accelerator: String,
     val maxTokens: Int,
     val isVisionEnabled: Boolean = false,
-    val litertDispatchLibDir: String? = null
+    val litertDispatchLibDir: String? = null,
+    val visionAccelerator: String = LocalAccelerators.GPU
 )
 
 data class LocalSamplerConfig(
@@ -86,7 +90,23 @@ sealed interface LocalRuntimeEvent {
     data class Error(val message: String, val cause: Throwable? = null) : LocalRuntimeEvent
 }
 
+/** The engine that actually initialized, independent of the saved preference. */
+data class LocalRuntimeState(
+    val backend: LocalRuntimeBackend? = null,
+    val engineSpec: LocalEngineSpec? = null,
+    val fallbackReason: String? = null
+)
+
+private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
+
+class LocalRuntimeFallbackDisabledException(cause: Throwable) : IllegalStateException("QNN could not start and automatic fallback is disabled. Select LiteRT-LM or enable fallback in Advanced Settings.", cause)
+
 interface LocalRuntime {
+    val handlesEngineFallback: Boolean get() = false
+    val state: StateFlow<LocalRuntimeState> get() = EMPTY_RUNTIME_STATE
+
+    fun loadedEngineSpec(): LocalEngineSpec? = null
+
     val deviceRamGb: Long get() = 8L
 
     fun getHardwareState(): DeviceHardwareState = DeviceHardwareState()
@@ -107,7 +127,7 @@ interface LocalRuntime {
      */
     suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean = false
 
-    fun isEngineLoaded(spec: LocalEngineSpec): Boolean = false
+    suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = false
 
     fun hasOpenConversation(): Boolean = false
 

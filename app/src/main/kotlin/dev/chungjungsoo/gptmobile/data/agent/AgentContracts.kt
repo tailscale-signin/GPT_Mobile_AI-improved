@@ -14,6 +14,11 @@ sealed interface ProviderEvent {
     data class Failed(val message: String) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false) : ProviderEvent
     data class PhaseChanged(val phase: dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase) : ProviderEvent
+    data class Usage(
+        val inputTokens: Int? = null,
+        val outputTokens: Int? = null,
+        val totalTokens: Int? = null
+    ) : ProviderEvent
 
     // GatewayProgressUpdate is observational only. AgentRunner must never
     // execute it as a client-owned tool call.

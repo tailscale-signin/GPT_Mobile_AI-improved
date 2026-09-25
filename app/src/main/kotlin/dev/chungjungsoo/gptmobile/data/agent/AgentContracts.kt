@@ -17,7 +17,8 @@ sealed interface ProviderEvent {
     data class Usage(
         val inputTokens: Int? = null,
         val outputTokens: Int? = null,
-        val totalTokens: Int? = null
+        val totalTokens: Int? = null,
+        val cumulative: Boolean = true
     ) : ProviderEvent
 
     // GatewayProgressUpdate is observational only. AgentRunner must never

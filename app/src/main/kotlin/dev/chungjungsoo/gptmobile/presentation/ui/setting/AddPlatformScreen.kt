@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -58,6 +58,7 @@ import dev.chungjungsoo.gptmobile.data.ModelConstants
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
 import dev.chungjungsoo.gptmobile.data.model.encodeProfileLabels
@@ -65,6 +66,7 @@ import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
+import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
@@ -120,7 +122,8 @@ fun AddPlatformScreen(
     val isLocalPlatform = selectedClientType == ClientType.LITERT_LM
     val title = stringResource(if (step == AddPlatformStep.API_TYPE) R.string.choose_platform_type else R.string.platform_details)
     val hasProviderConnection = selectedConnectionUid != null || (createNewConnection && apiUrl.isNotBlank())
-    val isSaveEnabled = platformName.isNotBlank() &&
+    val isSaveEnabled = (selectedClientType != ClientType.FREE || FreeAiProvider.fromApiUrl(apiUrl)?.isAvailable == true) &&
+        platformName.isNotBlank() &&
         if (isLocalPlatform) {
             canSave
         } else {
@@ -193,7 +196,9 @@ fun AddPlatformScreen(
                         ollamaOptions = defaultOllamaOptions,
                         labels = encodeProfileLabels(profileLabels),
                         providerConnectionUid = if (createNewConnection) null else selectedConnectionUid
-                    )
+                    ).let { profile ->
+                        if (clientType == ClientType.FREE) FreeAiProvider.fromApiUrl(apiUrl)!!.applyTo(profile).copy(maxToolCalls = 8) else profile
+                    }
                     apiTokens.clear()
                     apiTokens.add("")
                     onSave(
@@ -221,7 +226,7 @@ fun AddPlatformScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
-                ClientType.entries.forEach { clientType ->
+                (listOf(ClientType.FREE) + ClientType.entries.filter { it != ClientType.FREE }).forEach { clientType ->
                     DestinationCard(
                         title = getClientTypeName(clientType),
                         description = getClientTypeDescription(clientType),
@@ -237,6 +242,7 @@ fun AddPlatformScreen(
                             connectionName = existingConnection?.name
                                 ?: "${ModelConstants.defaultPlatformName(clientType)} connection"
                             apiUrl = existingConnection?.apiUrl ?: ModelConstants.defaultApiUrl(clientType)
+                            if (clientType == ClientType.FREE) model = FreeAiProvider.fromApiUrl(apiUrl)?.model ?: FreeAiProvider.default.model
                             apiTokens.clear()
                             apiTokens.add("")
                             systemPrompt = ModelConstants.DEFAULT_PROMPT
@@ -295,7 +301,24 @@ fun AddPlatformScreen(
                 ) {
                     Text(if (profileLabels.isEmpty()) "Add labels" else "Manage labels")
                 }
-                if (clientType != ClientType.LITERT_LM) {
+                if (clientType == ClientType.FREE) {
+                    FreeProviderPicker(
+                        apiUrl = apiUrl,
+                        onProviderSelected = { provider ->
+                            val previous = FreeAiProvider.fromApiUrl(apiUrl)
+                            if (platformName == previous?.displayName || platformName == "Free") platformName = provider.displayName
+                            apiUrl = provider.apiUrl
+                            model = provider.model
+                            val saved = savedConnections.firstOrNull { it.compatibleType == ClientType.FREE && it.apiUrl == provider.apiUrl }
+                            selectedConnectionUid = saved?.uid
+                            createNewConnection = saved == null
+                            connectionName = provider.displayName
+                            apiTokens.clear()
+                            apiTokens.add("")
+                        },
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                } else if (clientType != ClientType.LITERT_LM) {
                     val providerConnections = savedConnections.filter { it.compatibleType == clientType }
                     Text(
                         text = stringResource(R.string.provider_connection),
@@ -489,8 +512,11 @@ fun AddPlatformScreen(
                     ) {
                         Text(
                             stringResource(
-                                if (showAdvancedSettings) R.string.hide_advanced_settings
-                                else R.string.advanced_settings
+                                if (showAdvancedSettings) {
+                                    R.string.hide_advanced_settings
+                                } else {
+                                    R.string.advanced_settings
+                                }
                             )
                         )
                     }
@@ -621,7 +647,7 @@ private fun suggestedModels(clientType: ClientType): List<String> = when (client
     ClientType.GROQ -> ModelConstants.groqModels.toList()
     ClientType.OLLAMA -> ModelConstants.ollamaModels.toList()
     ClientType.LLAMA -> ModelConstants.llamaModels.toList()
-    ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LITERT_LM -> emptyList()
+    ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LITERT_LM, ClientType.FREE -> emptyList()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -653,6 +679,7 @@ private fun AddPlatformTopBar(
 
 @Composable
 private fun getClientTypeName(clientType: ClientType): String = when (clientType) {
+    ClientType.FREE -> stringResource(R.string.free_ai)
     ClientType.CUSTOM -> stringResource(R.string.custom)
     else -> ModelConstants.defaultPlatformName(clientType)
 }
@@ -665,6 +692,7 @@ private fun getClientTypeDescription(clientType: ClientType): String = when (cli
     ClientType.GROQ -> stringResource(R.string.client_type_groq_desc)
     ClientType.OLLAMA -> stringResource(R.string.client_type_ollama_desc)
     ClientType.OPENROUTER -> stringResource(R.string.client_type_openrouter_desc)
+    ClientType.FREE -> stringResource(R.string.free_ai_description)
     ClientType.CUSTOM -> stringResource(R.string.client_type_custom_desc)
     ClientType.LITERT_LM -> stringResource(R.string.client_type_litert_lm_desc)
     ClientType.LLAMA -> stringResource(R.string.client_type_llama_desc)

@@ -20,6 +20,7 @@ object ApiKeyValidator {
     }
 
     suspend fun validate(clientType: ClientType, apiUrl: String, apiKey: String): ValidationResult = withContext(Dispatchers.IO) {
+        if (clientType == ClientType.FREE) return@withContext ValidationResult.Success("Free providers do not require an API key")
         if (apiKey.isBlank()) {
             return@withContext ValidationResult.Error("API key cannot be empty")
         }
@@ -38,7 +39,7 @@ object ApiKeyValidator {
                 val base = apiUrl.trim().trimEnd('/')
                 if (base.isNotEmpty()) "$base/api/tags" else "http://localhost:11434/api/tags"
             }
-            ClientType.CUSTOM -> {
+            ClientType.FREE, ClientType.CUSTOM -> {
                 val base = apiUrl.trim().trimEnd('/')
                 if (base.isNotEmpty()) "$base/models" else return@withContext ValidationResult.Success("Custom URL accepted")
             }
@@ -64,7 +65,7 @@ object ApiKeyValidator {
                     ClientType.OPENROUTER -> {
                         setRequestProperty("Authorization", "Bearer $apiKey")
                     }
-                    ClientType.GOOGLE, ClientType.OLLAMA, ClientType.LITERT_LM -> {}
+                    ClientType.GOOGLE, ClientType.OLLAMA, ClientType.LITERT_LM, ClientType.FREE -> {}
                 }
             }
 

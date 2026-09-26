@@ -45,6 +45,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
 import dev.chungjungsoo.gptmobile.data.localruntime.ScriptedToolInvocation
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.GeminiSafetySettings
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
@@ -75,6 +76,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRepositoryImplTest {
+
+    @Test
+    fun `Free requests neither recall saved facts nor capture new ones`() = runBlocking {
+        val storage = object : SecretVault {
+            var bytes: ByteArray? = null
+            override suspend fun put(secretRef: String, secret: ByteArray) {
+                bytes = secret.copyOf()
+            }
+            override suspend fun read(secretRef: String) = bytes?.copyOf()
+            override suspend fun delete(secretRef: String) {
+                bytes = null
+            }
+        }
+        val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
+        facts.setEnabled(true)
+        facts.prepareTurn("I prefer Kotlin", 1, 1)
+        val saved = facts.state.value.facts
+        assertTrue(saved.isNotEmpty())
+        val api = RecordingOpenAIAPI()
+        val states = createRepository(openAIAPI = api, factVault = facts).completeChat(
+            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "I prefer Rust. What language do I prefer?", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = FreeAiProvider.KILO.applyTo(customPlatform()).copy(systemPrompt = "Base instructions"),
+            runId = "free-memory"
+        ).toList()
+        assertEquals(1, api.streamChatCompletionCalls)
+        assertTrue(states.none { it is ApiState.MemoryRecalled })
+        assertEquals(saved, facts.state.value.facts)
+        assertFalse(api.requests.single().messages.toString().contains("Kotlin"))
+        assertFalse(api.requests.single().messages.toString().contains("Saved local facts"))
+    }
+
+    @Test
+    fun `Free attachments fail before any provider request`() = runBlocking {
+        val api = RecordingOpenAIAPI()
+        val attachment = ChatAttachment("/private.txt", "/private.txt", "Private", "text/plain", 40, extractedText = "Private memory")
+        val states = createRepository(openAIAPI = api).completeChat(
+            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "Summarize", platformType = null, attachments = listOf(attachment))),
+            assistantMessages = emptyList(),
+            platform = FreeAiProvider.KILO.applyTo(customPlatform()),
+            runId = "free-attachment"
+        ).toList()
+        assertEquals(0, api.streamChatCompletionCalls)
+        assertTrue(states.filterIsInstance<ApiState.Error>().any { it.message.contains("without attachments") })
+    }
 
     @Test
     fun `first person facts inside attachments are never attributed to the user`() = runBlocking {

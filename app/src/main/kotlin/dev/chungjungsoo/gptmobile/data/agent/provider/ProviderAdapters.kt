@@ -301,7 +301,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
-                        token = activeKey,
+                        token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
+                        freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
                         extraHeaders = openRouterHeaders + llamaGatewayHeaders
                     )
                     var roundFailed = false

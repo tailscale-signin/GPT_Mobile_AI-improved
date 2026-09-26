@@ -55,6 +55,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
+import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 
@@ -135,20 +137,50 @@ fun AiPlatformsScreen(
                     }
                 }
             } else {
-                items(providerConnections, key = { "connection:${it.uid}" }) { connection ->
+                val freeConnections = providerConnections.filter { it.compatibleType == ClientType.FREE }
+                val freeStandalone = platforms.filter { it.compatibleType == ClientType.FREE && it.providerConnectionUid == null }
+                if (freeConnections.isNotEmpty() || freeStandalone.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.free_ai), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.free_ai_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    items(freeConnections, key = { "connection:${it.uid}" }) { connection ->
+                        ProviderConnectionGroupCard(
+                            connection = connection,
+                            profiles = platforms.filter { it.providerConnectionUid == connection.uid },
+                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
+                            onEdit = { onNavigateToPlatformSetting(it.uid) },
+                            onProviderSettings = { onNavigateToProviderSettings(connection.uid) }
+                        )
+                    }
+                    items(freeStandalone, key = { "profile:${it.id}" }) { platform ->
+                        PlatformItemCard(
+                            platform = platform,
+                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(platform.id) },
+                            onEdit = { onNavigateToPlatformSetting(platform.uid) }
+                        )
+                    }
+                }
+                val otherConnections = providerConnections.filter { it.compatibleType != ClientType.FREE }
+                if (otherConnections.isNotEmpty()) {
+                    item {
+                        Text(stringResource(R.string.provider_connection), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                items(otherConnections, key = { "connection:${it.uid}" }) { connection ->
                     ProviderConnectionGroupCard(
                         connection = connection,
                         profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                        onToggleFavorite = { platform ->
-                            settingViewModel.togglePlatformFavorite(platform.id)
-                        },
-                        onEdit = { platform -> onNavigateToPlatformSetting(platform.uid) },
+                        onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
+                        onEdit = { onNavigateToPlatformSetting(it.uid) },
                         onProviderSettings = { onNavigateToProviderSettings(connection.uid) },
-                        onSpecialSettings = if (connection.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER) onNavigateToOpenRouterSettings else null
+                        onSpecialSettings = if (connection.compatibleType == ClientType.OPENROUTER) onNavigateToOpenRouterSettings else null
                     )
                 }
 
-                val standaloneProfiles = platforms.filter { it.providerConnectionUid == null }
+                val standaloneProfiles = platforms.filter { it.providerConnectionUid == null && it.compatibleType != ClientType.FREE }
                 if (standaloneProfiles.isNotEmpty()) {
                     item {
                         Text(
@@ -200,11 +232,15 @@ private fun ProviderConnectionGroupCard(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = buildString {
-                            append(connection.compatibleType.name)
-                            connection.apiUrl.takeIf(String::isNotBlank)?.let {
-                                append(" • ")
-                                append(it)
+                        text = if (connection.compatibleType == ClientType.FREE) {
+                            "${FreeAiProvider.fromApiUrl(connection.apiUrl)?.displayName ?: "Free"} · No account · Memory off"
+                        } else {
+                            buildString {
+                                append(connection.compatibleType.name)
+                                connection.apiUrl.takeIf(String::isNotBlank)?.let {
+                                    append(" • ")
+                                    append(it)
+                                }
                             }
                         },
                         style = MaterialTheme.typography.bodySmall,

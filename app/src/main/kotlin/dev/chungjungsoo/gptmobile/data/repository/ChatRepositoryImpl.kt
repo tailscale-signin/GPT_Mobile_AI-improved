@@ -49,6 +49,8 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
+import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
@@ -160,7 +162,7 @@ class ChatRepositoryImpl(
         val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
         val session = when (bounded.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, bounded, constraints)
-            ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA -> openAICompatibleAdapter.openSession(turns, bounded, constraints)
+            ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE -> openAICompatibleAdapter.openSession(turns, bounded, constraints)
             ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded, constraints)
             ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded, constraints)
             ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, emptyList(), constraints)
@@ -195,6 +197,13 @@ class ChatRepositoryImpl(
         emit(ApiState.Loading)
         emit(ApiState.ProgressCheckpoint("Preparing the response and checking the available context."))
         try {
+            if (platform.compatibleType == ClientType.FREE) {
+                check(FreeAiProvider.requireFor(platform).isAvailable) { "LLM7 is awaiting provider approval for app integration. Choose another Free provider." }
+                require(userMessages.all { it.attachments.isEmpty() } && assistantMessages.flatten().all { it.attachments.isEmpty() }) {
+                    "Free profiles support public text only. Start a chat without attachments, or select another platform."
+                }
+                emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))
+            }
             val contextTurns = withContext(Dispatchers.Default) {
                 buildContextTurns(userMessages, assistantMessages, platform).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
@@ -213,8 +222,11 @@ class ChatRepositoryImpl(
             }
             val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
             val unavailableConnections = mutableListOf<String>()
-            val supportsTools = platform.compatibleType != ClientType.LITERT_LM ||
-                modelCatalogRepository.getCachedVisibleEntries().firstOrNull { it.id == platform.model }?.capabilities?.tools == true
+            val supportsTools = when (platform.compatibleType) {
+                ClientType.FREE -> FreeAiProvider.requireFor(platform).supportsTools
+                ClientType.LITERT_LM -> modelCatalogRepository.getCachedVisibleEntries().firstOrNull { it.id == platform.model }?.capabilities?.tools == true
+                else -> true
+            }
             val resolvedTools = if (platform.disableAllTools || !supportsTools) {
                 emptyList()
             } else {
@@ -250,7 +262,7 @@ class ChatRepositoryImpl(
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = userMessages.lastOrNull()
             val recalled = try {
-                if (latestUser == null || platform.disableAllTools || platform.disableLocalTools) {
+                if (latestUser == null || platform.excludesMemory() || platform.disableAllTools || platform.disableLocalTools) {
                     FactRecall()
                 } else {
                     factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.isPrivateDestination(), scope = knowledge?.dao?.projectForChat(latestUser.chatId)?.id?.let { "project:$it" } ?: "personal") ?: FactRecall()
@@ -264,7 +276,7 @@ class ChatRepositoryImpl(
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
             val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName }, compact = limits.contextTokens < 4096) +
                 if (resolvedTools.isNotEmpty()) "\nBefore the first tool call and after every 10 completed tool calls, " + dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION else ""
-            val documentContext = latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
+            val documentContext = if (platform.excludesMemory()) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
             val requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt
             )
@@ -286,7 +298,7 @@ class ChatRepositoryImpl(
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
 
-                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA ->
+                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
                     openAICompatibleAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
 
                 ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
@@ -605,6 +617,7 @@ class ChatRepositoryImpl(
     }
 
     private suspend fun withDocumentContext(message: MessageV2, platform: PlatformV2): MessageV2 {
+        if (platform.compatibleType == ClientType.FREE) return message
         val nativePdf = platform.compatibleType in setOf(ClientType.OPENAI, ClientType.ANTHROPIC, ClientType.GOOGLE)
         val documents = message.attachments.filter {
             !FileUtils.isImage(it.mimeType) && !(nativePdf && it.mimeType == "application/pdf")
@@ -614,7 +627,7 @@ class ChatRepositoryImpl(
             documents.map { document ->
                 val extracted = document.extractedText?.let { DocumentTextExtractor.Result(it, document.extractionNote) }
                     ?: DocumentTextExtractor.extract(context, java.io.File(document.filePathForDisplay), document.mimeType)
-                if (knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
+                if (!platform.excludesMemory() && knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
                     knowledge.index(document.resolvedDisplayName, extracted.text.take(1_000_000), chatId = message.chatId)
                     "Indexed attachment: ${document.resolvedDisplayName}. Relevant excerpts appear in document context."
                 } else {

@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -42,6 +43,7 @@ class ModelDelegationTool(
         if (task.isBlank() || task.length > config.maxInputCharacters) return error("Task must contain 1–${config.maxInputCharacters} characters.")
         val target = profiles().firstOrNull { it.uid == config.targetProfileUid && it.enabled }
             ?: return error("Choose an enabled target AI profile in Settings → Tool connections → Model delegation.")
+        if (target.excludesMemory()) return error("Free models cannot receive delegated context. Start a separate Free chat with a public prompt.")
         if (target.uid == source.uid) return error("Choose a different target profile; self-delegation is disabled.")
         if (config.localPlatformsOnly && !target.isPrivateDestination()) return error("This target is blocked by the private-destination-only setting.")
         if (source.compatibleType == ClientType.LITERT_LM && target.compatibleType == ClientType.LITERT_LM) {

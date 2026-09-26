@@ -1,12 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 
 data class ProviderRequestConfig(
     val apiUrl: String,
     val token: String?,
     val anthropicBetaFeatures: Set<String> = emptySet(),
-    val extraHeaders: Map<String, String> = emptyMap()
+    val extraHeaders: Map<String, String> = emptyMap(),
+    val freeProvider: FreeAiProvider? = null
 ) {
     /**
      * Resolves an API endpoint path against the base apiUrl, normalizing any
@@ -15,6 +17,7 @@ data class ProviderRequestConfig(
      * double slashes or malformed URLs.
      */
     fun buildEndpoint(subPath: String): String {
+        if (freeProvider != null && subPath.trim('/') == "chat/completions") return freeProvider.chatCompletionsUrl
         val sanitizedBase = apiUrl.trim().trimEnd('/')
         val sanitizedSubPath = subPath.trim().trimStart('/')
         return if (sanitizedSubPath.isEmpty()) sanitizedBase else "$sanitizedBase/$sanitizedSubPath"
@@ -53,6 +56,7 @@ internal fun throwIfToolDefinitionsRejected(
 /** Keep authentication failures attributable to the AI connection, including after tool rounds. */
 internal fun ProviderRequestConfig.readableProviderError(message: String, code: String?): String {
     if (code != "401" && code != "403") return message
+    if (freeProvider != null) return "${freeProvider.displayName} is not accepting anonymous requests (HTTP $code). Try later or choose another Free provider."
     val host = runCatching { java.net.URI(apiUrl.trim()).host }.getOrNull()
     val provider = if (host.equals("openrouter.ai", ignoreCase = true)) "OpenRouter" else "The AI provider"
     return if (code == "401") {

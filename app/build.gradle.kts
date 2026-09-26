@@ -40,6 +40,8 @@ extensions.configure<ApplicationExtension> {
         manifestPlaceholders["appAuthRedirectScheme"] = hfRedirect.substringBefore(":").ifEmpty { "gptmobile-hf-unconfigured" }
         buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"$hfClientId\"")
         buildConfigField("String", "HF_OAUTH_REDIRECT_URI", "\"$hfRedirect\"")
+        // Enable only after LLM7 has approved this app's embedded integration in writing.
+        buildConfigField("boolean", "FREE_LLM7_APPROVED", providers.gradleProperty("freeLlm7Approved").map { (it == "true").toString() }.getOrElse("false"))
 
         ndk {
             // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)

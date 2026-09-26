@@ -31,6 +31,8 @@ class ConversationTitleSummarizer(
         assistantMessage: String,
         platform: PlatformV2
     ): String? = withTimeoutOrNull(TIMEOUT_MS) {
+        // Free quotas are reserved for user replies, not background generation.
+        if (platform.compatibleType == ClientType.FREE) return@withTimeoutOrNull null
         val prompt = buildPrompt(userMessage, assistantMessage)
         val config = buildProviderRequestConfig(platform)
         val title = when (platform.compatibleType) {

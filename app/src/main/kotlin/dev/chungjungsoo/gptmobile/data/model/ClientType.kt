@@ -9,5 +9,6 @@ enum class ClientType {
     OLLAMA,
     CUSTOM,
     LITERT_LM,
-    LLAMA
+    LLAMA,
+    FREE
 }

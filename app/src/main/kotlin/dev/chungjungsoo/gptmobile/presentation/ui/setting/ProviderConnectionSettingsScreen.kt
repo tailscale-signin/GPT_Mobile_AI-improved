@@ -45,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
+import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -83,6 +86,7 @@ fun ProviderConnectionSettingsScreen(
         return
     }
 
+    val isFree = connection.compatibleType == ClientType.FREE
     var name by remember(connection.uid, connection.name) { mutableStateOf(connection.name) }
     var apiUrl by remember(connection.uid, connection.apiUrl) { mutableStateOf(connection.apiUrl) }
     var keys by remember(connection.uid) { mutableStateOf(listOf("")) }
@@ -92,7 +96,7 @@ fun ProviderConnectionSettingsScreen(
     val scope = rememberCoroutineScope()
     LaunchedEffect(connection.uid) {
         try {
-            keys = settingViewModel.providerKeys(connection.uid).ifEmpty { listOf("") }
+            keys = if (isFree) emptyList() else settingViewModel.providerKeys(connection.uid).ifEmpty { listOf("") }
             loaded = true
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -174,41 +178,56 @@ fun ProviderConnectionSettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
-                        OutlinedTextField(
-                            value = apiUrl,
-                            onValueChange = { apiUrl = it },
-                            label = { Text("API HTTP base URL") },
-                            leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-                        )
-                        Text("API keys · round robin", style = MaterialTheme.typography.titleMedium)
-                        Text("New requests rotate through the saved keys. Related tool rounds keep the same account.", style = MaterialTheme.typography.bodySmall)
-                        keys.forEachIndexed { index, key ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = key,
-                                    onValueChange = { value -> keys = keys.toMutableList().apply { set(index, value) } },
-                                    label = { Text("API key ${index + 1}") },
-                                    leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
-                                    modifier = Modifier.weight(1f),
-                                    enabled = loaded && !saving,
-                                    singleLine = true,
-                                    visualTransformation = PasswordVisualTransformation()
-                                )
-                                IconButton(onClick = { keys = keys.filterIndexed { i, _ -> i != index }.ifEmpty { listOf("") } }, enabled = loaded && !saving) {
-                                    Icon(Icons.Default.Delete, "Remove API key ${index + 1}")
+                        if (isFree) {
+                            FreeProviderPicker(
+                                apiUrl = apiUrl,
+                                onProviderSelected = { provider ->
+                                    if (name == FreeAiProvider.fromApiUrl(apiUrl)?.displayName) name = provider.displayName
+                                    apiUrl = provider.apiUrl
+                                },
+                                enabled = !saving
+                            )
+                        } else {
+                            OutlinedTextField(
+                                value = apiUrl,
+                                onValueChange = { apiUrl = it },
+                                label = { Text("API HTTP base URL") },
+                                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                            )
+                            Text("API keys · round robin", style = MaterialTheme.typography.titleMedium)
+                            Text("New requests rotate through the saved keys. Related tool rounds keep the same account.", style = MaterialTheme.typography.bodySmall)
+                            keys.forEachIndexed { index, key ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedTextField(
+                                        value = key,
+                                        onValueChange = { value -> keys = keys.toMutableList().apply { set(index, value) } },
+                                        label = { Text("API key ${index + 1}") },
+                                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                                        modifier = Modifier.weight(1f),
+                                        enabled = loaded && !saving,
+                                        singleLine = true,
+                                        visualTransformation = PasswordVisualTransformation()
+                                    )
+                                    IconButton(onClick = { keys = keys.filterIndexed { i, _ -> i != index }.ifEmpty { listOf("") } }, enabled = loaded && !saving) {
+                                        Icon(Icons.Default.Delete, "Remove API key ${index + 1}")
+                                    }
                                 }
                             }
-                        }
-                        TextButton(onClick = { keys = keys + "" }, enabled = loaded && !saving) {
-                            Icon(Icons.Default.Add, null)
-                            Text(" API")
+                            TextButton(onClick = { keys = keys + "" }, enabled = loaded && !saving) {
+                                Icon(Icons.Default.Add, null)
+                                Text(" API")
+                            }
                         }
                         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         Button(
-                            enabled = loaded && !saving && name.isNotBlank() && apiUrl.isNotBlank(),
+                            enabled = loaded &&
+                                !saving &&
+                                name.isNotBlank() &&
+                                apiUrl.isNotBlank() &&
+                                (!isFree || FreeAiProvider.fromApiUrl(apiUrl)?.isAvailable == true),
                             onClick = {
                                 saving = true
                                 scope.launch {

@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
@@ -367,6 +368,7 @@ class SettingRepositoryImpl @Inject constructor(
 
     override suspend fun getProviderCredentials(uid: String): String? {
         val connection = checkNotNull(providerConnectionDao.getConnection(uid)) { "Provider connection is unavailable" }
+        if (connection.compatibleType == ClientType.FREE) return null
         val reference = connection.secretRef ?: return null
         return checkNotNull(readSecret(reference)) { "Saved provider credentials are unavailable" }
     }
@@ -533,6 +535,12 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun securePlatform(platform: PlatformV2): PlatformV2 {
+        if (platform.compatibleType == ClientType.FREE) {
+            val connection = platform.providerConnectionUid?.let { providerConnectionDao.getConnection(it) }
+            require(connection == null || connection.compatibleType == ClientType.FREE) { "Free profiles need a Free connection." }
+            val resolved = platform.copy(apiUrl = connection?.apiUrl ?: platform.apiUrl)
+            return FreeAiProvider.requireFor(resolved).applyTo(resolved)
+        }
         if (platform.providerConnectionUid != null) {
             return platform.copy(token = null, secretRef = null)
         }
@@ -556,6 +564,10 @@ class SettingRepositoryImpl @Inject constructor(
             val connection = connections?.get(connectionUid)
                 ?: providerConnectionDao.getConnection(connectionUid)
             if (connection != null) {
+                if (platform.compatibleType == ClientType.FREE) {
+                    val resolved = platform.copy(apiUrl = connection.apiUrl)
+                    return FreeAiProvider.requireFor(resolved).applyTo(resolved)
+                }
                 return platform.copy(
                     apiUrl = connection.apiUrl,
                     token = connection.secretRef?.let { readSecret(it) },
@@ -564,6 +576,7 @@ class SettingRepositoryImpl @Inject constructor(
             }
         }
 
+        if (platform.compatibleType == ClientType.FREE) return FreeAiProvider.requireFor(platform).applyTo(platform)
         if (platform.token != null) return platform
         val secretRef = platform.secretRef ?: return platform
         return platform.copy(token = readSecret(secretRef))
@@ -573,6 +586,11 @@ class SettingRepositoryImpl @Inject constructor(
         connection: ProviderConnection,
         credential: String?
     ): ProviderConnection {
+        if (connection.compatibleType == ClientType.FREE) {
+            val provider = requireNotNull(FreeAiProvider.fromApiUrl(connection.apiUrl)) { "Choose a supported Free provider." }
+            connection.secretRef?.let { secretVault.delete(it) }
+            return connection.copy(apiUrl = provider.apiUrl, secretRef = null)
+        }
         if (credential == null) return connection
 
         if (credential.isBlank()) {

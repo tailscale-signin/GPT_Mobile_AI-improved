@@ -14,6 +14,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.dto.Platform
 import dev.chungjungsoo.gptmobile.data.dto.ThemeSetting
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
@@ -37,6 +39,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+
+    @Test
+    fun `Free profiles exclude memory private files location MCP and delegation`() = runBlocking {
+        val profile = FreeAiProvider.KILO.applyTo(PlatformV2(uid = "profile-1", name = "Free", compatibleType = ClientType.FREE))
+        val dao = ResolverFakeToolConnectionDao()
+        dao.bind(null, binding(profile.uid, null, BuiltInAgentTool.DEVICE_LOCATION))
+        dao.bind(null, binding(profile.uid, null, BuiltInAgentTool.READ_FILE_SLICE))
+        val vault = ResolverFakeSecretVault()
+        val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(vault, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
+        facts.setEnabled(true)
+        val resolved = resolver(dao, vault, ResolverFakeSettingRepository(listOf(profile)), facts).resolve(
+            profile.uid,
+            userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = "Remember that I prefer Kotlin", platformType = null),
+            delegate = { _, _, _ -> error("Free profiles must not delegate") }
+        )
+        assertEquals(listOf("calculate_expression", "current_date", "read_url", "web_search"), resolved.map { it.modelToolName })
+    }
+
     @Test
     fun `zero bindings resolves current date, calculate expression, github, read url, and web search tools`() = runBlocking {
         val resolver = resolver()
@@ -514,19 +534,22 @@ class AgentToolResolverTest {
 
     private fun resolver(
         dao: ResolverFakeToolConnectionDao = ResolverFakeToolConnectionDao(),
-        vault: ResolverFakeSecretVault = ResolverFakeSecretVault()
+        vault: ResolverFakeSecretVault = ResolverFakeSecretVault(),
+        settings: SettingRepository = ResolverFakeSettingRepository(),
+        facts: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
         val manager = McpClientManager(networkClient())
         return AgentToolResolver(
             toolConnectionRepository = repository,
-            settingRepository = ResolverFakeSettingRepository(),
+            settingRepository = settings,
             secretVault = vault,
             networkClient = networkClient,
             mcpClientManager = manager,
             mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
+            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true)),
+            factVault = facts
         )
     }
 
@@ -569,7 +592,7 @@ class AgentToolResolverTest {
     }
 }
 
-private class ResolverFakeSettingRepository : SettingRepository {
+private class ResolverFakeSettingRepository(private val profiles: List<PlatformV2> = emptyList()) : SettingRepository {
     override suspend fun fetchProviderConnections(): List<ProviderConnection> = emptyList()
     override fun observeProviderConnections(): Flow<List<ProviderConnection>> = kotlinx.coroutines.flow.flowOf(emptyList())
     override suspend fun getProviderConnection(uid: String): ProviderConnection? = null
@@ -578,7 +601,7 @@ private class ResolverFakeSettingRepository : SettingRepository {
     override suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean = error("Provider writes are not used by this fixture")
 
     override suspend fun fetchPlatforms(): List<Platform> = emptyList()
-    override suspend fun fetchPlatformV2s(): List<PlatformV2> = emptyList()
+    override suspend fun fetchPlatformV2s(): List<PlatformV2> = profiles
     override fun observePlatformV2s(): Flow<List<PlatformV2>> = flowOf(emptyList())
     override fun observePlatformV2ByUid(uid: String): Flow<PlatformV2?> = flowOf(null)
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting()

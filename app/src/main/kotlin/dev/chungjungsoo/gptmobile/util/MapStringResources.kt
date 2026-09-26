@@ -10,6 +10,7 @@ fun getClientTypeDisplayName(clientType: ClientType): String = when (clientType)
     ClientType.OPENROUTER -> "OpenRouter"
     ClientType.OLLAMA -> "Ollama"
     ClientType.CUSTOM -> "Custom"
+    ClientType.FREE -> "Free"
     ClientType.LITERT_LM -> "Local"
     ClientType.LLAMA -> "Llama"
 }

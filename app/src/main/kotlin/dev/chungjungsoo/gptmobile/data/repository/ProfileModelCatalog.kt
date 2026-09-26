@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.repository
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,6 +23,10 @@ data class ProfileModelOption(val id: String, val name: String)
 class ProfileModelCatalog(private val client: OkHttpClient = sharedClient) {
     suspend fun load(profile: PlatformV2): List<ProfileModelOption> = withContext(Dispatchers.IO) {
         val type = profile.compatibleType
+        if (type == ClientType.FREE) {
+            val provider = FreeAiProvider.requireFor(profile)
+            return@withContext listOf(ProfileModelOption(provider.model, provider.displayName))
+        }
         require(type != ClientType.LITERT_LM) { "Select a downloaded model from the local model library." }
         val base = profile.apiUrl.trim().ifEmpty {
             when (type) {

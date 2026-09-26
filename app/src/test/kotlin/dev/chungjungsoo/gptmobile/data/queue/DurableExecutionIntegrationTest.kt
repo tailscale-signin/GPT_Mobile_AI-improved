@@ -141,6 +141,7 @@ class DurableExecutionIntegrationTest {
         ledger.recover()
         assertTrue(ledger.recent().first().all { it.status == "INTERRUPTED" })
     }
+
     @Test
     fun `trusted retry of a matching write still asks before repeating its side effect`() = runBlocking {
         database.pendingPromptDao().enqueue(prompt())
@@ -159,5 +160,4 @@ class DurableExecutionIntegrationTest {
         manager.decide(pending.id, false)
         assertFalse(repeated.await())
     }
-
 }

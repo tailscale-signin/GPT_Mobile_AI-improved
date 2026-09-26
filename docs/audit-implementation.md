@@ -1,6 +1,6 @@
 # Audit implementation and review notes
 
-Branch: `feat/audit-reliability-memory-workspaces`, based on main `c5ace46` (includes PR #502).
+Branch: `feat/audit-reliability-memory-workspaces`, based on main `c5ace46` (includes PR #502); synchronized with main `72097d6` and its existing 0.9.14.0 version update.
 
 The changes below implement the 22 findings from the September 26 repository audit. This is a feature branch, not a published release. Automated validation results are recorded at the end; hardware-dependent checks remain explicitly separate.
 

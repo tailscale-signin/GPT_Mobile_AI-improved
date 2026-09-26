@@ -6,6 +6,7 @@ import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
+import java.io.InputStream
 import java.io.StringReader
 import java.io.Writer
 import java.util.zip.ZipFile
@@ -83,12 +84,29 @@ object DocumentTextExtractor {
         return Result(value, if (truncated) "Document excerpt limited to 80,000 characters or 100 pages." else null)
     }
 
+    private fun readBounded(input: InputStream, limit: Int): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(minOf(8192, limit))
+        while (output.size() < limit) {
+            val count = input.read(buffer, 0, minOf(buffer.size, limit - output.size()))
+            if (count < 0) break
+            if (count == 0) {
+                val next = input.read()
+                if (next < 0) break
+                output.write(next)
+            } else {
+                output.write(buffer, 0, count)
+            }
+        }
+        return output.toByteArray()
+    }
+
     private fun readOpenXml(file: File, extension: String): Result = ZipFile(file).use { zip ->
         var remaining = MAX_XML_BYTES
         fun read(name: String): String? {
             val entry = zip.getEntry(name) ?: return null
             require(entry.size <= remaining) { "The document's expanded text exceeds 8 MB." }
-            val bytes = zip.getInputStream(entry).use { it.readNBytes(remaining + 1) }
+            val bytes = zip.getInputStream(entry).use { readBounded(it, remaining + 1) }
             require(bytes.size <= remaining) { "The document's expanded text exceeds 8 MB." }
             remaining -= bytes.size
             return bytes.toString(Charsets.UTF_8).also {

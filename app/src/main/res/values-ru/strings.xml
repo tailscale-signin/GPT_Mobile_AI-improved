@@ -146,7 +146,7 @@
     <string name="default_mode">По умолчанию</string>
     <string name="ai_generated">Сгенерировано ИИ (Бета)</string>
     <string name="untitled_chat">Без названия</string>
-    <string name="title_length_limit">Лимит длины заголовка: %1$s/50</string>
+    <string name="title_length_limit">Лимит длины заголовка: %1$d/50</string>
     <string name="apply_generated_title">Применить сгенерированный заголовок</string>
     <string name="update">Обновить</string>
     <string name="retry_ai_title">Повторить генерацию заголовка ИИ</string>
@@ -161,8 +161,8 @@
     <string name="migration_assistant">Ассистент переноса данных</string>
     <string name="migration_description">Ассистент переноса данных поможет безболезненно перейти на обновлённую базу данных и новые структуры данных в новой версии приложения. Пожалуйста, выполните следующие действия.</string>
     <string name="migrate_chat">Перенести чаты</string>
-    <string name="enabled_platform_numbers">Доступные платформы: %1s</string>
-    <string name="existing_chats">Существующие чаты: %1s</string>
+    <string name="enabled_platform_numbers">Доступные платформы: %1$d</string>
+    <string name="existing_chats">Существующие чаты: %1$d</string>
     <string name="migrating">Перенос данных</string>
     <string name="migrated">Перенесено</string>
     <string name="error">Ошибка</string>

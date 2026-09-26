@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 30,
-    "identityHash": "79d9c61260816a7d7580dac6becbbb3b",
+    "identityHash": "5eb527fb4d20d077d5abc7ae2985f1cd",
     "entities": [
       {
         "tableName": "chats_v2",
@@ -1584,7 +1584,27 @@
           "columnNames": [
             "id"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_tool_approvals_runId",
+            "unique": false,
+            "columnNames": [
+              "runId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tool_approvals_runId` ON `${TABLE_NAME}` (`runId`)"
+          },
+          {
+            "name": "index_tool_approvals_state",
+            "unique": false,
+            "columnNames": [
+              "state"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tool_approvals_state` ON `${TABLE_NAME}` (`state`)"
+          }
+        ]
       },
       {
         "tableName": "model_invocations",
@@ -1772,7 +1792,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '79d9c61260816a7d7580dac6becbbb3b')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5eb527fb4d20d077d5abc7ae2985f1cd')"
     ]
   }
 }

@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -43,6 +44,7 @@ import java.util.Locale
 @Composable
 internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: Int?, onSend: (String) -> Unit, onInterrupt: () -> Unit) {
     val context = LocalContext.current
+    val resources by rememberUpdatedState(LocalResources.current)
     val owner = LocalLifecycleOwner.current
     val send by rememberUpdatedState(onSend)
     val interrupt by rememberUpdatedState(onInterrupt)
@@ -65,7 +67,7 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
             recognizer?.destroy()
             val available = if (useSystemService) SpeechRecognizer.isRecognitionAvailable(context) else SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
             if (!available) {
-                status = context.getString(R.string.voice_unavailable)
+                status = resources.getString(R.string.voice_unavailable)
                 enabled = false
             } else {
                 val active = if (useSystemService) SpeechRecognizer.createSpeechRecognizer(context) else SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
@@ -73,7 +75,7 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
                 active.setRecognitionListener(object : RecognitionListener {
                     override fun onReadyForSpeech(params: Bundle?) {
                         coordinator.startListening()
-                        status = context.getString(R.string.voice_listening)
+                        status = resources.getString(R.string.voice_listening)
                     }
                     override fun onBeginningOfSpeech() {
                         coordinator.onSpeechDetected(1f)
@@ -84,18 +86,18 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
                     override fun onBufferReceived(buffer: ByteArray?) = Unit
                     override fun onEndOfSpeech() {
                         coordinator.onSilenceDetected()
-                        status = context.getString(R.string.voice_transcribing)
+                        status = resources.getString(R.string.voice_transcribing)
                     }
                     override fun onError(error: Int) {
-                        coordinator.onError(context.getString(R.string.voice_recognition_error, error))
-                        status = context.getString(R.string.voice_recognition_error, error)
+                        coordinator.onError(resources.getString(R.string.voice_recognition_error, error))
+                        status = resources.getString(R.string.voice_recognition_error, error)
                     }
                     override fun onResults(results: Bundle?) {
                         val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                         if (enabled && text.isNotBlank()) {
                             coordinator.onTranscriptionComplete()
                             awaitingAnswer = true
-                            status = context.getString(R.string.voice_generating)
+                            status = resources.getString(R.string.voice_generating)
                             send(text)
                         }
                     }
@@ -119,11 +121,11 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
         recognizer?.cancel()
         tts?.stop()
         coordinator.stopSession()
-        status = context.getString(R.string.voice_stopped)
+        status = resources.getString(R.string.voice_stopped)
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
         enabled = allowed
-        if (allowed) listen() else status = context.getString(R.string.voice_denied)
+        if (allowed) listen() else status = resources.getString(R.string.voice_denied)
     }
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) stop() }
@@ -144,7 +146,7 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
             .build()
         if (audio.requestAudioFocus(focus) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             stop()
-            status = context.getString(R.string.voice_audio_busy)
+            status = resources.getString(R.string.voice_audio_busy)
             return@DisposableEffect onDispose { }
         }
         var speechReference: TextToSpeech? = null
@@ -153,7 +155,7 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
             val localVoice = engine?.voices?.firstOrNull { !it.isNetworkConnectionRequired && it.locale.language == Locale.getDefault().language }
             ttsReady = result == TextToSpeech.SUCCESS && (useSystemService || localVoice != null)
             if (!useSystemService && localVoice != null) engine.voice = localVoice
-            if (!ttsReady) status = context.getString(R.string.voice_offline_playback_missing)
+            if (!ttsReady) status = resources.getString(R.string.voice_offline_playback_missing)
         }
         speechReference = speech
         tts = speech
@@ -161,7 +163,7 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
             override fun onStart(utteranceId: String?) {
                 handler.post {
                     coordinator.onPlaybackStart()
-                    status = context.getString(R.string.voice_speaking)
+                    status = resources.getString(R.string.voice_speaking)
                 }
             }
             override fun onDone(utteranceId: String?) {
@@ -175,7 +177,7 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
 
             @Deprecated("Platform callback")
             override fun onError(utteranceId: String?) {
-                handler.post { status = context.getString(R.string.voice_playback_failed) }
+                handler.post { status = resources.getString(R.string.voice_playback_failed) }
             }
         })
         onDispose {
@@ -209,13 +211,13 @@ internal fun VoiceChatControls(generating: Boolean, answer: String, answerId: In
                     interrupt()
                     listen()
                 }
-            }) { Text(if (enabled) context.getString(R.string.voice_interrupt) else context.getString(R.string.voice_conversation)) }
-            if (enabled) TextButton(onClick = { stop() }) { Text(context.getString(R.string.voice_stop)) }
+            }) { Text(if (enabled) resources.getString(R.string.voice_interrupt) else resources.getString(R.string.voice_conversation)) }
+            if (enabled) TextButton(onClick = { stop() }) { Text(resources.getString(R.string.voice_stop)) }
         }
         if (enabled || status.isNotBlank()) {
             Row {
                 Checkbox(checked = useSystemService, enabled = !enabled, onCheckedChange = { useSystemService = it })
-                Text(context.getString(R.string.voice_system_service), Modifier.weight(1f))
+                Text(resources.getString(R.string.voice_system_service), Modifier.weight(1f))
             }
             Text(status)
         }

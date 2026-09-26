@@ -15,7 +15,7 @@ import org.junit.Test
 
 class ModelDelegationToolTest {
     private val source = PlatformV2(uid = "source", name = "Main", compatibleType = ClientType.OPENAI)
-    private val target = PlatformV2(uid = "target", name = "Local", compatibleType = ClientType.LLAMA)
+    private val target = PlatformV2(uid = "target", name = "Local", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.20:8080/v1")
     private val enabled = ModelDelegationSettings(enabled = true, targetProfileUid = target.uid)
     private val task = buildJsonObject { put("task", "Summarize this text") }
 
@@ -48,7 +48,8 @@ class ModelDelegationToolTest {
         blocked(source, target, enabled.copy(enabled = false))
         blocked(source, source, enabled.copy(targetProfileUid = source.uid))
         blocked(source, target.copy(enabled = false), enabled)
-        blocked(source, target.copy(compatibleType = ClientType.GOOGLE), enabled)
+        blocked(source, target.copy(compatibleType = ClientType.GOOGLE, apiUrl = "https://generativelanguage.googleapis.com"), enabled)
+        blocked(source, target.copy(apiUrl = "https://public.example.com/v1"), enabled)
         blocked(source.copy(compatibleType = ClientType.LITERT_LM), target.copy(compatibleType = ClientType.LITERT_LM), enabled)
     }
 

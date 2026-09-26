@@ -1,27 +1,24 @@
-# GPT Mobile AI (Improved) v0.9.13.0
+# GPT Mobile AI (Improved) v0.9.14.0
 
 ## Highlights
 
-- **Custom Theme Color Studio**: Interactive custom theme color wheel, dynamic palette previews, and custom hex color support alongside expanded curated presets.
-- **Provider Multi-Key Management**: Configure multiple API keys per AI provider with automatic round-robin rotation, quota failover, and key status monitoring.
-- **Animated Tool Execution Traces**: Live animated progress indicators, real-time duration counters, and distinct status badges (running, succeeded, failed) for transparent tool activity tracking.
-- **Interactive OpenStreetMap (OSM) & MapLibre Mapping**: Rich map cards featuring nearby place search markers, interactive zoom/pan controls, and walking/driving path overlays for location-aware tool results.
-- **Fact Vault Recall Controls**: Configurable local learning retention thresholds, granular fact inspection, editing, deletion, and visible recall chips in conversation prompts.
-- **Independent Reasoning Model Controls**: Dedicated visibility toggles and display options for reasoning model output traces.
-- **Local Runtime Performance Optimization**: Improved resource allocation and thread management for LiteRT and on-device model inference.
+- **Local MCP Marketplace Expansion**: Integrated 29 local AI projects into the marketplace catalog—including 23 configurable server connections (Atlassian, Chat2DB, FlyEnv, AgentSet, DBHub, Code Memory, etc.) and six setup guides (including Houtini LM)—complete with curated brand vector and raster icons.
+- **Native Model Delegation**: Models can now delegate specialized subtasks to other configured AI profiles (on-device LiteRT, Ollama, Llama, or cloud endpoints) with strict loop protection, timeout limits, token budgets, and reentry prevention.
+- **Integrated Local Memory Tool**: Direct Fact Vault recall and capture integration exposed in Tool Connections and the marketplace, featuring encrypted storage, per-chat scoping, and automatic redaction of recalled facts from persistent tool traces.
+- **Restored Usage Statistics & Analytics**: Re-enabled comprehensive usage metrics, total queries, success rates, token usage breakdown, tool activity summaries, and run output inspection modals.
+- **Chat Profile Picker Ordering**: Drag-to-reorder and customizable sorting for chat profiles on the home screen, allowing quick switching between preferred models.
 
-## Fixes
+## Improvements & Safeguards
 
-- Fixed Llama tool handoff and response parsing to prevent tool-loop stalls and guarantee clean turn completions.
-- Fixed duplicate selection and key exhaustion handling in multi-key round-robin rotation.
-- Resolved map marker lifecycle issues and prevented leaks during device orientation changes.
-- Improved custom theme color contrast, dark mode luminance matching, and persistence across app restarts.
-- Optimized tool result serialization, token count estimation, and gateway payload measurements.
+- Model delegation prevents self-delegation cycles and active on-device engine reentry while forwarding only bounded prompts without tool leakage.
+- Fact Vault memory capture captures from validated user turns and respects cloud transmission policies and review status.
+- Preserved existing opt-outs for telemetry and vault features, keeping local learning strictly opt-in.
+- Streamlined Tool Connections screen with dedicated Local Tools management panel and configurable delegation parameters.
 
 ## Installation and artifacts
 
-- Version: **0.9.13.0** (version code **68**).
-- Android 12 or newer; target Android 16.
+- Version: **0.9.14.0** (version code **69**).
+- Android 12 or newer; target Android 16 (API 36).
 - Package: `dev.melo.gptmobile.improved`.
 - Signed APKs: **arm64-v8a**, **x86_64**, and **universal**. Most modern Android phones use arm64-v8a.
 - Signed Android App Bundle (AAB) and SHA-256 checksums are produced by the release workflow.
@@ -29,8 +26,8 @@
 
 ## Memory and telemetry notes
 
-Fact Vault learning is opt-in and off by default. Extraction uses lightweight, on-device parsing patterns without external embedding dependencies. Relevant active facts are passed only to the active model provider for the current prompt. Tool token counts are local estimates for transparency.
+Fact Vault learning remains opt-in and off by default. Relevant active facts are recalled only with user-approved policies and redacted from persistent trace logs. Delegated subtask token usage is isolated to subtask executions.
 
 ## Validation
 
-All core features, map integrations, and Llama handoff fixes have been verified with regression test suites and clean debug APK compilation. Signed release packaging is handled via the automated GitHub Actions pipeline.
+All core features, model delegation safety bounds, local memory tools, and marketplace catalog integrations have passed focused test suites (56/56 tests passing), lint verification, and clean build checks. Signed release packaging is handled via the automated GitHub Actions pipeline.

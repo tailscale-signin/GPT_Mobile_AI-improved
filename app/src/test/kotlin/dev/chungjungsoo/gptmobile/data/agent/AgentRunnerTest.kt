@@ -223,11 +223,11 @@ class AgentRunnerTest {
             exposedToolCounts += tools.size
             when (providerCalls.getAndIncrement()) {
                 0 -> flow {
-                    repeat(11) { emit(toolCall("call_$it")) }
+                    repeat(12) { emit(toolCall("call_$it")) }
                     emit(ProviderEvent.Completed)
                 }
                 else -> flow {
-                    assertEquals(11, exchanges.single().results.size)
+                    assertEquals(12, exchanges.single().results.size)
                     emit(ProviderEvent.TextDelta("final"))
                     emit(ProviderEvent.Completed)
                 }
@@ -240,7 +240,7 @@ class AgentRunnerTest {
 
         val events = AgentRunner().run(session, listOf(tool)).toList()
 
-        assertEquals(11, executions.get())
+        assertEquals(12, executions.get())
         assertEquals(listOf(1, 0), exposedToolCounts)
         assertTrue(events.any { it is AgentRunEvent.Notice })
         assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })

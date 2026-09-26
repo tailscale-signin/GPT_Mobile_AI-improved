@@ -40,9 +40,15 @@ class GptTileService : TileService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startActivityAndCollapse(pendingIntent)
         } else {
-            @Suppress("DEPRECATION")
-            startActivityAndCollapse(intent)
+            startLegacyActivityAndCollapse(intent)
         }
+    }
+
+    // The PendingIntent overload exists only on Android 14 and later.
+    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
+    @Suppress("DEPRECATION")
+    private fun startLegacyActivityAndCollapse(intent: Intent) {
+        startActivityAndCollapse(intent)
     }
 
     companion object {

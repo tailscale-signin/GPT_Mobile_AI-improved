@@ -223,6 +223,8 @@ object ChatDatabaseV2Migrations {
             db.execSQL("ALTER TABLE tool_connections ADD COLUMN approved_read_tools TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE knowledge_documents ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
             db.execSQL("CREATE TABLE IF NOT EXISTS tool_approvals (id TEXT NOT NULL PRIMARY KEY, runId TEXT NOT NULL, connection TEXT NOT NULL, tool TEXT NOT NULL, argumentHash TEXT NOT NULL, argumentPreview TEXT NOT NULL, state TEXT NOT NULL, createdAt INTEGER NOT NULL)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_tool_approvals_runId ON tool_approvals(runId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_tool_approvals_state ON tool_approvals(state)")
         }
     }
 

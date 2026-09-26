@@ -1,9 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.backup
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -13,8 +9,35 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class AppBackupCryptoTest {
+
+    @Test
+    fun fragmentedStreamsRestoreAndTruncatedHeadersAreRejected() {
+        val payload = ConfigBackupPayload(version = 2, exportedAt = 321L)
+        val output = ByteArrayOutputStream()
+        AppBackupCrypto.encryptConfig(payload, output, "fragmented-password")
+        val bytes = output.toByteArray()
+        val fragmented = object : java.io.FilterInputStream(ByteArrayInputStream(bytes)) {
+            private var reads = 0
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (++reads % 3 == 0) return 0
+                return super.read(buffer, offset, minOf(length, 2))
+            }
+        }
+        assertEquals(payload, AppBackupCrypto.decryptConfig(fragmented, "fragmented-password"))
+        for (length in listOf(3, 10, 28, 39)) {
+            assertTrue(
+                runCatching {
+                    AppBackupCrypto.decryptConfig(ByteArrayInputStream(bytes.copyOf(length)), "fragmented-password")
+                }.exceptionOrNull() is IllegalArgumentException
+            )
+        }
+    }
 
     @Test
     fun testFavoritesEncryptionDecryption() {
@@ -176,5 +199,4 @@ class AppBackupCryptoTest {
             plaintext.fill(0)
         }
     }
-
 }

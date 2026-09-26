@@ -171,7 +171,7 @@ class ToolConnectionRepositoryTest {
         assertNull(dao.connections["alpha"])
         assertNull(vault.values["connection_alpha"])
         assertEquals(
-            listOf("dao.delete:alpha", "vault.delete:connection_alpha", "vault.delete:mcp_oauth_pending_alpha"),
+            listOf("dao.delete:alpha", "vault.delete:connection_alpha", "vault.delete:mcp_oauth_pending_alpha", "vault.delete:endpoint_alpha"),
             events
         )
     }

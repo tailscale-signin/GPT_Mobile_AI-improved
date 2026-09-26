@@ -186,6 +186,8 @@ class KnowledgeGraphEngine @Inject constructor() {
                 if (match != null && match.groupValues.size >= 3) {
                     val subject = match.groupValues[1].trim()
                     val target = match.groupValues[2].trim()
+                    // A multiword subject must not turn reported speech into a fact.
+                    if (Regex("(?iu)\\b(?:said|says|told|wrote|quoted|asked|reported|claims|claimed|disse|dijo|dit)\\b").containsMatchIn(subject)) continue
                     if (subject.isNotBlank() && target.isNotBlank()) {
                         val srcEntity = KnowledgeEntity(id = subject.lowercase(Locale.ROOT), name = subject, type = "ENTITY")
                         val dstEntity = KnowledgeEntity(id = target.lowercase(Locale.ROOT), name = target, type = "ENTITY")

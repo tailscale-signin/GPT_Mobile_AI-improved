@@ -177,9 +177,27 @@ object AppBackupCrypto {
         }
     }
 
+    // InputStream.readNBytes is unavailable on Android 12. Handle short reads
+    // explicitly, including providers that occasionally return no buffered data.
+    private fun readInto(input: InputStream, destination: ByteArray): Int {
+        var offset = 0
+        while (offset < destination.size) {
+            val count = input.read(destination, offset, destination.size - offset)
+            if (count < 0) break
+            if (count == 0) {
+                val next = input.read()
+                if (next < 0) break
+                destination[offset++] = next.toByte()
+            } else {
+                offset += count
+            }
+        }
+        return offset
+    }
+
     private fun decryptBytes(inputStream: InputStream, passphrase: String?): Pair<Byte, ByteArray> {
         val magic = ByteArray(MAGIC.size)
-        val readMagic = inputStream.readNBytes(magic, 0, magic.size)
+        val readMagic = readInto(inputStream, magic)
         if (readMagic != magic.size || !magic.contentEquals(MAGIC)) {
             throw IllegalArgumentException("Not a valid encrypted GPT Mobile backup file.")
         }
@@ -205,13 +223,13 @@ object AppBackupCrypto {
         var ciphertext: ByteArray? = null
 
         try {
-            if (inputStream.readNBytes(salt, 0, salt.size) != salt.size) {
+            if (readInto(inputStream, salt) != salt.size) {
                 throw IllegalArgumentException("Corrupted backup file: missing salt.")
             }
-            if (inputStream.readNBytes(iv, 0, iv.size) != iv.size) {
+            if (readInto(inputStream, iv) != iv.size) {
                 throw IllegalArgumentException("Corrupted backup file: missing IV.")
             }
-            if (inputStream.readNBytes(lengthBuffer, 0, lengthBuffer.size) != lengthBuffer.size) {
+            if (readInto(inputStream, lengthBuffer) != lengthBuffer.size) {
                 throw IllegalArgumentException("Corrupted backup file: missing length.")
             }
 
@@ -221,13 +239,7 @@ object AppBackupCrypto {
             }
 
             ciphertext = ByteArray(ciphertextSize)
-            var totalRead = 0
-            while (totalRead < ciphertextSize) {
-                val count = inputStream.read(ciphertext, totalRead, ciphertextSize - totalRead)
-                if (count < 0) break
-                if (count == 0) continue
-                totalRead += count
-            }
+            val totalRead = readInto(inputStream, ciphertext)
             if (totalRead != ciphertextSize) {
                 throw IllegalArgumentException("Unexpected end of backup file.")
             }

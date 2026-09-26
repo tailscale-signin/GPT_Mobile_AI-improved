@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.permissions
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -22,7 +23,7 @@ import kotlinx.serialization.json.JsonObject
 
 enum class ToolPolicy { READ_ONLY, ASK_WRITES, TRUSTED }
 
-@Entity(tableName = "tool_approvals")
+@Entity(tableName = "tool_approvals", indices = [Index("runId"), Index("state")])
 data class ToolApproval(
     @PrimaryKey val id: String,
     val runId: String,
@@ -51,7 +52,7 @@ interface ToolApprovalDao {
     @Query("UPDATE tool_approvals SET state = 'EXECUTING' WHERE id = :id AND state = 'APPROVED'")
     suspend fun claim(id: String): Int
 
-    @Query("SELECT a.state FROM tool_approvals a JOIN agent_runs previous ON previous.run_id = a.runId JOIN agent_runs current ON current.run_id = :runId WHERE previous.chat_id = current.chat_id AND previous.user_message_id = current.user_message_id AND a.connection = :connection AND a.tool = :tool AND a.argumentHash = :hash AND a.state IN ('PENDING', 'APPROVED', 'EXECUTING', 'COMPLETED', 'OUTCOME_UNKNOWN', 'INTERRUPTED') LIMIT 1")
+    @Query("SELECT a.state FROM tool_approvals a JOIN agent_runs previous ON previous.run_id = a.runId JOIN agent_runs target_run ON target_run.run_id = :runId WHERE previous.chat_id = target_run.chat_id AND previous.user_message_id = target_run.user_message_id AND a.connection = :connection AND a.tool = :tool AND a.argumentHash = :hash AND a.state IN ('PENDING', 'APPROVED', 'EXECUTING', 'COMPLETED', 'OUTCOME_UNKNOWN', 'INTERRUPTED') LIMIT 1")
     suspend fun previousMatchingAction(runId: String, connection: String, tool: String, hash: String): String?
 
     @Query("UPDATE tool_approvals SET state = :state WHERE id = :id AND state = 'EXECUTING'")
@@ -60,7 +61,7 @@ interface ToolApprovalDao {
     @Query("UPDATE tool_approvals SET state = 'INTERRUPTED' WHERE state IN ('PENDING', 'APPROVED', 'EXECUTING')")
     suspend fun interrupt()
 
-    @Query("DELETE FROM tool_approvals WHERE state NOT IN ('PENDING', 'APPROVED', 'EXECUTING') AND createdAt < :cutoff")
+    @Query("DELETE FROM tool_approvals WHERE state NOT IN ('PENDING', 'APPROVED', 'EXECUTING') AND createdAt < :cutoff AND runId NOT IN (SELECT run_id FROM agent_runs)")
     suspend fun prune(cutoff: Long)
 }
 

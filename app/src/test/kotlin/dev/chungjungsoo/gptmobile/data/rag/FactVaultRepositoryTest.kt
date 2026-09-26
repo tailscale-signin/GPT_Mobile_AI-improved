@@ -114,7 +114,7 @@ class FactVaultRepositoryTest {
     fun `questions negation and quoted statements are not learned as facts`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.setEnabled(true)
-        for (text in listOf("Do I prefer Kotlin?", "I do not like Kotlin", "I don't like Kotlin", "Someone said I prefer Kotlin", "\"I prefer Kotlin\"")) {
+        for (text in listOf("Do I prefer Kotlin?", "I do not like Kotlin", "I don't like Kotlin", "Someone said I prefer Kotlin", "My friend claims I prefer Kotlin", "\"I prefer Kotlin\"")) {
             repository.prepareTurn(text, 1, 1)
         }
         assertTrue(repository.state.value.facts.isEmpty())

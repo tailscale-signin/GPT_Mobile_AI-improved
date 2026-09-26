@@ -8,7 +8,7 @@ data class TokenBudgetSettings(val contextTokens: Int = Int.MAX_VALUE, val outpu
     fun normalized() = copy(contextTokens = if (contextTokens == 0 || contextTokens == Int.MAX_VALUE) Int.MAX_VALUE else contextTokens.coerceIn(256, 1048576), outputTokens = outputTokens.coerceIn(128, 32768), totalRunTokens = if (totalRunTokens == 0 || totalRunTokens == Int.MAX_VALUE) Int.MAX_VALUE else totalRunTokens.coerceIn(4096, 2097152))
 }
 
-data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int, val notice: String)
+data class ContextPlan(val turns: List<ConversationTurn>, val system: String, val tools: List<AgentToolDefinition>, val toolResultBytes: Int, val outputTokens: Int, val notice: String, val promptTokens: Int = 0)
 
 /** Conservative byte-based estimates. Provider-reported counts remain the accounting authority. */
 object ContextBudgetService {
@@ -51,7 +51,8 @@ object ContextBudgetService {
             selectedTools,
             resultReserve * 3,
             output,
-            "Context estimate: $used prompt tokens, $output output reserved, $resultReserve tool-result tokens reserved. $omitted earlier turns and ${tools.size - selectedTools.size} tools omitted. Attachment costs are estimates; server limits may differ."
+            "Context estimate: $used prompt tokens, $output output reserved, $resultReserve tool-result tokens reserved. $omitted earlier turns and ${tools.size - selectedTools.size} tools omitted. Attachment costs are estimates; server limits may differ.",
+            promptTokens = used
         )
     }
 }

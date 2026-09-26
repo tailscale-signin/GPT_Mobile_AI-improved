@@ -11,10 +11,10 @@ class MemoryDocumentRepository @Inject constructor(database: ChatDatabaseV2) {
     val dao = database.knowledgeDao()
     val documents = dao.documents()
 
-    suspend fun index(title: String, text: String, chatId: Int? = null, projectId: String? = null, explicitlyRestore: Boolean = false): String {
+    suspend fun index(title: String, text: String, chatId: Int? = null, projectId: String? = null, explicitlyRestore: Boolean = false, sourceKey: String? = null): String {
         require((chatId != null && chatId > 0) || projectId != null)
         require(text.isNotBlank() && text.length <= 1_000_000) { "Documents must contain text and be at most one million characters." }
-        val id = digest("${chatId ?: projectId}|$title")
+        val id = documentId(chatId?.toString() ?: projectId.orEmpty(), title, sourceKey)
         val contentHash = digest(text)
         val chunkSize = 1200
         val stride = 1000
@@ -67,5 +67,8 @@ class MemoryDocumentRepository @Inject constructor(database: ChatDatabaseV2) {
         }.ifBlank { "No matching document excerpts." }
     }
 
-    private fun digest(text: String): String = MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+    companion object {
+        fun documentId(scope: String, title: String, sourceKey: String? = null): String = digest("$scope|$title" + sourceKey?.let { "|$it" }.orEmpty())
+        private fun digest(text: String): String = MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
 }

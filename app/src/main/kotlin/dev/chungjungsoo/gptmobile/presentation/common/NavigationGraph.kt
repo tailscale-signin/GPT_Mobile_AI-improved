@@ -119,6 +119,7 @@ fun NavGraphBuilder.setupNavigation(
         }
         composable(route = Route.SETUP_LOCAL_MODELS) {
             LocalModelsScreen(
+                startInMarketplace = true,
                 onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
                 onNavigationClick = { navController.navigateUp() }
             )
@@ -193,7 +194,7 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
     ) {
         ChatScreen(
             onBackAction = { navController.navigateUp() },
-            onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) }
+            onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
         )
     }
 }
@@ -313,7 +314,7 @@ fun NavGraphBuilder.settingNavigation(
                     settingViewModel.addPlatform(platform, newConnection, credential)
                     navController.navigateUp()
                 },
-                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) }
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
             )
         }
         composable(
@@ -325,7 +326,7 @@ fun NavGraphBuilder.settingNavigation(
             PlatformSettingScreen(
                 settingViewModel = platformViewModel,
                 onNavigationClick = { navController.navigateUp() },
-                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS) },
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
                 onNavigateToMcpTools = {
                     navController.navigate(
                         Route.MCP_TOOLS_SELECTION.replace("{platformUid}", platformUid)
@@ -349,8 +350,17 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigationClick = { navController.navigateUp() }
             )
         }
-        composable(Route.LOCAL_MODELS) {
+        composable(
+            Route.LOCAL_MODELS + "?marketplace={marketplace}",
+            arguments = listOf(
+                navArgument("marketplace") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { entry ->
             LocalModelsScreen(
+                startInMarketplace = entry.arguments?.getBoolean("marketplace") == true,
                 onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
                 onNavigationClick = { navController.navigateUp() }
             )

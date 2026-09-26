@@ -22,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
+import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
@@ -204,6 +205,15 @@ class ChatRepositoryImpl(
                 }
                 emit(ApiState.Notice("Free provider · Memory off. Use public prompts only.", persistent = true))
             }
+            if (!platform.excludesMemory()) {
+                try {
+                    factVault?.load()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emit(ApiState.Notice("Memory is unavailable for this response.", persistent = true))
+                }
+            }
             val contextTurns = withContext(Dispatchers.Default) {
                 buildContextTurns(userMessages, assistantMessages, platform).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
@@ -277,7 +287,8 @@ class ChatRepositoryImpl(
                 FactRecall()
             }
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
-            val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName }, compact = limits.contextTokens < 4096) +
+            val exposedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(resolvedTools)
+            val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, exposedTools.map { it.modelToolName }, compact = limits.contextTokens < 4096) +
                 if (resolvedTools.isNotEmpty()) "\nBefore the first tool call and after every 10 completed tool calls, " + dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION else ""
             val memorySettings = factVault?.state?.value
             val canRecallDocuments = memorySettings?.enabled == true &&
@@ -289,10 +300,10 @@ class ChatRepositoryImpl(
             val requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt
             )
-            val contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), resolvedTools.map { it.tool.definition }, limits)
+            val contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             emit(ApiState.Notice(contextPlan.notice, persistent = true))
             val toolBudget = ToolExecutionBudget(customRunner.limits.copy(maxToolOutputBytes = contextPlan.toolResultBytes))
-            val boundedTools = resolvedTools.filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }.map { resolved ->
+            val boundedTools = resolvedTools.filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName || (it.name == "web_search" && resolved.isWebSearchEngine()) } }.map { resolved ->
                 resolved.copy(
                     tool = toolBudget.bind(resolved.tool, onFinished = { callId, success ->
                         toolApprovals?.finish(runId, callId, success)
@@ -395,7 +406,7 @@ class ChatRepositoryImpl(
                 )
             }
 
-            customRunner.run(groundedSession, runnerTools).collect { runEvent ->
+            dev.chungjungsoo.gptmobile.data.agent.AgentRunner(customRunner.limits.copy(contextTokens = limits.contextTokens, initialContextTokens = contextPlan.promptTokens, finalResponseReserveTokens = contextPlan.outputTokens)).run(groundedSession, runnerTools).collect { runEvent ->
                 when (runEvent) {
                     is AgentRunEvent.Provider -> when (val providerEvent = runEvent.event) {
                         is ProviderEvent.ThinkingDelta -> {
@@ -629,23 +640,28 @@ class ChatRepositoryImpl(
     private suspend fun withDocumentContext(message: MessageV2, platform: PlatformV2): MessageV2 {
         if (platform.compatibleType == ClientType.FREE) return message
         val nativePdf = platform.compatibleType in setOf(ClientType.OPENAI, ClientType.ANTHROPIC, ClientType.GOOGLE)
-        val documents = message.attachments.filter {
-            !FileUtils.isImage(it.mimeType) && !(nativePdf && it.mimeType == "application/pdf")
-        }
+        val documents = message.attachments.filter { !FileUtils.isImage(it.mimeType) }
         if (documents.isEmpty()) return message
+        val textOnlyDocuments = documents.filterNot { nativePdf && it.mimeType == "application/pdf" }
         val excerpts = withContext(Dispatchers.IO) {
-            documents.map { document ->
+            documents.mapNotNull { document ->
                 val extracted = document.extractedText?.let { DocumentTextExtractor.Result(it, document.extractionNote) }
                     ?: DocumentTextExtractor.extract(context, java.io.File(document.filePathForDisplay), document.mimeType)
-                if (!platform.excludesMemory() && factVault?.state?.value?.enabled == true && factVault.state.value.settings.learningEnabled && knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
-                    knowledge.index(document.resolvedDisplayName, extracted.text.take(1_000_000), chatId = message.chatId)
+                if (!platform.excludesMemory() && !platform.disableAllTools && !platform.disableLocalTools && factVault?.state?.value?.enabled == true && factVault.state.value.settings.learningEnabled && knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
+                    try {
+                        knowledge.index(document.resolvedDisplayName, extracted.text.take(1_000_000), chatId = message.chatId, sourceKey = java.io.File(document.filePathForDisplay).name)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "Attachment indexing failed for chat ${message.chatId}", "E")
+                    }
                 }
-                "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text.take(12000)}"
+                if (document in textOnlyDocuments) "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text.take(12000)}" else null
             }
         }
         return message.copy(
-            content = message.content + "\n\n" + excerpts.joinToString("\n\n"),
-            attachments = message.attachments - documents.toSet()
+            content = message.content + if (excerpts.isEmpty()) "" else "\n\n" + excerpts.joinToString("\n\n"),
+            attachments = message.attachments - textOnlyDocuments.toSet()
         )
     }
 

@@ -394,9 +394,9 @@ class CompleteBackupManager @Inject constructor(
         }
     }
 
-    private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when (reference) {
-        BACKUP_KEY_REF -> false
-        FactVaultRepository.VAULT_REFERENCE -> selection.includes(CompleteBackupSection.MEMORY)
+    private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
+        reference == BACKUP_KEY_REF -> false
+        reference == FactVaultRepository.VAULT_REFERENCE || reference.startsWith("memory-part-") -> selection.includes(CompleteBackupSection.MEMORY)
         else -> selection.includes(CompleteBackupSection.CREDENTIALS)
     }
 

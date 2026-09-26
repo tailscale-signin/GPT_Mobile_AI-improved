@@ -26,6 +26,7 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -824,7 +825,8 @@ private fun SearchBackendDialog(
                     toolBindingState.searchConnections.forEach { connection ->
                         PreferenceListSwitch(
                             title = connection.name,
-                            description = connection.type.name.lowercase().replaceFirstChar { it.uppercase() },
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = connection.type.lowercase().replaceFirstChar { it.uppercase() },
                             isChecked = connection.connectionUid in selected,
                             onCheckedChange = { enabled -> selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid }
                         )

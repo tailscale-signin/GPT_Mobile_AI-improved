@@ -20,6 +20,9 @@ data class AgentRunLimits(
     val maxConcurrentTools: Int = 32,
     val toolTimeoutMillis: Long = 45_000L,
     val maxToolOutputBytes: Int = 256 * 1024,
+    val contextTokens: Int = Int.MAX_VALUE,
+    val initialContextTokens: Int = 0,
+    val finalResponseReserveTokens: Int = 2048,
     val finalResponseToolCallReserve: Int = 0
 ) {
     companion object {
@@ -77,6 +80,7 @@ class AgentRunner(
         var retriedWithoutTools = initialRetriedWithoutTools
         var finalResponseRequested = false
         var wrapUpNoticeEmitted = false
+        var replayTokens = 0L
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
 
         while (true) {
@@ -237,18 +241,22 @@ class AgentRunner(
             }
             val allResults = (executedResults + deferredResults).toMutableList()
             val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
-            val mustFinalize = outputBudgetExhausted || (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
-            if (outputBudgetExhausted) {
+            replayTokens += calls.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.arguments.toString()).toLong() + 32 } +
+                allResults.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.content.toString()).toLong() + 32 }
+            val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
+                limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
+            val mustFinalize = contextNearLimit || outputBudgetExhausted || (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
+            if (outputBudgetExhausted || contextNearLimit) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
-                emit(AgentRunEvent.Notice("Tool output limit reached. Finishing with the results already available.", persistent = false))
+                emit(AgentRunEvent.Notice("Response limit approaching. Finishing with the results already available.", persistent = false))
             }
             val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
             val shouldInjectWrapUp = ToolBudgetPolicy.shouldInjectWrapUpPrompt(executionToolCallLimit, limits, toolCallCount)
 
             if (mustFinalize && allResults.isNotEmpty()) {
-                allResults[allResults.lastIndex] = appendFinalResponseInstruction(allResults.last())
+                allResults[allResults.lastIndex] = if (contextNearLimit) appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.") else appendFinalResponseInstruction(allResults.last())
             } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
                 val wrapUpPrompt = ToolBudgetPolicy.buildWrapUpPrompt(remainingAllowance)
                 allResults[allResults.lastIndex] = appendInstruction(allResults.last(), wrapUpPrompt)

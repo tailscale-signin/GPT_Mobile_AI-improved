@@ -37,6 +37,8 @@ data class ModelInvocation(
     val firstTokenMs: Long? = null
 )
 
+class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
+
 @Dao
 interface InvocationDao {
     @Upsert suspend fun save(invocation: ModelInvocation)
@@ -54,9 +56,7 @@ interface InvocationDao {
     suspend fun recover()
 
     @Transaction suspend fun reserve(invocation: ModelInvocation, limit: Int) {
-        check(committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens <= limit) {
-            "The conversation turn reached its total token budget, including other models, delegates and synthesis. Increase the limit in Tool connections to continue."
-        }
+        if (limit != Int.MAX_VALUE && committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens > limit) throw TokenAllowanceReached()
         save(invocation)
     }
 }
@@ -92,7 +92,13 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                 (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 outputLimit
             )
-            dao.reserve(record, totalLimit)
+            try {
+                dao.reserve(record, totalLimit)
+            } catch (_: TokenAllowanceReached) {
+                emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?"))
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens}")
             val started = System.nanoTime()
             var first: Long? = null

@@ -70,10 +70,66 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test
+    fun `llama and ollama execute compatible completed calls and replay actual results`() = runBlocking {
+        val completeMessage = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(
+            """{"choices":[{"message":{"tool_calls":[{"function":{"name":"device_location","arguments":"{}"}}]},"finish_reason":"stop"}]}"""
+        )
+        val delta = ChatCompletionChunk(choices = listOf(Choice(delta = Delta(toolCalls = listOf(ChatToolCallDelta(function = ChatFunctionDelta("device_location", "{}")))))))
+        val variants = listOf(
+            listOf(completeMessage),
+            listOf(delta, ChatCompletionChunk(choices = listOf(Choice(finishReason = "stop")))),
+            listOf(delta, ChatCompletionChunk(streamFinished = true))
+        )
+        for (type in listOf(ClientType.LLAMA, ClientType.OLLAMA)) {
+            for (chunks in variants) {
+                val api = FakeOpenAIAPI(
+                    chatRounds = ArrayDeque(
+                        listOf(
+                            flow { chunks.forEach { emit(it) } },
+                            flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Located"), finishReason = "stop"))))
+                        )
+                    )
+                )
+                val tool = RecordingAgentTool(definition.copy(name = "device_location"))
+                val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(type))
+                val events = AgentRunner().run(session, listOf(tool)).toList()
+                assertEquals("Located", events.providerText())
+                val executed = events.filterIsInstance<AgentRunEvent.ToolFinished>().single()
+                assertEquals("device_location", executed.call.name)
+                val replay = api.chatRequests.last().messages.takeLast(2)
+                assertEquals(executed.call.callId, replay[0].toolCalls!!.single().id)
+                assertEquals(executed.call.callId, replay[1].toolCallId)
+            }
+        }
+    }
+
+    @Test
+    fun `llama never dispatches a call from an unfinished stream`() = runBlocking {
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(
+                        ChatCompletionChunk(choices = listOf(Choice(delta = Delta(toolCalls = listOf(ChatToolCallDelta(function = ChatFunctionDelta("device_location", "{}")))))))
+                    )
+                )
+            )
+        )
+        val tool = RecordingAgentTool(definition.copy(name = "device_location"))
+        val events = AgentRunner().run(
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA)),
+            listOf(tool)
+        ).toList()
+        assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().isEmpty())
+        assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
+        assertEquals(1, api.chatRequests.size)
+    }
+
     private val definition = AgentToolDefinition(
         name = "weather",
         description = "Weather",

@@ -4,6 +4,8 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import kotlinx.serialization.json.buildJsonObject
@@ -13,6 +15,61 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderEventAssemblerTest {
+
+    @Test
+    fun `compatible stop completes location call and assigns a replayable id when omitted`() {
+        val assembler = ChatCompletionsEventAssembler()
+        val events = assembler.accept(
+            null,
+            null,
+            listOf(ChatToolCallDelta(function = ChatFunctionDelta("device_location", "{}"))),
+            "stop"
+        )
+        val call = events.single() as ProviderEvent.ToolCall
+        assertEquals("device_location", call.name)
+        assertEquals("{}", call.arguments.toString())
+        assertTrue(call.callId.isNotBlank())
+        assertTrue(assembler.finish().isEmpty())
+    }
+
+    @Test
+    fun `complete messages keep distinct calls without streaming indices`() {
+        val fixture = """{"choices":[{"message":{"tool_calls":[{"id":"a","function":{"name":"device_location","arguments":"{}"}},{"id":"b","function":{"name":"weather","arguments":"{\"city\":\"Tokyo\"}"}}]},"finish_reason":"stop"}]}"""
+        val choice = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(fixture).choices!!.single()
+        val events = ChatCompletionsEventAssembler().accept(null, null, choice.effectiveDelta.toolCalls, choice.finishReason)
+        assertEquals(listOf("a", "b"), events.filterIsInstance<ProviderEvent.ToolCall>().map { it.callId })
+        assertEquals(listOf("device_location", "weather"), events.filterIsInstance<ProviderEvent.ToolCall>().map { it.name })
+    }
+
+    @Test
+    fun `truncated blocked malformed or unnamed calls never execute`() {
+        listOf(
+            Triple("device_location", "{}", "length"),
+            Triple("device_location", "{}", "content_filter"),
+            Triple("device_location", "{", "stop"),
+            Triple("device_location", "[]", "tool_calls"),
+            Triple(null, "{}", "stop")
+        ).forEach { (name, args, reason) ->
+            val assembler = ChatCompletionsEventAssembler()
+            val events = assembler.accept(null, null, listOf(ChatToolCallDelta(function = ChatFunctionDelta(name, args))), reason)
+            assertTrue(events.single() is ProviderEvent.Failed)
+            assertTrue(assembler.finish().isEmpty())
+        }
+    }
+
+    @Test
+    fun `pending calls require a clean protocol end and prose is never executable`() {
+        val calls = listOf(ChatToolCallDelta(function = ChatFunctionDelta("device_location", "{}")))
+        val completed = ChatCompletionsEventAssembler()
+        assertTrue(completed.accept(null, null, calls, null).isEmpty())
+        assertTrue(completed.finish().single() is ProviderEvent.ToolCall)
+        val interrupted = ChatCompletionsEventAssembler()
+        interrupted.accept(null, null, calls, null)
+        assertTrue(interrupted.discardIncomplete().single() is ProviderEvent.Failed)
+        assertTrue(interrupted.finish().isEmpty())
+        val prose = "Testing device_location() {\"permission_status\":\"granted\"}"
+        assertEquals(listOf(ProviderEvent.TextDelta(prose)), interrupted.accept(prose, null, null, "stop"))
+    }
 
     @Test
     fun `responses assembler preserves function call id and completed arguments`() {

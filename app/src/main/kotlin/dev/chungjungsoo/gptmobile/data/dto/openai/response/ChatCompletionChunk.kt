@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.dto.openai.response
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
@@ -32,7 +33,11 @@ data class ChatCompletionChunk(
     val error: ErrorDetail? = null,
 
     @SerialName("usage")
-    val usage: ChatCompletionUsage? = null
+    val usage: ChatCompletionUsage? = null,
+
+    // Transport-owned signal: only an explicit SSE [DONE], never an arbitrary socket EOF.
+    @Transient
+    val streamFinished: Boolean = false
 )
 
 @Serializable
@@ -161,21 +166,30 @@ data class GatewayProgress(
     val emptyCount: Int? = null,
 
     @SerialName("consecutive_failures")
-    val consecutiveFailures: Int? = null,
+    val consecutiveFailures: Int? = null
 
 )
 
 @Serializable
 data class Choice(
     @SerialName("index")
-    val index: Int,
+    val index: Int = 0,
 
     @SerialName("delta")
-    val delta: Delta,
+    val delta: Delta = Delta(),
 
     @SerialName("finish_reason")
-    val finishReason: String? = null
-)
+    val finishReason: String? = null,
+
+    @SerialName("message")
+    val message: Delta? = null
+) {
+    // Complete chat messages omit the streaming-only tool-call index.
+    val effectiveDelta: Delta
+        get() = message?.let { complete ->
+            complete.copy(toolCalls = complete.toolCalls?.mapIndexed { index, call -> call.copy(index = index) })
+        } ?: delta
+}
 
 @Serializable
 data class Delta(
@@ -201,7 +215,7 @@ data class Delta(
 @Serializable
 data class ChatToolCallDelta(
     @SerialName("index")
-    val index: Int,
+    val index: Int = 0,
     @SerialName("id")
     val id: String? = null,
     @SerialName("type")

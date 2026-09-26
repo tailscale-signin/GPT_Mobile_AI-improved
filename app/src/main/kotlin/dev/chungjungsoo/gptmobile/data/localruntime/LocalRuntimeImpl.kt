@@ -119,12 +119,12 @@ class LocalRuntimeImpl(
             val nextEngine = createEngine(
                 EngineConfig(
                     modelPath = spec.modelPath,
-                    backend = backendFor(spec.accelerator, spec.litertDispatchLibDir),
+                    backend = backendFor(spec.accelerator, spec.litertDispatchLibDir, spec.cpuThreads),
                     visionBackend = visionBackendFor(spec, spec.litertDispatchLibDir),
                     audioBackend = null,
                     maxNumTokens = spec.maxTokens,
                     maxNumImages = if (spec.isVisionEnabled) MAX_IMAGES_PER_MESSAGE else null,
-                    cacheDir = context.cacheDir.resolve("litert-lm").apply { mkdirs() }.absolutePath
+                    cacheDir = if (spec.cacheEnabled) context.cacheDir.resolve("litert-lm").apply { mkdirs() }.absolutePath else ":nocache"
                 )
             )
             try {
@@ -306,14 +306,14 @@ class LocalRuntimeImpl(
         }
     }
 
-    private fun backendFor(accelerator: String, dispatchLibDir: String? = null): Backend = when (LocalAccelerators.normalize(accelerator)) {
+    private fun backendFor(accelerator: String, dispatchLibDir: String? = null, cpuThreads: Int? = null): Backend = when (LocalAccelerators.normalize(accelerator)) {
         LocalAccelerators.GPU -> Backend.GPU()
         LocalAccelerators.NPU -> {
             val probe = QnnEnvironment.getProbeStatus(context)
             check(probe.isReady) { probe.errorMessage ?: "NPU prerequisites are unavailable" }
             Backend.NPU(nativeLibraryDir = dispatchLibDir ?: probe.dispatchDir)
         }
-        else -> Backend.CPU()
+        else -> Backend.CPU(threadCount = cpuThreads)
     }
 
     private fun visionBackendFor(spec: LocalEngineSpec, dispatchLibDir: String? = null): Backend? {

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.13.0] - Release branch
+
+### Added
+- Colour wheel, hue/saturation/brightness sliders, presets and full palette preview.
+- Shared provider API key editor with add/remove controls and round robin across new requests.
+- Friendly animated tool activity with status icons, expandable details and technical debug output.
+- Nearby OpenStreetMap place markers, tap-to-route walking/driving paths, distances and estimated travel times.
+- Fact Vault learning/recall, cloud sharing, chat scope, review, category, capacity and retention controls.
+- Local model performance controls, actual backend/hardware status, lazy catalog and direct AI profile creation.
+- Reasoning is visible without debug mode; Advanced Settings can hide it independently.
+
+### Changed
+- Provider groups collapse; profile enable/delete controls remain on the profile page.
+- Home back gestures dismiss selection/search or return to Chats, then keep the app open.
+- Matching conversation icons, a local/server icon, half-sized profile labels and softer profile names.
+- CPU thread/cache changes invalidate warm native engines; idle cleanup respects the configured interval.
+- Release branches validate optimized unsigned APKs/AABs in CI before publishing.
+
+### Release
+- Version `0.9.13.0`, version code `68`. Retains the fixes merged in #496 and #497.
+- This branch does not create a release tag or publish signed assets automatically.
+
 ## [0.9.12.0] - 2026-09-25
 
 ### Added

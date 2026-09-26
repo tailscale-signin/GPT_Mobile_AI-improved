@@ -79,7 +79,7 @@ class OpenAIResponsesAdapter @Inject constructor(
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialInput = attachmentEncoder.responsesInput(turns, platform.uid)
-        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
         var previousResponseId: String? = null
         return object : AgentProviderSession {
@@ -108,11 +108,12 @@ class OpenAIResponsesAdapter @Inject constructor(
                 )
 
                 val attempts = candidateKeys.size
-                val startIndex = keyIndexCounter.getAndIncrement()
+                val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
 
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(platform.apiUrl, activeKey)
                     val assembler = OpenAIResponsesEventAssembler()
@@ -135,7 +136,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                                     is ProviderEvent.Failed -> {
                                         roundFailed = true
                                         lastFailedMessage = mapped.message
-                                        if (ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
+                                        if (previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)) {
                                             canRotate = true
                                         } else {
                                             emit(mapped)
@@ -150,7 +151,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                         if (t is CancellationException) throw t
                         roundFailed = true
                         lastFailedMessage = t.message
-                        if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
+                        if (previousResponseId == null && ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
                             canRotate = true
                         } else {
                             emit(ProviderEvent.Failed(providerFailureMessage(t, "OpenAI stream request failed")))
@@ -187,7 +188,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
-        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
         var capturedGatewayJobId: String? = null
         val gatewayPerformanceHeaders = if (platform.compatibleType == ClientType.LLAMA) {
@@ -226,7 +227,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 }
 
                 val attempts = candidateKeys.size
-                val startIndex = keyIndexCounter.getAndIncrement()
+                val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
 
                 val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
@@ -293,6 +294,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
@@ -732,7 +734,7 @@ class AnthropicMessagesAdapter @Inject constructor(
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialMessages = attachmentEncoder.anthropicMessages(turns, platform.uid)
         val assistantContentByRound = mutableMapOf<Int, List<MessageContent>>()
-        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
         return object : AgentProviderSession {
             override fun streamRound(
@@ -762,11 +764,12 @@ class AnthropicMessagesAdapter @Inject constructor(
                 )
 
                 val attempts = candidateKeys.size
-                val startIndex = keyIndexCounter.getAndIncrement()
+                val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
 
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
@@ -925,7 +928,7 @@ class GeminiAdapter @Inject constructor(
 ) {
     suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
         val initialContents = attachmentEncoder.googleContents(turns, platform.uid)
-        val candidateKeys = ApiCredentialRotator.parseKeys(platform.token).ifEmpty { listOf("") }
+        val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
         val modelPartsByRound = mutableMapOf<Int, List<Part>>()
         return object : AgentProviderSession {
@@ -965,11 +968,12 @@ class GeminiAdapter @Inject constructor(
                 )
 
                 val attempts = candidateKeys.size
-                val startIndex = keyIndexCounter.getAndIncrement()
+                val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
 
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
+                    keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(platform.apiUrl, activeKey)
                     var roundFailed = false

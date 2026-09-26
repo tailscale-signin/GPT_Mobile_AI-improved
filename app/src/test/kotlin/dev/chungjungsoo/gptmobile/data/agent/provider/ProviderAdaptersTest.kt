@@ -91,6 +91,25 @@ class ProviderAdaptersTest {
     )
 
     @Test
+    fun `responses keep account affinity for tool rounds and rotate new requests`() = runBlocking {
+        val api = FakeOpenAIAPI(
+            responseRounds = ArrayDeque(
+                (1..3).map { i ->
+                    flowOf<ResponsesStreamEvent>(ResponseCompletedEvent(ResponseObject("response_$i", "completed")))
+                }
+            )
+        )
+        val adapter = OpenAIResponsesAdapter(api, attachmentEncoder())
+        val profile = platform(ClientType.OPENAI).copy(uid = java.util.UUID.randomUUID().toString(), token = "first-key\nsecond-key")
+        val session = adapter.openSession(turns(), profile)
+        session.streamRound(emptyList(), emptyList()).toList()
+        session.streamRound(emptyList(), emptyList()).toList()
+        adapter.openSession(turns(), profile).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf("first-key", "first-key", "second-key"), api.configs.map { it.token })
+        assertEquals("response_1", api.responseRequests[1].previousResponseId)
+    }
+
+    @Test
     fun `openai responses adapter preserves ordinary text and per request credentials`() = runBlocking {
         val api = FakeOpenAIAPI(
             responseRounds = ArrayDeque(

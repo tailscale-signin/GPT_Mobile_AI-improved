@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,10 +19,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,13 +33,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -134,21 +139,12 @@ fun AiPlatformsScreen(
                     ProviderConnectionGroupCard(
                         connection = connection,
                         profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                        onToggleEnabled = { platform ->
-                            settingViewModel.togglePlatformEnabled(platform.id)
-                        },
                         onToggleFavorite = { platform ->
                             settingViewModel.togglePlatformFavorite(platform.id)
                         },
                         onEdit = { platform -> onNavigateToPlatformSetting(platform.uid) },
-                        onDelete = { platform -> settingViewModel.openDeleteDialog(platform.id) },
-                        onProviderSettings = {
-                            if (connection.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER) {
-                                onNavigateToOpenRouterSettings()
-                            } else {
-                                onNavigateToProviderSettings(connection.uid)
-                            }
-                        }
+                        onProviderSettings = { onNavigateToProviderSettings(connection.uid) },
+                        onSpecialSettings = if (connection.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.OPENROUTER) onNavigateToOpenRouterSettings else null
                     )
                 }
 
@@ -165,33 +161,13 @@ fun AiPlatformsScreen(
                     items(standaloneProfiles, key = { "profile:${it.id}" }) { platform ->
                         PlatformItemCard(
                             platform = platform,
-                            onToggleEnabled = { settingViewModel.togglePlatformEnabled(platform.id) },
                             onToggleFavorite = { settingViewModel.togglePlatformFavorite(platform.id) },
-                            onEdit = { onNavigateToPlatformSetting(platform.uid) },
-                            onDelete = { settingViewModel.openDeleteDialog(platform.id) }
+                            onEdit = { onNavigateToPlatformSetting(platform.uid) }
                         )
                     }
                 }
             }
         }
-    }
-
-    if (dialogState.isDeleteDialogOpen) {
-        AlertDialog(
-            onDismissRequest = { settingViewModel.closeDeleteDialog() },
-            title = { Text(text = stringResource(R.string.delete_platform)) },
-            text = { Text(text = stringResource(R.string.delete_platform_confirmation)) },
-            confirmButton = {
-                TextButton(onClick = { settingViewModel.confirmDelete() }) {
-                    Text(text = stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { settingViewModel.closeDeleteDialog() }) {
-                    Text(text = stringResource(R.string.cancel))
-                }
-            }
-        )
     }
 }
 
@@ -199,13 +175,13 @@ fun AiPlatformsScreen(
 private fun ProviderConnectionGroupCard(
     connection: ProviderConnection,
     profiles: List<PlatformV2>,
-    onToggleEnabled: (PlatformV2) -> Unit,
     onToggleFavorite: (PlatformV2) -> Unit,
     onEdit: (PlatformV2) -> Unit,
-    onDelete: (PlatformV2) -> Unit,
     onProviderSettings: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
+    onSpecialSettings: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
+    var expanded by rememberSaveable(connection.uid) { mutableStateOf(true) }
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -217,7 +193,7 @@ private fun ProviderConnectionGroupCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).clickable { expanded = !expanded }) {
                     Text(
                         text = connection.name,
                         style = MaterialTheme.typography.titleMedium,
@@ -261,6 +237,13 @@ private fun ProviderConnectionGroupCard(
                     }
                 }
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { expanded = !expanded }) {
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+                    Text(if (expanded) "Hide profiles" else "Show profiles")
+                }
+                onSpecialSettings?.let { action -> TextButton(onClick = action) { Text("OpenRouter options") } }
+            }
             if (connection.hasCredential) {
                 Text(
                     text = stringResource(R.string.credential_saved),
@@ -269,26 +252,26 @@ private fun ProviderConnectionGroupCard(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-            if (profiles.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.no_profiles_for_connection),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 10.dp)
-                )
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    profiles.forEach { platform ->
-                        PlatformItemCard(
-                            platform = platform,
-                            onToggleEnabled = { onToggleEnabled(platform) },
-                            onToggleFavorite = { onToggleFavorite(platform) },
-                            onEdit = { onEdit(platform) },
-                            onDelete = { onDelete(platform) }
-                        )
+            AnimatedVisibility(visible = expanded) {
+                if (profiles.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.no_profiles_for_connection),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        profiles.forEach { platform ->
+                            PlatformItemCard(
+                                platform = platform,
+                                onToggleFavorite = { onToggleFavorite(platform) },
+                                onEdit = { onEdit(platform) }
+                            )
+                        }
                     }
                 }
             }
@@ -300,10 +283,8 @@ private fun ProviderConnectionGroupCard(
 @Composable
 private fun PlatformItemCard(
     platform: PlatformV2,
-    onToggleEnabled: () -> Unit,
     onToggleFavorite: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -377,17 +358,8 @@ private fun PlatformItemCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Switch(
-                    checked = platform.enabled,
-                    onCheckedChange = { onToggleEnabled() }
-                )
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = stringResource(R.string.delete_platform),
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
+                Text(if (platform.enabled) "Active" else "Disabled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.ChevronRight, contentDescription = "Profile settings")
             }
         }
     }

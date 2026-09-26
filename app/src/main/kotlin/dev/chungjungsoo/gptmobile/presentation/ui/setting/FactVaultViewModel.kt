@@ -23,6 +23,7 @@ class FactVaultViewModel @Inject constructor(private val repository: FactVaultRe
     }
 
     fun refresh() = perform { repository.load() }
+    fun updateSettings(settings: dev.chungjungsoo.gptmobile.data.rag.FactVaultSettings) = perform { repository.updateSettings(settings) }
     fun setEnabled(enabled: Boolean) = perform { repository.setEnabled(enabled) }
     fun setFactEnabled(id: String, enabled: Boolean) = perform { repository.setFactEnabled(id, enabled) }
     fun delete(id: String) = perform { repository.deleteFact(id) }

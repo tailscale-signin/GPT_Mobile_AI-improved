@@ -108,6 +108,7 @@ fun AdvancedSettingsScreen(
                 ) {
                     FeatureSwitch(AppFeature.AUTOMATIC_TITLES, settings.automaticConversationTitles, Icons.Default.AutoAwesome, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.ARCHIVE_OLDER_REPLIES, settings.archiveOlderAssistantReplies, Icons.Default.Storage, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.SHOW_REASONING, settings.showReasoning, Icons.Default.AutoAwesome, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.SMART_SUGGESTIONS, settings.smartSuggestions, Icons.Default.SettingsSuggest, viewModel::updateFeature)
                 }
             }

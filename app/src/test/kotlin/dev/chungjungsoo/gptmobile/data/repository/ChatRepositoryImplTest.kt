@@ -739,7 +739,7 @@ class ChatRepositoryImplTest {
             networkClient = networkClient,
             mcpClientManager = manager,
             mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
         )
     }
 

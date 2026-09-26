@@ -158,6 +158,13 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    suspend fun providerKeys(uid: String): List<String> =
+        dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator.parseKeys(settingRepository.getProviderCredentials(uid))
+
+    suspend fun saveProviderSettings(connection: ProviderConnection, keys: List<String>) {
+        settingRepository.updateProviderConnection(connection, dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator.formatKeys(keys))
+    }
+
     fun updateProviderConnection(connection: ProviderConnection, credential: String? = null) {
         viewModelScope.launch {
             settingRepository.updateProviderConnection(connection, credential)

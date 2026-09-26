@@ -22,6 +22,17 @@ import org.junit.Test
 class SettingRepositorySecretMigrationTest {
 
     @Test
+    fun `provider key editor reads the shared pool and rejects missing secrets`() = runBlocking {
+        val vault = FakeSecretVault()
+        val connections = FakeProviderConnectionDao()
+        val repository = SettingRepositoryImpl(FakeSettingDataSource(), FakePlatformV2Dao(mutableListOf()), connections, FakeChatPlatformModelV2Dao(), vault)
+        val connection = repository.addProviderConnection(dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection(name = "Provider", compatibleType = ClientType.OPENAI), "key-one\nkey-two")
+        assertEquals("key-one\nkey-two", repository.getProviderCredentials(connection.uid))
+        vault.delete(connection.secretRef!!)
+        assertTrue(runCatching { repository.getProviderCredentials(connection.uid) }.isFailure)
+    }
+
+    @Test
     fun `migrateSecrets moves legacy tokens to secret vault and clears legacy storage`() = runBlocking {
         val platformDao = FakePlatformV2Dao(
             mutableListOf(

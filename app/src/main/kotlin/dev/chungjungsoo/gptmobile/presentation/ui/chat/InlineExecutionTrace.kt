@@ -10,17 +10,28 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -31,10 +42,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.presentation.theme.defaultSpatialSpec
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimelineItem>, contentIdentity: Any) {
+fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimelineItem>, contentIdentity: Any, debugMode: Boolean = false) {
     val recalled = timeline.flatMap { it.recalledFacts }.distinctBy { it.id }
     if (events.isEmpty() && recalled.isEmpty()) return
     Column(
@@ -53,35 +65,81 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
         events.sortedBy { it.sequence }.forEach { event ->
             val metrics = timeline.firstOrNull { it.toolSequence == event.sequence }?.toolMetrics
             var expanded by rememberSaveable(contentIdentity.toString(), event.eventId) { mutableStateOf(false) }
-            val status = when (event.status) {
-                ToolEventStatus.RUNNING, ToolEventStatus.PENDING -> "Running"
-                ToolEventStatus.FAILED -> "Failed"
-                ToolEventStatus.CANCELED -> "Canceled"
-                else -> "Completed"
+            val status = if (event.isError) {
+                "Failed"
+            } else {
+                when (event.status) {
+                    ToolEventStatus.RUNNING, ToolEventStatus.PENDING -> "Running"
+                    ToolEventStatus.FAILED -> "Failed"
+                    ToolEventStatus.CANCELED -> "Canceled"
+                    else -> "Completed"
+                }
             }
-            val summary = buildString {
-                append("⚙ Tool: ${event.toolName} · $status")
-                metrics?.durationMs?.let { append(" · ${it}ms") }
-                metrics?.resultBytes?.let { append(" · +$it bytes") }
-                if (metrics?.shared == true) append(" · Shared")
+            val running = event.status == ToolEventStatus.RUNNING || event.status == ToolEventStatus.PENDING
+            val failed = event.isError || event.status == ToolEventStatus.FAILED
+            var dots by androidx.compose.runtime.remember(event.eventId) { mutableStateOf(1) }
+            LaunchedEffect(running) {
+                while (running) {
+                    delay(400)
+                    dots = dots % 3 + 1
+                }
+            }
+            val summary = if (debugMode) {
+                buildString {
+                    append("${event.toolName} · $status")
+                    metrics?.durationMs?.let { append(" · ${it}ms") }
+                    metrics?.resultBytes?.let { append(" · $it bytes") }
+                    if (metrics?.shared == true) append(" · Shared")
+                }
+            } else {
+                friendlyToolActivity(event.toolName)
             }
             Surface(
                 onClick = { expanded = !expanded },
                 shape = RoundedCornerShape(18.dp),
-                color = if (event.isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth().animateContentSize(defaultSpatialSpec())
                     .semantics { contentDescription = "$summary. ${if (expanded) "Collapse" else "Expand"} tool details" }
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text(summary, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (running) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                (1..3).forEach { index -> Text("•", color = MaterialTheme.colorScheme.primary.copy(alpha = if (index <= dots) 1f else 0.15f)) }
+                            }
+                        } else {
+                            Icon(
+                                if (failed) {
+                                    Icons.Default.Close
+                                } else if (event.status == ToolEventStatus.CANCELED) {
+                                    Icons.Default.Remove
+                                } else {
+                                    Icons.Default.Check
+                                },
+                                contentDescription = status,
+                                tint = if (failed) {
+                                    MaterialTheme.colorScheme.error
+                                } else if (event.status == ToolEventStatus.CANCELED) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Text(summary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, modifier = Modifier.size(18.dp))
+                    }
                     AnimatedVisibility(
                         visible = expanded,
                         enter = expandVertically(defaultSpatialSpec()) + fadeIn(fastEffectsSpec()),
                         exit = shrinkVertically(defaultSpatialSpec()) + fadeOut(fastEffectsSpec())
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            Text(event.connectionNameSnapshot ?: "Integrated tool", style = MaterialTheme.typography.labelLarge)
+                            if (debugMode) Text("Call ${event.callId} · Run ${event.runId} · #${event.sequence}", style = MaterialTheme.typography.bodySmall)
                             metrics?.let {
-                                Text("Arguments: ${it.argumentsCharacters} characters · ${it.argumentsBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
+                                if (debugMode) Text("Arguments: ${it.argumentsCharacters} characters · ${it.argumentsBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
                                 it.estimatedResultTokens?.let { tokens ->
                                     Text("Result: approximately $tokens tokens (character estimate, not billed usage).", style = MaterialTheme.typography.bodySmall)
                                 }

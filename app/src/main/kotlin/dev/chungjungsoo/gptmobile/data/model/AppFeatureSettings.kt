@@ -9,6 +9,7 @@ data class AppFeatureSettings(
     val automaticConversationTitles: Boolean = true,
     val archiveOlderAssistantReplies: Boolean = true,
     val smartSuggestions: Boolean = true,
+    val showReasoning: Boolean = true,
     val remoteMcpConnections: Boolean = true,
     val sharedReadOnlyToolCalls: Boolean = true,
     val deviceLocationTool: Boolean = true,
@@ -22,13 +23,17 @@ data class AppFeatureSettings(
     val debugShowHardware: Boolean = true,
     val debugShowNetwork: Boolean = false,
     val openRouterBatchProcessing: Boolean = false,
-    val qnnAutomaticFallback: Boolean = true
+    val qnnAutomaticFallback: Boolean = true,
+    val localCpuThreads: Int = 0,
+    val localModelCache: Boolean = true,
+    val localIdleMinutes: Int = 10
 ) {
     fun withFeature(feature: AppFeature, enabled: Boolean): AppFeatureSettings = when (feature) {
         AppFeature.BACKGROUND_GENERATION -> copy(backgroundGeneration = enabled)
         AppFeature.RESPONSE_NOTIFICATIONS -> copy(responseNotifications = enabled)
         AppFeature.AUTOMATIC_TITLES -> copy(automaticConversationTitles = enabled)
         AppFeature.ARCHIVE_OLDER_REPLIES -> copy(archiveOlderAssistantReplies = enabled)
+        AppFeature.SHOW_REASONING -> copy(showReasoning = enabled)
         AppFeature.SMART_SUGGESTIONS -> copy(smartSuggestions = enabled)
         AppFeature.REMOTE_MCP -> copy(remoteMcpConnections = enabled)
         AppFeature.SHARED_TOOL_CALLS -> copy(sharedReadOnlyToolCalls = enabled)
@@ -80,6 +85,7 @@ enum class AppFeature(
         "Archive older responses",
         "Collapse assistant replies older than the latest three into expandable history."
     ),
+    SHOW_REASONING("Show reasoning", "Display the thinking text supplied by an AI, with an expandable panel in conversations."),
     SMART_SUGGESTIONS(
         "Smart response suggestions",
         "Generate contextual suggestion buttons below assistant responses."

@@ -43,13 +43,24 @@ class ThinkingParserTest {
     }
 
     @Test
-    fun parse_withMultipleThinkingBlocks_extractsFirstAndPreservesAnswer() {
+    fun parse_withMultipleThinkingBlocks_extractsAllAndPreservesAnswer() {
         val raw = "<think>First thought</think>Intermediate <think>Second thought</think>Final answer"
         val result = ThinkingParser.parse(raw)
 
         assertTrue(result.hasThinking)
-        assertEquals("First thought", result.thinking)
-        assertEquals("Intermediate <think>Second thought</think>Final answer", result.displayContent)
+        assertEquals("First thought\n\nSecond thought", result.thinking)
+        assertEquals("Intermediate Final answer", result.displayContent)
+        assertFalse(result.isThinkingInProgress)
+    }
+
+    @Test
+    fun parse_withUnclosedLaterThinkingBlock_hidesThinkingAndPreservesEarlierAnswer() {
+        val raw = "<THINK>First thought</THINK>Answer so far. <think>Still thinking"
+        val result = ThinkingParser.parse(raw)
+
+        assertEquals("First thought\n\nStill thinking", result.thinking)
+        assertEquals("Answer so far.", result.displayContent)
+        assertTrue(result.isThinkingInProgress)
     }
 
     @Test

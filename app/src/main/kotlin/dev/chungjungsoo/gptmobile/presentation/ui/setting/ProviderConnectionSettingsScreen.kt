@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Save
@@ -27,12 +29,15 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,7 +85,21 @@ fun ProviderConnectionSettingsScreen(
 
     var name by remember(connection.uid, connection.name) { mutableStateOf(connection.name) }
     var apiUrl by remember(connection.uid, connection.apiUrl) { mutableStateOf(connection.apiUrl) }
-    var credential by remember(connection.uid) { mutableStateOf("") }
+    var keys by remember(connection.uid) { mutableStateOf(listOf("")) }
+    var loaded by remember(connection.uid) { mutableStateOf(false) }
+    var saving by remember(connection.uid) { mutableStateOf(false) }
+    var status by remember(connection.uid) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(connection.uid) {
+        try {
+            keys = settingViewModel.providerKeys(connection.uid).ifEmpty { listOf("") }
+            loaded = true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            status = "Could not load saved API keys. Reopen this page to try again."
+        }
+    }
 
     val childProfiles = profiles.filter { it.providerConnectionUid == connection.uid }
 
@@ -162,45 +183,51 @@ fun ProviderConnectionSettingsScreen(
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                         )
-                        OutlinedTextField(
-                            value = credential,
-                            onValueChange = { credential = it },
-                            label = {
-                                Text(if (connection.hasCredential) "Replace API credential" else "API credential")
-                            },
-                            supportingText = {
-                                Text(
-                                    if (connection.hasCredential && credential.isBlank()) {
-                                        "Leave blank to keep the saved credential."
-                                    } else {
-                                        "Credentials are stored separately from ordinary profile settings."
-                                    }
+                        Text("API keys · round robin", style = MaterialTheme.typography.titleMedium)
+                        Text("New requests rotate through the saved keys. Related tool rounds keep the same account.", style = MaterialTheme.typography.bodySmall)
+                        keys.forEachIndexed { index, key ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    value = key,
+                                    onValueChange = { value -> keys = keys.toMutableList().apply { set(index, value) } },
+                                    label = { Text("API key ${index + 1}") },
+                                    leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = loaded && !saving,
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation()
                                 )
-                            },
-                            leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-                        )
+                                IconButton(onClick = { keys = keys.filterIndexed { i, _ -> i != index }.ifEmpty { listOf("") } }, enabled = loaded && !saving) {
+                                    Icon(Icons.Default.Delete, "Remove API key ${index + 1}")
+                                }
+                            }
+                        }
+                        TextButton(onClick = { keys = keys + "" }, enabled = loaded && !saving) {
+                            Icon(Icons.Default.Add, null)
+                            Text(" API")
+                        }
+                        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         Button(
-                            enabled = name.isNotBlank() && apiUrl.isNotBlank(),
+                            enabled = loaded && !saving && name.isNotBlank() && apiUrl.isNotBlank(),
                             onClick = {
-                                val updated = connection.copy(
-                                    name = name.trim(),
-                                    apiUrl = apiUrl.trim(),
-                                    updatedAt = System.currentTimeMillis() / 1000
-                                )
-                                settingViewModel.updateProviderConnection(
-                                    updated,
-                                    credential.trim().takeIf { it.isNotEmpty() }
-                                )
-                                credential = ""
+                                saving = true
+                                scope.launch {
+                                    try {
+                                        settingViewModel.saveProviderSettings(connection.copy(name = name.trim(), apiUrl = apiUrl.trim()), keys)
+                                        status = "Provider connection saved"
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        status = "Could not save the connection. Your edits are still here; try again."
+                                    } finally {
+                                        saving = false
+                                    }
+                                }
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Save, contentDescription = null)
-                            Text(" Save provider connection")
+                            Text(if (saving) " Saving…" else " Save provider connection")
                         }
                     }
                 }

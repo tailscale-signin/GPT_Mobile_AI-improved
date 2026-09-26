@@ -1,17 +1,31 @@
 package dev.chungjungsoo.gptmobile.data.network
 
-import io.ktor.client.plugins.ClientRequestException
-import io.ktor.client.plugins.ServerResponseException
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
+import java.io.IOException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.IOException
 
 class ApiCredentialRotatorTest {
+
+    @Test
+    fun `new requests rotate across profiles sharing one connection`() {
+        val id = java.util.UUID.randomUUID().toString()
+        assertEquals(listOf("a", "b", "c"), ApiCredentialRotator.keysForNewRequest(id, "a\nb\nc"))
+        assertEquals(listOf("b", "c", "a"), ApiCredentialRotator.keysForNewRequest(id, "a\nb\nc"))
+        assertEquals(listOf("c", "a", "b"), ApiCredentialRotator.keysForNewRequest(id, "a\nb\nc"))
+        assertEquals(listOf("a", "b", "c"), ApiCredentialRotator.keysForNewRequest(id, "a\nb\nc"))
+    }
+
+    @Test
+    fun `rotation handles removed duplicate and blank keys`() {
+        val id = java.util.UUID.randomUUID().toString()
+        ApiCredentialRotator.keysForNewRequest(id, "a,b,c")
+        assertEquals(listOf("b", "a"), ApiCredentialRotator.keysForNewRequest(id, "a,b,b"))
+        assertEquals(listOf("a"), ApiCredentialRotator.keysForNewRequest(id, " a "))
+        assertEquals(listOf(""), ApiCredentialRotator.keysForNewRequest(id, null))
+    }
 
     @Test
     fun parseKeys_splitsNewlineAndCommaDelimitedTokens() {
@@ -96,9 +110,18 @@ class ApiCredentialRotatorTest {
         val rotator = ApiCredentialRotator.KeyRotator("key_A\nkey_B")
         val calls = mutableListOf<String>()
 
-        rotator.execute { key -> calls.add(key); "ok" }
-        rotator.execute { key -> calls.add(key); "ok" }
-        rotator.execute { key -> calls.add(key); "ok" }
+        rotator.execute { key ->
+            calls.add(key)
+            "ok"
+        }
+        rotator.execute { key ->
+            calls.add(key)
+            "ok"
+        }
+        rotator.execute { key ->
+            calls.add(key)
+            "ok"
+        }
 
         assertEquals(listOf("key_A", "key_B", "key_A"), calls)
     }

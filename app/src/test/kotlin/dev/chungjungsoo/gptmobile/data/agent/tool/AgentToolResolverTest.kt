@@ -236,7 +236,7 @@ class AgentToolResolverTest {
                 networkClient = networkClient,
                 mcpClientManager = manager,
                 mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -275,7 +275,7 @@ class AgentToolResolverTest {
                 networkClient = networkClient,
                 mcpClientManager = manager,
                 mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -349,7 +349,7 @@ class AgentToolResolverTest {
                 networkClient = networkClient,
                 mcpClientManager = manager,
                 mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -393,7 +393,7 @@ class AgentToolResolverTest {
                 networkClient = networkClient,
                 mcpClientManager = manager,
                 mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
             )
             dao.bind(
                 connection("mcp-bad", ToolConnectionType.MCP, endpointUrl = "not-a-url", authType = ToolConnectionAuthType.NONE),
@@ -474,7 +474,7 @@ class AgentToolResolverTest {
                 networkClient = networkClient,
                 mcpClientManager = manager,
                 mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+                deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
             )
             dao.bind(
                 connection(
@@ -526,7 +526,7 @@ class AgentToolResolverTest {
             networkClient = networkClient,
             mcpClientManager = manager,
             mcpOAuthCoordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager),
-            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
         )
     }
 

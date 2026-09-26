@@ -1,7 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -58,7 +56,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -71,7 +68,6 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -84,7 +80,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -123,7 +118,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
@@ -143,10 +137,6 @@ import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import org.maplibre.android.camera.CameraPosition
-import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.Style
 
 internal fun formatMessageTimestamp(timestampMillis: Long?): String {
     if (timestampMillis == null || timestampMillis <= 0) return ""
@@ -217,130 +207,6 @@ fun UserChatBubble(
         }
         MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
     }
-}
-
-@Composable
-private fun LocationToolMapPreview(
-    toolEvents: List<ToolEvent>,
-    modifier: Modifier = Modifier
-) {
-    val coordinates = remember(toolEvents) {
-        toolEvents.asReversed().firstNotNullOfOrNull { event ->
-            if (event.status != ToolEventStatus.COMPLETED || event.isError) return@firstNotNullOfOrNull null
-            val identity = (event.toolName + " " + event.modelToolName + " " + (event.connectionNameSnapshot ?: "")).lowercase()
-            if ("location" !in identity && "geo" !in identity && "map" !in identity) return@firstNotNullOfOrNull null
-            extractLocationCoordinates(event.result.orEmpty())
-        }
-    } ?: return
-    val context = LocalContext.current
-    val (latitude, longitude) = coordinates
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    val disposed = remember(coordinates) { java.util.concurrent.atomic.AtomicBoolean(false) }
-    val mapView = remember(context, coordinates) {
-        // MapLibre requires initialization before constructing any MapView.
-        org.maplibre.android.MapLibre.getInstance(context)
-        MapView(context).apply {
-            onCreate(null)
-            getMapAsync { map ->
-                if (!disposed.get()) {
-                    map.cameraPosition = CameraPosition.Builder().target(LatLng(latitude, longitude)).zoom(15.0).build()
-                    map.setStyle(Style.Builder().fromUri(MAPLIBRE_STREET_STYLE)) { style ->
-                        if (!disposed.get()) {
-                            style.addSource(org.maplibre.android.style.sources.GeoJsonSource("tool-location", org.maplibre.geojson.Point.fromLngLat(longitude, latitude)))
-                            style.addLayer(
-                                org.maplibre.android.style.layers.CircleLayer("tool-location-pin", "tool-location").withProperties(
-                                    org.maplibre.android.style.layers.PropertyFactory.circleRadius(8f),
-                                    org.maplibre.android.style.layers.PropertyFactory.circleColor("#00BCD4"),
-                                    org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth(3f),
-                                    org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor("#FFFFFF")
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-    DisposableEffect(mapView, lifecycleOwner) {
-        val lifecycle = lifecycleOwner.lifecycle
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_START -> mapView.onStart()
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> mapView.onStop()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            disposed.set(true)
-            lifecycle.removeObserver(observer)
-            mapView.onPause()
-            mapView.onStop()
-            mapView.onDestroy()
-        }
-    }
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-    ) {
-        Column {
-            androidx.compose.runtime.key(mapView) {
-                AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(220.dp),
-                    factory = { mapView }
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Location", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "%.5f, %.5f".format(Locale.US, latitude, longitude),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
-                    )
-                    Text(
-                        "Interactive MapLibre preview",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude")
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }.onFailure {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openstreetmap.org/?mlat=$latitude&mlon=$longitude#map=16/$latitude/$longitude")))
-                        }
-                    }
-                ) {
-                    Text("Open")
-                }
-            }
-        }
-    }
-}
-
-private const val MAPLIBRE_STREET_STYLE = "https://tiles.openfreemap.org/styles/liberty"
-
-private fun extractLocationCoordinates(result: String): Pair<Double, Double>? {
-    val latitude = Regex("""["']?latitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-        .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-        ?: Regex("""["']?lat["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-            .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-    val longitude = Regex("""["']?longitude["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-        .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-        ?: Regex("""["']?(?:lon|lng)["']?\s*[:=]\s*(-?\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
-            .find(result)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-    if (latitude == null || longitude == null || latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return null
-    return latitude to longitude
 }
 
 @Composable
@@ -416,6 +282,7 @@ fun OpponentChatBubble(
     canEdit: Boolean = false,
     isFavorite: Boolean = false,
     debugMode: Boolean = false,
+    showReasoning: Boolean = true,
     revisionIndexLabel: String? = null,
     canShowPreviousRevision: Boolean = false,
     canShowNextRevision: Boolean = false,
@@ -448,7 +315,17 @@ fun OpponentChatBubble(
     val noticeMessages = remember(runNotices, timeline, isLoading) {
         visibleChatRunNotices(runNotices, timelineNoticeMessages(timeline), isLoading)
     }
-    val contentTimeline = remember(timeline) { timeline.filter { it.type != AssistantTimelineItemType.NOTICE } }
+    val visibleThoughts = remember(showReasoning, thoughts, text) {
+        if (showReasoning) thoughts.ifBlank { ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
+    }
+    val processToolEvents = if (debugMode) toolEvents else emptyList()
+    val contentTimeline = remember(timeline, showReasoning, debugMode) {
+        timeline.filter {
+            it.type != AssistantTimelineItemType.NOTICE &&
+                (showReasoning || it.type != AssistantTimelineItemType.THINKING) &&
+                (debugMode || it.type != AssistantTimelineItemType.TOOL)
+        }
+    }
     val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
         extractTelemetryNotice(noticeMessages)
     }
@@ -514,12 +391,15 @@ fun OpponentChatBubble(
         mutableStateOf(isLoading)
     }
 
-    val hasDetails = debugMode &&
-        remember(contentTimeline, thoughts, toolEvents) {
+    val detailsTimeline = remember(contentTimeline, showReasoning, debugMode) {
+        processTimelineForDisplay(contentTimeline, showReasoning, debugMode)
+    }
+    val hasDetails =
+        remember(detailsTimeline, visibleThoughts, processToolEvents) {
             hasAssistantProcessDetails(
-                timeline = contentTimeline,
-                fallbackThoughts = thoughts,
-                hasToolEvents = toolEvents.isNotEmpty()
+                timeline = detailsTimeline,
+                fallbackThoughts = visibleThoughts,
+                hasToolEvents = processToolEvents.isNotEmpty()
             )
         }
 
@@ -531,11 +411,12 @@ fun OpponentChatBubble(
     val hasVisibleProcess = hasDetails && areDetailsVisible
     val hasVisibleExtras = (debugMode && (nonTelemetryNotices.isNotEmpty() || agentRun != null)) ||
         attachments.isNotEmpty() ||
+        locationToolEvents.isNotEmpty() ||
         (!isLoading && (canRetry || canEdit || isError))
     val shouldShowBubble = hasVisibleText || hasVisibleProcess || hasVisibleExtras
 
     Column(modifier = modifier) {
-        InlineExecutionTrace(events = toolEvents, timeline = timeline, contentIdentity = contentIdentity)
+        InlineExecutionTrace(events = toolEvents, timeline = timeline, contentIdentity = contentIdentity, debugMode = debugMode)
         if (debugMode) {
             RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
             AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
@@ -554,8 +435,8 @@ fun OpponentChatBubble(
                         shape = RoundedCornerShape(32.dp)
                     )
             ) {
-                val hasUnavailableOrder = remember(contentTimeline, text, thoughts, toolEvents) {
-                    hasUnavailableAssistantOrder(contentTimeline, text, thoughts, toolEvents.isNotEmpty())
+                val hasUnavailableOrder = remember(contentTimeline, text, visibleThoughts, processToolEvents) {
+                    hasUnavailableAssistantOrder(contentTimeline, text, visibleThoughts, processToolEvents.isNotEmpty())
                 }
 
                 // Response content (rendered first so details panel appears below during streaming)
@@ -571,7 +452,7 @@ fun OpponentChatBubble(
                     LegacyAssistantAnswerContent(
                         cardColor = cardColor,
                         text = text,
-                        thoughts = thoughts,
+                        thoughts = visibleThoughts,
                         isLoading = showAnswerStreamingIndicator,
                         contentIdentity = contentIdentity,
                         highlightSentence = activeHighlightedSentence,
@@ -591,15 +472,15 @@ fun OpponentChatBubble(
                         if (isVisible) {
                             if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
                                 AssistantProcessContent(
-                                    timeline = contentTimeline,
-                                    toolEvents = toolEvents,
+                                    timeline = detailsTimeline,
+                                    toolEvents = processToolEvents,
                                     isLoading = showProcessStreamingIndicator,
                                     contentIdentity = contentIdentity
                                 )
                             } else {
                                 LegacyAssistantProcessContent(
-                                    thoughts = thoughts,
-                                    toolEvents = toolEvents,
+                                    thoughts = visibleThoughts,
+                                    toolEvents = processToolEvents,
                                     isLoading = showProcessStreamingIndicator,
                                     contentIdentity = contentIdentity,
                                     showOrderNotice = hasUnavailableOrder
@@ -618,7 +499,8 @@ fun OpponentChatBubble(
                         DetailsButton(
                             isVisible = areDetailsVisible,
                             isEnabled = true,
-                            onClick = { areDetailsVisible = !areDetailsVisible }
+                            onClick = { areDetailsVisible = !areDetailsVisible },
+                            label = if (debugMode) stringResource(R.string.details) else "Thinking"
                         )
                     }
                 }
@@ -953,7 +835,8 @@ fun OpponentResponseContainer(
 internal fun DetailsButton(
     isVisible: Boolean,
     isEnabled: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    label: String = stringResource(R.string.details)
 ) {
     val rotation by animateFloatAsState(
         targetValue = if (isVisible) 180f else 0f,
@@ -1000,7 +883,7 @@ internal fun DetailsButton(
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = stringResource(R.string.details),
+            text = label,
             style = MaterialTheme.typography.labelSmall,
             color = if (isEnabled) {
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -1180,7 +1063,7 @@ private fun LegacyAssistantAnswerContent(
     highlightProgress: Float = 0f
 ) {
     val parsed = remember(text) {
-        if (thoughts.isBlank() && text.contains("<think", ignoreCase = true)) {
+        if (text.contains("<think", ignoreCase = true)) {
             ThinkingParser.extractThinking(text)
         } else {
             null

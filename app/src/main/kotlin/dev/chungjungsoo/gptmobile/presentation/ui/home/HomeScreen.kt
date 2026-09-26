@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import android.content.ClipData
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -48,7 +49,10 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
@@ -102,7 +106,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.ClipEntry
@@ -112,7 +115,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -130,6 +132,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
@@ -180,6 +183,15 @@ fun HomeScreen(
     var selectedDetailMessage by remember { mutableStateOf<MessageV2?>(null) }
     var showAddGroupDialog by remember { mutableStateOf(false) }
     var chatPendingDelete by remember { mutableStateOf<ChatRoomV2?>(null) }
+
+    BackHandler {
+        when {
+            chatListState.isSelectionMode -> homeViewModel.disableSelectionMode()
+            chatListState.isSearchMode -> homeViewModel.disableSearchMode()
+            currentTab != HomeTab.CHATS -> homeViewModel.selectTab(HomeTab.CHATS)
+            else -> Unit
+        }
+    }
 
     LaunchedEffect(lifecycleState) {
         if (lifecycleState == Lifecycle.State.RESUMED && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
@@ -360,6 +372,7 @@ fun HomeScreen(
                                     isGenerating = isGenerating,
                                     usingPlatform = usingPlatform,
                                     profileLabels = chatProfileLabels,
+                                    isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
                                     onItemClick = {
                                         if (chatListState.isSelectionMode) {
                                             homeViewModel.selectChat(idx)
@@ -383,6 +396,7 @@ fun HomeScreen(
                                     isGenerating = isGenerating,
                                     usingPlatform = usingPlatform,
                                     profileLabels = chatProfileLabels,
+                                    isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
                                     onItemClick = {
                                         onExistingChatClick(chatRoom, null)
                                     },
@@ -528,6 +542,7 @@ fun FancySwipeChatCard(
     isGenerating: Boolean,
     usingPlatform: String,
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
+    isServerChat: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -673,6 +688,7 @@ fun FancySwipeChatCard(
                 isGenerating = isGenerating,
                 usingPlatform = usingPlatform,
                 profileLabels = profileLabels,
+                isServerChat = isServerChat,
                 onItemClick = onItemClick,
                 onItemLongClick = onItemLongClick
             )
@@ -689,6 +705,7 @@ private fun ChatListItem(
     isGenerating: Boolean,
     usingPlatform: String,
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
+    isServerChat: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit
 ) {
@@ -735,7 +752,7 @@ private fun ChatListItem(
                     color = MaterialTheme.colorScheme.primary
                 )
             } else {
-                ConversationModeSymbol(chatRoom = chatRoom)
+                ConversationModeSymbol(chatRoom = chatRoom, isServerChat = isServerChat)
             }
         },
         supportingContent = {
@@ -773,7 +790,7 @@ private fun ChatListItem(
                     Text(
                         text = usingPlatform,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                     )
                     if (profileLabels.isNotEmpty()) {
                         Row(
@@ -781,7 +798,7 @@ private fun ChatListItem(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             profileLabels.take(4).forEach { label ->
-                                BeveledProfileLabel(label = label)
+                                BeveledProfileLabel(label = label, compact = true)
                             }
                         }
                     }
@@ -792,57 +809,16 @@ private fun ChatListItem(
 }
 
 @Composable
-private fun ConversationModeSymbol(chatRoom: ChatRoomV2) {
-    val combined = chatRoom.conversationMode == ConversationMode.COMBINED
-    val multiple = !combined && chatRoom.enabledPlatform.size > 1
-    when {
-        combined -> {
-            Surface(
-                modifier = Modifier.size(34.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f))
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "⇄",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-                }
-            }
-        }
-        multiple -> {
-            Box(modifier = Modifier.size(34.dp)) {
-                Icon(
-                    imageVector = Icons.Outlined.ChatBubbleOutline,
-                    contentDescription = "Multiple AI conversation",
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(23.dp).align(Alignment.TopStart)
-                )
-                Icon(
-                    imageVector = Icons.Outlined.ChatBubbleOutline,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(23.dp).align(Alignment.BottomEnd)
-                )
-            }
-        }
-        else -> {
-            Surface(
-                modifier = Modifier.size(34.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        ImageVector.vectorResource(id = R.drawable.ic_rounded_chat),
-                        contentDescription = stringResource(R.string.chat_icon),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
+private fun ConversationModeSymbol(chatRoom: ChatRoomV2, isServerChat: Boolean) {
+    val (icon, description) = when {
+        chatRoom.conversationMode == ConversationMode.COMBINED -> Icons.Outlined.Hub to "Combined conversation"
+        chatRoom.enabledPlatform.size > 1 -> Icons.Outlined.Forum to "Multiple AI conversation"
+        isServerChat -> Icons.Outlined.Dns to "Local or server AI conversation"
+        else -> Icons.Outlined.ChatBubbleOutline to "Conversation"
+    }
+    Surface(modifier = Modifier.size(34.dp), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, description, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
         }
     }
 }

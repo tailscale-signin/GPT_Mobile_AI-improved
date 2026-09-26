@@ -4,6 +4,7 @@ import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -153,8 +154,8 @@ fun GPTMobileTheme(
     val context = LocalContext.current
     val customPrimary = customPrimaryArgb?.let(::Color)
     val baseScheme = when {
+        dynamicTheme == DynamicTheme.ON -> if (useDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         useDarkTheme -> darkScheme
-        dynamicTheme == DynamicTheme.ON -> dynamicLightColorScheme(context)
         else -> lightScheme
     }
     fun foreground(color: Color): Color = if (androidx.core.graphics.ColorUtils.calculateLuminance(color.toArgb()) > 0.179) Color.Black else Color.White
@@ -176,6 +177,7 @@ fun GPTMobileTheme(
                 tertiaryContainer = container, onTertiaryContainer = foreground(container),
                 background = background, onBackground = foreground(background),
                 surface = surface, onSurface = surfaceText, onSurfaceVariant = surfaceText.copy(alpha = 0.8f),
+                surfaceVariant = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.06f),
                 surfaceContainer = surface, surfaceContainerLow = surface, surfaceContainerLowest = background,
                 surfaceContainerHigh = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.06f),
                 surfaceContainerHighest = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.1f),

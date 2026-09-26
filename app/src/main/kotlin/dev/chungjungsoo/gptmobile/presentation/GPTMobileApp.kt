@@ -21,7 +21,6 @@ import dev.chungjungsoo.gptmobile.data.backup.SanitizedChatBackup
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.localmodel.PendingLocalPlatformActivator
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineHolder
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
@@ -116,7 +115,8 @@ class GPTMobileApp :
         applicationScope.launch {
             while (isActive) {
                 delay(60_000L)
-                startupDependencies().localRuntime().unloadIfIdle(LocalEngineHolder.DEFAULT_IDLE_UNLOAD_TIMEOUT_MS)
+                val idleMinutes = startupDependencies().settingRepository().getFeatureSettings().localIdleMinutes.coerceIn(0, 60)
+                if (idleMinutes > 0) startupDependencies().localRuntime().unloadIfIdle(idleMinutes * 60_000L)
             }
         }
 

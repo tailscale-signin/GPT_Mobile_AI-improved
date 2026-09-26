@@ -46,8 +46,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +58,6 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
-import dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPrimaryArgb
 import dev.chungjungsoo.gptmobile.presentation.common.LocalDynamicTheme
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeMode
 import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeViewModel
@@ -372,18 +369,6 @@ private fun SettingsDestination(
 @Composable
 fun ThemeSettingDialog(settingViewModel: SettingViewModelV2) {
     val themeViewModel = LocalThemeViewModel.current
-    val currentCustomColor = LocalCustomPrimaryArgb.current
-    var customHex by remember(currentCustomColor) {
-        mutableStateOf(currentCustomColor?.let { "#%06X".format(it and 0xFFFFFF) }.orEmpty())
-    }
-    val parsedCustomArgb = remember(customHex) {
-        val normalized = customHex.trim().removePrefix("#")
-        if (normalized.length == 6 && normalized.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
-            normalized.toLongOrNull(16)?.let { 0xFF000000L or it }
-        } else {
-            null
-        }
-    }
     AlertDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -402,68 +387,6 @@ fun ThemeSettingDialog(settingViewModel: SettingViewModelV2) {
                 Spacer(Modifier.fillMaxWidth().height(24.dp))
                 CustomPaletteEditor()
                 Spacer(Modifier.height(24.dp))
-                Text("Accent color", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.fillMaxWidth().height(8.dp))
-                val accentChoices = listOf(
-                    "Default app palette" to null,
-                    "Cyan" to 0xFF00BCD4L,
-                    "Blue" to 0xFF2196F3L,
-                    "Purple" to 0xFF9C27B0L,
-                    "Green" to 0xFF4CAF50L,
-                    "Orange" to 0xFFFF9800L,
-                    "Red" to 0xFFF44336L
-                )
-                accentChoices.forEach { (label, argb) ->
-                    RadioItem(
-                        title = label,
-                        description = null,
-                        value = label,
-                        selected = LocalCustomPrimaryArgb.current == argb
-                    ) {
-                        themeViewModel.updateCustomPrimaryArgb(argb)
-                    }
-                }
-                Spacer(Modifier.fillMaxWidth().height(12.dp))
-                OutlinedTextField(
-                    value = customHex,
-                    onValueChange = { value ->
-                        customHex = value.take(7)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Custom color") },
-                    placeholder = { Text("#6750A4") },
-                    supportingText = {
-                        Text(
-                            if (customHex.isBlank() || parsedCustomArgb != null) {
-                                "Enter any 6-digit HEX color."
-                            } else {
-                                "Use a valid color such as #6750A4."
-                            }
-                        )
-                    },
-                    isError = customHex.isNotBlank() && parsedCustomArgb == null,
-                    singleLine = true,
-                    trailingIcon = {
-                        if (parsedCustomArgb != null) {
-                            Card(
-                                modifier = Modifier.width(28.dp).height(28.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = androidx.compose.ui.graphics.Color(parsedCustomArgb)
-                                )
-                            ) {}
-                        }
-                    }
-                )
-                Button(
-                    onClick = {
-                        parsedCustomArgb?.let(themeViewModel::updateCustomPrimaryArgb)
-                    },
-                    enabled = parsedCustomArgb != null,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                ) {
-                    Text("Apply custom color")
-                }
-                Spacer(Modifier.fillMaxWidth().height(24.dp))
                 Text(stringResource(R.string.dark_mode), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.fillMaxWidth().height(16.dp))
                 ThemeMode.entries.forEach { theme ->

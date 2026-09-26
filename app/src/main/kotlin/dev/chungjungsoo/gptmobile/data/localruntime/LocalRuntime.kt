@@ -12,7 +12,9 @@ data class LocalEngineSpec(
     val maxTokens: Int,
     val isVisionEnabled: Boolean = false,
     val litertDispatchLibDir: String? = null,
-    val visionAccelerator: String = LocalAccelerators.GPU
+    val visionAccelerator: String = LocalAccelerators.GPU,
+    val cpuThreads: Int? = null,
+    val cacheEnabled: Boolean = true
 )
 
 data class LocalSamplerConfig(

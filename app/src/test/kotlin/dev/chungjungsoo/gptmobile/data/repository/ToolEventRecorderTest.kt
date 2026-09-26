@@ -373,6 +373,7 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
     override suspend fun consumePrompt(id: String, messageId: Int): Int = unused()
     override suspend fun firstPendingId(chatId: Int): String? = unused()
     override suspend fun activeRunCount(chatId: Int): Int = unused()
+    override suspend fun latestAssistantMessages(chatId: Int): List<MessageV2> = unused()
 
     val rows = mutableListOf<ToolEvent>()
     val observedToolEvents = MutableStateFlow(emptyList<ToolEvent>())

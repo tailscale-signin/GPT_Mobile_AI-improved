@@ -45,8 +45,8 @@ class DurablePromptQueue @Inject constructor(
         if (!started.compareAndSet(false, true)) return
         scope.launch {
             dev.chungjungsoo.gptmobile.presentation.StartupRecoveryGate.await()
-            combine(pending, database.agentRunDao().observeActive(), settings.observePlatformV2s(), wake) { prompts, active, profiles, _ ->
-                Triple(prompts, active.map { it.chatId }.toSet(), profiles)
+            combine(pending, database.agentRunDao().observeActive(), settings.observePlatformV2s(), coordinator.activeRuns, wake) { prompts, active, profiles, live, _ ->
+                Triple(prompts, active.map { it.chatId }.toSet() + live.values.map { it.chatId }, profiles)
             }.collect { (prompts, busyChats, profiles) ->
                 prompts.groupBy { it.chatId }.forEach { (chatId, entries) ->
                     if (chatId in busyChats) return@forEach
@@ -56,6 +56,7 @@ class DurablePromptQueue @Inject constructor(
                         val payload = prompt.details()
                         val pausedProfiles = preferences.getStringSet("paused_$chatId", emptySet()).orEmpty()
                         if (payload.profileUids.any { it in pausedProfiles }) return@forEach
+                        if (!database.agentPersistenceDao().queuedTurnReady(chatId, pausedProfiles)) return@forEach
                         val targets = payload.profileUids.mapNotNull { uid -> profiles.firstOrNull { it.uid == uid && it.enabled } }
                         if (targets.isEmpty() || targets.size != payload.profileUids.size) {
                             dao.pause(prompt.id, true)
@@ -70,7 +71,8 @@ class DurablePromptQueue @Inject constructor(
                                 userMessage = MessageV2(chatId = chatId, content = prompt.text, attachments = payload.attachments, platformType = null),
                                 runs = resolved.map { AgentRunDraft(UUID.randomUUID().toString(), it.uid, it.compatibleType.name, it.model) },
                                 chatPlatformModels = payload.models,
-                                queuedPromptId = prompt.id
+                                queuedPromptId = prompt.id,
+                                queuedPausedProfiles = pausedProfiles
                             )
                         )
                         val users = before.filter { it.platformType == null } + result.userMessage

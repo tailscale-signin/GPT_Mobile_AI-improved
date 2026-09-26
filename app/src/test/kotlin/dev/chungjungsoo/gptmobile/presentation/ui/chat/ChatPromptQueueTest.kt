@@ -39,6 +39,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -305,6 +306,8 @@ class ChatPromptQueueTest {
         activeRuns.value = runs.value.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
         val repository = mockk<ChatRepository>(relaxed = true)
         every { repository.observeMessagesV2(7) } returns messages
+        every { repository.observeMessageWindow(7, any()) } returns messages
+        every { repository.observeTurnCount(7) } returns messages.map { rows -> rows.count { it.platformType == null } }
         every { repository.observeAgentRuns(7) } returns runs
         every { repository.observeToolEvents(7) } returns flowOf(emptyList())
         coEvery { repository.fetchChatListV2() } returns listOf(room)
@@ -347,6 +350,7 @@ class ChatPromptQueueTest {
         every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings(automaticConversationTitles = false))
         val coordinator = mockk<AgentRunCoordinator>(relaxed = true)
         every { coordinator.activeRuns } returns activeRuns
+        every { coordinator.streamMessages } returns MutableStateFlow(emptyMap())
         every { coordinator.notices } returns MutableSharedFlow<AgentRunNotice>()
         every { coordinator.start(any()) } answers {
             val requests = firstArg<List<AgentRunRequest>>()

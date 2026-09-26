@@ -15,6 +15,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContextBudgetServiceTest {
+    @Test fun `small text only contexts do not reserve space for unavailable tools`() {
+        val current = ConversationTurn(MessageV2(content = "Hi", platformType = null), null, true)
+        val plan = ContextBudgetService.plan(listOf(current), "Concise reply.", emptyList(), TokenBudgetSettings(contextTokens = 256))
+        assertEquals(listOf(current), plan.turns)
+        assertEquals(0, plan.toolResultBytes)
+        assertEquals(64, plan.outputTokens)
+    }
 
     @Test
     fun `discovery only accepts a matching model and explicit bounded context limit`() {

@@ -179,7 +179,10 @@ class CompleteBackupManagerTest {
         }
         vault.put("provider", "new-token".toByteArray())
         vault.put(dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository.VAULT_REFERENCE, "new-memory".toByteArray())
-        assertTrue(manager.restore(Uri.fromFile(archive)).success)
+        assertFalse(manager.restore(Uri.fromFile(archive)).success)
+        withContext(Dispatchers.IO) { database.openHelper.writableDatabase.execSQL("UPDATE agent_runs SET status = 'INTERRUPTED'") }
+        val restored = manager.restore(Uri.fromFile(archive))
+        assertTrue(restored.message, restored.success)
         assertEquals("new-token", vault.read("provider")!!.decodeToString())
         assertEquals("new-memory", vault.read(dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository.VAULT_REFERENCE)!!.decodeToString())
         assertFalse(manager.backup(Uri.fromFile(archive), CompleteBackupSelection(setOf(CompleteBackupSection.MEMORY))).success)

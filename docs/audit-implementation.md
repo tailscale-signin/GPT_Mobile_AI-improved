@@ -48,6 +48,8 @@ Old saved conversations without event ordering show a legacy-order notice. Their
 
 Legacy utilities that still have consumers were not silently redirected or deleted. None of the new paths depends on the retired Node server.
 
+Queued prompts wait for both persisted and live generation to finish. In combined mode, a transaction also prevents the next prompt from overtaking the pending synthesis. Synthesis is still owned by the chat view model: if you leave before it is scheduled, reopening that chat resumes the combination before its queue advances.
+
 ## Local server pairing
 
 On the computer, use its private address that the phone can reach:

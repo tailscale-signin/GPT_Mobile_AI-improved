@@ -74,6 +74,35 @@ class DurableExecutionIntegrationTest {
         assertTrue(database.messageDao().loadMessages(1).isEmpty())
     }
 
+    @Test fun `queued turn cannot overtake pending combined synthesis`() = runBlocking {
+        val room = request().chatRoom.copy(enabledPlatform = listOf("p", "other"), activePlatform = listOf("p", "other"), conversationMode = "COMBINED")
+        val owner = database.agentPersistenceDao()
+        val first = owner.persistAgentTurn(
+            request("first").copy(
+                chatRoom = room,
+                queuedPromptId = null,
+                runs = listOf(AgentRunDraft("first-p", "p", "CUSTOM", "model"), AgentRunDraft("first-other", "other", "CUSTOM", "model"))
+            )
+        )
+        first.assistantMessages.forEach { owner.updateMessage(it.copy(content = "Candidate answer")) }
+        first.runs.forEach { database.agentRunDao().updateStatus(it.runId, "COMPLETED", 1, 2, null) }
+        database.pendingPromptDao().enqueue(prompt())
+        assertFalse(owner.queuedTurnReady(1))
+        assertTrue(owner.queuedTurnReady(1, setOf("other")))
+        assertTrue(runCatching { owner.persistAgentTurn(request().copy(chatRoom = room)) }.isFailure)
+        assertEquals(null, database.pendingPromptDao().get("q")!!.userMessageId)
+
+        val combinedId = "combined-synthesis:test"
+        val lead = first.assistantMessages.first().copy(currentRunId = combinedId, content = "Combined answer")
+        owner.updateMessage(lead)
+        database.agentRunDao().upsert(first.runs.first().copy(runId = combinedId, status = "RUNNING"))
+        assertFalse(owner.queuedTurnReady(1))
+        database.agentRunDao().updateStatus(combinedId, "COMPLETED", 2, 3, null)
+        assertTrue(owner.queuedTurnReady(1))
+        owner.persistAgentTurn(request().copy(chatRoom = room))
+        assertNotNull(database.pendingPromptDao().get("q")!!.userMessageId)
+    }
+
     @Test fun `interrupted gateway answer restores only its current revision`() = runBlocking {
         database.pendingPromptDao().enqueue(prompt())
         val result = database.agentPersistenceDao().persistAgentTurn(request())

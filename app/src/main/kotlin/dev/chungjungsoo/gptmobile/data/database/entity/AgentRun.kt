@@ -106,7 +106,8 @@ data class PersistAgentTurnRequest(
     val userMessage: MessageV2,
     val runs: List<AgentRunDraft>,
     val chatPlatformModels: Map<String, String>,
-    val queuedPromptId: String? = null
+    val queuedPromptId: String? = null,
+    val queuedPausedProfiles: Set<String> = emptySet()
 )
 
 data class PersistAgentTurnResult(

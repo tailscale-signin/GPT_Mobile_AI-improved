@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -150,13 +151,35 @@ interface AgentPersistenceDao {
     @Query("SELECT COUNT(*) FROM agent_runs WHERE chat_id = :chatId AND status IN ('QUEUED', 'RUNNING')")
     suspend fun activeRunCount(chatId: Int): Int
 
+    @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NOT NULL AND linked_message_id = (SELECT message_id FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL ORDER BY created_at DESC, message_id DESC LIMIT 1)")
+    suspend fun latestAssistantMessages(chatId: Int): List<MessageV2>
+
+    /** Keep the handoff from primary replies to synthesis ahead of queued input. */
+    @Transaction
+    suspend fun queuedTurnReady(chatId: Int, pausedProfiles: Set<String> = emptySet()): Boolean {
+        if (activeRunCount(chatId) > 0) return false
+        val room = getChatRoom(chatId) ?: return false
+        if (room.conversationMode != dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.COMBINED) return true
+        val participants = room.activePlatform.toSet() - pausedProfiles
+        if (participants.size < 2) return true
+        val replies = latestAssistantMessages(chatId).filter { it.platformType in participants }
+        if (replies.mapNotNull { it.platformType }.toSet() != participants) return true
+        val runIds = replies.map { it.currentRunId }
+        if (runIds.any { it.isNullOrBlank() || it.startsWith("combined-synthesis:") }) return true
+        if (runIds.any { recoveryRun(it!!) == null }) return true
+        return replies.none {
+            val content = it.effectiveContent().trim()
+            content.isNotEmpty() && !dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage(content)
+        }
+    }
+
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
         request.queuedPromptId?.let { id ->
             val pending = requireNotNull(pendingPrompt(id)) { "Queued input has already been dispatched or removed." }
             require(pending.chatId == request.chatRoom.id && !pending.paused)
             require(firstPendingId(pending.chatId) == id) { "Queue order changed." }
-            require(activeRunCount(pending.chatId) == 0) { "Conversation is still running." }
+            require(queuedTurnReady(pending.chatId, request.queuedPausedProfiles)) { "Conversation is still running or awaiting its combined answer." }
             require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
         }
         val chatRoom = if (request.chatRoom.id == 0) {

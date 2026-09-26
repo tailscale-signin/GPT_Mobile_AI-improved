@@ -16,8 +16,8 @@ object ContextBudgetService {
     fun plan(turns: List<ConversationTurn>, system: String, tools: List<AgentToolDefinition>, settings: TokenBudgetSettings): ContextPlan {
         val config = settings.normalized()
         val output = config.outputTokens.coerceAtMost(config.contextTokens / 4)
-        val resultReserve = (config.contextTokens / 8).coerceAtMost(8192)
-        val promptLimit = config.contextTokens - output - resultReserve - 256
+        val resultReserve = if (tools.isEmpty()) 0 else (config.contextTokens / 8).coerceAtMost(8192)
+        val promptLimit = config.contextTokens - output - resultReserve - minOf(256, config.contextTokens / 16)
         fun cost(turn: ConversationTurn): Int = estimate(turn.userMessage.content) + estimate(turn.assistantMessage?.content.orEmpty()) +
             (turn.userMessage.attachments.size + (turn.assistantMessage?.attachments?.size ?: 0)) * 2048 + 16
         val current = turns.filter { it.isCurrentTurn }

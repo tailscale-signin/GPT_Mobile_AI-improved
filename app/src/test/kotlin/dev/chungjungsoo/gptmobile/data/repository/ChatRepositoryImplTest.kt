@@ -315,7 +315,7 @@ class ChatRepositoryImplTest {
         val states = repository.completeChat(
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
-            platform = localPlatform(),
+            platform = localPlatform().copy(maxTokens = 16384),
             runId = "run-local-tool"
         ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && it.message.startsWith("Context estimate:")) }
 

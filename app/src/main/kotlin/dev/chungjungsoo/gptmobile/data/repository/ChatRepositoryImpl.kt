@@ -205,9 +205,17 @@ class ChatRepositoryImpl(
             }.getOrDefault(false)
             val customRunner = agentRunnerForPlatform(platform, chatToolConfig?.maxToolCalls)
             val budgetSettings = settingRepository.getFeatureSettings().tokenBudget.normalized()
+            val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
+            val limits = if (platform.compatibleType == ClientType.LITERT_LM) {
+                profileBudget.copy(contextTokens = minOf(profileBudget.contextTokens, platform.maxTokens ?: 4096))
+            } else {
+                profileBudget
+            }
             val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
             val unavailableConnections = mutableListOf<String>()
-            val resolvedTools = if (platform.disableAllTools) {
+            val supportsTools = platform.compatibleType != ClientType.LITERT_LM ||
+                modelCatalogRepository.getCachedVisibleEntries().firstOrNull { it.id == platform.model }?.capabilities?.tools == true
+            val resolvedTools = if (platform.disableAllTools || !supportsTools) {
                 emptyList()
             } else {
                 val sharingEnabled = runCatching {
@@ -254,20 +262,12 @@ class ChatRepositoryImpl(
                 FactRecall()
             }
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
-            val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName }).orEmpty() +
-                "\nBefore the first tool call and after every 10 completed tool calls, " + dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION
+            val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName }, compact = limits.contextTokens < 4096) +
+                if (resolvedTools.isNotEmpty()) "\nBefore the first tool call and after every 10 completed tool calls, " + dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION else ""
             val documentContext = latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
             val requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt
             )
-            val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
-            val limits = if (platform.compatibleType == ClientType.LITERT_LM) {
-                profileBudget.copy(
-                    contextTokens = minOf(profileBudget.contextTokens, platform.maxTokens ?: 4096)
-                )
-            } else {
-                profileBudget
-            }
             val contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), resolvedTools.map { it.tool.definition }, limits)
             emit(ApiState.Notice(contextPlan.notice, persistent = true))
             val toolBudget = ToolExecutionBudget(customRunner.limits.copy(maxToolOutputBytes = contextPlan.toolResultBytes))

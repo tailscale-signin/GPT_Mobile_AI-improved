@@ -263,7 +263,7 @@ class AgentRunnerTest {
             AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
         }
 
-        val events = AgentRunner().run(session, listOf(tool)).toList()
+        val events = AgentRunner(AgentRunLimits(maxToolCalls = 12)).run(session, listOf(tool)).toList()
 
         assertEquals(12, executions.get())
         assertEquals(listOf(1, 0), exposedToolCounts)

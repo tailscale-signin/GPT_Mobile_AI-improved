@@ -33,7 +33,7 @@ class ChatDatabaseV2MigrationsTest {
     }
 
     @Test
-    fun `new platform defaults max tool calls to integer max value`() {
+    fun `new platform defaults max tool calls to fifty`() {
         val platform = PlatformV2(
             name = "OpenAI",
             compatibleType = ClientType.OPENAI,
@@ -41,7 +41,7 @@ class ChatDatabaseV2MigrationsTest {
             model = "gpt-5.6"
         )
 
-        assertEquals(Int.MAX_VALUE, platform.maxToolCalls)
+        assertEquals(50, platform.maxToolCalls)
     }
 
     @Test

@@ -48,6 +48,6 @@ class PlatformAgentRunnerTest {
 
         val runner = agentRunnerForPlatform(platform, runOverride = null)
 
-        assertEquals(Int.MAX_VALUE, runner.limits.maxToolCalls)
+        assertEquals(50, runner.limits.maxToolCalls)
     }
 }

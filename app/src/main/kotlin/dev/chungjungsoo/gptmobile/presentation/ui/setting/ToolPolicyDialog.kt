@@ -20,7 +20,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.permissions.ToolPolicy
 
 @Composable
-internal fun ToolPolicyDialog(connection: ToolConnection, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+internal fun ToolPolicyDialog(connection: ToolConnection, onDismiss: () -> Unit, onResetGrants: () -> Unit = {}, onSave: (String, String) -> Unit) {
     var policy by remember(connection) { mutableStateOf(connection.toolPolicy) }
     var reads by remember(connection) { mutableStateOf(connection.approvedReadTools) }
     AlertDialog(
@@ -32,6 +32,7 @@ internal fun ToolPolicyDialog(connection: ToolConnection, onDismiss: () -> Unit,
                 ToolPolicy.entries.forEach { value ->
                     FilterChip(selected = policy == value.name, onClick = { policy = value.name }, label = { Text(value.name.lowercase().replace('_', ' ')) })
                 }
+                TextButton(onClick = onResetGrants) { Text("Reset Always allow permissions") }
                 OutlinedTextField(value = reads, onValueChange = { reads = it }, label = { Text(stringResource(R.string.tool_policy_reads)) })
             }
         },

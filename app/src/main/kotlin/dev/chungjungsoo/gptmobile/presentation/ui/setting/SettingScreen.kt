@@ -128,86 +128,86 @@ fun SettingScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-                item {
-                    SettingsCategory(
-                        title = "AI & models"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.SmartToy,
-                            title = "AI Platforms & Profiles",
-                            onClick = onNavigateToAiPlatforms
-                        )
-                        SettingsDestination(
-                            icon = Icons.Default.Psychology,
-                            title = "Memory",
-                            onClick = onNavigateToFactVault
-                        )
-                        SettingsDestination(
-                            icon = Icons.Default.Storage,
-                            title = stringResource(R.string.local_models),
-                            onClick = onNavigateToLocalModels
-                        )
-                    }
+            item {
+                SettingsCategory(
+                    title = "AI & models"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.SmartToy,
+                        title = "AI Platforms & Profiles",
+                        onClick = onNavigateToAiPlatforms
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Psychology,
+                        title = "Memory",
+                        onClick = onNavigateToFactVault
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Storage,
+                        title = stringResource(R.string.local_models),
+                        onClick = onNavigateToLocalModels
+                    )
                 }
+            }
 
-                item {
-                    SettingsCategory(
-                        title = "Tools & connectivity"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.Build,
-                            title = stringResource(R.string.tool_connections),
-                            onClick = onNavigateToToolConnections
-                        )
-                    }
+            item {
+                SettingsCategory(
+                    title = "Tools & connectivity"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.Build,
+                        title = stringResource(R.string.tool_connections),
+                        onClick = onNavigateToToolConnections
+                    )
                 }
+            }
 
-                item {
-                    SettingsCategory(
-                        title = "Experience"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.Palette,
-                            title = stringResource(R.string.theme_settings),
-                            onClick = settingViewModel::openThemeDialog
-                        )
-                        SettingsDestination(
-                            icon = Icons.Default.Tune,
-                            title = "Advanced Settings",
-                            onClick = onNavigateToAdvancedSettings
-                        )
-                    }
+            item {
+                SettingsCategory(
+                    title = "Experience"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.Palette,
+                        title = stringResource(R.string.theme_settings),
+                        onClick = settingViewModel::openThemeDialog
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Tune,
+                        title = "Advanced Settings",
+                        onClick = onNavigateToAdvancedSettings
+                    )
                 }
+            }
 
-                item {
-                    SettingsCategory(
-                        title = "Diagnostics & data"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.BugReport,
-                            title = "Debug and Statistics",
-                            onClick = onNavigateToDebugDiagnostics
-                        )
+            item {
+                SettingsCategory(
+                    title = "Diagnostics & data"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.BugReport,
+                        title = "Debug and Statistics",
+                        onClick = onNavigateToDebugDiagnostics
+                    )
 
-                        SettingsDestination(
-                            icon = Icons.Default.Backup,
-                            title = stringResource(R.string.backup_and_restore),
-                            onClick = settingViewModel::openBackupRestoreDialog
-                        )
-                    }
+                    SettingsDestination(
+                        icon = Icons.Default.Backup,
+                        title = stringResource(R.string.backup_and_restore),
+                        onClick = settingViewModel::openBackupRestoreDialog
+                    )
                 }
+            }
 
-                item {
-                    SettingsCategory(
-                        title = "About"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.Info,
-                            title = stringResource(R.string.about),
-                            onClick = onNavigateToAboutPage
-                        )
-                    }
+            item {
+                SettingsCategory(
+                    title = "About"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.Info,
+                        title = stringResource(R.string.about),
+                        onClick = onNavigateToAboutPage
+                    )
                 }
+            }
             item { Spacer(Modifier.height(48.dp)) }
         }
     }

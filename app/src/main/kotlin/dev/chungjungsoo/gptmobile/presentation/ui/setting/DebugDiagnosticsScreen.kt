@@ -63,6 +63,7 @@ fun DebugDiagnosticsScreen(
     val runtime by settingViewModel.localRuntimeState.collectAsState()
     val debugEnabled by settingViewModel.debugMode.collectAsState()
     val context = LocalContext.current
+    var selectedTab by remember { mutableIntStateOf(0) }
     var refreshKey by remember { mutableIntStateOf(0) }
 
     val hardware = remember(refreshKey, runtime) {
@@ -79,9 +80,9 @@ fun DebugDiagnosticsScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Debug & Diagnostics")
+                        Text("Debug and Statistics")
                         Text(
-                            "Live runtime health, recent agent runs and tool activity",
+                            "Performance, reliability and local logs",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -106,191 +107,202 @@ fun DebugDiagnosticsScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                FilledTonalButton(onClick = onStatisticsClick, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.padding(end = 12.dp))
-                    Text("Usage statistics")
-                }
-            }
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(Icons.Default.BugReport, contentDescription = null)
-                        Column(Modifier.weight(1f)) {
-                            Text("Diagnostics HUD", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                "Controls whether selected metrics are surfaced while AI responses are running.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        Switch(checked = debugEnabled, onCheckedChange = settingViewModel::updateDebugMode)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Overview", "Logs").forEachIndexed { index, label ->
+                        androidx.compose.material3.FilterChip(selectedTab == index, { selectedTab = index }, label = { Text(label) })
                     }
                 }
             }
-
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Recent runs (up to 250)", analytics.recentRuns.size.toString(), Modifier.weight(1f))
-                    MetricCard("Failed", analytics.failedRuns.toString(), Modifier.weight(1f))
-                    MetricCard("Active", analytics.activeRuns.toString(), Modifier.weight(1f))
+            if (selectedTab == 1) {
+                item { AppLogPanel() }
+            } else {
+                item {
+                    FilledTonalButton(onClick = onStatisticsClick, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.padding(end = 12.dp))
+                        Text("Model performance & usage")
+                    }
                 }
-            }
-
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Tool calls (up to 500)", analytics.recentToolEvents.size.toString(), Modifier.weight(1f))
-                    MetricCard("Tool failures", analytics.failedToolCalls.toString(), Modifier.weight(1f))
-                    MetricCard(
-                        "Avg tool",
-                        analytics.averageToolDurationMs?.let { "${it}ms" } ?: "—",
-                        Modifier.weight(1f)
-                    )
-                }
-            }
-
-            item {
-                DiagnosticsPanelCard("Model usage", Icons.Default.Speed) {
-                    usageBars(analytics.modelUsage)
-                }
-            }
-
-            item {
-                DiagnosticsPanelCard("Provider usage", Icons.Default.Memory) {
-                    usageBars(analytics.providerUsage)
-                }
-            }
-
-            item {
-                DiagnosticsPanelCard("AI profile usage", Icons.Default.BugReport) {
-                    usageBars(analytics.profileUsage)
-                }
-            }
-
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Tracked tokens", formatTokenCount(analytics.totalTrackedTokens), Modifier.weight(1f))
-                    MetricCard(
-                        "Runs with usage",
-                        analytics.recentRuns.count { it.totalTokens != null }.toString(),
-                        Modifier.weight(1f)
-                    )
-                }
-            }
-
-            item {
-                DiagnosticsPanelCard("Tokens by model", Icons.Default.Speed) {
-                    TokenusageBars(analytics.modelTokenUsage)
-                }
-            }
-
-            item {
-                DiagnosticsPanelCard("Tokens by AI profile", Icons.Default.BugReport) {
-                    TokenusageBars(analytics.profileTokenUsage)
-                }
-            }
-
-            item {
-                DiagnosticsPanelCard("Display in Debug Mode", Icons.Default.Terminal) {
-                    DebugMetric.entries.forEach { metric ->
-                        val checked = when (metric) {
-                            DebugMetric.TOOL_CALLS -> settings.debugShowToolCalls
-                            DebugMetric.TOTAL_TOKENS -> settings.debugShowTotalTokens
-                            DebugMetric.TOKEN_SPEED -> settings.debugShowTokenSpeed
-                            DebugMetric.TIME_TO_FIRST_TOKEN -> settings.debugShowTimeToFirstToken
-                            DebugMetric.RUNTIME -> settings.debugShowRuntime
-                            DebugMetric.HARDWARE -> settings.debugShowHardware
-                            DebugMetric.NETWORK -> settings.debugShowNetwork
-                        }
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            Icon(Icons.Default.BugReport, contentDescription = null)
                             Column(Modifier.weight(1f)) {
-                                Text(metric.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                                Text(metric.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Diagnostics HUD", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Controls whether selected metrics are surfaced while AI responses are running.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
-                            Switch(
-                                checked = checked,
-                                onCheckedChange = { settingViewModel.updateDebugMetric(metric, it) }
-                            )
+                            Switch(checked = debugEnabled, onCheckedChange = settingViewModel::updateDebugMode)
                         }
                     }
                 }
-            }
 
-            item {
-                DiagnosticsPanelCard("Hardware snapshot", Icons.Default.Memory) {
-                    DiagnosticsLine("Backend", hardware.backendName)
-                    DiagnosticsLine("Accelerator", hardware.accelerator)
-                    DiagnosticsLine("SoC", hardware.socModel)
-                    DiagnosticsLine("Available RAM", "${hardware.availableRamMb} MB / ${hardware.totalRamGb} GB")
-                    DiagnosticsLine("Thermal", hardware.thermalStatus)
-                    DiagnosticsLine("Battery", if (hardware.batteryPct >= 0) "${hardware.batteryPct}%" else "Unknown")
-                    DiagnosticsLine("QNN prerequisites", if (hardware.qnnReady) "Available" else "Unavailable")
-                    FilledTonalButton(
-                        onClick = {
-                            val report = buildString {
-                                appendLine(DiagnosticsTelemetryProvider.formatDiagnosticsText(hardware, null))
-                                appendLine("Recent runs: ${analytics.recentRuns.size}")
-                                appendLine("Completed runs: ${analytics.completedRuns}")
-                                appendLine("Failed runs: ${analytics.failedRuns}")
-                                appendLine("Tool calls: ${analytics.recentToolEvents.size}")
-                                appendLine("Failed tool calls: ${analytics.failedToolCalls}")
-                            }
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("GPT Mobile diagnostics", report))
-                            Toast.makeText(context, "Diagnostics copied", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null)
-                        Text(" Copy diagnostics")
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Recent runs (up to 250)", analytics.recentRuns.size.toString(), Modifier.weight(1f))
+                        MetricCard("Failed", analytics.failedRuns.toString(), Modifier.weight(1f))
+                        MetricCard("Active", analytics.activeRuns.toString(), Modifier.weight(1f))
                     }
                 }
-            }
 
-            item {
-                Text("Recent tool activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
-
-            items(analytics.recentToolEvents.take(20), key = { it.eventId }) { event ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Speed,
-                            contentDescription = null,
-                            tint = if (event.status == ToolEventStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Tool calls (up to 500)", analytics.recentToolEvents.size.toString(), Modifier.weight(1f))
+                        MetricCard("Tool failures", analytics.failedToolCalls.toString(), Modifier.weight(1f))
+                        MetricCard(
+                            "Avg tool",
+                            analytics.averageToolDurationMs?.let { "${it}ms" } ?: "—",
+                            Modifier.weight(1f)
                         )
-                        Column(Modifier.weight(1f)) {
-                            Text(event.modelToolName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                buildString {
-                                    append(event.connectionNameSnapshot ?: "Built-in")
-                                    append(" • ")
-                                    append(event.status)
-                                    val start = event.startedAt
-                                    val end = event.completedAt
-                                    if (start != null && end != null) append(" • ${(end - start).coerceAtLeast(0)}s")
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontFamily = FontFamily.Monospace
+                    }
+                }
+
+                item {
+                    DiagnosticsPanelCard("Model usage", Icons.Default.Speed) {
+                        usageBars(analytics.modelUsage)
+                    }
+                }
+
+                item {
+                    DiagnosticsPanelCard("Provider usage", Icons.Default.Memory) {
+                        usageBars(analytics.providerUsage)
+                    }
+                }
+
+                item {
+                    DiagnosticsPanelCard("AI profile usage", Icons.Default.BugReport) {
+                        usageBars(analytics.profileUsage)
+                    }
+                }
+
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Tracked tokens", formatTokenCount(analytics.totalTrackedTokens), Modifier.weight(1f))
+                        MetricCard(
+                            "Runs with usage",
+                            analytics.recentRuns.count { it.totalTokens != null }.toString(),
+                            Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                item {
+                    DiagnosticsPanelCard("Tokens by model", Icons.Default.Speed) {
+                        TokenusageBars(analytics.modelTokenUsage)
+                    }
+                }
+
+                item {
+                    DiagnosticsPanelCard("Tokens by AI profile", Icons.Default.BugReport) {
+                        TokenusageBars(analytics.profileTokenUsage)
+                    }
+                }
+
+                item {
+                    DiagnosticsPanelCard("Display in Debug Mode", Icons.Default.Terminal) {
+                        DebugMetric.entries.forEach { metric ->
+                            val checked = when (metric) {
+                                DebugMetric.TOOL_CALLS -> settings.debugShowToolCalls
+                                DebugMetric.TOTAL_TOKENS -> settings.debugShowTotalTokens
+                                DebugMetric.TOKEN_SPEED -> settings.debugShowTokenSpeed
+                                DebugMetric.TIME_TO_FIRST_TOKEN -> settings.debugShowTimeToFirstToken
+                                DebugMetric.RUNTIME -> settings.debugShowRuntime
+                                DebugMetric.HARDWARE -> settings.debugShowHardware
+                                DebugMetric.NETWORK -> settings.debugShowNetwork
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(metric.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                                    Text(metric.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = checked,
+                                    onCheckedChange = { settingViewModel.updateDebugMetric(metric, it) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    DiagnosticsPanelCard("Hardware snapshot", Icons.Default.Memory) {
+                        DiagnosticsLine("Backend", hardware.backendName)
+                        DiagnosticsLine("Accelerator", hardware.accelerator)
+                        DiagnosticsLine("SoC", hardware.socModel)
+                        DiagnosticsLine("Available RAM", "${hardware.availableRamMb} MB / ${hardware.totalRamGb} GB")
+                        DiagnosticsLine("Thermal", hardware.thermalStatus)
+                        DiagnosticsLine("Battery", if (hardware.batteryPct >= 0) "${hardware.batteryPct}%" else "Unknown")
+                        DiagnosticsLine("QNN prerequisites", if (hardware.qnnReady) "Available" else "Unavailable")
+                        FilledTonalButton(
+                            onClick = {
+                                val report = buildString {
+                                    appendLine(DiagnosticsTelemetryProvider.formatDiagnosticsText(hardware, null))
+                                    appendLine("Recent runs: ${analytics.recentRuns.size}")
+                                    appendLine("Completed runs: ${analytics.completedRuns}")
+                                    appendLine("Failed runs: ${analytics.failedRuns}")
+                                    appendLine("Tool calls: ${analytics.recentToolEvents.size}")
+                                    appendLine("Failed tool calls: ${analytics.failedToolCalls}")
+                                }
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("GPT Mobile diagnostics", report))
+                                Toast.makeText(context, "Diagnostics copied", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null)
+                            Text(" Copy diagnostics")
+                        }
+                    }
+                }
+
+                item {
+                    Text("Recent tool activity", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+
+                items(analytics.recentToolEvents.take(20), key = { it.eventId }) { event ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Speed,
+                                contentDescription = null,
+                                tint = if (event.status == ToolEventStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                             )
-                            event.error?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            Column(Modifier.weight(1f)) {
+                                Text(event.modelToolName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    buildString {
+                                        append(event.connectionNameSnapshot ?: "Built-in")
+                                        append(" • ")
+                                        append(event.status)
+                                        val start = event.startedAt
+                                        val end = event.completedAt
+                                        if (start != null && end != null) append(" • ${(end - start).coerceAtLeast(0)}s")
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                event.error?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
@@ -361,6 +373,7 @@ private fun TokenusageBars(values: List<Pair<String, Long>>) {
             }
             androidx.compose.material3.LinearProgressIndicator(
                 progress = { tokens.toFloat() / max.toFloat() },
+                color = modelChartColor(label),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
             )
         }
@@ -388,6 +401,7 @@ private fun usageBars(values: List<Pair<String, Int>>) {
             }
             androidx.compose.material3.LinearProgressIndicator(
                 progress = { count.toFloat() / max.toFloat() },
+                color = modelChartColor(label),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
             )
         }

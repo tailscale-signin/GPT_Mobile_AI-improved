@@ -231,6 +231,7 @@ class FactVaultRepositoryTest {
     fun `recall and storage remain bounded`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.setEnabled(true)
+        repository.updateSettings(repository.state.value.settings.copy(maxFacts = 64))
         repository.prepareTurn((1..80).joinToString("\n") { "I prefer Item$it" }, 1, 1)
         assertEquals(64, repository.state.value.facts.size)
         assertEquals(5, repository.prepareTurn("What do I prefer?", 1, 2).facts.size)

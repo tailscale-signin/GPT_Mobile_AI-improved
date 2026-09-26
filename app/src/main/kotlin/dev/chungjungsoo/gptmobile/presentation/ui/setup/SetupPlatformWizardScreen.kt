@@ -38,7 +38,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -52,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.presentation.common.AdvancedOptions
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
@@ -370,23 +374,25 @@ private fun BasicsStep(
         if (isApiUrlVisible) {
             Spacer(modifier = Modifier.height(20.dp))
 
-            // API URL
-            OutlinedTextField(
-                value = apiUrl,
-                onValueChange = onApiUrlChange,
-                label = { Text(stringResource(R.string.api_url)) },
-                placeholder = { Text(stringResource(R.string.api_url_hint)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                enabled = clientType != ClientType.GOOGLE,
-                supportingText = {
-                    if (clientType == ClientType.GOOGLE) {
-                        Text(stringResource(R.string.client_type_google_desc))
-                    } else {
-                        Text(stringResource(R.string.api_url_cautions))
+            AdvancedOptions(title = "Connection address", initiallyExpanded = apiUrl.isBlank()) {
+                // API URL
+                OutlinedTextField(
+                    value = apiUrl,
+                    onValueChange = onApiUrlChange,
+                    label = { Text(stringResource(R.string.api_url)) },
+                    placeholder = { Text(stringResource(R.string.api_url_hint)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = clientType != ClientType.GOOGLE,
+                    supportingText = {
+                        if (clientType == ClientType.GOOGLE) {
+                            Text(stringResource(R.string.client_type_google_desc))
+                        } else {
+                            Text(stringResource(R.string.api_url_cautions))
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
@@ -439,96 +445,95 @@ private fun ApiKeyStep(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = stringResource(R.string.multi_api_keys_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
+        var advancedKeys by rememberSaveable { mutableStateOf(false) }
         // API Keys list
         tokens.forEachIndexed { index, tokenValue ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = tokenValue,
-                    onValueChange = { newValue ->
-                        tokens[index] = newValue
-                        onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
-                    },
-                    label = {
-                        Text(
-                            if (tokens.size > 1) {
-                                stringResource(R.string.api_key_number, index + 1)
-                            } else {
-                                stringResource(R.string.api_key)
-                            }
-                        )
-                    },
-                    placeholder = { Text(stringResource(R.string.api_key_hint)) },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
-                )
-                if (tokens.size > 1) {
-                    IconButton(
-                        onClick = {
-                            tokens.removeAt(index)
+            if (index == 0 || advancedKeys) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = tokenValue,
+                        onValueChange = { newValue ->
+                            tokens[index] = newValue
                             onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
                         },
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.remove_api_key),
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                        label = {
+                            Text(
+                                if (tokens.size > 1) {
+                                    stringResource(R.string.api_key_number, index + 1)
+                                } else {
+                                    stringResource(R.string.api_key)
+                                }
+                            )
+                        },
+                        placeholder = { Text(stringResource(R.string.api_key_hint)) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                    )
+                    if (tokens.size > 1) {
+                        IconButton(
+                            onClick = {
+                                tokens.removeAt(index)
+                                onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
+                            },
+                            modifier = Modifier.padding(start = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.remove_api_key),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(
-                onClick = {
-                    tokens.add("")
-                    onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
-                }
+        TextButton(onClick = { advancedKeys = !advancedKeys }) { Text(if (advancedKeys) "Hide advanced key options" else "Advanced key options") }
+        if (advancedKeys) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = stringResource(R.string.add_api_key),
-                    modifier = Modifier.padding(end = 4.dp)
-                )
-                Text(stringResource(R.string.add_api_key))
+                TextButton(
+                    onClick = {
+                        tokens.add("")
+                        onApiKeyChange(ApiCredentialRotator.formatKeys(tokens.toList()))
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = stringResource(R.string.add_api_key),
+                        modifier = Modifier.padding(end = 4.dp)
+                    )
+                    Text(stringResource(R.string.add_api_key))
+                }
             }
-        }
 
-        // Help link based on client type
-        clientType?.let { type ->
-            val helpUrl = getApiHelpUrl(type)
-            if (helpUrl != null) {
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = stringResource(R.string.need_help),
-                    style = MaterialTheme.typography.labelLarge
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = helpUrl,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            // Help link based on client type
+            clientType?.let { type ->
+                val helpUrl = getApiHelpUrl(type)
+                if (helpUrl != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = stringResource(R.string.need_help),
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = helpUrl,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }

@@ -37,12 +37,34 @@ class LocalMemoryGraphTool(
         },
         inputSchema = buildJsonObject {
             put("type", "object")
-            put("properties", buildJsonObject {
-                listOf("query", "text", "id").forEach { key -> put(key, buildJsonObject { put("type", "string") }) }
-                put("names", buildJsonObject { put("type", "array"); put("items", buildJsonObject { put("type", "string") }) })
-                put("offset", buildJsonObject { put("type", "integer"); put("minimum", 0) })
-                put("limit", buildJsonObject { put("type", "integer"); put("minimum", 1); put("maximum", 6000) })
-            })
+            put(
+                "properties",
+                buildJsonObject {
+                    listOf("query", "text", "id").forEach { key -> put(key, buildJsonObject { put("type", "string") }) }
+                    put(
+                        "names",
+                        buildJsonObject {
+                            put("type", "array")
+                            put("items", buildJsonObject { put("type", "string") })
+                        }
+                    )
+                    put(
+                        "offset",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 0)
+                        }
+                    )
+                    put(
+                        "limit",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 1)
+                            put("maximum", 6000)
+                        }
+                    )
+                }
+            )
             put("additionalProperties", false)
         }
     )
@@ -99,16 +121,29 @@ class LocalMemoryGraphTool(
                     buildJsonObject {
                         put("total", selected.size)
                         put("offset", offset)
-                        put("facts", JsonArray(selected.drop(offset).take(limit).map { entry -> buildJsonObject {
-                            put("id", entry.id); put("entity", entry.fact.entity.name); put("relation", entry.fact.relation.relationType)
-                            put("observation", entry.fact.target.name); put("sourceChat", entry.sourceChatId); put("sourceMessage", entry.sourceMessageId)
-                        } }))
+                        put(
+                            "facts",
+                            JsonArray(
+                                selected.drop(offset).take(limit).map { entry ->
+                                    buildJsonObject {
+                                        put("id", entry.id)
+                                        put("entity", entry.fact.entity.name)
+                                        put("relation", entry.fact.relation.relationType)
+                                        put("observation", entry.fact.target.name)
+                                        put("sourceChat", entry.sourceChatId)
+                                        put("sourceMessage", entry.sourceMessageId)
+                                    }
+                                }
+                            )
+                        )
                         put("referenceDataOnly", true)
                     }.toString()
                 }
             }
             AgentToolResult(callId, ToolResultContent.Text(result), false, traceContent = ToolResultContent.Text("Local memory operation: $operation. Review saved content in Memory settings."))
-        } catch (cancelled: CancellationException) { throw cancelled } catch (error: IllegalArgumentException) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: IllegalArgumentException) {
             AgentToolResult(callId, ToolResultContent.Text(error.message ?: "Invalid memory request."), true)
         }
     }

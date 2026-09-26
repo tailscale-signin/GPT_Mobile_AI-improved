@@ -103,7 +103,7 @@ fun AddPlatformScreen(
     var creativity by remember { mutableStateOf(SamplingCreativity.DEFAULT) }
     var profileLabels by remember { mutableStateOf<List<ProfileLabel>>(emptyList()) }
     var showLabelsDialog by remember { mutableStateOf(false) }
-    var maxToolCallsText by remember { mutableStateOf("") }
+    var maxToolCallsText by remember { mutableStateOf("50") }
     var showSuggestedModels by remember { mutableStateOf(false) }
     var showOpenRouterPicker by remember { mutableStateOf(false) }
     var showLlamaPicker by remember { mutableStateOf(false) }
@@ -197,7 +197,7 @@ fun AddPlatformScreen(
                         labels = encodeProfileLabels(profileLabels),
                         providerConnectionUid = if (createNewConnection) null else selectedConnectionUid
                     ).let { profile ->
-                        if (clientType == ClientType.FREE) FreeAiProvider.fromApiUrl(apiUrl)!!.applyTo(profile).copy(maxToolCalls = 8) else profile
+                        if (clientType == ClientType.FREE) FreeAiProvider.fromApiUrl(apiUrl)!!.applyTo(profile).copy(maxToolCalls = 50) else profile
                     }
                     apiTokens.clear()
                     apiTokens.add("")
@@ -248,7 +248,7 @@ fun AddPlatformScreen(
                             systemPrompt = ModelConstants.DEFAULT_PROMPT
                             creativity = SamplingCreativity.DEFAULT
                             profileLabels = emptyList()
-                            maxToolCallsText = ""
+                            maxToolCallsText = "50"
                             showAdvancedSettings = false
                             isReasoningEnabled = false
                             step = AddPlatformStep.DETAILS

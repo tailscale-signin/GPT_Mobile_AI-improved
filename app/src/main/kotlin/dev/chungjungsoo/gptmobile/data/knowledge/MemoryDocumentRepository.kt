@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.data.knowledge
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.rag.DocumentRagEngine
 import java.security.MessageDigest
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 

@@ -40,7 +40,10 @@ fun SystemPromptEditor(value: String, onValueChange: (String) -> Unit, modifier:
                             Text(preset.name)
                             Text(preset.summary, style = MaterialTheme.typography.labelSmall)
                         }
-                    }, onClick = { onValueChange(preset.prompt); expanded = false })
+                    }, onClick = {
+                        onValueChange(preset.prompt)
+                        expanded = false
+                    })
                 }
             }
         }

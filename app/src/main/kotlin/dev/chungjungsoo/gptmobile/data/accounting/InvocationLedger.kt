@@ -44,6 +44,9 @@ interface InvocationDao {
     @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 100")
     fun recent(): Flow<List<ModelInvocation>>
 
+    @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 10000")
+    fun statistics(): Flow<List<ModelInvocation>>
+
     @Query("SELECT COALESCE(SUM(inputTokens + outputTokens), 0) FROM model_invocations WHERE turnKey = :turnKey")
     suspend fun committedTokens(turnKey: String): Long
 
@@ -90,6 +93,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                 outputLimit
             )
             dao.reserve(record, totalLimit)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens}")
             val started = System.nanoTime()
             var first: Long? = null
             var input: Int? = null
@@ -115,6 +119,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                 }
             } finally {
                 withContext(NonCancellable) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · completed=$completed · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=${output ?: -1}", if (completed) "I" else "W")
                     dao.save(
                         record.copy(
                             inputTokens = input ?: record.inputTokens,

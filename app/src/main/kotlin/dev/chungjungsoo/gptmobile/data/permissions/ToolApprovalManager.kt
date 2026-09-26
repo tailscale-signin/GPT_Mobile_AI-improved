@@ -67,15 +67,23 @@ interface ToolApprovalDao {
 
 /** User-owned permissions. Server readOnly annotations never grant authority. */
 @Singleton
-class ToolApprovalManager @Inject constructor(database: ChatDatabaseV2, private val connections: ToolConnectionRepository) {
+class ToolApprovalManager @Inject constructor(database: ChatDatabaseV2, private val connections: ToolConnectionRepository, private val trust: ToolTrustStore? = null) {
     private val dao = database.toolApprovalDao()
     private val submissionMutex = Mutex()
+    private val requestConnections = java.util.concurrent.ConcurrentHashMap<String, String>()
     val pending = dao.pending()
     suspend fun recover() {
         dao.interrupt()
         dao.prune(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000)
     }
     suspend fun decide(id: String, allow: Boolean) = dao.decide(id, if (allow) "APPROVED" else "DENIED")
+    suspend fun alwaysAllow(id: String) {
+        val request = dao.observe(id).first() ?: return
+        if (request.state != "PENDING") return
+        val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
+        requireNotNull(trust) { "Persistent tool permissions are unavailable." }.allow(connection, request.tool)
+        dao.decide(id, "APPROVED")
+    }
     suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject): Boolean {
         val connection = connections.getConnection(connectionId) ?: return false
@@ -85,6 +93,7 @@ class ToolApprovalManager @Inject constructor(database: ChatDatabaseV2, private 
         if (policy == ToolPolicy.READ_ONLY && !readOnly) return false
         if (readOnly) return true
         val id = "$runId:$callId"
+        requestConnections[id] = connectionId
         val hash = MessageDigest.getInstance("SHA-256").digest(arguments.toString().toByteArray()).joinToString("") { "%02x".format(it) }
         val inserted = submissionMutex.withLock {
             val previous = dao.previousMatchingAction(runId, connection.name, tool, hash)
@@ -96,17 +105,22 @@ class ToolApprovalManager @Inject constructor(database: ChatDatabaseV2, private 
                 hash,
                 argumentPreview = (previous?.let { "A matching action in this turn has status $it. Check its effect before approving a repeat.\n" }.orEmpty()) +
                     dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.arguments(arguments),
-                state = if (policy == ToolPolicy.TRUSTED && previous == null) "APPROVED" else "PENDING"
+                state = if ((policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true) && previous == null) "APPROVED" else "PENDING"
             )
             dao.insert(request)
         }
-        if (inserted == -1L) return false
+        if (inserted == -1L) {
+            requestConnections.remove(id)
+            return false
+        }
         return try {
             val decision = dao.observe(id).first { it == null || it.state != "PENDING" }
             decision?.state == "APPROVED" && dao.claim(id) == 1
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) { dao.decide(id, "CANCELED") }
             throw cancelled
+        } finally {
+            requestConnections.remove(id)
         }
     }
 }

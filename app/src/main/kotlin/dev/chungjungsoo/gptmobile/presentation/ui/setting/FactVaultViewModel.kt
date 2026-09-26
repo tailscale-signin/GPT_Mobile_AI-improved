@@ -29,7 +29,9 @@ class FactVaultViewModel @Inject constructor(
     private val _status = MutableStateFlow<String?>(null)
     val status = _status.asStateFlow()
 
-    init { refresh() }
+    init {
+        refresh()
+    }
     fun refresh() = perform { repository.load() }
     fun updateSettings(settings: FactVaultSettings) = perform { repository.updateSettings(settings) }
     fun setEnabled(enabled: Boolean) = perform { repository.setEnabled(enabled) }
@@ -48,9 +50,13 @@ class FactVaultViewModel @Inject constructor(
             try {
                 action()
                 _error.value = null
-            } catch (cancellation: CancellationException) { throw cancellation } catch (error: Exception) {
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
                 _error.value = if (error is IllegalArgumentException) error.message else "Memory could not be updated. Try again; saved content has been kept."
-            } finally { _busy.value = false }
+            } finally {
+                _busy.value = false
+            }
         }
     }
 }

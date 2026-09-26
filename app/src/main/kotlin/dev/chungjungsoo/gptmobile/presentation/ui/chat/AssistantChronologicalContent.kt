@@ -48,8 +48,11 @@ internal fun AssistantChronologicalContent(
             if (fallbackText.isNotBlank()) add(AssistantTimelineItem(AssistantTimelineItemType.TEXT, fallbackText))
             addAll(timeline.filter { it.type == AssistantTimelineItemType.NOTICE })
         }
-    } else timeline
-    val hasProcess = toolEvents.isNotEmpty() || items.any { it.type != AssistantTimelineItemType.TEXT } ||
+    } else {
+        timeline
+    }
+    val hasProcess = toolEvents.isNotEmpty() ||
+        items.any { it.type != AssistantTimelineItemType.TEXT } ||
         (showReasoning && !ThinkingParser.extractThinking(fallbackText).thinking.isNullOrBlank())
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
         if (isLoading || hasProcess) {
@@ -79,12 +82,17 @@ internal fun AssistantChronologicalContent(
                         }
                         if (parsed.response.isNotBlank()) ChatMarkdown(content = parsed.response, contentIdentity = "$contentIdentity:$index", modifier = Modifier.padding(vertical = 8.dp))
                     }
-                    AssistantTimelineItemType.TOOL -> if (expanded) events[item.toolSequence]?.let { event ->
-                        InlineExecutionTrace(listOf(event), listOf(item), "$contentIdentity:$index", debugMode)
+                    AssistantTimelineItemType.TOOL -> if (expanded) {
+                        events[item.toolSequence]?.let { event ->
+                            InlineExecutionTrace(listOf(event), listOf(item), "$contentIdentity:$index", debugMode)
+                        }
                     }
                     AssistantTimelineItemType.NOTICE -> if (expanded) {
-                        if (item.recalledFacts.isNotEmpty()) InlineExecutionTrace(emptyList(), listOf(item), "$contentIdentity:$index", debugMode)
-                        else if (item.content.isNotBlank()) Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                        if (item.recalledFacts.isNotEmpty()) {
+                            InlineExecutionTrace(emptyList(), listOf(item), "$contentIdentity:$index", debugMode)
+                        } else if (item.content.isNotBlank()) {
+                            Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                     AssistantTimelineItemType.LEGACY_ORDER -> Unit
                 }

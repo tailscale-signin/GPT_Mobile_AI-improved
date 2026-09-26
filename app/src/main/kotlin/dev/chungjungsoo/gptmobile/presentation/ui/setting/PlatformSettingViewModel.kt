@@ -242,9 +242,9 @@ class PlatformSettingViewModel @Inject constructor(
                 val searchConnectionUids = searchConnections.map { it.connectionUid }.toSet()
                 ToolBindingState(
                     searchConnections = searchConnections,
-                    selectedSearchConnectionUid = bindings.firstOrNull {
+                    selectedSearchConnectionUids = bindings.filter {
                         it.toolName == WEB_SEARCH_TOOL && it.connectionUid in searchConnectionUids
-                    }?.connectionUid,
+                    }.mapNotNull { it.connectionUid }.toSet(),
                     readUrlEnabled = bindings.any { it.toolName == BuiltInAgentTool.READ_URL && it.connectionUid == null },
                     deviceLocationEnabled = bindings.any {
                         it.toolName == BuiltInAgentTool.DEVICE_LOCATION && it.connectionUid == null
@@ -690,20 +690,12 @@ class PlatformSettingViewModel @Inject constructor(
         _toolBindingState.update { it.copy(isSearchBackendDialogOpen = false) }
     }
 
-    fun selectSearchBackend(connectionUid: String?) {
+    fun selectSearchBackends(connectionUids: Set<String>) {
         viewModelScope.launch {
             runCatching {
-                if (connectionUid != null) {
-                    toolConnectionRepository.replaceWebSearchBinding(platformUid, connectionUid)
-                } else {
-                    toolConnectionRepository.removeWebSearchBinding(platformUid)
-                }
+                toolConnectionRepository.replaceWebSearchBindings(platformUid, connectionUids)
                 _toolBindingState.update {
-                    it.copy(
-                        selectedSearchConnectionUid = connectionUid,
-                        isSearchBackendDialogOpen = false,
-                        errorMessage = null
-                    )
+                    it.copy(selectedSearchConnectionUids = connectionUids, isSearchBackendDialogOpen = false, errorMessage = null)
                 }
             }.onFailure(::showToolError)
         }
@@ -871,7 +863,7 @@ class PlatformSettingViewModel @Inject constructor(
 
     data class ToolBindingState(
         val searchConnections: List<ToolConnection> = emptyList(),
-        val selectedSearchConnectionUid: String? = null,
+        val selectedSearchConnectionUids: Set<String> = emptySet(),
         val readUrlEnabled: Boolean = false,
         val deviceLocationEnabled: Boolean = false,
         val mcpConnections: List<ToolConnection> = emptyList(),

@@ -139,7 +139,7 @@ fun ToolConnectionsScreen(
     var deletingConnection by remember { mutableStateOf<ToolConnection?>(null) }
     var pendingOAuthConnection by remember { mutableStateOf<ToolConnection?>(null) }
     permissionsConnection?.let { selected ->
-        ToolPolicyDialog(selected, onDismiss = { permissionsConnection = null }) { policy, reads ->
+        ToolPolicyDialog(selected, onDismiss = { permissionsConnection = null }, onResetGrants = { viewModel.revokeToolGrants(selected.connectionUid) }) { policy, reads ->
             viewModel.savePolicy(selected, policy, reads)
             permissionsConnection = null
         }

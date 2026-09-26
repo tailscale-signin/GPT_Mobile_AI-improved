@@ -46,5 +46,5 @@ object ToolBudgetPolicy {
     fun buildWrapUpPrompt(remainingAllowance: Int): String =
         "You have $remainingAllowance tool call(s) remaining before your hard limit. " +
             "Begin wrapping up your response now. Do not perform any further file inspections, web searches, or tool calls. " +
-            "Synthesize your findings and provide your final answer now."
+            "Synthesize your findings and provide your final answer now. If work remains, ask the user whether to continue in a new response."
 }

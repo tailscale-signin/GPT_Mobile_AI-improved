@@ -73,8 +73,16 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val settings = vault.settings
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Memory") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { IconButton(onClick = { adding = true; draft = "" }, enabled = !busy) { Icon(Icons.Default.Add, "Add a memory", tint = MaterialTheme.colorScheme.primary) } })
+        TopAppBar(
+            title = { Text("Memory") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            actions = {
+                IconButton(onClick = {
+                    adding = true
+                    draft = ""
+                }, enabled = !busy) { Icon(Icons.Default.Add, "Add a memory", tint = MaterialTheme.colorScheme.primary) }
+            }
+        )
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -94,11 +102,21 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Memories", "Documents", "Controls").forEach { label -> FilterChip(tab == label, { tab = label; query = "" }, label = { Text(label) }) }
+                    listOf("Memories", "Documents", "Controls").forEach { label ->
+                        FilterChip(tab == label, {
+                            tab = label
+                            query = ""
+                        }, label = { Text(label) })
+                    }
                 }
             }
             if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            error?.let { item { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = viewModel::refresh) { Text("Retry") } } }
+            error?.let {
+                item {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = viewModel::refresh) { Text("Retry") }
+                }
+            }
             status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) } }
             when (tab) {
                 "Memories" -> {
@@ -108,8 +126,11 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                             listOf("All", "Pinned", "Review").forEach { label -> FilterChip(filter == label, { filter = label }, label = { Text(label) }) }
                         }
                     }
-                    val shown = vault.facts.filter { "${it.fact.entity.name} ${it.fact.target.name}".contains(query, true) &&
-                        (filter != "Pinned" || it.pinned) && (filter != "Review" || !it.enabled) }.sortedWith(compareByDescending<VaultFact> { it.pinned }.thenByDescending { it.savedAtMillis })
+                    val shown = vault.facts.filter {
+                        "${it.fact.entity.name} ${it.fact.target.name}".contains(query, true) &&
+                            (filter != "Pinned" || it.pinned) &&
+                            (filter != "Review" || !it.enabled)
+                    }.sortedWith(compareByDescending<VaultFact> { it.pinned }.thenByDescending { it.savedAtMillis })
                     if (shown.isEmpty()) item { Text("No memories here yet. Add one, or tell your AI what to remember.", style = MaterialTheme.typography.bodyMedium) }
                     items(shown, key = { it.id }) { entry ->
                         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -118,7 +139,10 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                                 Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Switch(entry.enabled, { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Recall this memory" })
-                                    TextButton(onClick = { editing = entry; draft = entry.fact.target.name }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Edit") }
+                                    TextButton(onClick = {
+                                        editing = entry
+                                        draft = entry.fact.target.name
+                                    }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("Edit") }
                                     IconButton(onClick = { viewModel.pin(entry.id, !entry.pinned) }, enabled = !busy) { Icon(Icons.Default.PushPin, if (entry.pinned) "Unpin" else "Pin", tint = if (entry.pinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline) }
                                     IconButton(onClick = { deleting = entry.id }, enabled = !busy) { Icon(Icons.Default.Delete, "Forget memory") }
                                 }
@@ -151,7 +175,9 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                                             require(file.exists())
                                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                                             context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, attachment.mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                                        } catch (_: Exception) { Toast.makeText(context, "The original file or a compatible viewer is unavailable.", Toast.LENGTH_LONG).show() }
+                                        } catch (_: Exception) {
+                                            Toast.makeText(context, "The original file or a compatible viewer is unavailable.", Toast.LENGTH_LONG).show()
+                                        }
                                     }) { Text("Open") }
                                     if (indexed != null) {
                                         TextButton(onClick = { context.startActivity(Intent(context, KnowledgeSourceActivity::class.java).setData(Uri.parse("gptmobile://knowledge/${indexed.id}"))) }) { Text("Read text") }
@@ -190,18 +216,52 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
             }
         }
     }
-    if (adding || editing != null) AlertDialog(
-        onDismissRequest = { adding = false; editing = null }, title = { Text("Remember something") },
-        text = { OutlinedTextField(draft, { draft = it.take(1000) }, label = { Text("Fact, preference or note") }, supportingText = { Text("${draft.length}/1000") }) },
-        confirmButton = { TextButton(enabled = draft.isNotBlank(), onClick = { viewModel.saveFact(draft, editing?.id); adding = false; editing = null }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = { adding = false; editing = null }) { Text("Cancel") } }
-    )
-    if (deleting != null || clearing) AlertDialog(
-        onDismissRequest = { deleting = null; clearing = false }, title = { Text(if (clearing) "Clear saved memories?" else "Forget this memory?") },
-        text = { Text(if (clearing) "Removes saved facts and turns memory off. Conversation attachments stay in their chats." else "Stops future recall. Retrying the source message will not restore it.") },
-        confirmButton = { TextButton(onClick = { if (clearing) viewModel.clear() else deleting?.let(viewModel::delete); deleting = null; clearing = false }) { Text("Confirm") } },
-        dismissButton = { TextButton(onClick = { deleting = null; clearing = false }) { Text("Cancel") } }
-    )
+    if (adding || editing != null) {
+        AlertDialog(
+            onDismissRequest = {
+                adding = false
+                editing = null
+            },
+            title = { Text("Remember something") },
+            text = { OutlinedTextField(draft, { draft = it.take(1000) }, label = { Text("Fact, preference or note") }, supportingText = { Text("${draft.length}/1000") }) },
+            confirmButton = {
+                TextButton(enabled = draft.isNotBlank(), onClick = {
+                    viewModel.saveFact(draft, editing?.id)
+                    adding = false
+                    editing = null
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    adding = false
+                    editing = null
+                }) { Text("Cancel") }
+            }
+        )
+    }
+    if (deleting != null || clearing) {
+        AlertDialog(
+            onDismissRequest = {
+                deleting = null
+                clearing = false
+            },
+            title = { Text(if (clearing) "Clear saved memories?" else "Forget this memory?") },
+            text = { Text(if (clearing) "Removes saved facts and turns memory off. Conversation attachments stay in their chats." else "Stops future recall. Retrying the source message will not restore it.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (clearing) viewModel.clear() else deleting?.let(viewModel::delete)
+                    deleting = null
+                    clearing = false
+                }) { Text("Confirm") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    deleting = null
+                    clearing = false
+                }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable

@@ -89,6 +89,13 @@ interface ToolConnectionDao {
     }
 
     @Transaction
+    suspend fun replaceWebSearchBindings(profileUid: String, bindings: List<AgentToolBinding>) {
+        require(bindings.all { it.profileUid == profileUid && it.toolName == WEB_SEARCH_TOOL })
+        deleteConnectionToolBindingsForTypes(profileUid, WEB_SEARCH_TOOL, WEB_SEARCH_TYPES)
+        bindings.forEach { insertBinding(it) }
+    }
+
+    @Transaction
     suspend fun removeWebSearchBinding(profileUid: String) {
         deleteConnectionToolBindingsForTypes(profileUid, WEB_SEARCH_TOOL, WEB_SEARCH_TYPES)
     }

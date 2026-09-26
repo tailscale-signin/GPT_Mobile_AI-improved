@@ -54,6 +54,7 @@ data class UsageStatistics(
     val estimatedRuns: Int = 0,
     val profileModelUsage: List<ProfileModelUsage> = emptyList(),
     val toolUsage: List<ToolUsage> = emptyList(),
+    val performance: List<ModelPerformance> = emptyList(),
     val days: Int = 30
 )
 
@@ -137,7 +138,8 @@ internal fun calculateUsageStatistics(
 class UsageStatisticsViewModel @Inject constructor(
     runDao: AgentRunDao,
     persistenceDao: AgentPersistenceDao,
-    settings: SettingRepository
+    settings: SettingRepository,
+    database: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 ) : ViewModel() {
     private val days = MutableStateFlow(30)
     fun selectRange(value: Int) {
@@ -153,5 +155,13 @@ class UsageStatisticsViewModel @Inject constructor(
         runDao.observeUnreportedOutputLengths()
     ) { runs, tools, profiles, range, lengths ->
         calculateUsageStatistics(runs, profiles.associate { it.uid to it.name }, range, outputLengths = lengths, tools = tools)
+    }.combine(database.invocationDao().statistics()) { stats, invocations ->
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now()
+        val selected = invocations.filter {
+            val day = Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate()
+            !day.isAfter(today) && (stats.days == 0 || !day.isBefore(today.minusDays(stats.days - 1L)))
+        }
+        stats.copy(performance = modelPerformance(selected))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UsageStatistics())
 }

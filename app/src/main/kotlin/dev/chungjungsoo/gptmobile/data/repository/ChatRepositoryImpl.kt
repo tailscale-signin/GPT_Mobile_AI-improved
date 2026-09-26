@@ -280,8 +280,11 @@ class ChatRepositoryImpl(
             val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName }, compact = limits.contextTokens < 4096) +
                 if (resolvedTools.isNotEmpty()) "\nBefore the first tool call and after every 10 completed tool calls, " + dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION else ""
             val memorySettings = factVault?.state?.value
-            val canRecallDocuments = memorySettings?.enabled == true && memorySettings.settings.recallEnabled &&
-                (platform.isPrivateDestination() || memorySettings.settings.allowCloudRecall) && !platform.disableAllTools && !platform.disableLocalTools
+            val canRecallDocuments = memorySettings?.enabled == true &&
+                memorySettings.settings.recallEnabled &&
+                (platform.isPrivateDestination() || memorySettings.settings.allowCloudRecall) &&
+                !platform.disableAllTools &&
+                !platform.disableLocalTools
             val documentContext = if (platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
             val requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt
@@ -300,6 +303,7 @@ class ChatRepositoryImpl(
                     }
                 )
             }
+            val effectiveTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(boundedTools)
             val requestConstraints = RequestConstraints(maxOutputTokens = contextPlan.outputTokens)
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
@@ -314,7 +318,7 @@ class ChatRepositoryImpl(
                 ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
                     contextPlan.turns,
                     requestPlatform,
-                    boundedTools.map { it.tool },
+                    effectiveTools.map { it.tool },
                     requestConstraints
                 )
             }
@@ -334,9 +338,9 @@ class ChatRepositoryImpl(
             val runnerTools = if (groundedSession.handlesToolsInternally) {
                 emptyList()
             } else {
-                boundedTools.map { it.tool }
+                effectiveTools.map { it.tool }
             }
-            val trace = ToolTraceSession(runId, resolvedTools, toolEventRecorder)
+            val trace = ToolTraceSession(runId, effectiveTools, toolEventRecorder)
 
             val progressTracker = dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker()
             val progressParser = dev.chungjungsoo.gptmobile.data.agent.PublicProgressParser()

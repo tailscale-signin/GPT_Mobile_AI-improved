@@ -27,7 +27,7 @@ class ToolExecutionBudget(private val limits: AgentRunLimits) {
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
             fun failure(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true)
             if (limits.maxToolCalls != Int.MAX_VALUE && calls.getAndIncrement() >= limits.maxToolCalls.coerceAtLeast(0)) {
-                return bounded(failure(AgentRunner.FINAL_RESPONSE_INSTRUCTION))
+                return bounded(failure(AgentRunner.FINAL_RESPONSE_INSTRUCTION)).copy(outputBudgetExhausted = true)
             }
             if (remainingBytes.get() <= 0) return bounded(failure("Tool result budget exhausted. Answer using the results already available."))
             if (!authorize(callId, arguments)) return bounded(failure("Tool permission was denied or this action was already dispatched."))
@@ -105,7 +105,9 @@ class ToolExecutionBudget(private val limits: AgentRunLimits) {
         return result.copy(
             content = if (changed) ToolResultContent.Text(safeText) else result.content,
             traceContent = trace,
-            outputBudgetExhausted = size >= available
+            outputBudgetExhausted = result.outputBudgetExhausted ||
+                size >= available ||
+                (limits.maxToolCalls != Int.MAX_VALUE && calls.get() >= limits.maxToolCalls - 1)
         )
     }
 }

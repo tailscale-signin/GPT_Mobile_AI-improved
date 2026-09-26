@@ -141,7 +141,7 @@ class AgentToolResolver @Inject constructor(
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
-            .distinctBy { it.binding.toolName }
+            .distinctBy { if (it.binding.toolName == WEB_SEARCH_TOOL) "${it.binding.toolName}:${it.binding.connectionUid}" else it.binding.toolName }
             .forEach { binding ->
                 if (freeProfile && binding.binding.toolName !in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.CURRENT_DATE, BuiltInAgentTool.CALCULATE_EXPRESSION)) return@forEach
                 val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
@@ -242,8 +242,10 @@ class AgentToolResolver @Inject constructor(
         val actualConnection = connection ?: return null
         val provider = SEARCH_PROVIDERS[actualConnection.type] ?: return null
         val endpointUrl = provider.defaultEndpointUrl
+        val modelToolName = "web_search_" + actualConnection.connectionUid.replace("-", "_")
         val definition = WebSearchTool(
             config = WebSearchProviderConfig(provider.provider, "", endpointUrl),
+            modelToolName = modelToolName,
             networkClient = networkClient
         ).definition
         val credential = actualConnection.secretRef?.let { secretRef ->
@@ -261,6 +263,7 @@ class AgentToolResolver @Inject constructor(
                             bearerToken = token,
                             endpointUrl = endpointUrl
                         ),
+                        modelToolName = modelToolName,
                         networkClient = networkClient
                     )
                 }

@@ -61,12 +61,23 @@ internal fun QueuedPromptBubble(
                 Column {
                     OutlinedTextField(text, { text = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Message") })
                     Row {
-                        TextButton(onClick = { onPause(prompt.id, !prompt.paused); editing = false }) { Text(if (prompt.paused) "Resume" else "Pause") }
-                        TextButton(onClick = { onRemove(prompt.id); editing = false }) { Text("Remove") }
+                        TextButton(onClick = {
+                            onPause(prompt.id, !prompt.paused)
+                            editing = false
+                        }) { Text(if (prompt.paused) "Resume" else "Pause") }
+                        TextButton(onClick = {
+                            onRemove(prompt.id)
+                            editing = false
+                        }) { Text("Remove") }
                     }
                 }
             },
-            confirmButton = { TextButton(enabled = text.isNotBlank(), onClick = { onEdit(prompt.id, text); editing = false }) { Text("Save") } },
+            confirmButton = {
+                TextButton(enabled = text.isNotBlank(), onClick = {
+                    onEdit(prompt.id, text)
+                    editing = false
+                }) { Text("Save") }
+            },
             dismissButton = { TextButton(onClick = { editing = false }) { Text("Cancel") } }
         )
     }

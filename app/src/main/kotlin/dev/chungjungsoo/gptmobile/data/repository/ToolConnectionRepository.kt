@@ -80,6 +80,11 @@ class ToolConnectionRepository internal constructor(
         toolConnectionDao.replaceWebSearchBinding(newBinding(profileUid, connectionUid, WEB_SEARCH_TOOL))
     }
 
+    suspend fun replaceWebSearchBindings(profileUid: String, connectionUids: Set<String>) {
+        connectionUids.forEach { requireSearchConnection(it) }
+        toolConnectionDao.replaceWebSearchBindings(profileUid, connectionUids.sorted().map { newBinding(profileUid, it, WEB_SEARCH_TOOL) })
+    }
+
     suspend fun removeWebSearchBinding(profileUid: String) {
         toolConnectionDao.removeWebSearchBinding(profileUid)
     }

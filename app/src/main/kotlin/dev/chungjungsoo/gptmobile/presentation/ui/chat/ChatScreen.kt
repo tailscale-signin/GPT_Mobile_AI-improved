@@ -1,10 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.rounded.AttachFile
-import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.IconButtonDefaults
 import android.Manifest
 import android.content.ClipData
 import android.content.Context
@@ -63,14 +58,19 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
@@ -107,7 +107,6 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
@@ -167,7 +166,12 @@ fun ChatScreen(
                     Text(approval.argumentPreview, style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = { TextButton(onClick = { chatViewModel.decideToolApproval(approval.id, true) }) { Text(stringResource(R.string.tool_approval_allow)) } },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = { chatViewModel.alwaysAllowTool(approval.id) }) { Text("Always allow this tool") }
+                    TextButton(onClick = { chatViewModel.decideToolApproval(approval.id, true) }) { Text("Allow once") }
+                }
+            },
             dismissButton = { TextButton(onClick = { chatViewModel.decideToolApproval(approval.id, false) }) { Text(stringResource(R.string.tool_approval_deny)) } }
         )
     }

@@ -1,11 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.rag
 
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
-import java.io.ByteArrayOutputStream
-import kotlinx.serialization.json.jsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
 @Serializable
 data class VaultFact(
@@ -116,7 +116,7 @@ class FactVaultRepository @Inject constructor(
 
     suspend fun clear() = mutex.withLock {
         // Clearing must work even when the existing payload cannot be decoded.
-        persist(FactVaultSnapshot(enabled = false))
+        persist(FactVaultSnapshot(enabled = false), allowUnreadablePrevious = true)
     }
 
     suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String = "personal"): FactRecall = mutex.withLock {
@@ -221,8 +221,20 @@ class FactVaultRepository @Inject constructor(
         require(id !in current.suppressedIds) { "This memory was deleted. Restore it manually in Memory settings." }
         if (current.facts.none { it.id == id }) {
             require(current.facts.size < current.settings.maxFacts) { "Memory capacity reached. Review saved memories." }
-            persist(current.copy(facts = current.facts + VaultFact(id, fact, enabled = !current.settings.reviewBeforeRecall,
-                sourceChatId = message.chatId, sourceMessageId = message.id, savedAtMillis = System.currentTimeMillis(), source = "user_observation", confidence = 1f)))
+            persist(
+                current.copy(
+                    facts = current.facts + VaultFact(
+                        id,
+                        fact,
+                        enabled = !current.settings.reviewBeforeRecall,
+                        sourceChatId = message.chatId,
+                        sourceMessageId = message.id,
+                        savedAtMillis = System.currentTimeMillis(),
+                        source = "user_observation",
+                        confidence = 1f
+                    )
+                )
+            )
         }
         id
     }
@@ -260,8 +272,8 @@ class FactVaultRepository @Inject constructor(
         if (bytes == null) {
             persist(snapshot)
         } else {
-            val effective = snapshot.copy(enabled = preferences?.enabled() ?: snapshot.enabled)
-            preferences?.save(effective.enabled)
+            val effective = snapshot
+            runCatching { preferences?.save(effective.enabled) }
             _state.value = effective
             rebuildGraph(effective)
         }
@@ -282,20 +294,38 @@ class FactVaultRepository @Inject constructor(
             try {
                 require(output.size() + part.size <= MAX_MEMORY_BYTES)
                 output.write(part)
-            } finally { part.fill(0) }
+            } finally {
+                part.fill(0)
+            }
         }
         val payload = output.toByteArray()
         return try {
             require(payload.size == manifest.size) { "Memory storage is incomplete." }
             json.decodeFromString<FactVaultSnapshot>(payload.decodeToString())
-        } finally { payload.fill(0) }
+        } finally {
+            payload.fill(0)
+        }
     }
 
-    private suspend fun persist(snapshot: FactVaultSnapshot) {
+    private suspend fun persist(snapshot: FactVaultSnapshot, allowUnreadablePrevious: Boolean = false) {
         val bytes = json.encodeToString(snapshot).encodeToByteArray()
-        val oldParts = vault.read(VAULT_REFERENCE)?.let { old ->
-            try { runCatching { json.decodeFromString<MemoryManifest>(old.decodeToString()).parts }.getOrDefault(emptyList()) }
-            finally { old.fill(0) }
+        val previous = try {
+            vault.read(VAULT_REFERENCE)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (!allowUnreadablePrevious) {
+                bytes.fill(0)
+                throw error
+            }
+            null
+        }
+        val oldParts = previous?.let { old ->
+            try {
+                runCatching { json.decodeFromString<MemoryManifest>(old.decodeToString()).parts }.getOrDefault(emptyList())
+            } finally {
+                old.fill(0)
+            }
         }.orEmpty()
         val written = mutableListOf<String>()
         var committed = false
@@ -309,15 +339,25 @@ class FactVaultRepository @Inject constructor(
                 for (offset in bytes.indices step MAX_VAULT_BYTES) {
                     val reference = "memory-part-$batch-${written.size}"
                     val part = bytes.copyOfRange(offset, minOf(bytes.size, offset + MAX_VAULT_BYTES))
-                    try { vault.put(reference, part); written += reference } finally { part.fill(0) }
+                    try {
+                        vault.put(reference, part)
+                        written += reference
+                    } finally {
+                        part.fill(0)
+                    }
                 }
                 val manifest = json.encodeToString(MemoryManifest(parts = written, size = bytes.size)).encodeToByteArray()
-                try { vault.put(VAULT_REFERENCE, manifest) } finally { manifest.fill(0) }
+                try {
+                    vault.put(VAULT_REFERENCE, manifest)
+                } finally {
+                    manifest.fill(0)
+                }
             }
             committed = true
-            preferences?.save(snapshot.enabled)
             _state.value = snapshot
             rebuildGraph(snapshot)
+            // The encrypted snapshot is authoritative once committed; a preference mirror cannot roll it back.
+            runCatching { preferences?.save(snapshot.enabled) }
         } finally {
             bytes.fill(0)
             // Cleanup is best effort; never report an already committed memory save as lost.

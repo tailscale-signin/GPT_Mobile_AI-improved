@@ -284,7 +284,7 @@ class SetupViewModelV2 @Inject constructor(
                     reasoning = false,
                     timeout = 30
                 ).let { profile ->
-                    if (clientType == ClientType.FREE) FreeAiProvider.requireFor(profile).applyTo(profile).copy(maxToolCalls = 8, timeout = 120) else profile
+                    if (clientType == ClientType.FREE) FreeAiProvider.requireFor(profile).applyTo(profile).copy(maxToolCalls = 50, timeout = 120) else profile
                 }
                 require(clientType != ClientType.FREE || FreeAiProvider.requireFor(platform).isAvailable) { "Choose an available Free provider." }
                 settingRepository.addPlatformV2(platform)

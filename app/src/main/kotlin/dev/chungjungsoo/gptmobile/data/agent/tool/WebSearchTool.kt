@@ -23,6 +23,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -54,11 +56,12 @@ data class WebSearchProviderConfig(
 class WebSearchTool(
     private val config: WebSearchProviderConfig,
     private val networkClient: NetworkClient,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    modelToolName: String = "web_search"
 ) : AgentTool {
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
-        name = "web_search",
+        name = modelToolName,
         description = "Search the web and return normalized results with title, url, snippet, and optional publishedDate.",
         inputSchema = buildJsonObject {
             put("type", "object")
@@ -146,40 +149,35 @@ class WebSearchTool(
         }
     }
 
-    private suspend fun executeAutoSearch(callId: String, request: WebSearchRequest): AgentToolResult {
-        // Stage 1: Try Local Termux MCPSearch Daemon if active (e.g. http://127.0.0.1:8000/search)
-        val termuxResult = if (config.allowLocalSearch) {
+    private suspend fun executeAutoSearch(callId: String, request: WebSearchRequest): AgentToolResult = coroutineScope {
+        val local = async {
+            if (!config.allowLocalSearch) return@async emptyList<JsonObject>()
             try {
-                withTimeoutOrNull(2_000) { tryTermuxMcpSearch(request) }
+                withTimeoutOrNull(2_000) { tryTermuxMcpSearch(request) }.orEmpty()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+        val web = async {
+            try {
+                withTimeoutOrNull(15_000) { queryDuckDuckGo(request) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 null
             }
-        } else {
-            null
         }
-        if (termuxResult != null && termuxResult.isNotEmpty()) {
-            return AgentToolResult(
-                callId = callId,
-                content = ToolResultContent.Json(compactSearchResults(termuxResult, request.maxResults)),
-                isError = false
-            )
+        val localResults = local.await()
+        val webResults = web.await()
+        if (localResults.isEmpty() && webResults == null) {
+            return@coroutineScope error(callId, "Web search failed: could not retrieve search results.")
         }
-
-        // Stage 2: Fall back to DuckDuckGo Free Search (No API Key Required)
-        return try {
-            val ddgResults = queryDuckDuckGo(request)
-            AgentToolResult(
-                callId = callId,
-                content = ToolResultContent.Json(compactSearchResults(ddgResults, request.maxResults)),
-                isError = false
-            )
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (_: Exception) {
-            error(callId, "Web search failed: could not retrieve search results.")
+        val results = (localResults + webResults.orEmpty()).distinctBy {
+            canonicalSearchUrl(it["url"]?.jsonPrimitive?.content.orEmpty())
         }
+        AgentToolResult(callId, ToolResultContent.Json(compactSearchResults(results, request.maxResults * 2)), false)
     }
 
     private suspend fun tryTermuxMcpSearch(request: WebSearchRequest): List<JsonObject>? {

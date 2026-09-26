@@ -87,6 +87,7 @@ class GPTMobileApp :
 
         SanitizedChatBackup.restoreIfPresent(this)
         super.onCreate()
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
         registerActivityLifecycleCallbacks(AppForegroundTracker)
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()

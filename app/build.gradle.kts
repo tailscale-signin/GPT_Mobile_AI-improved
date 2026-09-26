@@ -55,7 +55,7 @@ extensions.configure<ApplicationExtension> {
 
     splits {
         abi {
-            isEnable = true
+            isEnable = providers.gradleProperty("enableAbiSplits").orNull != "false"
             reset()
             include("arm64-v8a", "x86_64")
             isUniversalApk = true

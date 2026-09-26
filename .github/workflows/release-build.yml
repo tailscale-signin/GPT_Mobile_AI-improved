@@ -87,7 +87,9 @@ jobs:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2
+          # APK split resource outputs must not carry over into the single bundle.
+          rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
+          ./gradlew bundleRelease -PenableAbiSplits=false --stacktrace --no-daemon --max-workers=2
 
       - name: Sign APKs with apksigner
         run: |

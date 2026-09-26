@@ -1,0 +1,106 @@
+name: Publish Unsigned Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unsigned-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Release APKs and AAB (unsigned)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free runner disk and memory space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android/sdk/ndk
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+
+      - name: Configure swap space for CI stability
+        run: |
+          echo "Setting up 4GB swap space to prevent runner OOM during release minification and dexing..."
+          sudo swapoff -a || true
+          sudo rm -f /swapfile_extra
+          sudo fallocate -l 4G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=4096
+          sudo chmod 600 /swapfile_extra
+          sudo mkswap /swapfile_extra
+          sudo swapon /swapfile_extra
+          if [ -f /swapfile ]; then sudo swapon /swapfile || true; fi
+          if [ -f /mnt/swapfile ]; then sudo swapon /mnt/swapfile || true; fi
+          free -h
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+          cache: "gradle"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;35.0.0"
+
+      - name: Accept Android licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build optimized release APKs
+        run: |
+          ./gradlew assembleRelease --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/release/*-unsigned.apk
+          mkdir -p release-assets
+          cp app/build/outputs/apk/release/*-unsigned.apk release-assets/
+
+      - name: Build optimized release bundle
+        run: |
+          rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
+          ./gradlew bundleRelease -PenableAbiSplits=false --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          cp app/build/outputs/bundle/release/app-release.aab release-assets/app-release-unsigned.aab
+          cd release-assets
+          sha256sum *.apk *.aab > SHA256SUMS.txt
+
+      - name: Save release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-release-${{ github.sha }}
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Publish unsigned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          test -n "$VERSION"
+          TAG="v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite its assets. Built files remain available as workflow artifacts."
+            exit 1
+          fi
+          {
+            echo "# Unsigned release build"
+            echo
+            echo "These are optimized release APKs and an Android App Bundle. They are UNSIGNED and must be signed before installation or store distribution."
+            echo
+            echo "Built from commit $GITHUB_SHA. Includes arm64-v8a, x86_64, universal APKs, an AAB, and SHA-256 checksums."
+            echo
+            cat RELEASE_NOTES.md
+          } > unsigned-release-notes.md
+          gh release create "$TAG" release-assets/* --draft --target "$GITHUB_SHA" --title "v${VERSION} — Unsigned release build" --notes-file unsigned-release-notes.md
+          gh release edit "$TAG" --draft=false --latest=false

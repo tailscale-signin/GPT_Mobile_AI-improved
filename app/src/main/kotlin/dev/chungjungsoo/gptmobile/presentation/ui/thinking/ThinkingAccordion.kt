@@ -58,13 +58,13 @@ data class ParsedReasoningContent(
 }
 
 object ThinkingParser {
-    private val THINK_REGEX = Regex("(?s)<think>(.*?)(?:</think>|$)", RegexOption.DOT_MATCHES_ALL)
+    private val THINK_REGEX = Regex("<think>(.*?)(</think>|$)", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 
     /**
      * Parses a raw model response into thought process and final response text.
      */
     fun parse(rawText: String): ParsedReasoningContent {
-        if (!rawText.contains("<think>")) {
+        if (!rawText.contains("<think>", ignoreCase = true)) {
             return ParsedReasoningContent(
                 thinking = null,
                 displayContent = rawText,
@@ -72,10 +72,10 @@ object ThinkingParser {
             )
         }
 
-        val match = THINK_REGEX.find(rawText) ?: return ParsedReasoningContent(null, rawText, false)
-        val thinkingPart = match.groupValues[1].trim()
-        val isStillThinking = !rawText.contains("</think>")
-        val mainText = rawText.replace(match.value, "").trim()
+        val matches = THINK_REGEX.findAll(rawText).toList()
+        val thinkingPart = matches.map { it.groupValues[1].trim() }.filter(String::isNotBlank).joinToString("\n\n")
+        val isStillThinking = matches.lastOrNull()?.groupValues?.get(2)?.isEmpty() == true
+        val mainText = rawText.replace(THINK_REGEX, "").trim()
 
         return ParsedReasoningContent(
             thinking = thinkingPart.takeIf(String::isNotBlank),

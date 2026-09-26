@@ -1,33 +1,56 @@
 # GPT Mobile AI (Improved) v0.9.14.0
 
-## Highlights
+This release brings the expanded local MCP marketplace together with the reliability, memory, workspace and chronological chat improvements merged in PRs #502 and #503.
 
-- **Local MCP Marketplace Expansion**: Integrated 29 local AI projects into the marketplace catalog—including 23 configurable server connections (Atlassian, Chat2DB, FlyEnv, AgentSet, DBHub, Code Memory, etc.) and six setup guides (including Houtini LM)—complete with curated brand vector and raster icons.
-- **Native Model Delegation**: Models can now delegate specialized subtasks to other configured AI profiles (on-device LiteRT, Ollama, Llama, or cloud endpoints) with strict loop protection, timeout limits, token budgets, and reentry prevention.
-- **Integrated Local Memory Tool**: Direct Fact Vault recall and capture integration exposed in Tool Connections and the marketplace, featuring encrypted storage, per-chat scoping, and automatic redaction of recalled facts from persistent tool traces.
-- **Restored Usage Statistics & Analytics**: Re-enabled comprehensive usage metrics, total queries, success rates, token usage breakdown, tool activity summaries, and run output inspection modals.
-- **Chat Profile Picker Ordering**: Drag-to-reorder and customizable sorting for chat profiles on the home screen, allowing quick switching between preferred models.
+## Chat and generation
 
-## Improvements & Safeguards
+- Reasoning, tool calls, answer segments and follow-ups appear in one downward timeline, in their arrival order. Themed chevrons expand and collapse each entry.
+- A public progress bubble appears when generation starts and after every ten completed tool calls, including failures. The model is asked for a brief progress update; a factual activity summary is shown if it does not supply one.
+- The prompt queue now persists accepted prompts, attachments and selected profiles. Queued prompts can be edited, reordered, paused or removed, and wait for pending combined responses.
+- Live streaming updates are separate from durable checkpoints. Long chats load recent turns first, with older-history loading and full-text search.
+- Chat profiles support persistent ordering and quick switching.
 
-- Model delegation prevents self-delegation cycles and active on-device engine reentry while forwarding only bounded prompts without tool leakage.
-- Fact Vault memory capture captures from validated user turns and respects cloud transmission policies and review status.
-- Preserved existing opt-outs for telemetry and vault features, keeping local learning strictly opt-in.
-- Streamlined Tool Connections screen with dedicated Local Tools management panel and configurable delegation parameters.
+## MCP, local models and tools
 
-## Installation and artifacts
+- Added 29 local AI projects to the marketplace: 23 configurable server connections and six setup guides, with curated brand assets.
+- Model delegation can send bounded subtasks to configured on-device or remote profiles, with timeouts, output limits and protection against recursive delegation.
+- Remote and native tools share call, concurrency, timeout and output budgets. Explicitly trusted read tools can share matching results across a multi-model turn.
+- MCP connections support read-only, ask-for-writes and trusted policies, with reviewable write requests and protection against duplicate dispatch.
+- Added resource and prompt browsing, input forms, bounded image/audio handling and visible discovery errors.
+- Connection diagnostics, a fixed streaming benchmark and single-use local server pairing help configure compatible servers.
 
-- Version: **0.9.14.0** (version code **69**).
-- Android 12 or newer; target Android 16 (API 36).
-- Package: `dev.melo.gptmobile.improved`.
-- Signed APKs: **arm64-v8a**, **x86_64**, and **universal**. Most modern Android phones use arm64-v8a.
-- Signed Android App Bundle (AAB) and SHA-256 checksums are produced by the release workflow.
-- Continuous signing compatibility preserved across updates.
+## Memory and document workspaces
 
-## Memory and telemetry notes
+- Fact Vault provides integrated capture and recall, editable facts, provenance, confidence, personal/project scopes, relevance ranking and scoped forgetting.
+- New vaults start with memory enabled. Existing saved preferences, including opt-outs, are preserved. Capture, recall and cloud recall can be configured separately in settings; cloud recall may include selected saved facts in requests to remote providers.
+- Automatic capture uses the original user message, excluding appended attachments, model answers and tool output. Fact contents are encrypted locally and recalled text is redacted from persistent tool traces.
+- Project/chat document workspaces retain searchable document chunks, bounded source excerpts and private citation links. Replacing or deleting a source updates retrieval.
+- Context estimates cover prompts, memory, documents, history, tools and the response reserve. Usage reporting links primary, delegated and synthesis requests to their parent run and labels estimated usage.
 
-Fact Vault learning remains opt-in and off by default. Relevant active facts are recalled only with user-approved policies and redacted from persistent trace logs. Delegated subtask token usage is isolated to subtask executions.
+## Reliability and privacy
 
-## Validation
+- Default backups exclude credentials and Fact Vault contents. Including either requires explicit selection and password encryption; restored queued work starts paused.
+- HTML previews start with scripts disabled. Interactive previews continue to block external network access, file access, frames, navigation and form submission.
+- Gateway recovery handles pending responses, cancellation, current credentials and stale results.
+- Secret-bearing endpoint URLs and diagnostic values receive additional storage and redaction protections.
+- Added searchable settings, accessible expansion controls and an optional foreground voice conversation loop.
+- Retired the incompatible Node MCP companion prototype.
 
-All core features, model delegation safety bounds, local memory tools, and marketplace catalog integrations have passed focused test suites (56/56 tests passing), lint verification, and clean build checks. Signed release packaging is handled via the automated GitHub Actions pipeline.
+## Installation and release artifacts
+
+- Version **0.9.14.0**, version code **69**.
+- Android **12 or newer**; package `dev.melo.gptmobile.improved`.
+- Signed APKs for **arm64-v8a**, **x86_64** and **universal**. Use arm64-v8a for most current Android phones.
+- Signed Android App Bundle (AAB), `SHA256SUMS.txt` and `provenance.json` accompany the APKs.
+- Publication requires unit tests, debug/release lint, Android resource and AAR compatibility checks on the exact source commit, followed by package/version and signing-certificate continuity checks.
+
+## Validation and known limits
+
+The merged implementation passed **1,012 unit tests**, Android lint, Kotlin formatting, APK compilation, CodeQL and remote diagnostics before release packaging. The signed release workflow performs its own validation on the commit recorded in `provenance.json`.
+
+- Older saved conversations without event ordering cannot recover their exact historical ordering.
+- Pending combined-response synthesis resumes when its chat is reopened; queued prompts wait for it.
+- Context budgets and token usage remain estimates when a provider does not report them. Device benchmarks measure the actual device and configured model.
+- Physical-device checks such as TalkBack/large fonts, Bluetooth and call interruptions, process death with queued attachments, WebView isolation and signed upgrade behavior are not replaced by the automated test results.
+
+See `docs/audit-implementation.md` for the implementation and validation ledger covering all 22 audit findings.

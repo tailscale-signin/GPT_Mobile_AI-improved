@@ -209,6 +209,7 @@ class LocalModelsViewModel @Inject constructor(
                     huggingFaceSearchState.value = HuggingFaceSearchState()
                 }
                 .onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
                     huggingFaceSearchState.value = HuggingFaceSearchState(
                         error = error.localizedMessage ?: "Could not search Hugging Face."
                     )

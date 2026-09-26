@@ -499,7 +499,8 @@ fun OpponentChatBubble(
                         DetailsButton(
                             isVisible = areDetailsVisible,
                             isEnabled = true,
-                            onClick = { areDetailsVisible = !areDetailsVisible }
+                            onClick = { areDetailsVisible = !areDetailsVisible },
+                            label = if (debugMode) stringResource(R.string.details) else "Thinking"
                         )
                     }
                 }
@@ -834,7 +835,8 @@ fun OpponentResponseContainer(
 internal fun DetailsButton(
     isVisible: Boolean,
     isEnabled: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    label: String = stringResource(R.string.details)
 ) {
     val rotation by animateFloatAsState(
         targetValue = if (isVisible) 180f else 0f,
@@ -881,7 +883,7 @@ internal fun DetailsButton(
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = stringResource(R.string.details),
+            text = label,
             style = MaterialTheme.typography.labelSmall,
             color = if (isEnabled) {
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)

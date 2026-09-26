@@ -79,9 +79,13 @@ internal fun locationMapData(events: List<ToolEvent>): LocationMapData? = events
     val raw = event.result.orEmpty().take(100_000)
     val obj = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
     fun number(vararg names: String): Double? = names.firstNotNullOfOrNull { name ->
-        runCatching { obj?.get(name)?.jsonPrimitive?.doubleOrNull }.getOrNull()
-            ?: Regex("[\"']?$name[\"']?\\s*[:=]\\s*(-?\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE).find(raw)?.groupValues?.get(1)?.toDoubleOrNull()
+        if (obj != null) {
+            runCatching { obj[name]?.jsonPrimitive?.doubleOrNull }.getOrNull()
+        } else {
+            Regex("[\"']?$name[\"']?\\s*[:=]\\s*(-?\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE).find(raw)?.groupValues?.get(1)?.toDoubleOrNull()
+        }
     }
+
     val lat = number("latitude", "lat") ?: return@firstNotNullOfOrNull null
     val lon = number("longitude", "lon", "lng") ?: return@firstNotNullOfOrNull null
     val origin = MapCoordinate(lat, lon).takeIf { it.isValid } ?: return@firstNotNullOfOrNull null
@@ -99,8 +103,9 @@ internal fun locationMapData(events: List<ToolEvent>): LocationMapData? = events
 }
 
 @Composable
-internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier, viewModel: LocationMapViewModel = hiltViewModel()) {
+internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modifier = Modifier, viewModel: LocationMapViewModel? = null) {
     val data = remember(toolEvents) { locationMapData(toolEvents) } ?: return
+    val mapViewModel = viewModel ?: hiltViewModel<LocationMapViewModel>()
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val origin = data.origin
@@ -186,7 +191,7 @@ internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modif
         routeError = null
         try {
             suspend fun load(walk: Boolean): PlaceRoute? = try {
-                viewModel.route(origin, selected, walk)
+                mapViewModel.route(origin, selected, walk)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

@@ -11,6 +11,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton

@@ -58,8 +58,14 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             _hardware.value = runtime.getHardwareState()
-            val probe = withContext(Dispatchers.IO) { QnnEnvironment.initialize(context) }
-            _npuStatus.value = if (probe.isReady) "Qualcomm NPU prerequisites ready; use a matching model" else probe.errorMessage ?: "NPU unavailable for this device or build"
+            try {
+                val probe = withContext(Dispatchers.IO) { QnnEnvironment.initialize(context) }
+                _npuStatus.value = if (probe.isReady) "Qualcomm NPU prerequisites ready; use a matching model" else probe.errorMessage ?: "NPU unavailable for this device or build"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _npuStatus.value = "NPU prerequisites could not be checked; refresh to retry"
+            }
         }
     }
 

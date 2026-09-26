@@ -1,6 +1,14 @@
-# GPT Mobile AI (Improved) v0.9.14.0
+# GPT Mobile AI (Improved) v0.9.14.1
 
-This release brings the expanded local MCP marketplace together with the reliability, memory, workspace and chronological chat improvements merged in PRs #502 and #503.
+This release includes the Free AI platform and tool-result fixes from PR #505 alongside the MCP marketplace, reliability, memory, workspace and chronological chat improvements from v0.9.14.0.
+
+## Changes since v0.9.14.0
+
+- Includes the Free AI platform setup and memory isolation merged in PR #505.
+- Includes the web-search result handling and non-empty tool error fixes from PR #505.
+- Advances the app version to **0.9.14.1** and Android version code to **70** so newer source can be published without reusing the existing release tag.
+- Checks release tags and existing releases before setting up Java/Android or running Gradle. Conflicts now identify the affected tag and commits and explain how to publish a new version.
+- Stops publication if GitHub release history cannot be checked, including API or authentication failures.
 
 ## Chat and generation
 
@@ -38,7 +46,7 @@ This release brings the expanded local MCP marketplace together with the reliabi
 
 ## Installation and release artifacts
 
-- Version **0.9.14.0**, version code **69**.
+- Version **0.9.14.1**, version code **70**.
 - Android **12 or newer**; package `dev.melo.gptmobile.improved`.
 - Signed APKs for **arm64-v8a**, **x86_64** and **universal**. Use arm64-v8a for most current Android phones.
 - Signed Android App Bundle (AAB), `SHA256SUMS.txt` and `provenance.json` accompany the APKs.
@@ -46,7 +54,7 @@ This release brings the expanded local MCP marketplace together with the reliabi
 
 ## Validation and known limits
 
-The merged implementation passed **1,012 unit tests**, Android lint, Kotlin formatting, APK compilation, CodeQL and remote diagnostics before release packaging. The signed release workflow performs its own validation on the commit recorded in `provenance.json`.
+The v0.9.14.0 implementation passed **1,012 unit tests**, Android lint, Kotlin formatting, APK compilation, CodeQL and remote diagnostics before release packaging. The signed release workflow performs its own validation on the commit recorded in `provenance.json`.
 
 - Older saved conversations without event ordering cannot recover their exact historical ordering.
 - Pending combined-response synthesis resumes when its chat is reopened; queued prompts wait for it.
@@ -54,3 +62,7 @@ The merged implementation passed **1,012 unit tests**, Android lint, Kotlin form
 - Physical-device checks such as TalkBack/large fonts, Bluetooth and call interruptions, process death with queued attachments, WebView isolation and signed upgrade behavior are not replaced by the automated test results.
 
 See `docs/audit-implementation.md` for the implementation and validation ledger covering all 22 audit findings.
+
+## Publishing this update
+
+After merging the version change, start a **new** `Publish Signed Release` workflow run on `main`. GitHub's **Re-run jobs** action uses the original commit and will repeat the old version conflict. The existing v0.9.14.0 tag and release assets remain intact.

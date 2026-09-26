@@ -73,6 +73,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
@@ -245,6 +247,7 @@ class ChatViewModel @Inject constructor(
     private var lastAutoTitleUserTurnCount = 0
     private val combinedSynthesisTurns = mutableSetOf<Int>()
     private var pendingRunDispatches = 0
+    private val platformMembershipMutex = Mutex()
 
     init {
         fetchChatRoom()
@@ -334,37 +337,41 @@ class ChatViewModel @Inject constructor(
     }
 
     fun setPlatformMembership(platformUid: String, active: Boolean) {
-        val current = _activePlatformUids.value
-        val updated = if (active) {
-            (current + platformUid).distinct()
-        } else {
-            current - platformUid
-        }
-        if (updated.isEmpty()) {
-            _attachmentNotice.value = "At least one AI profile must remain active."
-            return
-        }
-        if (updated == current) return
-
-        _activePlatformUids.value = updated
-        _disabledPlatformUids.update { it - platformUid }
+        // Reserve the change before launching: a queued turn must not dispatch with
+        // membership that has not yet been persisted or given a stable response slot.
+        pendingRunDispatches += 1
         viewModelScope.launch {
-            runCatching {
-                chatRepository.updateChatPlatforms(_chatRoom.value, updated)
-            }.onSuccess { updatedRoom ->
-                _chatRoom.value = updatedRoom
-                applyChatPlatformState(updatedRoom)
-                val platform = _platformsInApp.value.firstOrNull { it.uid == platformUid }
-                if (active && platform != null && platformUid !in _chatPlatformModels.value) {
-                    _chatPlatformModels.update { it + (platformUid to platform.model) }
-                    if (updatedRoom.id > 0) {
-                        chatRepository.saveChatPlatformModels(updatedRoom.id, _chatPlatformModels.value)
+            try {
+                platformMembershipMutex.withLock {
+                    val current = _activePlatformUids.value
+                    val platform = _platformsInApp.value.firstOrNull { it.uid == platformUid }
+                    if (active && platform?.enabled != true) return@withLock
+                    val updated = if (active) (current + platformUid).distinct() else current - platformUid
+                    if (updated.isEmpty()) {
+                        _attachmentNotice.value = "At least one AI profile must remain active."
+                        return@withLock
                     }
+                    if (updated == current) return@withLock
+
+                    val updatedRoom = chatRepository.updateChatPlatforms(_chatRoom.value, updated)
+                    _chatRoom.value = updatedRoom
+                    applyChatPlatformState(updatedRoom)
+                    if (active && platform != null && platformUid !in _chatPlatformModels.value) {
+                        _chatPlatformModels.update { it + (platformUid to platform.model) }
+                        if (updatedRoom.id > 0) {
+                            chatRepository.saveChatPlatformModels(updatedRoom.id, _chatPlatformModels.value)
+                        }
+                    }
+                    updateLocalNetworkRequirement(_platformsInApp.value)
+                    loadAvailableChatTools()
                 }
-                updateLocalNetworkRequirement(_platformsInApp.value)
-            }.onFailure {
-                _activePlatformUids.value = current
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
                 _attachmentNotice.value = "Could not update AI profiles for this conversation."
+            } finally {
+                pendingRunDispatches -= 1
+                advancePendingGeneration()
             }
         }
     }

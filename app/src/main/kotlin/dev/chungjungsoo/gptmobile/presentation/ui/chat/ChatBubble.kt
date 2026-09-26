@@ -411,6 +411,7 @@ fun OpponentChatBubble(
     agentRun: AgentRun? = null,
     runNotices: List<ChatRunNotice> = emptyList(),
     toolEvents: List<ToolEvent> = emptyList(),
+    locationToolEvents: List<ToolEvent> = toolEvents,
     contentIdentity: Any = text,
     canEdit: Boolean = false,
     isFavorite: Boolean = false,
@@ -623,7 +624,7 @@ fun OpponentChatBubble(
                 }
 
                 LocationToolMapPreview(
-                    toolEvents = toolEvents,
+                    toolEvents = locationToolEvents,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
 

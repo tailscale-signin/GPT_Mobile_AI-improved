@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,7 +39,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.NumberFormat
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewModel = hiltViewModel()) {
     val stats by viewModel.statistics.collectAsStateWithLifecycle()
@@ -49,7 +51,7 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
     }) { padding ->
         LazyColumn(Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
-                Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(7 to "7 days", 30 to "30 days", 0 to "Stored history").forEach { (days, label) ->
                         FilterChip(selected = stats.days == days, onClick = { viewModel.selectRange(days) }, label = { Text(label) })
                     }
@@ -102,8 +104,8 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
                         "Tool calls" to stats.toolCalls.toString(),
                         "Failed tool calls" to stats.failedTools.toString()
                     ).forEach { (label, value) ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                             Text(value, fontWeight = FontWeight.SemiBold)
                         }
                     }

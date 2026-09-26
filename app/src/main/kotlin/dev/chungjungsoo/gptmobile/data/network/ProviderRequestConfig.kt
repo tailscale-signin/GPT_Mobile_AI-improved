@@ -49,3 +49,16 @@ internal fun throwIfToolDefinitionsRejected(
         throw ToolDefinitionsRejectedException("HTTP $statusCode rejected tool definitions")
     }
 }
+
+/** Keep authentication failures attributable to the AI connection, including after tool rounds. */
+internal fun ProviderRequestConfig.readableProviderError(message: String, code: String?): String {
+    if (code != "401" && code != "403") return message
+    val host = runCatching { java.net.URI(apiUrl.trim()).host }.getOrNull()
+    val provider = if (host.equals("openrouter.ai", ignoreCase = true)) "OpenRouter" else "The AI provider"
+    return if (code == "401") {
+        "$provider could not authenticate the request (HTTP 401). Check the API key on the platform connection used by this AI profile in Settings → Platforms. " +
+            "If this key worked recently, retry later or check the provider's service status."
+    } else {
+        "$provider denied access (HTTP 403). Check the API key permissions and account restrictions for this AI profile's platform connection."
+    }
+}

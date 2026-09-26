@@ -120,7 +120,7 @@ class OpenAIAPIImpl @Inject constructor(
                     emit(
                         ChatCompletionChunk(
                             error = ErrorDetail(
-                                message = errorMessage,
+                                message = config.readableProviderError(errorMessage, response.status.value.toString()),
                                 type = "http_error",
                                 code = response.status.value.toString()
                             )
@@ -161,7 +161,10 @@ class OpenAIAPIImpl @Inject constructor(
                     if (data == "[DONE]") break
 
                     try {
-                        val chunk = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                        val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                        val chunk = decoded.error?.let { error ->
+                            decoded.copy(error = error.copy(message = config.readableProviderError(error.message, error.code)))
+                        } ?: decoded
                         receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
                         if (firstChunk && gatewayMetadata != null) {
                             firstChunk = false
@@ -236,7 +239,7 @@ class OpenAIAPIImpl @Inject constructor(
                         "HTTP ${response.status.value}: $errorBody"
                     }
 
-                    emit(ResponseErrorEvent(message = errorMessage, code = response.status.value.toString()))
+                    emit(ResponseErrorEvent(message = config.readableProviderError(errorMessage, response.status.value.toString()), code = response.status.value.toString()))
                     return@execute
                 }
 
@@ -249,7 +252,12 @@ class OpenAIAPIImpl @Inject constructor(
                     if (data == "[DONE]") break
 
                     try {
-                        val streamEvent = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
+                        val decoded = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(data)
+                        val streamEvent = if (decoded is ResponseErrorEvent) {
+                            decoded.copy(message = config.readableProviderError(decoded.message, decoded.code))
+                        } else {
+                            decoded
+                        }
                         receivedResponsePayload = receivedResponsePayload || streamEvent.hasResponseStreamPayload()
                         emit(streamEvent)
                     } catch (_: Exception) {

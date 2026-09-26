@@ -293,6 +293,28 @@ class WebSearchToolTest {
         assertEquals("Web search failed: missing required result fields.", (result.content as ToolResultContent.Text).text)
     }
 
+    @Test
+    fun searchAuthenticationFailuresNameTheSeparateSearchProvider() = runBlocking {
+        val server = server("/search", """{"error":{"message":"User not found. perplexity-key"}}""", status = 401)
+        val result = tool(WebSearchProvider.PERPLEXITY, server.url("/search")).execute("auth-call", arguments())
+        val message = (result.content as ToolResultContent.Text).text
+        assertTrue(result.isError)
+        assertTrue(message.contains("Perplexity"))
+        assertTrue(message.contains("HTTP 401"))
+        assertTrue(message.contains("Tool Connections"))
+        assertTrue(message.contains("configured separately"))
+        assertTrue(!message.contains("perplexity-key"))
+    }
+
+    @Test
+    fun pastedSearchKeysAreTrimmedBeforeSending() = runBlocking {
+        val server = server("/search", """{"results":[]}""")
+        val client = NetworkClient(CIO).also { networkClients += it }
+        WebSearchTool(WebSearchProviderConfig(WebSearchProvider.EXA, "  exa-key\n", server.url("/search")), client, clock)
+            .execute("trim-call", arguments())
+        assertEquals("exa-key", server.request.apiKey)
+    }
+
     private fun tool(provider: WebSearchProvider, endpointUrl: String): WebSearchTool {
         val networkClient = NetworkClient(CIO)
         networkClients += networkClient

@@ -88,7 +88,7 @@ class McpPresetCatalogTest {
 
     @Test
     fun memoryAndThreadingCategoriesParticipateInSearchAndFiltering() {
-        assertEquals(3, McpPresetCatalog.filterByCategory("memory").size)
+        assertTrue(McpPresetCatalog.filterByCategory("memory").size >= 3)
         assertEquals(listOf("pearls"), McpPresetCatalog.getByCategory(McpCategory.THREADING).map { it.id })
         assertTrue(McpPresetCatalog.searchPresets("threading").any { it.id == "pearls" })
         assertTrue(McpPresetCatalog.categories.containsAll(listOf("MEMORY", "THREADING")))
@@ -156,5 +156,21 @@ class McpPresetCatalogTest {
             assertTrue(preset.setupInstructions.isNotBlank())
         }
         assertTrue(McpPresetCatalog.findById("vercel")!!.setupInstructions.contains("approved"))
+    }
+
+    @Test
+    fun localServicesHaveExplicitSetupAndCompanionsCannotBeInstalledAsServers() {
+        assertEquals(31, LocalMcpPresets.presets.size)
+        LocalMcpPresets.presets.filterNot { it.isPreinstalled }.forEach {
+            assertTrue(it.commandOrUrl.isBlank())
+            assertFalse(it.isDirectlyInstallable)
+            assertFalse(it.verifiedRemote)
+            assertTrue(it.setupInstructions.isNotBlank())
+            assertTrue(it.websiteUrl.startsWith("https://github.com/"))
+        }
+        assertEquals("memory", McpPresetCatalog.findById("builtin-memory")!!.integratedTool)
+        assertEquals("delegation", McpPresetCatalog.findById("builtin-model-delegation")!!.integratedTool)
+        assertTrue(McpPresetCatalog.findById("deskdrop")!!.documentationOnly)
+        assertFalse(McpPresetCatalog.findById("houtini-lm")!!.documentationOnly)
     }
 }

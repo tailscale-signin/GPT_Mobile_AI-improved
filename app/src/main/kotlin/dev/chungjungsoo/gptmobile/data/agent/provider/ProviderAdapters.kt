@@ -449,6 +449,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             seed = effectiveSeed,
                             stop = effectiveStop,
                             tools = requestTools,
+                            toolChoice = if (platform.disableAllTools) "none" else null,
                             provider = parsedRouting,
                             reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null,
                             sessionId = openRouterSessionId,

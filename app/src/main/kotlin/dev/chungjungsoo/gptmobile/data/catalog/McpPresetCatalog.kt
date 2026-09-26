@@ -58,7 +58,9 @@ data class McpPreset(
     val isPreinstalled: Boolean = false,
     val verifiedRemote: Boolean = false,
     val setupInstructions: String = "",
-    val requiredEndpointQueryParameter: String? = null
+    val requiredEndpointQueryParameter: String? = null,
+    val integratedTool: String? = null,
+    val documentationOnly: Boolean = false
 ) {
     fun hasRequiredEndpointParameters(endpoint: String): Boolean {
         val parameter = requiredEndpointQueryParameter ?: return true
@@ -78,7 +80,7 @@ data class McpPreset(
     val url: String get() = commandOrUrl
     val defaultEndpoint: String get() = commandOrUrl
     val isDirectlyInstallable: Boolean
-        get() = !isPreinstalled && transportType == McpTransportType.STREAMABLE_HTTP && commandOrUrl.startsWith("https://") && requiredEndpointQueryParameter == null
+        get() = !isPreinstalled && !documentationOnly && transportType == McpTransportType.STREAMABLE_HTTP && commandOrUrl.startsWith("https://") && requiredEndpointQueryParameter == null
 }
 
 typealias McpServerPreset = McpPreset
@@ -94,7 +96,7 @@ typealias McpServerPreset = McpPreset
  * as one-tap installs because the Android client does not launch Node/Python MCP servers.
  */
 object McpPresetCatalog {
-    val presets = listOf(
+    val presets = LocalMcpPresets.presets + listOf(
         McpPreset(
             id = "linear",
             name = "Linear",

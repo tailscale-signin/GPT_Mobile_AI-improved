@@ -122,11 +122,11 @@ class FactVaultRepositoryTest {
     }
 
     @Test
-    fun `learning is opt in and persists through vault reload`() = runBlocking {
+    fun `default learning persists through vault reload`() = runBlocking {
         val storage = MemoryVault()
         val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
         assertTrue(repository.prepareTurn("I prefer Kotlin", 1, 1).facts.isEmpty())
-        assertTrue(storage.values.isEmpty())
+        assertEquals(1, repository.state.value.facts.size)
         repository.setEnabled(true)
         assertTrue(repository.prepareTurn("I prefer Kotlin", 1, 1).facts.isEmpty())
         val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
@@ -212,5 +212,30 @@ class FactVaultRepositoryTest {
         repository.setEnabled(false)
         assertTrue(repository.prepareTurn("What do I prefer?", 1, 3).facts.isEmpty())
         assertEquals(64, repository.state.value.facts.size)
+    }
+
+    @Test
+    fun `new vault defaults on but saved legacy off and explicit off survive reload`() = runBlocking {
+        val storage = MemoryVault()
+        val fresh = FactVaultRepository(storage, KnowledgeGraphEngine())
+        fresh.load()
+        assertTrue(fresh.state.value.enabled)
+        fresh.load()
+        assertTrue(fresh.state.value.enabled)
+        fresh.setEnabled(false)
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        restored.load()
+        assertFalse(restored.state.value.enabled)
+        storage.values[FactVaultRepository.VAULT_REFERENCE] = "{}".encodeToByteArray()
+        restored.load()
+        assertFalse(restored.state.value.enabled)
+    }
+
+    @Test
+    fun `recall tool never learns model provided queries`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        repository.prepareTurn("I prefer Java", 1, 2, capture = false)
+        assertEquals(listOf("Kotlin"), repository.state.value.facts.map { it.fact.target.name })
     }
 }

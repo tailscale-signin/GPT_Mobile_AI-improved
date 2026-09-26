@@ -145,6 +145,36 @@ class ChatRepositoryImpl(
     )
     private val defaultAgentRunner = AgentRunner()
 
+    /** A single isolated text round. No resolver, history, memory injection or nested tool execution. */
+    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int): String {
+        val bounded = target.copy(
+            maxTokens = minOf(target.maxTokens ?: maxTokens, maxTokens).coerceAtLeast(1),
+            disableAllTools = true,
+            systemPrompt = "Complete the supplied bounded task. Return a concise text answer. Do not call tools or delegate work."
+        )
+        val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
+        val session = when (bounded.compatibleType) {
+            ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, bounded)
+            ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA -> openAICompatibleAdapter.openSession(turns, bounded)
+            ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded)
+            ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded)
+            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, emptyList())
+        }
+        val text = StringBuilder()
+        session.streamRound(emptyList(), emptyList()).collect { event ->
+            when (event) {
+                is ProviderEvent.TextDelta -> {
+                    check(text.length + event.text.length <= 16000) { "Delegated output exceeded the character limit." }
+                    text.append(event.text)
+                }
+                is ProviderEvent.Failed -> error("The delegated provider failed.")
+                is ProviderEvent.ToolCall -> error("Delegated tool calls are not permitted.")
+                else -> Unit
+            }
+        }
+        return text.toString()
+    }
+
     override suspend fun completeChat(
         userMessages: List<MessageV2>,
         assistantMessages: List<List<MessageV2>>,
@@ -169,7 +199,7 @@ class ChatRepositoryImpl(
                     settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
                 }.getOrDefault(true)
                 val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
-                agentToolResolver.resolve(platform.uid, chatToolConfig).map { resolved ->
+                agentToolResolver.resolve(platform.uid, chatToolConfig, contextTurns.lastOrNull()?.userMessage, ::delegateToProfile).map { resolved ->
                     resolved.copy(
                         tool = MeasuredAgentTool(
                             sharedToolCallBroker.wrap(
@@ -196,7 +226,7 @@ class ChatRepositoryImpl(
             }
             val latestUser = contextTurns.lastOrNull()?.userMessage
             val recalled = try {
-                if (latestUser == null) {
+                if (latestUser == null || platform.disableAllTools || platform.disableLocalTools) {
                     FactRecall()
                 } else {
                     factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.OLLAMA, ClientType.LLAMA)) ?: FactRecall()

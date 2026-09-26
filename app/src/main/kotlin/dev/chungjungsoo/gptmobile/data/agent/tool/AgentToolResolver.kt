@@ -6,11 +6,15 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.isLocalPlatform
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -39,7 +43,8 @@ class AgentToolResolver @Inject constructor(
     private val networkClient: NetworkClient,
     private val mcpClientManager: McpClientManager,
     private val mcpOAuthCoordinator: McpOAuthCoordinator,
-    private val deviceLocationTool: DeviceLocationTool
+    private val deviceLocationTool: DeviceLocationTool,
+    private val factVault: FactVaultRepository? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection): List<Tool> {
         val config = mcpConfig(connection)
@@ -59,7 +64,9 @@ class AgentToolResolver @Inject constructor(
 
     suspend fun resolve(
         profileUid: String,
-        chatToolConfig: ChatMcpToolConfig? = null
+        chatToolConfig: ChatMcpToolConfig? = null,
+        userMessage: MessageV2? = null,
+        delegate: (suspend (PlatformV2, String, Int) -> String)? = null
     ): List<ResolvedAgentTool> {
         val platforms = settingRepository.fetchPlatformV2s()
         val platform = platforms.firstOrNull { it.uid == profileUid }
@@ -88,6 +95,26 @@ class AgentToolResolver @Inject constructor(
         val resolved = mutableListOf<ResolvedAgentTool>()
 
         if (!disableLocal) {
+            if (factVault != null && userMessage != null && platform != null) {
+                val memoryAvailable = try {
+                    factVault.load()
+                    factVault.state.value.enabled
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    false
+                }
+                if (memoryAvailable) {
+                    listOf(true, false).forEach { capture ->
+                        val tool = LocalMemoryTool(factVault, userMessage, platform.compatibleType.isLocalPlatform(), capture)
+                        resolved += tool.resolved(null, "Local memory", tool.definition.name)
+                    }
+                }
+            }
+            if (featureSettings.delegation.enabled && delegate != null && platform != null) {
+                val tool = ModelDelegationTool(platform, { settingRepository.getFeatureSettings().delegation }, { settingRepository.fetchPlatformV2s() }, delegate)
+                resolved += tool.resolved(null, "Model delegation", tool.definition.name)
+            }
             resolved += CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
             resolved += CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
             resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)

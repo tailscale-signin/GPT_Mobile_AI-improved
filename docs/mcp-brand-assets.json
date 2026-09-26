@@ -211,5 +211,89 @@
     "license": "Simple Icons CC0; brand trademarks remain with their owners.",
     "file": "app/src/main/res/drawable/mcp_brand_atlassian.xml",
     "sha256": "ad8b0a00e617f8aaa9a9dfeed0ac533c4142e96f492f4079509c747ad6336c76"
+  },
+  "modelcontextprotocol": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/modelcontextprotocol.svg",
+    "brandSource": "https://modelcontextprotocol.io",
+    "license": "Simple Icons CC0; protocol mark used as a generic MCP fallback, not a project logo.",
+    "file": "app/src/main/res/drawable/mcp_brand_protocol.xml",
+    "sha256": "1d16eb0ac0c1dceb9f30053e001474fd5fbb717c6db9566c03963fb52688e887"
+  },
+  "mcp-client-for-ollama": {
+    "source": "https://raw.githubusercontent.com/jonigl/mcp-client-for-ollama/main/misc/ollmcp-logo-512.png",
+    "brandSource": "https://github.com/jonigl/mcp-client-for-ollama",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_mcp_client_for_ollama.png",
+    "sha256": "6ce973136b6e791d3fe10cc1056d8342c1a8f47f368808bde49b09f0c18f574c"
+  },
+  "houtini-lm": {
+    "source": "https://raw.githubusercontent.com/houtini-ai/houtini-lm/main/assets/logo.png",
+    "brandSource": "https://github.com/houtini-ai/houtini-lm",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_houtini_lm.png",
+    "sha256": "7e988381f8288ee44fd92e4e69e83feffb8b5ba557c463177a3ddf721b6fa84f"
+  },
+  "marm-memory": {
+    "source": "https://raw.githubusercontent.com/Lyellr88/marm-memory/MARM-main/assets/marm-logo.png",
+    "brandSource": "https://github.com/Lyellr88/marm-memory",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_marm_memory.png",
+    "sha256": "78f545d62ff5cda0eb275bd1726466c922eae916fec2817b00eb904725383702"
+  },
+  "agentset": {
+    "source": "https://github.com/user-attachments/assets/2dd23f69-c0f0-4c73-91df-db529f709f2c",
+    "brandSource": "https://github.com/agentset-ai/agentset",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_agentset.png",
+    "sha256": "c391197d06bde8b489be4f1f9a95ac932040824ddb9cfb7ffbada626b3fd06d5"
+  },
+  "chat2db": {
+    "source": "https://raw.githubusercontent.com/OtterMind/Chat2DB/main/icon.png",
+    "brandSource": "https://github.com/OtterMind/Chat2DB",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_chat2db.png",
+    "sha256": "addf6fb521ede745f1f077f27e4eacb8eecb0fdac48d32ffcf66a175db46758b"
+  },
+  "mcp-sqlite": {
+    "source": "https://raw.githubusercontent.com/jparkerweb/eQuill-Labs/refs/heads/main/src/static/images/logo-text-outline.png",
+    "brandSource": "https://github.com/jparkerweb/mcp-sqlite",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_mcp_sqlite.png",
+    "sha256": "ef3ac797760d1fc63cac4f6d2ea5a55f11397ea3452037bd472b39378e059bbe"
+  },
+  "tabularis": {
+    "source": "https://raw.githubusercontent.com/TabularisDB/tabularis/main/public/logo-sm.png",
+    "brandSource": "https://github.com/TabularisDB/tabularis",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_tabularis.png",
+    "sha256": "d6e5f966a302e8358bda245cef9440d82eabd2526db28477c4edc73b4d7669fb"
+  },
+  "flyenv": {
+    "source": "https://raw.githubusercontent.com/xpf0000/FlyEnv/master/build/256x256.png",
+    "brandSource": "https://github.com/xpf0000/FlyEnv",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_flyenv.png",
+    "sha256": "bb379c90a11ef5ee55513cc2b58e47bada44551e0a9933421d80aafd917d38c4"
+  },
+  "code-memory": {
+    "source": "https://raw.githubusercontent.com/kapillamba4/code-memory/main/assets/logo.png",
+    "brandSource": "https://github.com/kapillamba4/code-memory",
+    "license": "Upstream project branding; see the linked repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_code_memory.png",
+    "sha256": "4dd96ea94cbe2c9f86c08532e2e8a9cefdbc47c3b89ed9035d33da516e9c0cb6"
+  },
+  "unreal-mcp": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/unrealengine.svg",
+    "brandSource": "https://www.unrealengine.com",
+    "license": "Simple Icons CC0; associated platform logo, trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_unrealengine.xml",
+    "sha256": "29d614aa859670e75c1606bc185a0a81c42678bf0e5ace3e9aa89e6fe2c32319"
+  },
+  "dbhub": {
+    "source": "https://raw.githubusercontent.com/bytebase/dbhub/main/docs/images/logo/full-light.svg",
+    "brandSource": "https://github.com/bytebase/dbhub",
+    "license": "Upstream project logo; see repository license. Trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_dbhub.xml",
+    "sha256": "819bfe54baa980710d155456f3c548fa8d80d4ae6ede958554feb1b9712976eb"
   }
 }

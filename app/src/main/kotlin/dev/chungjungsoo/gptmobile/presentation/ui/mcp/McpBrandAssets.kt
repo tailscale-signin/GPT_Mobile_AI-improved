@@ -11,6 +11,35 @@ object McpBrandAssets {
         "sentry" -> R.drawable.mcp_brand_sentry
         "vercel" -> R.drawable.mcp_brand_vercel
         "atlassian" -> R.drawable.mcp_brand_atlassian
+        "ollama-mcp-bridge" -> R.drawable.mcp_brand_protocol
+        "mcp-client-for-ollama" -> R.drawable.mcp_brand_mcp_client_for_ollama
+        "houtini-lm" -> R.drawable.mcp_brand_houtini_lm
+        "claude-lmstudio-bridge" -> R.drawable.mcp_brand_protocol
+        "comfyui-mcp" -> R.drawable.mcp_brand_protocol
+        "marm-memory" -> R.drawable.mcp_brand_marm_memory
+        "truememory" -> R.drawable.mcp_brand_protocol
+        "clawmem" -> R.drawable.mcp_brand_protocol
+        "uteke" -> R.drawable.mcp_brand_protocol
+        "sibyl-memory" -> R.drawable.mcp_brand_protocol
+        "agentset" -> R.drawable.mcp_brand_agentset
+        "dbhub" -> R.drawable.mcp_brand_dbhub
+        "chat2db" -> R.drawable.mcp_brand_chat2db
+        "dbx" -> R.drawable.mcp_brand_protocol
+        "mcp-sqlite" -> R.drawable.mcp_brand_mcp_sqlite
+        "mcp-alchemy" -> R.drawable.mcp_brand_protocol
+        "tabularis" -> R.drawable.mcp_brand_tabularis
+        "filesystem-mcp" -> R.drawable.mcp_brand_protocol
+        "mcp-workspace-server" -> R.drawable.mcp_brand_protocol
+        "terminal-guardian-mcp" -> R.drawable.mcp_brand_protocol
+        "flyenv" -> R.drawable.mcp_brand_flyenv
+        "smart-connections-mcp" -> R.drawable.mcp_brand_protocol
+        "code-memory" -> R.drawable.mcp_brand_code_memory
+        "unreal-mcp" -> R.drawable.mcp_brand_unrealengine
+        "arcade-mcp" -> R.drawable.mcp_brand_protocol
+        "llm-server-docs" -> R.drawable.mcp_brand_protocol
+        "decisionnode" -> R.drawable.mcp_brand_protocol
+        "qodex" -> R.drawable.mcp_brand_protocol
+        "deskdrop" -> R.drawable.mcp_brand_protocol
         "airtable" -> R.drawable.mcp_brand_airtable
         "asana" -> R.drawable.mcp_brand_asana
         "brave" -> R.drawable.mcp_brand_brave

@@ -1026,7 +1026,9 @@ class ProviderAdaptersTest {
         model = "model-test"
     )
 
-    private fun attachmentEncoder() = ProviderAttachmentEncoder(ContextWrapper(null))
+    private fun attachmentEncoder() = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+        override fun gatewayPerformanceHeaders(): Map<String, String> = emptyMap()
+    }
 
     private fun List<AgentRunEvent>.providerText(): String = mapNotNull { event ->
         ((event as? AgentRunEvent.Provider)?.event as? ProviderEvent.TextDelta)?.text

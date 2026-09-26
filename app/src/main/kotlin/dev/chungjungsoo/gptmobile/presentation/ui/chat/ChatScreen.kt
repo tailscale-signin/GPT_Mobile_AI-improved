@@ -101,6 +101,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.TextStyle
@@ -192,6 +193,7 @@ fun ChatScreen(
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
     val isSelectTextSheetOpen by chatViewModel.isSelectTextSheetOpen.collectAsStateWithLifecycle()
     val selectedAttachments by chatViewModel.selectedAttachments.collectAsStateWithLifecycle()
+    val queuedPromptCount by chatViewModel.queuedPromptCount.collectAsStateWithLifecycle()
     val attachmentNotice by chatViewModel.attachmentNotice.collectAsStateWithLifecycle()
     val needsLocalNetworkAccess by chatViewModel.needsLocalNetworkAccess.collectAsStateWithLifecycle()
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
@@ -444,6 +446,7 @@ fun ChatScreen(
                 chatEnabled = canUseChat,
                 sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
                 isRunning = !isIdle,
+                queuedPromptCount = queuedPromptCount,
                 selectedAttachments = selectedAttachments,
                 onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
                 onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
@@ -844,7 +847,12 @@ private fun ChatMessagePair(
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
                     canEdit = canUseChat && isIdle,
-                    canRetry = !isCombinedConversation && canUseChat && isActiveMessage && !isCurrentPlatformLoading,
+                    canRetry = !isCombinedConversation &&
+                        canUseChat &&
+                        isActiveMessage &&
+                        !isCurrentPlatformLoading &&
+                        selectedPlatformUid in activePlatformUids &&
+                        selectedPlatformUid !in disabledPlatformUids,
                     isLoading = isActiveMessage && isCurrentPlatformLoading,
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
@@ -857,8 +865,15 @@ private fun ChatMessagePair(
                     agentRun = agentRun,
                     runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
                     toolEvents = toolEvents,
+                    locationToolEvents = locationEventsForResponse(
+                        selected = selectedAssistantMessage,
+                        responses = assistantMessages,
+                        combined = isCombinedConversation,
+                        activeProfileUids = activePlatformUids - disabledPlatformUids,
+                        eventsByRun = toolEventsByRun
+                    ),
                     contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}",
-                    revisionIndexLabel = selectedAssistantMessage?.takeIf { it.revisions.isNotEmpty() }?.let { assistantMessage ->
+                    revisionIndexLabel = selectedAssistantMessage?.takeIf { !isCombinedConversation && it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1
                         if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
                             stringResource(
@@ -1308,6 +1323,7 @@ fun ChatInputBox(
     chatEnabled: Boolean = true,
     sendButtonEnabled: Boolean = true,
     isRunning: Boolean = false,
+    queuedPromptCount: Int = 0,
     selectedAttachments: List<ChatAttachmentDraft> = emptyList(),
     onFileSelected: (String) -> Unit = {},
     onFileRemoved: (String) -> Unit = {},
@@ -1343,6 +1359,14 @@ fun ChatInputBox(
         shadowElevation = 2.dp
     ) {
         Column {
+            if (queuedPromptCount > 0) {
+                Text(
+                    text = pluralStringResource(R.plurals.chat_queued_prompts, queuedPromptCount, queuedPromptCount),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
             if (selectedAttachments.isNotEmpty()) {
                 FileThumbnailRow(
                     selectedAttachments = selectedAttachments,

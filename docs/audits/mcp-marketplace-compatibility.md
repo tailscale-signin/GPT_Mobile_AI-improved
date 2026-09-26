@@ -4,6 +4,8 @@ The Android app connects directly over Streamable HTTP. Installing an addon save
 
 Selection criteria: maintained primary repository, documented hosted HTTPS endpoint, native Streamable HTTP transport, authentication supported by the app, and a useful distinct tool set. Catalog metadata means documented compatibility, not a successful account authorization or current server health.
 
+Rechecked 2026-09-26 UTC against the linked repositories and provider documentation. The 12 hosted candidates remain in the active `data/catalog/McpPresetCatalog.kt` marketplace; no additional installs were needed to meet the ten-add-on request. The live probe results below are from the original 2026-09-25 audit, not newly authenticated tests. Tavily's repository documents Bearer keys; [Supabase's setup guide](https://supabase.com/docs/guides/ai-tools/mcp) documents PAT authentication; Stripe's guide specifies Agent API keys. Later additions and their deployment/account requirements are described in [marketplace expansion](../mcp-marketplace-expansion.md).
+
 ## Supported candidates
 
 | Addon / primary repository | Endpoint | Authentication | Live protocol check |

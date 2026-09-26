@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentRunNotice
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -19,12 +20,16 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentRetryResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
+import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -60,6 +65,8 @@ class ChatPromptQueueTest {
     private val submissions = mutableListOf<PersistAgentTurnRequest>()
     private val starts = mutableListOf<List<AgentRunRequest>>()
     private val synthesisGate = CompletableDeferred<Unit>()
+    private var membershipGate: CompletableDeferred<Unit>? = null
+    private var failMembershipUpdate = false
     private var nextId = 10
 
     @Before
@@ -184,6 +191,85 @@ class ChatPromptQueueTest {
         }
     }
 
+    @Test
+    fun `adding a profile releases a paused queue only after membership is saved and refreshes its tools`() = runTest(dispatcher) {
+        val model = createViewModel(availableProfileCount = 2)
+        runCurrent()
+        model.togglePlatformDisabled("profile-1")
+        send(model, "Waiting for another profile")
+        model.question.setTextAndPlaceCursorAtEnd("Unsent draft")
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        assertTrue(submissions.isEmpty())
+        assertTrue(model.availableChatTools.value.none { it.id == "profile-2-tools" })
+
+        membershipGate = CompletableDeferred()
+        model.setPlatformMembership("profile-2", true)
+        runCurrent()
+        assertEquals(listOf("profile-1"), model.activePlatformUids.value)
+        assertTrue(submissions.isEmpty())
+        membershipGate!!.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("Waiting for another profile"), submissions.map { it.userMessage.content })
+        assertEquals(listOf("profile-2"), starts.single().map { it.platform.uid })
+        assertEquals(listOf("profile-1", "profile-2"), model.enabledPlatformsInChat)
+        assertEquals("Unsent draft", model.question.text.toString())
+        assertTrue(model.availableChatTools.value.any { it.id == "profile-2-tools" })
+        assertEquals(0, model.queuedPromptCount.value)
+    }
+
+    @Test
+    fun `rapid membership updates use the last selection before starting queued work`() = runTest(dispatcher) {
+        val model = createViewModel(availableProfileCount = 3)
+        runCurrent()
+        model.togglePlatformDisabled("profile-1")
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        membershipGate = CompletableDeferred()
+
+        model.setPlatformMembership("profile-2", true)
+        runCurrent()
+        model.setPlatformMembership("profile-3", true)
+        model.setPlatformMembership("profile-2", false)
+        send(model, "Use the final selection")
+        runCurrent()
+        assertTrue(submissions.isEmpty())
+        membershipGate!!.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("profile-1", "profile-3"), model.activePlatformUids.value)
+        assertEquals(listOf("profile-3"), starts.single().map { it.platform.uid })
+        assertTrue(model.availableChatTools.value.none { it.id == "profile-2-tools" })
+    }
+
+    @Test
+    fun `failed membership changes keep the paused queue intact for a successful retry`() = runTest(dispatcher) {
+        val model = createViewModel(availableProfileCount = 2)
+        runCurrent()
+        model.togglePlatformDisabled("profile-1")
+        send(model, "Keep this prompt")
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        failMembershipUpdate = true
+        model.setPlatformMembership("profile-2", true)
+        runCurrent()
+
+        assertEquals(listOf("profile-1"), model.activePlatformUids.value)
+        assertEquals(setOf("profile-1"), model.disabledPlatformUids.value)
+        assertEquals(1, model.queuedPromptCount.value)
+        assertTrue(submissions.isEmpty())
+        failMembershipUpdate = false
+        model.setPlatformMembership("profile-2", true)
+        runCurrent()
+
+        assertEquals(listOf("Keep this prompt"), submissions.map { it.userMessage.content })
+        assertEquals(0, model.queuedPromptCount.value)
+    }
+
     private fun completePersistedRuns() {
         messages.value = messages.value.map { message ->
             if (message.platformType != null) message.copy(content = "Finished response") else message
@@ -191,8 +277,8 @@ class ChatPromptQueueTest {
         runs.value = runs.value.map { it.copy(status = AgentRunStatus.COMPLETED) }
     }
 
-    private fun createViewModel(combined: Boolean = false): ChatViewModel {
-        val profiles = (1..if (combined) 2 else 1).map { index ->
+    private fun createViewModel(combined: Boolean = false, availableProfileCount: Int = if (combined) 2 else 1): ChatViewModel {
+        val profiles = (1..availableProfileCount).map { index ->
             PlatformV2(
                 uid = "profile-$index",
                 name = "Profile $index",
@@ -202,17 +288,18 @@ class ChatPromptQueueTest {
                 model = "model-$index"
             )
         }
+        val members = profiles.take(if (combined) 2 else 1)
         val room = ChatRoomV2(
             id = 7,
             title = "Queue test",
-            enabledPlatform = profiles.map { it.uid },
-            activePlatform = profiles.map { it.uid },
+            enabledPlatform = members.map { it.uid },
+            activePlatform = members.map { it.uid },
             conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD
         )
-        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "First prompt", platformType = null)) + profiles.mapIndexed { index, profile ->
+        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "First prompt", platformType = null)) + members.mapIndexed { index, profile ->
             MessageV2(id = index + 2, chatId = 7, content = "", platformType = profile.uid, currentRunId = "first-$index")
         }
-        runs.value = profiles.mapIndexed { index, profile ->
+        runs.value = members.mapIndexed { index, profile ->
             AgentRun("first-$index", 7, 1, index + 2, profile.uid, profile.compatibleType.name, profile.model, AgentRunStatus.RUNNING)
         }
         activeRuns.value = runs.value.associate { it.runId to ActiveAgentRun(it.runId, 7, it.profileUid, it.assistantMessageId) }
@@ -223,6 +310,13 @@ class ChatPromptQueueTest {
         coEvery { repository.fetchChatListV2() } returns listOf(room)
         coEvery { repository.fetchMessagesV2(7) } answers { messages.value }
         coEvery { repository.fetchChatPlatformModels(7) } returns profiles.associate { it.uid to it.model }
+        coEvery { repository.updateChatPlatforms(any(), any()) } coAnswers {
+            membershipGate?.await()
+            check(!failMembershipUpdate) { "Database unavailable" }
+            val current = firstArg<ChatRoomV2>()
+            val active = secondArg<List<String>>()
+            current.copy(enabledPlatform = (current.enabledPlatform + active).distinct(), activePlatform = active)
+        }
         coEvery { repository.persistAgentTurn(any()) } answers {
             val request = firstArg<PersistAgentTurnRequest>()
             submissions += request
@@ -248,6 +342,7 @@ class ChatPromptQueueTest {
         }
         val settings = mockk<SettingRepository>(relaxed = true)
         coEvery { settings.fetchPlatformV2s() } returns profiles
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
         every { settings.observeDebugMode() } returns flowOf(false)
         every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings(automaticConversationTitles = false))
         val coordinator = mockk<AgentRunCoordinator>(relaxed = true)
@@ -262,10 +357,17 @@ class ChatPromptQueueTest {
         every { localModels.observeAll() } returns flowOf(emptyList())
         val catalog = mockk<ModelCatalogRepository>(relaxed = true)
         coEvery { catalog.getCachedVisibleEntries() } returns emptyList()
+        val tools = mockk<ToolConnectionRepository>(relaxed = true)
+        coEvery { tools.getAllConnections() } returns listOf(
+            ToolConnection("profile-2-tools", "research", "Research", ToolConnectionType.MCP, "https://example.com/mcp", ToolConnectionAuthType.NONE, null, null)
+        )
+        coEvery { tools.listBindingsByProfile("profile-2") } returns listOf(
+            AgentToolBinding("binding", "profile-2", "profile-2-tools", "search")
+        )
         return ChatViewModel(
-            SavedStateHandle(mapOf("chatRoomId" to 7, "enabledPlatforms" to profiles.joinToString(",") { it.uid })),
+            SavedStateHandle(mapOf("chatRoomId" to 7, "enabledPlatforms" to members.joinToString(",") { it.uid })),
             ApplicationProvider.getApplicationContext(), repository, settings, mockk(relaxed = true), coordinator,
-            mockk(relaxed = true), localModels, catalog
+            tools, localModels, catalog
         ).also { store.put("chat", it) }
     }
 }

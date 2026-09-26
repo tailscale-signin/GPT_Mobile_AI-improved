@@ -85,6 +85,7 @@ object ModelConstants {
         ClientType.GROQ -> "Groq"
         ClientType.OLLAMA -> "Ollama"
         ClientType.OPENROUTER -> "OpenRouter"
+        ClientType.FREE -> dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.default.displayName
         ClientType.CUSTOM -> ""
         ClientType.LITERT_LM -> "Local"
         ClientType.LLAMA -> "Llama"
@@ -97,6 +98,7 @@ object ModelConstants {
         ClientType.GROQ -> GROQ_API_URL
         ClientType.OLLAMA -> OLLAMA_API_URL
         ClientType.OPENROUTER -> OPENROUTER_API_URL
+        ClientType.FREE -> dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.default.apiUrl
         ClientType.CUSTOM -> ""
         ClientType.LITERT_LM -> ""
         ClientType.LLAMA -> LLAMA_API_URL
@@ -109,6 +111,7 @@ object ModelConstants {
         ClientType.GROQ -> GROQ_DEFAULT_MODEL
         ClientType.OLLAMA -> OLLAMA_DEFAULT_MODEL
         ClientType.OPENROUTER -> OPENROUTER_DEFAULT_MODEL
+        ClientType.FREE -> dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.default.model
         ClientType.CUSTOM -> ""
         ClientType.LITERT_LM -> ""
         ClientType.LLAMA -> LLAMA_DEFAULT_MODEL

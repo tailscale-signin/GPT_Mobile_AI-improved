@@ -76,6 +76,18 @@ import org.junit.Test
 
 class ProviderAdaptersTest {
     @Test
+    fun `Anthropic always receives non-empty content for a failed tool result`() = runBlocking {
+        val api = FakeAnthropicAPI(ArrayDeque(listOf(emptyFlow())))
+        val session = AnthropicMessagesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.ANTHROPIC))
+        val emptyError = AgentToolResult(call.callId, ToolResultContent.Text(""), true)
+        session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(emptyError)))).toList()
+        val result = api.requests.single().messages.last().content.single() as dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolResultContent
+        assertEquals(true, result.isError)
+        assertTrue(result.content.isNotBlank())
+        assertEquals(call.callId, result.toolUseId)
+    }
+
+    @Test
     fun `llama and ollama execute compatible completed calls and replay actual results`() = runBlocking {
         val completeMessage = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(
             """{"choices":[{"message":{"tool_calls":[{"function":{"name":"device_location","arguments":"{}"}}]},"finish_reason":"stop"}]}"""

@@ -13,6 +13,48 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ToolProgressAndBudgetTest {
+    @Test fun `search excerpts remain visible when a result is truncated`() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolOutputBytes = 48))
+        val tool = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("web_search", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("Kotlin documentation https://kotlinlang.org " + "snippet ".repeat(30)), false)
+        })
+        val result = tool.execute("search", buildJsonObject {})
+        assertTrue(result.outputBudgetExhausted)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("https://kotlinlang.org"))
+        val trace = (result.traceContent as ToolResultContent.Text).text
+        assertTrue(trace.contains("https://kotlinlang.org"))
+        assertTrue(trace.contains("truncated"))
+        val exhausted = tool.execute("read-next", buildJsonObject {})
+        assertTrue(exhausted.isError)
+        assertTrue(exhausted.outputBudgetExhausted)
+        assertEquals(OUTPUT_BUDGET_EXHAUSTED, (exhausted.content as ToolResultContent.Text).text)
+    }
+
+    @Test fun `zero or sub-codepoint budgets never produce an empty error`() = runBlocking {
+        for (bytes in listOf(0, 1, 3)) {
+            val tool = ToolExecutionBudget(AgentRunLimits(maxToolOutputBytes = bytes)).bind(object : AgentTool {
+                override val definition = AgentToolDefinition("read_url", "", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("😀"), true)
+            })
+            val result = tool.execute("read", buildJsonObject {})
+            assertTrue(result.isError)
+            assertTrue((result.content as ToolResultContent.Text).text.isNotBlank())
+        }
+    }
+
+    @Test fun `truncation preserves explicitly redacted trace content`() = runBlocking {
+        val tool = ToolExecutionBudget(AgentRunLimits(maxToolOutputBytes = 8)).bind(object : AgentTool {
+            override val definition = AgentToolDefinition("private", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("sensitive-result"), false, traceContent = ToolResultContent.Text("Hidden"))
+        })
+        val trace = (tool.execute("private", buildJsonObject {}).traceContent as ToolResultContent.Text).text
+        assertTrue(trace.startsWith("Hidden"))
+        assertFalse(trace.contains("sensitive"))
+    }
+
     @Test fun `progress occurs at ten distinct completions and includes failures without payloads`() {
         val tracker = ToolProgressTracker()
         (1..9).forEach { assertNull(tracker.complete("$it", "search", false)) }

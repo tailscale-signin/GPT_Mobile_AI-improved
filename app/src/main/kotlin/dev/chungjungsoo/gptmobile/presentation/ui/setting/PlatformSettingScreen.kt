@@ -93,9 +93,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
+import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
+import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
@@ -187,11 +190,21 @@ fun PlatformSettingScreen(
                     .verticalScroll(scrollState)
             ) {
                 val isLocalPlatform = platformData.compatibleType == ClientType.LITERT_LM
+                val isFreePlatform = platformData.compatibleType == ClientType.FREE
+                val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.supportsTools == true
                 val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
                 PreferenceSwitchWithContainer(
                     title = stringResource(if (isLocalPlatform) R.string.enable_platform else R.string.enable),
                     isChecked = platformData.enabled
                 ) { settingViewModel.toggleEnabled() }
+                if (isFreePlatform) {
+                    FreeProviderPicker(
+                        apiUrl = platformData.apiUrl,
+                        onProviderSelected = settingViewModel::selectFreeProvider,
+                        modifier = Modifier.padding(16.dp),
+                        enabled = platformData.enabled
+                    )
+                }
                 ProfileSectionTitle(
                     title = stringResource(
                         if (isLocalPlatform) R.string.profile_settings else R.string.connection_settings
@@ -266,7 +279,7 @@ fun PlatformSettingScreen(
                 }
                 // Endpoint and credentials belong to the parent provider connection.
                 // Standalone/legacy profiles keep their own connection fields for compatibility.
-                if (!isLocalPlatform && providerConnection == null) {
+                if (!isLocalPlatform && !isFreePlatform && providerConnection == null) {
                     SettingItem(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.api_url),
@@ -328,7 +341,7 @@ fun PlatformSettingScreen(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.api_model),
                     description = modelDescription,
-                    enabled = platformData.enabled,
+                    enabled = platformData.enabled && !isFreePlatform,
                     onItemClick = settingViewModel::openApiModelDialog,
                     showTrailingIcon = false,
                     showLeadingIcon = true,
@@ -441,7 +454,7 @@ fun PlatformSettingScreen(
                         )
                     }
                 )
-                if (!isLocalPlatform) {
+                if (!isLocalPlatform && !isFreePlatform) {
                     SettingItem(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.timeout),
@@ -534,7 +547,7 @@ fun PlatformSettingScreen(
                         }
                     )
                 }
-                if (!isLocalPlatform) {
+                if (!isLocalPlatform && !isFreePlatform) {
                     ExtendedThinkingSwitch(
                         modifier = Modifier.height(64.dp),
                         enabled = platformData.enabled,
@@ -587,7 +600,7 @@ fun PlatformSettingScreen(
                     title = stringResource(R.string.disable_all_tools),
                     description = stringResource(R.string.disable_all_tools_description),
                     icon = Icons.Default.Build,
-                    enabled = platformData.enabled,
+                    enabled = supportsTools && platformData.enabled,
                     isChecked = platformData.disableAllTools,
                     onCheckedChange = { settingViewModel.toggleDisableAllTools() }
                 )
@@ -598,7 +611,7 @@ fun PlatformSettingScreen(
                     title = stringResource(R.string.disable_remote_tools),
                     description = stringResource(R.string.disable_remote_tools_description),
                     icon = Icons.Default.Language,
-                    enabled = platformData.enabled && !platformData.disableAllTools,
+                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
                     isChecked = platformData.disableRemoteTools,
                     onCheckedChange = { settingViewModel.toggleDisableRemoteTools() }
                 )
@@ -608,7 +621,7 @@ fun PlatformSettingScreen(
                     title = stringResource(R.string.disable_local_tools),
                     description = stringResource(R.string.disable_local_tools_description),
                     icon = Icons.Default.Calculate,
-                    enabled = platformData.enabled && !platformData.disableAllTools,
+                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
                     isChecked = platformData.disableLocalTools,
                     onCheckedChange = { settingViewModel.toggleDisableLocalTools() }
                 )
@@ -619,7 +632,7 @@ fun PlatformSettingScreen(
                     description = toolBindingState.searchConnections.firstOrNull {
                         it.connectionUid == toolBindingState.selectedSearchConnectionUid
                     }?.name ?: stringResource(R.string.not_set),
-                    enabled = platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
+                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
                     onItemClick = settingViewModel::openSearchBackendDialog,
                     showTrailingIcon = true,
                     showLeadingIcon = false
@@ -628,7 +641,7 @@ fun PlatformSettingScreen(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.tool_trace_tool),
                     icon = ImageVector.vectorResource(id = R.drawable.ic_link),
-                    enabled = !platformData.disableAllTools && !platformData.disableRemoteTools,
+                    enabled = supportsTools && !platformData.disableAllTools && !platformData.disableRemoteTools,
                     isChecked = toolBindingState.readUrlEnabled,
                     onCheckedChange = settingViewModel::toggleReadUrl
                 )
@@ -637,8 +650,8 @@ fun PlatformSettingScreen(
                     title = "Device location",
                     description = "Allow this AI profile to request the phone's current GPS location when needed.",
                     icon = Icons.Default.LocationOn,
-                    enabled = platformData.enabled && !platformData.disableAllTools && !platformData.disableLocalTools,
-                    isChecked = toolBindingState.deviceLocationEnabled,
+                    enabled = !isFreePlatform && supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableLocalTools,
+                    isChecked = !isFreePlatform && toolBindingState.deviceLocationEnabled,
                     onCheckedChange = { enabled ->
                         if (!enabled) {
                             settingViewModel.toggleDeviceLocation(false)
@@ -667,8 +680,8 @@ fun PlatformSettingScreen(
                 SettingItem(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.mcp_tools),
-                    description = "${toolBindingState.selectedMcpTools.size} assigned",
-                    enabled = platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
+                    description = if (platformData.excludesMemory()) stringResource(R.string.free_ai_memory_off) else "${toolBindingState.selectedMcpTools.size} assigned",
+                    enabled = !platformData.excludesMemory() && supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
                     onItemClick = {
                         val needsPermission = toolBindingState.mcpConnections.any { connection ->
                             connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
@@ -688,7 +701,7 @@ fun PlatformSettingScreen(
                 )
 
                 // Advanced Settings: Maximum Tool Calls
-                PlatformMaxToolCallsSettingHost(settingViewModel)
+                if (supportsTools) PlatformMaxToolCallsSettingHost(settingViewModel)
 
                 PlatformNameDialog(dialogState, platformData.name, settingViewModel)
                 if (dialogState.isLabelsDialogOpen) {
@@ -699,7 +712,7 @@ fun PlatformSettingScreen(
                         onSave = settingViewModel::saveProfileLabels
                     )
                 }
-                if (!isLocalPlatform) {
+                if (!isLocalPlatform && !isFreePlatform) {
                     APIUrlDialog(dialogState, platformData.apiUrl, settingViewModel)
                     APIKeyDialog(dialogState, platformData.token, settingViewModel)
                     if (platformData.compatibleType == ClientType.OPENROUTER && dialogState.isApiModelDialogOpen) {
@@ -719,7 +732,7 @@ fun PlatformSettingScreen(
                         ModelDialog(dialogState, platformData.model, settingViewModel)
                     }
                     TimeoutDialog(dialogState, platformData.timeout, settingViewModel)
-                } else {
+                } else if (isLocalPlatform) {
                     LocalModelDialog(
                         dialogState = dialogState,
                         selectedCatalogEntryId = platformData.model,

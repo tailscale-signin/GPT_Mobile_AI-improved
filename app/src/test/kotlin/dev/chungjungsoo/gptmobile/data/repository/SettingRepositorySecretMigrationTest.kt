@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -20,6 +21,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingRepositorySecretMigrationTest {
+
+    @Test
+    fun `Free connection changes hydrate the pinned model and never retain credentials`() = runBlocking {
+        val profiles = FakePlatformV2Dao(mutableListOf())
+        val repository = SettingRepositoryImpl(FakeSettingDataSource(), profiles, FakeProviderConnectionDao(), FakeChatPlatformModelV2Dao(), FakeSecretVault())
+        val connection = repository.addProviderConnection(
+            dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection(name = "Free", compatibleType = ClientType.FREE, apiUrl = FreeAiProvider.KILO.apiUrl),
+            "must-not-be-stored"
+        )
+        assertNull(connection.secretRef)
+        val profile = FreeAiProvider.KILO.applyTo(platform(1, "free", "ignored", null)).copy(providerConnectionUid = connection.uid)
+        repository.addPlatformV2(profile)
+        assertEquals(FreeAiProvider.KILO.model, repository.getPlatformV2ById(1)?.model)
+        repository.updateProviderConnection(connection.copy(apiUrl = FreeAiProvider.OVHCLOUD.apiUrl), "ignored")
+        val restored = repository.getPlatformV2ById(1)!!
+        assertEquals(FreeAiProvider.OVHCLOUD.model, restored.model)
+        assertEquals(FreeAiProvider.OVHCLOUD.apiUrl, restored.apiUrl)
+        assertEquals(profile.uid, restored.uid)
+        assertNull(restored.token)
+        assertNull(repository.getProviderCredentials(connection.uid))
+    }
 
     @Test
     fun `provider key editor reads the shared pool and rejects missing secrets`() = runBlocking {

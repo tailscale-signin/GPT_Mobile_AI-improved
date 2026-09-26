@@ -3,21 +3,26 @@ package dev.chungjungsoo.gptmobile.data.network
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.Choice
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCreatedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseInProgressEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.UnknownEvent
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
@@ -29,6 +34,7 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readLine
 import java.io.File
+import java.net.URLEncoder
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -96,117 +102,160 @@ class OpenAIAPIImpl @Inject constructor(
     ): Flow<ChatCompletionChunk> = flow {
         var receivedAssistantPayload = false
         try {
+            val free = config.freeProvider
+            if (free != null) {
+                check(free.isAvailable) { "LLM7 is awaiting provider approval for use in this app. Choose another Free provider." }
+            }
+            val preparedRequest = if (free == null) {
+                request
+            } else {
+                request.copy(
+                    model = free.model,
+                    maxTokens = (request.maxTokens ?: free.maxOutputTokens).coerceIn(1, free.maxOutputTokens),
+                    maxCompletionTokens = null,
+                    tools = request.tools.takeIf { free.supportsTools },
+                    toolChoice = request.toolChoice.takeIf { free.supportsTools },
+                    models = null,
+                    provider = null,
+                    plugins = null,
+                    topK = null
+                )
+            }
+            if (free == FreeAiProvider.POLLINATIONS) {
+                val prompt = legacyPollinationsPrompt(preparedRequest)
+                val legacyResponse = FreeAiRequestLimiter.shared.withRequest(free) {
+                    networkClient().prepareGet("${free.apiUrl}/${URLEncoder.encode(prompt, "UTF-8").replace("+", "%20")}") {
+                        timeout { requestTimeoutMillis = timeoutSeconds.coerceIn(15, 120) * 1_000L }
+                        parameter("model", free.model)
+                        accept(ContentType.Text.Plain)
+                    }.execute { response ->
+                        if (response.status.value == 429) {
+                            throw FreeAiRateLimitException(free, FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter]))
+                        }
+                        check(response.status.isSuccess()) { "Pollinations legacy is unavailable (HTTP ${response.status.value}). Try another Free provider." }
+                        response.body<String>().also { check(it.isNotBlank()) { "Pollinations legacy returned an empty response." } }
+                    }
+                }
+                emit(ChatCompletionChunk(model = free.model, choices = listOf(Choice(delta = Delta(content = legacyResponse), finishReason = "stop"))))
+                return@flow
+            }
             val endpoint = config.buildEndpoint("chat/completions")
 
-            networkClient().preparePost(endpoint) {
-                applyPlatformStreamingTimeout(timeoutSeconds)
-                contentType(ContentType.Application.Json)
-                setBody(NetworkClient.openAIJson.encodeToString(request))
-                accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
-                config.token?.let { bearerAuth(it) }
-                config.extraHeaders.forEach { (key, value) -> header(key, value) }
-            }.execute { response ->
-                if (!response.status.isSuccess()) {
-                    val errorBody = response.body<String>()
-                    throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
-
-                    val errorMessage = try {
-                        val errorResponse = NetworkClient.openAIJson.decodeFromString<OpenAIErrorResponse>(errorBody)
-                        errorResponse.error.message
-                    } catch (_: Exception) {
-                        "HTTP ${response.status.value}: $errorBody"
+            val executeRequest: suspend () -> Unit = {
+                networkClient().preparePost(endpoint) {
+                    applyPlatformStreamingTimeout(timeoutSeconds)
+                    contentType(ContentType.Application.Json)
+                    setBody(NetworkClient.openAIJson.encodeToString(preparedRequest))
+                    accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
+                    config.token?.takeIf { it.isNotBlank() && free == null }?.let { bearerAuth(it) }
+                    config.extraHeaders.forEach { (key, value) -> header(key, value) }
+                }.execute { response ->
+                    if (free != null && response.status.value == 429) {
+                        throw FreeAiRateLimitException(free, FreeAiRequestLimiter.shared.defer(free, response.headers[HttpHeaders.RetryAfter]))
                     }
+                    if (!response.status.isSuccess()) {
+                        val errorBody = response.body<String>()
+                        throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
 
-                    emit(
-                        ChatCompletionChunk(
-                            error = ErrorDetail(
-                                message = config.readableProviderError(errorMessage, response.status.value.toString()),
-                                type = "http_error",
-                                code = response.status.value.toString()
+                        val errorMessage = try {
+                            val errorResponse = NetworkClient.openAIJson.decodeFromString<OpenAIErrorResponse>(errorBody)
+                            errorResponse.error.message
+                        } catch (_: Exception) {
+                            "HTTP ${response.status.value}: $errorBody"
+                        }
+
+                        emit(
+                            ChatCompletionChunk(
+                                error = ErrorDetail(
+                                    message = config.readableProviderError(errorMessage, response.status.value.toString()),
+                                    type = "http_error",
+                                    code = response.status.value.toString()
+                                )
                             )
                         )
-                    )
-                    return@execute
-                }
-
-                // Capture Gateway headers from response
-                val gatewayJobId = response.headers["X-Gateway-Job-ID"]
-                val gatewayRequestId = response.headers["X-Gateway-Request-ID"]
-                val gatewayVersion = response.headers["X-Gateway-Version"]
-                val gatewayProgressProtocol = response.headers["X-Gateway-Progress-Protocol"]
-                val gatewaySingleflight = response.headers["X-Gateway-Singleflight"]
-
-                val gatewayMetadata = if (gatewayJobId != null || gatewayRequestId != null || gatewayVersion != null) {
-                    GatewayResponseMetadata(
-                        jobId = gatewayJobId,
-                        requestId = gatewayRequestId,
-                        version = gatewayVersion,
-                        progressProtocol = gatewayProgressProtocol,
-                        singleflightRole = gatewaySingleflight
-                    )
-                } else {
-                    null
-                }
-
-                // llama.cpp and other compatible providers return choices[].message for stream=false.
-                val responseType = response.contentType()
-                if (responseType?.match(ContentType.Application.Json) == true ||
-                    (!request.stream && responseType?.match(ContentType.Text.EventStream) != true)
-                ) {
-                    val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(response.body<String>())
-                    val chunk = decoded.copy(
-                        choices = decoded.choices?.map { choice ->
-                            if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
-                        },
-                        gatewayMetadata = gatewayMetadata ?: decoded.gatewayMetadata,
-                        error = decoded.error?.let { error ->
-                            error.copy(message = config.readableProviderError(error.message, error.code))
-                        }
-                    )
-                    emit(chunk)
-                    return@execute
-                }
-
-                // If gateway metadata is present, emit an initial chunk carrying the metadata
-                var firstChunk = true
-                var receivedToolCalls = false
-
-                // Success - read SSE stream
-                val channel = response.bodyAsChannel()
-                while (!channel.isClosedForRead) {
-                    val line = channel.readLine() ?: break
-                    val data = SseUtils.extractSseData(line) ?: continue
-
-                    // OpenAI sends "[DONE]" as final message
-                    if (data == "[DONE]") {
-                        if (receivedToolCalls) emit(ChatCompletionChunk(streamFinished = true))
-                        break
+                        return@execute
                     }
 
-                    val decoded = try {
-                        NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
-                    } catch (_: kotlinx.serialization.SerializationException) {
-                        // Skip malformed data without swallowing collector failures or cancellation.
-                        continue
-                    }
-                    val chunk = decoded.error?.let { error ->
-                        decoded.copy(error = error.copy(message = config.readableProviderError(error.message, error.code)))
-                    } ?: decoded
-                    receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
-                    receivedToolCalls = receivedToolCalls || chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() }
-                    if (firstChunk && gatewayMetadata != null) {
-                        firstChunk = false
-                        emit(chunk.copy(gatewayMetadata = gatewayMetadata))
+                    // Capture Gateway headers from response
+                    val gatewayJobId = response.headers["X-Gateway-Job-ID"]
+                    val gatewayRequestId = response.headers["X-Gateway-Request-ID"]
+                    val gatewayVersion = response.headers["X-Gateway-Version"]
+                    val gatewayProgressProtocol = response.headers["X-Gateway-Progress-Protocol"]
+                    val gatewaySingleflight = response.headers["X-Gateway-Singleflight"]
+
+                    val gatewayMetadata = if (gatewayJobId != null || gatewayRequestId != null || gatewayVersion != null) {
+                        GatewayResponseMetadata(
+                            jobId = gatewayJobId,
+                            requestId = gatewayRequestId,
+                            version = gatewayVersion,
+                            progressProtocol = gatewayProgressProtocol,
+                            singleflightRole = gatewaySingleflight
+                        )
                     } else {
-                        emit(chunk)
+                        null
                     }
-                }
 
-                // If no chunks were emitted but metadata was present, emit a metadata chunk
-                if (firstChunk && gatewayMetadata != null) {
-                    emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
+                    // llama.cpp and other compatible providers return choices[].message for stream=false.
+                    val responseType = response.contentType()
+                    if (responseType?.match(ContentType.Application.Json) == true ||
+                        (!request.stream && responseType?.match(ContentType.Text.EventStream) != true)
+                    ) {
+                        val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(response.body<String>())
+                        val chunk = decoded.copy(
+                            choices = decoded.choices?.map { choice ->
+                                if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
+                            },
+                            gatewayMetadata = gatewayMetadata ?: decoded.gatewayMetadata,
+                            error = decoded.error?.let { error ->
+                                error.copy(message = config.readableProviderError(error.message, error.code))
+                            }
+                        )
+                        emit(chunk)
+                        return@execute
+                    }
+
+                    // If gateway metadata is present, emit an initial chunk carrying the metadata
+                    var firstChunk = true
+                    var receivedToolCalls = false
+
+                    // Success - read SSE stream
+                    val channel = response.bodyAsChannel()
+                    while (!channel.isClosedForRead) {
+                        val line = channel.readLine() ?: break
+                        val data = SseUtils.extractSseData(line) ?: continue
+
+                        // OpenAI sends "[DONE]" as final message
+                        if (data == "[DONE]") {
+                            if (receivedToolCalls) emit(ChatCompletionChunk(streamFinished = true))
+                            break
+                        }
+
+                        val decoded = try {
+                            NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                        } catch (_: kotlinx.serialization.SerializationException) {
+                            // Skip malformed data without swallowing collector failures or cancellation.
+                            continue
+                        }
+                        val chunk = decoded.error?.let { error ->
+                            decoded.copy(error = error.copy(message = config.readableProviderError(error.message, error.code)))
+                        } ?: decoded
+                        receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
+                        receivedToolCalls = receivedToolCalls || chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() }
+                        if (firstChunk && gatewayMetadata != null) {
+                            firstChunk = false
+                            emit(chunk.copy(gatewayMetadata = gatewayMetadata))
+                        } else {
+                            emit(chunk)
+                        }
+                    }
+
+                    // If no chunks were emitted but metadata was present, emit a metadata chunk
+                    if (firstChunk && gatewayMetadata != null) {
+                        emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
+                    }
                 }
             }
+            if (free != null) FreeAiRequestLimiter.shared.withRequest(free, executeRequest) else executeRequest()
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedAssistantPayload, e)) {

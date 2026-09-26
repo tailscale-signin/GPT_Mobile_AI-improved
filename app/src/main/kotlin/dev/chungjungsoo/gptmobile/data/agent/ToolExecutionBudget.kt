@@ -62,19 +62,55 @@ class ToolExecutionBudget(private val limits: AgentRunLimits) {
         }
         val size = (text + checkpoint).toByteArray(Charsets.UTF_8).size
         val available = remainingBytes.getAndUpdate { (it.toLong() - size).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
+        // Control messages are bounded separately: providers reject empty error results,
+        // and a zero payload allowance must still let the model finish the turn.
+        if (available == 0) {
+            return result.copy(
+                content = ToolResultContent.Text(OUTPUT_BUDGET_EXHAUSTED),
+                traceContent = ToolResultContent.Text(OUTPUT_BUDGET_EXHAUSTED),
+                isError = true,
+                outputBudgetExhausted = true
+            )
+        }
         val checkpointBytes = checkpoint.toByteArray(Charsets.UTF_8).size
         val bounded = if (checkpointBytes <= available) {
             truncateUtf8(text, available - checkpointBytes) + checkpoint
         } else {
             truncateUtf8(text, available)
         }
-        val changed = size > available || checkpoint.isNotEmpty()
+        val safeText = bounded.ifBlank {
+            if (size > available) {
+                OUTPUT_BUDGET_EXHAUSTED
+            } else if (result.isError) {
+                "Tool failed without error details."
+            } else {
+                "Tool returned no content."
+            }
+        }
+        val changed = size > available || checkpoint.isNotEmpty() || bounded.isBlank()
+        val trace = if (size > available) {
+            // Respect tools that deliberately supply a redacted trace; otherwise show
+            // the useful search/page excerpt as well as the truncation notice.
+            val excerpt = result.traceContent?.let { value ->
+                when (value) {
+                    is ToolResultContent.Text -> value.text
+                    is ToolResultContent.Json -> value.value.toString()
+                    is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { it.uri }
+                }
+            } ?: safeText
+            ToolResultContent.Text(truncateUtf8(excerpt, available) + "\n\n[Result truncated to the run's output budget.]")
+        } else {
+            result.traceContent
+        }
         return result.copy(
-            content = if (changed) ToolResultContent.Text(bounded) else result.content,
-            traceContent = if (size > available) ToolResultContent.Text("Result truncated to the run's output budget.") else result.traceContent
+            content = if (changed) ToolResultContent.Text(safeText) else result.content,
+            traceContent = trace,
+            outputBudgetExhausted = size >= available
         )
     }
 }
+
+internal const val OUTPUT_BUDGET_EXHAUSTED = "Tool result budget exhausted. Answer using the results already available; do not call more tools."
 
 internal fun truncateUtf8(text: String, maxBytes: Int): String {
     if (maxBytes <= 0) return ""

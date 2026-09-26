@@ -785,4 +785,19 @@
     <string name="pair_server_link">Pairing link from your computer</string>
     <string name="pair_server_review">Review destination</string>
     <string name="context_apply_detected">Apply detected context ceiling</string>
+    <string name="free_ai">Free</string>
+    <string name="free_ai_description">Try AI without an account or API key. Choose a provider; memory stays off.</string>
+    <string name="free_ai_no_account">No account · No API key</string>
+    <string name="free_ai_provider">Free provider</string>
+    <string name="free_ai_model">Model: %1$s</string>
+    <string name="free_ai_memory_off">Memory is always off</string>
+    <string name="free_ai_memory_description">Free profiles do not capture or recall saved facts, workspace knowledge, or connected memory.</string>
+    <string name="free_ai_public_prompts">Use public, non-sensitive prompts. Personal files, location, connected tools, and model delegation stay off. Free availability and limits can change.</string>
+    <string name="free_ai_kilo_description">Automatic free model · up to 200 requests per hour per IP. Public web tools supported.</string>
+    <string name="free_ai_pollinations_description">Legacy text chat · replies arrive when complete. One request at a time; availability may change.</string>
+    <string name="free_ai_ovh_description">Text chat and public web tools · 2 requests per minute per IP and model.</string>
+    <string name="free_ai_llm7_description">Experimental text chat · up to 60 requests per hour and 500,000 tokens per day.</string>
+    <string name="free_ai_awaiting_approval">Awaiting provider approval</string>
+    <string name="free_ai_approval_description">LLM7 requires provider approval for use in this app. Choose another Free provider for now.</string>
+    <string name="free_ai_switch_failed">Could not switch Free provider. Please try again.</string>
 </resources>

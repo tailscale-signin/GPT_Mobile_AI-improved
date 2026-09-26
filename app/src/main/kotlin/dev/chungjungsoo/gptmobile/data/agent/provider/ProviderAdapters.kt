@@ -301,7 +301,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val activeKey = candidateKeys[keyIndex]
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
-                        token = activeKey,
+                        token = activeKey.takeIf { it.isNotBlank() && platform.compatibleType != ClientType.FREE },
+                        freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
                         extraHeaders = openRouterHeaders + llamaGatewayHeaders
                     )
                     var roundFailed = false
@@ -1119,7 +1120,7 @@ private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): S
     is ToolResultContent.Text -> value.text
     is ToolResultContent.Json -> value.value.toString()
     is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
-}
+}.ifBlank { if (isError) "Tool failed without error details." else "Tool returned no content." }
 
 private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelJson(): JsonObject = when (val value = content) {
     is ToolResultContent.Json -> value.value.asResponseObject()

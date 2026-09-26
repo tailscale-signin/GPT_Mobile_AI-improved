@@ -54,13 +54,26 @@ class ModelDelegationToolTest {
     }
 
     @Test
-    fun permitsAllProviderTypesWhenConfiguredAndRejectsOversizedInput() = runTest {
-        for (type in ClientType.entries) {
+    fun permitsNonFreeProviderTypesWhenConfiguredAndRejectsOversizedInput() = runTest {
+        for (type in ClientType.entries.filterNot { it == ClientType.FREE }) {
             val tool = ModelDelegationTool(source, { enabled.copy(localPlatformsOnly = false) }, { listOf(target.copy(compatibleType = type)) }) { _, _, _ -> "OK" }
             assertFalse(type.name, tool.execute("1", task).isError)
         }
         val tool = ModelDelegationTool(source, { enabled }, { listOf(target) }) { _, _, _ -> error("Must not run") }
         assertTrue(tool.execute("1", buildJsonObject { put("task", "x".repeat(8001)) }).isError)
+    }
+
+    @Test
+    fun freeTargetsNeverReceiveDelegatedContextEvenWhenCloudDelegationIsEnabled() = runTest {
+        val targets = listOf(
+            target.copy(compatibleType = ClientType.FREE),
+            target.copy(compatibleType = ClientType.OPENROUTER, model = "model:free"),
+            target.copy(compatibleType = ClientType.CUSTOM, model = "kilo-auto/free")
+        )
+        for (free in targets) {
+            val tool = ModelDelegationTool(source, { enabled.copy(localPlatformsOnly = false) }, { listOf(free) }) { _, _, _ -> error("Free targets must not receive delegated context") }
+            assertTrue(tool.execute("free", task).isError)
+        }
     }
 
     @Test

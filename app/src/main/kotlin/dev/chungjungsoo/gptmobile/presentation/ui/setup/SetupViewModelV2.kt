@@ -12,7 +12,7 @@ import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceTokenStore
 import dev.chungjungsoo.gptmobile.data.localmodel.GatedDownloadCoordinator
 import dev.chungjungsoo.gptmobile.data.localruntime.localSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.repository.LocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.ModelCatalogRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -156,12 +156,22 @@ class SetupViewModelV2 @Inject constructor(
     }
 
     fun findExistingApiKeyFor(clientType: ClientType): String {
-        if (clientType == ClientType.LITERT_LM) return ""
+        if (clientType == ClientType.LITERT_LM || clientType == ClientType.FREE) return ""
         val matchingPlatform = _platforms.value.firstOrNull {
             it.compatibleType == clientType && !it.token.isNullOrBlank()
         }
         return matchingPlatform?.token.orEmpty()
     }
+
+    fun selectFreeProvider(provider: FreeAiProvider) {
+        val previous = FreeAiProvider.fromApiUrl(_apiUrl.value)
+        if (_platformName.value == previous?.displayName || _platformName.value == "Free") _platformName.value = provider.displayName
+        _apiUrl.value = provider.apiUrl
+        _model.value = provider.model
+        _apiKey.value = ""
+    }
+
+    private fun skipsApiKey(): Boolean = isLiteRtLm() || _selectedClientType.value == ClientType.FREE
 
     fun updatePlatformName(name: String) {
         _platformName.value = name
@@ -214,7 +224,7 @@ class SetupViewModelV2 @Inject constructor(
     fun isWaitingForModelDownload(): Boolean = isWaitingForDownload.value
 
     fun nextWizardStep() {
-        if (isLiteRtLm() && _wizardStep.value == WIZARD_STEP_BASICS) {
+        if (skipsApiKey() && _wizardStep.value == WIZARD_STEP_BASICS) {
             _wizardStep.value = WIZARD_STEP_MODEL
         } else {
             _wizardStep.update { it + 1 }
@@ -222,7 +232,7 @@ class SetupViewModelV2 @Inject constructor(
     }
 
     fun previousWizardStep() {
-        if (isLiteRtLm() && _wizardStep.value == WIZARD_STEP_MODEL) {
+        if (skipsApiKey() && _wizardStep.value == WIZARD_STEP_MODEL) {
             _wizardStep.value = WIZARD_STEP_BASICS
         } else {
             _wizardStep.update { maxOf(0, it - 1) }
@@ -273,7 +283,10 @@ class SetupViewModelV2 @Inject constructor(
                     stream = true,
                     reasoning = false,
                     timeout = 30
-                )
+                ).let { profile ->
+                    if (clientType == ClientType.FREE) FreeAiProvider.requireFor(profile).applyTo(profile).copy(maxToolCalls = 8, timeout = 120) else profile
+                }
+                require(clientType != ClientType.FREE || FreeAiProvider.requireFor(platform).isAvailable) { "Choose an available Free provider." }
                 settingRepository.addPlatformV2(platform)
                 loadPlatforms()
                 _saveStatus.value = SaveStatus.Success
@@ -313,9 +326,9 @@ class SetupViewModelV2 @Inject constructor(
 
     fun isLiteRtLm(): Boolean = _selectedClientType.value == ClientType.LITERT_LM
 
-    fun wizardTotalSteps(): Int = if (isLiteRtLm()) WIZARD_LOCAL_STEPS else WIZARD_TOTAL_STEPS
+    fun wizardTotalSteps(): Int = if (skipsApiKey()) WIZARD_LOCAL_STEPS else WIZARD_TOTAL_STEPS
 
-    fun wizardDisplayStep(): Int = if (isLiteRtLm() && _wizardStep.value == WIZARD_STEP_MODEL) {
+    fun wizardDisplayStep(): Int = if (skipsApiKey() && _wizardStep.value == WIZARD_STEP_MODEL) {
         1
     } else {
         _wizardStep.value
@@ -342,7 +355,7 @@ class SetupViewModelV2 @Inject constructor(
 
         WIZARD_STEP_API_KEY -> true
 
-        WIZARD_STEP_MODEL -> modelName.isNotBlank()
+        WIZARD_STEP_MODEL -> modelName.isNotBlank() && (clientType != ClientType.FREE || FreeAiProvider.fromApiUrl(apiUrl)?.isAvailable == true)
 
         else -> false
     }

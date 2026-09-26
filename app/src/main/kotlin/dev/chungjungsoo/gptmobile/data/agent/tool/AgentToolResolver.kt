@@ -12,6 +12,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
+import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
@@ -77,18 +79,21 @@ class AgentToolResolver @Inject constructor(
             return emptyList()
         }
 
+        val freeProfile = platform?.compatibleType == ClientType.FREE
+        val memoryExcluded = platform?.excludesMemory() == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
         val featureSettings = settingRepository.getFeatureSettings()
-        val allowRemoteMcp = !disableRemote && featureSettings.remoteMcpConnections
-        val allowDeviceLocation = !disableLocal && featureSettings.deviceLocationTool
+        val allowRemoteMcp = !disableRemote && !memoryExcluded && featureSettings.remoteMcpConnections
+        val allowDeviceLocation = !disableLocal && !freeProfile && featureSettings.deviceLocationTool
 
         // Baseline zero-config tools available out of the box to all models
         val defaultWebSearch = WebSearchTool(
             config = WebSearchProviderConfig(
                 provider = WebSearchProvider.AUTO,
                 bearerToken = "",
-                endpointUrl = "http://127.0.0.1:8000/search"
+                endpointUrl = "http://127.0.0.1:8000/search",
+                allowLocalSearch = !memoryExcluded
             ),
             networkClient = networkClient
         )
@@ -96,7 +101,7 @@ class AgentToolResolver @Inject constructor(
         val resolved = mutableListOf<ResolvedAgentTool>()
 
         if (!disableLocal) {
-            if (factVault != null && userMessage != null && platform != null) {
+            if (!memoryExcluded && factVault != null && userMessage != null && platform != null) {
                 val memoryAvailable = try {
                     factVault.load()
                     factVault.state.value.enabled
@@ -112,18 +117,18 @@ class AgentToolResolver @Inject constructor(
                     }
                 }
             }
-            if (featureSettings.delegation.enabled && delegate != null && platform != null) {
+            if (!freeProfile && featureSettings.delegation.enabled && delegate != null && platform != null) {
                 val tool = ModelDelegationTool(platform, { settingRepository.getFeatureSettings().delegation }, { settingRepository.fetchPlatformV2s() }, delegate)
                 resolved += tool.resolved(null, "Model delegation", tool.definition.name)
             }
             resolved += CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
             resolved += CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
-            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
+            if (!freeProfile) resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
         }
 
         if (!disableRemote) {
             resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
-            resolved += GitHubTool().resolved(null, null, BuiltInAgentTool.GITHUB)
+            if (!freeProfile) resolved += GitHubTool().resolved(null, null, BuiltInAgentTool.GITHUB)
             resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
         }
 
@@ -133,6 +138,7 @@ class AgentToolResolver @Inject constructor(
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
             .distinctBy { it.binding.toolName }
             .forEach { binding ->
+                if (freeProfile && binding.binding.toolName !in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.CURRENT_DATE, BuiltInAgentTool.CALCULATE_EXPRESSION)) return@forEach
                 val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
                 val isLocalBinding = !isRemoteBinding
                 if ((isRemoteBinding && !disableRemote) || (isLocalBinding && !disableLocal)) {

@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelListItem
@@ -112,7 +113,7 @@ fun SetupPlatformWizardScreen(
             WizardProgressIndicator(
                 currentStep = setupViewModel.wizardDisplayStep(),
                 totalSteps = setupViewModel.wizardTotalSteps(),
-                isLocalPlatform = selectedClientType == ClientType.LITERT_LM
+                isLocalPlatform = selectedClientType == ClientType.LITERT_LM || selectedClientType == ClientType.FREE
             )
 
             // Step content
@@ -141,7 +142,7 @@ fun SetupPlatformWizardScreen(
                             onPlatformNameChange = setupViewModel::updatePlatformName,
                             apiUrl = currentApiUrl,
                             onApiUrlChange = setupViewModel::updateApiUrl,
-                            isApiUrlVisible = selectedClientType != ClientType.LITERT_LM
+                            isApiUrlVisible = selectedClientType != ClientType.LITERT_LM && selectedClientType != ClientType.FREE
                         )
                     }
 
@@ -158,7 +159,12 @@ fun SetupPlatformWizardScreen(
                     WIZARD_STEP_MODEL -> {
                         // Collect model state directly inside AnimatedContent for proper recomposition
                         val currentModel by setupViewModel.model.collectAsStateWithLifecycle()
-                        if (selectedClientType == ClientType.LITERT_LM) {
+                        if (selectedClientType == ClientType.FREE) {
+                            val freeUrl by setupViewModel.apiUrl.collectAsStateWithLifecycle()
+                            Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
+                                FreeProviderPicker(apiUrl = freeUrl, onProviderSelected = setupViewModel::selectFreeProvider)
+                            }
+                        } else if (selectedClientType == ClientType.LITERT_LM) {
                             LocalModelStep(
                                 items = catalogModels,
                                 selectedCatalogEntryId = currentModel,
@@ -670,7 +676,7 @@ private fun getApiHelpUrl(clientType: ClientType): String? = when (clientType) {
     ClientType.GROQ -> "https://console.groq.com/keys"
     ClientType.OLLAMA -> "https://ollama.com/blog/openai-compatibility"
     ClientType.OPENROUTER -> "https://openrouter.ai/keys"
-    ClientType.CUSTOM -> null
+    ClientType.FREE, ClientType.CUSTOM -> null
     ClientType.LITERT_LM -> null
     ClientType.LLAMA -> "https://llama.meta.com/"
 }

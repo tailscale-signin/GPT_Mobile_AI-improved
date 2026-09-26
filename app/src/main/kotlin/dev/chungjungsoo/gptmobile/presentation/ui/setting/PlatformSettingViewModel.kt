@@ -20,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.localruntime.localSamplingDefaults
 import dev.chungjungsoo.gptmobile.data.localruntime.resolvedEngineMaxTokens
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.ProfileLabel
 import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
@@ -326,6 +327,30 @@ class PlatformSettingViewModel @Inject constructor(
     fun updatePlatform(platform: PlatformV2) {
         viewModelScope.launch {
             settingRepository.updatePlatformV2(platform)
+        }
+    }
+
+    fun selectFreeProvider(provider: FreeAiProvider) {
+        val platform = platformState.value ?: return
+        if (platform.compatibleType != ClientType.FREE) return
+        if (!provider.isAvailable) {
+            _userMessage.value = R.string.free_ai_approval_description
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val connection = settingRepository.fetchProviderConnections().firstOrNull {
+                    it.compatibleType == ClientType.FREE && FreeAiProvider.fromApiUrl(it.apiUrl) == provider
+                } ?: settingRepository.addProviderConnection(
+                    ProviderConnection(name = provider.displayName, compatibleType = ClientType.FREE, apiUrl = provider.apiUrl),
+                    credential = null
+                )
+                settingRepository.updatePlatformV2(provider.applyTo(platform).copy(providerConnectionUid = connection.uid))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _userMessage.value = R.string.free_ai_switch_failed
+            }
         }
     }
 

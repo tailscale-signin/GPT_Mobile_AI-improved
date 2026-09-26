@@ -50,6 +50,12 @@ private data class SetupProviderGroup(
 
 private val setupProviderGroups = listOf(
     SetupProviderGroup(
+        title = "Free",
+        description = "No account or API key. Memory stays off.",
+        icon = Icons.Default.Cloud,
+        items = listOf(PlatformTypeInfo(ClientType.FREE, R.string.free_ai, R.string.free_ai_description))
+    ),
+    SetupProviderGroup(
         title = "Hosted AI providers",
         description = "Connect directly to managed cloud APIs.",
         icon = Icons.Default.Cloud,

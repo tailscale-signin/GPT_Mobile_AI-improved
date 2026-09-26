@@ -22,6 +22,32 @@ import org.junit.Test
 
 class AgentRunnerTest {
     @Test
+    fun `context guard reserves a final answer and asks to continue`() = runBlocking {
+        val exposed = mutableListOf<Int>()
+        var rounds = 0
+        val session = session { tools, exchanges ->
+            exposed += tools.size
+            if (rounds++ == 0) {
+                flow {
+                    emit(toolCall("context-call"))
+                    emit(ProviderEvent.Completed)
+                }
+            } else {
+                flow {
+                    assertTrue(exchanges.last().results.last().content.toString().contains("ask whether the user wants to continue"))
+                    emit(ProviderEvent.TextDelta("Here are my findings. Continue?"))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        }
+        val tool = tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("source ".repeat(40)), false) }
+        val events = AgentRunner(AgentRunLimits(contextTokens = 2048, initialContextTokens = 1600, finalResponseReserveTokens = 256)).run(session, listOf(tool)).toList()
+        assertEquals(listOf(1, 0), exposed)
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
+    @Test
     fun `exhausted search output closes tool use and requests the final answer`() = runBlocking {
         val limits = AgentRunLimits(maxToolOutputBytes = 32)
         val bound = ToolExecutionBudget(limits).bind(

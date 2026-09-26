@@ -68,8 +68,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
-import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
-import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelCatalogPicker
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import kotlinx.serialization.encodeToString
@@ -116,9 +114,7 @@ fun AddPlatformScreen(
     val selectedLocalModelId by viewModel.selectedCatalogEntryId.collectAsStateWithLifecycle()
     val canSave by viewModel.canSave.collectAsStateWithLifecycle()
     val isWaitingForDownload by viewModel.isWaitingForDownload.collectAsStateWithLifecycle()
-    val requestDownload = rememberLocalModelDownloader { entry ->
-        viewModel.selectLocalModel(entry.id)
-    }
+
     val isLocalPlatform = selectedClientType == ClientType.LITERT_LM
     val title = stringResource(if (step == AddPlatformStep.API_TYPE) R.string.choose_platform_type else R.string.platform_details)
     val hasProviderConnection = selectedConnectionUid != null || (createNewConnection && apiUrl.isNotBlank())
@@ -569,14 +565,7 @@ fun AddPlatformScreen(
                         selectedCatalogEntryId = selectedLocalModelId,
                         checkingAccessEntryId = downloadState.checkingAccessEntryId,
                         showPendingActivationHint = isWaitingForDownload,
-                        onModelSelected = { catalogEntryId ->
-                            val entry = catalogModels.firstOrNull { it.entry.id == catalogEntryId }?.entry
-                            if (entry != null) {
-                                requestDownload(entry)
-                            } else {
-                                viewModel.selectLocalModel(catalogEntryId)
-                            }
-                        },
+                        onModelSelected = viewModel::selectLocalModel,
                         onNavigateToLocalModels = onNavigateToLocalModels
                     )
                     CreativitySlider(
@@ -622,19 +611,6 @@ fun AddPlatformScreen(
             }
         )
     }
-
-    LocalModelDownloadDialogHost(
-        dialog = downloadState.dialog,
-        onConfirmRamWarning = viewModel::confirmRamWarning,
-        onConfirmMeteredDownload = viewModel::confirmMeteredDownload,
-        onDismissDialog = viewModel::dismissDownloadDialog,
-        onStartSignIn = viewModel::startHuggingFaceSignIn,
-        onAuthActivityResult = viewModel::onAuthActivityResult,
-        onLicenseTabClosed = viewModel::onLicenseTabClosed,
-        onRetryAfterLicense = viewModel::retryAfterLicense,
-        onEnterAccessToken = viewModel::openAccessTokenDialog,
-        onSaveAccessToken = viewModel::saveHuggingFaceAccessToken
-    )
 }
 
 private fun suggestedModels(clientType: ClientType): List<String> = when (clientType) {

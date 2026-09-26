@@ -108,7 +108,7 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
                         Text("${numbers.format(row.inputTokens)} input / ${numbers.format(row.outputTokens)} output tokens · ${row.estimatedRequests} estimates", style = MaterialTheme.typography.bodySmall)
                         Text("Latency p50 ${formatLatency(row.medianLatencyMs)} · p95 ${formatLatency(row.p95LatencyMs)}", style = MaterialTheme.typography.bodySmall)
                         LinearProgressIndicator(progress = { (row.p95LatencyMs ?: 0).toFloat() / maximum }, modifier = Modifier.fillMaxWidth().height(8.dp), color = color)
-                        Text("First token p50 ${formatLatency(row.medianFirstTokenMs)} · p95 ${formatLatency(row.p95FirstTokenMs)}", style = MaterialTheme.typography.bodySmall)
+                        Text("First text token p50 ${formatLatency(row.medianFirstTokenMs)} · p95 ${formatLatency(row.p95FirstTokenMs)}", style = MaterialTheme.typography.bodySmall)
                         Text(row.outputTokensPerSecond?.let { "%.1f reported output tokens / second".format(it) } ?: "Throughput unavailable until a provider reports tokens", style = MaterialTheme.typography.labelSmall)
                     }
                     Text("Latency measures complete model requests. Throughput uses reported output tokens / request duration, including time to first token. p95 uses the nearest-rank percentile. Estimates are not billing totals.", style = MaterialTheme.typography.labelSmall)

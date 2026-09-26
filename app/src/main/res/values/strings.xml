@@ -2,7 +2,6 @@
 <resources>
     <string name="app_name">GPT Mobile</string>
     <string name="quick_settings_tile_name">GPT Assistant</string>
-    <string name="voice_assistant_name">GPT Voice Assistant</string>
     <string name="user">User</string>
     <string name="assistant">Assistant</string>
     <string name="send">Send</string>
@@ -692,16 +691,6 @@
     <string name="queue_cancel">Cancel</string>
     <string name="timeline_thinking">Thinking</string>
     <string name="timeline_progress">Progress</string>
-    <string name="knowledge_workspaces">Project knowledge</string>
-    <string name="knowledge_description">Organize chats, documents and instructions. Relevant excerpts are sent only to models in chats assigned to that project. Search runs on this device.</string>
-    <string name="knowledge_create">Create project</string>
-    <string name="knowledge_import">Add document</string>
-    <string name="knowledge_chats">Choose project conversations</string>
-    <string name="knowledge_delete">Delete project</string>
-    <string name="knowledge_delete_note">Remove this project, instructions and indexed documents? Conversations are kept.</string>
-    <string name="knowledge_chat_documents">Documents indexed from conversations</string>
-    <string name="knowledge_name">Project name</string>
-    <string name="knowledge_instructions">Project instructions</string>
     <string name="tool_approval_title">Allow tool action?</string>
     <string name="tool_approval_body">%1$s on %2$s may change data. Only approve actions you requested. Manage trusted read tools in Settings → Tool connections.</string>
     <string name="tool_approval_allow">Allow once</string>
@@ -760,21 +749,6 @@
     <string name="local_tools_settings_panel_label_11">Provider usage or server-side tools may incur costs. Remote gateways must honor tool_choice=none; use a direct inference endpoint for strict isolation.</string>
     <string name="local_tools_settings_panel_label_12">Close</string>
     <string name="local_tools_settings_panel_label_13">Save</string>
-    <string name="voice_unavailable">On-device speech recognition is unavailable. Choose an installed speech service or use the keyboard.</string>
-    <string name="voice_listening">Listening…</string>
-    <string name="voice_transcribing">Transcribing…</string>
-    <string name="voice_generating">Generating…</string>
-    <string name="voice_stopped">Voice stopped</string>
-    <string name="voice_denied">Microphone permission was denied. You can continue typing.</string>
-    <string name="voice_audio_busy">Audio is in use by another app. Try voice again when it is available.</string>
-    <string name="voice_offline_playback_missing">Offline speech playback is unavailable. Responses remain available in chat.</string>
-    <string name="voice_speaking">Speaking…</string>
-    <string name="voice_playback_failed">Speech playback failed. The response is available in chat.</string>
-    <string name="voice_interrupt">Speak / interrupt</string>
-    <string name="voice_conversation">Voice conversation</string>
-    <string name="voice_stop">Stop voice</string>
-    <string name="voice_system_service">Use installed speech service (may send audio to its server)</string>
-    <string name="voice_recognition_error">Speech stopped (%1$d). Tap Speak to retry.</string>
     <string name="pair_server_title">Pair a local model server</string>
     <string name="pair_server_invalid">This pairing link is invalid or expired. Generate a new code on your computer.</string>
     <string name="pair_server_preview">Check this destination before continuing. Use HTTP pairing only on a trusted LAN or encrypted private network. The code expires and can be used once. No messages, memories or provider credentials are sent.</string>

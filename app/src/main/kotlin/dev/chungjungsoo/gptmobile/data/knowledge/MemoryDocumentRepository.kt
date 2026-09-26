@@ -50,7 +50,8 @@ class MemoryDocumentRepository @Inject constructor(database: ChatDatabaseV2) {
     }
 
     suspend fun search(query: String, chatId: Int?, maxCharacters: Int = 6000): String {
-        val chunks = if (chatId != null) dao.scopedChunks(chatId, null) else dao.memoryChunks()
+        val terms = query.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length > 1 }.distinct().take(8)
+        val chunks = terms.flatMap { dao.matchingMemoryChunks("%$it%", chatId) }.distinctBy { it.id }
         val engine = DocumentRagEngine()
         engine.indexChunks(chunks.map { DocumentRagEngine.DocumentChunk(it.documentId, it.chunkIndex, it.text) })
         val matches = engine.searchKeyword(query.take(1000), topK = 8)

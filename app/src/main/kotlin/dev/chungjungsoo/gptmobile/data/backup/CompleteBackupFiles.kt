@@ -5,7 +5,7 @@ import java.util.UUID
 
 internal class CompleteBackupFiles(roots: Map<String, File>) {
     private val roots = roots.mapValues { it.value.canonicalFile }
-    private val excluded = setOf("datastore", "backup", "backups")
+    private val excluded = setOf("datastore", "backup", "backups", "diagnostics")
 
     fun collect(): MutableMap<String, File> = buildMap {
         roots.entries.distinctBy { it.value }.forEach { (name, root) ->

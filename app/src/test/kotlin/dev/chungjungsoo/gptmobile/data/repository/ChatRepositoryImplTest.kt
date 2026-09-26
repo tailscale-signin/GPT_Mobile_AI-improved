@@ -699,7 +699,8 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Search", platformType = null)),
             assistantMessages = emptyList(),
             platform = customPlatform(),
-            runId = "run-web"
+            runId = "run-web",
+            chatToolConfig = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(connection.connectionUid))
         ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
@@ -717,14 +718,14 @@ class ChatRepositoryImplTest {
         assertTrue(completedMetrics?.durationMs != null)
         assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(
-            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            listOf("web_search"),
             openAIAPI.requests.first().tools!!.map { it.function.name }.sorted()
         )
         assertEquals("call_exact", openAIAPI.requests.last().messages.takeLast(2).first().toolCalls!!.single().id)
         val event = traceDao.events.single()
         assertEquals("run-web", event.runId)
         assertEquals("call_exact", event.callId)
-        assertEquals("Fixture search", event.connectionNameSnapshot)
+        assertEquals("Multi-engine search", event.connectionNameSnapshot)
         assertEquals(ToolEventStatus.FAILED, event.status)
         assertTrue(event.result.orEmpty().contains("missing credential"))
     }

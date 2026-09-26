@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +53,10 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
 import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,6 +76,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
     var deleting by remember { mutableStateOf<String?>(null) }
     var clearing by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val settings = vault.settings
     Scaffold(topBar = {
         TopAppBar(
@@ -170,13 +176,26 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                                 Text("Chat ${entry.chatId} · ${attachment.sizeBytes / 1024} KB · ${if (indexed != null) "Indexed" else "Original attachment"}", style = MaterialTheme.typography.labelSmall)
                                 Row {
                                     TextButton(onClick = {
-                                        try {
-                                            val file = File(attachment.filePathForDisplay)
-                                            require(file.exists())
-                                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                                            context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, attachment.mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                                        } catch (_: Exception) {
-                                            Toast.makeText(context, "The original file or a compatible viewer is unavailable.", Toast.LENGTH_LONG).show()
+                                        scope.launch {
+                                            try {
+                                                val file = File(attachment.filePathForDisplay)
+                                                require(file.isFile)
+                                                val uri = try {
+                                                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                                } catch (_: IllegalArgumentException) {
+                                                    val preview = withContext(Dispatchers.IO) {
+                                                        val folder = File(context.cacheDir, "attachment-previews").also { it.mkdirs() }
+                                                        folder.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }?.forEach { it.delete() }
+                                                        file.copyTo(File(folder, "${java.util.UUID.randomUUID()}-${file.name}"))
+                                                    }
+                                                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", preview)
+                                                }
+                                                context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, attachment.mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "The original file or a compatible viewer is unavailable.", Toast.LENGTH_LONG).show()
+                                            }
                                         }
                                     }) { Text("Open") }
                                     if (indexed != null) {

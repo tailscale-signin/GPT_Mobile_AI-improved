@@ -146,7 +146,8 @@ internal fun ResolvedAgentTool.isWebSearchEngine(): Boolean {
     val name = realToolName.lowercase()
     val knownWebSearch = name.contains("web_search") ||
         name.contains("search_web") ||
-        name in setOf("brave_search", "bing_search", "google_search", "tavily_search", "exa_search", "duckduckgo_search", "search_engine")
+        name in setOf("brave_search", "bing_search", "google_search", "tavily_search", "exa_search", "duckduckgo_search", "search_engine") ||
+        (name == "search" && listOf("web search", "search the web", "internet search").any { tool.definition.description.contains(it, true) })
     if (!knownWebSearch) return false
     val schema = tool.definition.inputSchema
     val properties = schema["properties"] as? JsonObject ?: return false
@@ -159,6 +160,6 @@ internal fun ResolvedAgentTool.isWebSearchEngine(): Boolean {
 internal fun aggregateWebSearch(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> {
     val engines = tools.filter { it.isWebSearchEngine() }
     if (engines.isEmpty()) return tools
-    val aggregate = MultiEngineSearchTool(engines)
+    val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines))
     return tools.filterNot { it in engines } + ResolvedAgentTool(aggregate, null, "Multi-engine search", "web_search", "web_search")
 }

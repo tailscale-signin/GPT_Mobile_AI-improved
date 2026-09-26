@@ -57,8 +57,6 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.AdvancedOptions
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
-import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
-import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.rememberLocalModelDownloader
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelListItem
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupViewModelV2.Companion.WIZARD_STEP_API_KEY
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupViewModelV2.Companion.WIZARD_STEP_BASICS
@@ -78,9 +76,6 @@ fun SetupPlatformWizardScreen(
     val downloadState by setupViewModel.localModelDownloadState.collectAsStateWithLifecycle()
     val canProceed by setupViewModel.canProceed.collectAsStateWithLifecycle()
     val isWaitingForDownload by setupViewModel.isWaitingForDownload.collectAsStateWithLifecycle()
-    val requestDownload = rememberLocalModelDownloader { entry ->
-        setupViewModel.selectLocalModel(entry.id)
-    }
 
     // Handle back press
     BackHandler {
@@ -174,14 +169,7 @@ fun SetupPlatformWizardScreen(
                                 selectedCatalogEntryId = currentModel,
                                 checkingAccessEntryId = downloadState.checkingAccessEntryId,
                                 showPendingActivationHint = isWaitingForDownload,
-                                onModelSelected = { catalogEntryId ->
-                                    val entry = catalogModels.firstOrNull { it.entry.id == catalogEntryId }?.entry
-                                    if (entry != null) {
-                                        requestDownload(entry)
-                                    } else {
-                                        setupViewModel.selectLocalModel(catalogEntryId)
-                                    }
-                                },
+                                onModelSelected = setupViewModel::selectLocalModel,
                                 onNavigateToLocalModels = onNavigateToLocalModels
                             )
                         } else {
@@ -218,19 +206,6 @@ fun SetupPlatformWizardScreen(
             )
         }
     }
-
-    LocalModelDownloadDialogHost(
-        dialog = downloadState.dialog,
-        onConfirmRamWarning = setupViewModel::confirmRamWarning,
-        onConfirmMeteredDownload = setupViewModel::confirmMeteredDownload,
-        onDismissDialog = setupViewModel::dismissDownloadDialog,
-        onStartSignIn = setupViewModel::startHuggingFaceSignIn,
-        onAuthActivityResult = setupViewModel::onAuthActivityResult,
-        onLicenseTabClosed = setupViewModel::onLicenseTabClosed,
-        onRetryAfterLicense = setupViewModel::retryAfterLicense,
-        onEnterAccessToken = setupViewModel::openAccessTokenDialog,
-        onSaveAccessToken = setupViewModel::saveHuggingFaceAccessToken
-    )
 }
 
 @Composable

@@ -267,7 +267,7 @@ class FactVaultRepository @Inject constructor(
                 bytes.fill(0)
             }
         }
-        require(snapshot.version == 1) { "Unsupported fact vault version." }
+        require(snapshot.version == 1) { "Unsupported memory storage version." }
         hasLoaded = true
         if (bytes == null) {
             persist(snapshot)

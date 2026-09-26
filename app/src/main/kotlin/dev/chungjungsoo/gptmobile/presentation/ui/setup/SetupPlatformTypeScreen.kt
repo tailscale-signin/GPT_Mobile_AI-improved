@@ -114,19 +114,36 @@ fun SetupPlatformTypeScreen(
                 ProviderChoiceHero()
             }
 
-            setupProviderGroups.forEach { group ->
-                item(key = "header_${group.title}") {
-                    ProviderGroupHeader(group)
-                }
-                items(group.items, key = { it.clientType.name }) { item ->
-                    DestinationCard(
-                        title = stringResource(item.titleResId),
-                        description = stringResource(item.descriptionResId),
-                        onClick = {
+            item {
+                DestinationCard(title = "Free AI", description = "No account or API key. Memory stays off.", onClick = {
+                    setupViewModel.selectClientType(ClientType.FREE)
+                    onPlatformTypeSelected()
+                })
+            }
+            item {
+                DestinationCard(title = "On this device", description = "Get a local model from the marketplace.", onClick = {
+                    setupViewModel.selectClientType(ClientType.LITERT_LM)
+                    onPlatformTypeSelected()
+                })
+            }
+            item {
+                dev.chungjungsoo.gptmobile.presentation.common.AdvancedOptions("Connect a cloud provider") {
+                    setupProviderGroups.flatMap { it.items }.filter { it.clientType in setOf(ClientType.OPENAI, ClientType.ANTHROPIC, ClientType.GOOGLE, ClientType.GROQ, ClientType.OPENROUTER) }.forEach { item ->
+                        DestinationCard(title = stringResource(item.titleResId), description = "Use your API key", onClick = {
                             setupViewModel.selectClientType(item.clientType)
                             onPlatformTypeSelected()
-                        }
-                    )
+                        })
+                    }
+                }
+            }
+            item {
+                dev.chungjungsoo.gptmobile.presentation.common.AdvancedOptions("Advanced · custom and self-hosted") {
+                    setupProviderGroups.flatMap { it.items }.filter { it.clientType in setOf(ClientType.CUSTOM, ClientType.OLLAMA, ClientType.LLAMA) }.forEach { item ->
+                        DestinationCard(title = stringResource(item.titleResId), description = "Custom endpoint", onClick = {
+                            setupViewModel.selectClientType(item.clientType)
+                            onPlatformTypeSelected()
+                        })
+                    }
                 }
             }
         }
@@ -157,34 +174,15 @@ private fun ProviderChoiceHero() {
                     )
                 }
                 Text(
-                    "Where should this AI connect?",
+                    "Choose how to chat",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
             }
             Text(
-                "Choose the provider connection first. You will choose the model and configure the child AI profile on the next steps.",
+                "Start with one option. You can add more later.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
-    }
-}
-
-@Composable
-private fun ProviderGroupHeader(group: SetupProviderGroup) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Icon(group.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        Column(Modifier.weight(1f)) {
-            Text(group.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                group.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

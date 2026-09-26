@@ -33,9 +33,11 @@ object AppLogRecorder {
     val enabled = mutableEnabled.asStateFlow()
     val entries = mutableEntries.asStateFlow()
     val error = mutableError.asStateFlow()
-    private var app: Context? = null
+
+    @Volatile private var app: Context? = null
     private var reader: Job? = null
-    private var process: java.lang.Process? = null
+
+    @Volatile private var process: java.lang.Process? = null
     private val fileLock = Any()
     private val recent = ArrayDeque<AppLogEntry>()
 
@@ -80,8 +82,9 @@ object AppLogRecorder {
         if (reader?.isActive == true || app == null) return
         mutableError.value = null
         reader = scope.launch {
+            var running: java.lang.Process? = null
             try {
-                val running = ProcessBuilder("logcat", "--pid=${Process.myPid()}", "-v", "brief", "-T", "1").redirectErrorStream(true).start()
+                running = ProcessBuilder("logcat", "--pid=${Process.myPid()}", "-v", "brief", "-T", "1").redirectErrorStream(true).start()
                 process = running
                 if (!mutableEnabled.value) {
                     running.destroy()
@@ -95,8 +98,13 @@ object AppLogRecorder {
                     }
                 }
                 if (mutableEnabled.value) mutableError.value = "Android log stream ended. App event tracking continues; toggle tracking to reconnect."
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 if (mutableEnabled.value) mutableError.value = "Android log stream unavailable on this device. App event tracking continues."
+            } finally {
+                running?.destroy()
+                if (process === running) process = null
             }
         }
         record("Diagnostics", "Log tracking enabled")
@@ -113,7 +121,10 @@ object AppLogRecorder {
                 while (queue.tryReceive().isSuccess) Unit
                 recent.clear()
                 mutableEntries.value = emptyList()
-                runCatching { directory()?.listFiles()?.forEach { it.delete() } }
+                runCatching {
+                    directory()?.listFiles()?.forEach { it.delete() }
+                    app?.let { File(it.cacheDir, "diagnostics/app-diagnostics.log").delete() }
+                }
             }
         }
     }

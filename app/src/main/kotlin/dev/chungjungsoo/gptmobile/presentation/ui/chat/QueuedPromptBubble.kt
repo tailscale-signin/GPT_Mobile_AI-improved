@@ -36,6 +36,8 @@ internal fun QueuedPromptBubble(
 ) {
     var editing by remember(prompt.id) { mutableStateOf(false) }
     var text by remember(prompt.id, prompt.text) { mutableStateOf(prompt.text) }
+    val attachments = remember(prompt.payload) { runCatching { prompt.details().attachments }.getOrDefault(emptyList()) }
+    val preview = listOf(prompt.text, attachments.joinToString(" · ") { it.resolvedDisplayName }).filter { it.isNotBlank() }.joinToString("\n")
     Row(Modifier.fillMaxWidth().padding(start = 64.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.End) {
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -44,7 +46,7 @@ internal fun QueuedPromptBubble(
                 .semantics { contentDescription = "${if (prompt.paused) "Paused" else "Queued"} draft. Tap to edit or remove." }
         ) {
             Text(
-                prompt.text.ifBlank { "Attached document" },
+                preview.ifBlank { "Attached document" },
                 Modifier.padding(16.dp),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -73,7 +75,7 @@ internal fun QueuedPromptBubble(
                 }
             },
             confirmButton = {
-                TextButton(enabled = text.isNotBlank(), onClick = {
+                TextButton(enabled = text.isNotBlank() || attachments.isNotEmpty(), onClick = {
                     onEdit(prompt.id, text)
                     editing = false
                 }) { Text("Save") }

@@ -217,7 +217,7 @@ internal fun LocationToolMapPreview(toolEvents: List<ToolEvent>, modifier: Modif
         Column {
             androidx.compose.runtime.key(mapView) { AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(250.dp)) }
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Your location${if (data.places.isNotEmpty()) " · ${data.places.size} nearby places" else ""}", style = MaterialTheme.typography.titleSmall)
+                Text("Location${if (data.places.isNotEmpty()) " · ${data.places.size} nearby places" else ""}", style = MaterialTheme.typography.titleSmall)
                 data.status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 data.places.forEachIndexed { index, place ->
                     TextButton(onClick = { selectedId = place.id }) {

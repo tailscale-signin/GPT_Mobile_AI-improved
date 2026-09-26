@@ -22,7 +22,7 @@ internal fun friendlyToolActivity(toolName: String): String {
         "memory" in name || "recall" in name -> "Checking saved memories"
         "calculate" in name -> "Calculating"
         "weather" in name -> "Checking the weather"
-        "date" in name || "time" in name -> "Checking the time"
+        Regex("(^|[_:./-])(date|time|datetime|timezone)([_:./-]|$)").containsMatchIn(name) -> "Checking the time"
         else -> toolName.substringAfterLast("__").replace(Regex("([a-z])([A-Z])"), "$1 $2")
             .replace(Regex("[_:./-]+"), " ").trim().take(80).ifBlank { "Running tool" }
             .replaceFirstChar { it.titlecase(Locale.ROOT) }

@@ -65,11 +65,15 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
         events.sortedBy { it.sequence }.forEach { event ->
             val metrics = timeline.firstOrNull { it.toolSequence == event.sequence }?.toolMetrics
             var expanded by rememberSaveable(contentIdentity.toString(), event.eventId) { mutableStateOf(false) }
-            val status = when (event.status) {
-                ToolEventStatus.RUNNING, ToolEventStatus.PENDING -> "Running"
-                ToolEventStatus.FAILED -> "Failed"
-                ToolEventStatus.CANCELED -> "Canceled"
-                else -> "Completed"
+            val status = if (event.isError) {
+                "Failed"
+            } else {
+                when (event.status) {
+                    ToolEventStatus.RUNNING, ToolEventStatus.PENDING -> "Running"
+                    ToolEventStatus.FAILED -> "Failed"
+                    ToolEventStatus.CANCELED -> "Canceled"
+                    else -> "Completed"
+                }
             }
             val running = event.status == ToolEventStatus.RUNNING || event.status == ToolEventStatus.PENDING
             val failed = event.isError || event.status == ToolEventStatus.FAILED

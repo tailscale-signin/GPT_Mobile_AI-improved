@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.truncateUtf8
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
@@ -22,6 +23,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -45,7 +47,8 @@ enum class WebSearchProvider {
 data class WebSearchProviderConfig(
     val provider: WebSearchProvider,
     val bearerToken: String,
-    val endpointUrl: String
+    val endpointUrl: String,
+    val allowLocalSearch: Boolean = true
 )
 
 class WebSearchTool(
@@ -110,7 +113,7 @@ class WebSearchTool(
             if (response.status.value !in 200..299) {
                 return error(callId, providerFailureMessage(response.status.value))
             }
-            val content = runCatching { normalized(config.provider, response.bodyAsText()) }.getOrElse { exception ->
+            val content = runCatching { normalized(config.provider, response.bodyAsText(), request.maxResults) }.getOrElse { exception ->
                 return if (exception is MissingRequiredResultFieldException) {
                     error(callId, "Web search failed: missing required result fields.")
                 } else {
@@ -145,11 +148,21 @@ class WebSearchTool(
 
     private suspend fun executeAutoSearch(callId: String, request: WebSearchRequest): AgentToolResult {
         // Stage 1: Try Local Termux MCPSearch Daemon if active (e.g. http://127.0.0.1:8000/search)
-        val termuxResult = runCatching { tryTermuxMcpSearch(request) }.getOrNull()
+        val termuxResult = if (config.allowLocalSearch) {
+            try {
+                withTimeoutOrNull(2_000) { tryTermuxMcpSearch(request) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
         if (termuxResult != null && termuxResult.isNotEmpty()) {
             return AgentToolResult(
                 callId = callId,
-                content = ToolResultContent.Json(buildJsonObject { put("results", JsonArray(termuxResult)) }),
+                content = ToolResultContent.Json(compactSearchResults(termuxResult, request.maxResults)),
                 isError = false
             )
         }
@@ -159,7 +172,7 @@ class WebSearchTool(
             val ddgResults = queryDuckDuckGo(request)
             AgentToolResult(
                 callId = callId,
-                content = ToolResultContent.Json(buildJsonObject { put("results", JsonArray(ddgResults)) }),
+                content = ToolResultContent.Json(compactSearchResults(ddgResults, request.maxResults)),
                 isError = false
             )
         } catch (exception: CancellationException) {
@@ -383,7 +396,7 @@ class WebSearchTool(
         }
     }
 
-    private fun normalized(provider: WebSearchProvider, body: String): JsonObject {
+    private fun normalized(provider: WebSearchProvider, body: String, maxResults: Int): JsonObject {
         val root = NetworkClient.json.parseToJsonElement(body).jsonObject
         val rawResults = when (provider) {
             WebSearchProvider.FIRECRAWL -> root["data"]?.jsonObject?.get("web")?.jsonArray
@@ -391,7 +404,7 @@ class WebSearchTool(
             WebSearchProvider.EXA -> root["results"]?.jsonArray
             WebSearchProvider.AUTO -> root["results"]?.jsonArray
         } ?: throw IllegalArgumentException("missing results")
-        val results = rawResults.map { element ->
+        val results = rawResults.take(maxResults).map { element ->
             val value = element.jsonObject
             val title = value.string("title")
             val url = value.string("url")
@@ -404,7 +417,26 @@ class WebSearchTool(
                 (value.string("publishedDate") ?: value.string("date"))?.let { put("publishedDate", it) }
             }
         }
-        return buildJsonObject { put("results", JsonArray(results)) }
+        return compactSearchResults(results, maxResults)
+    }
+
+    private fun compactSearchResults(results: List<JsonObject>, maxResults: Int): JsonObject {
+        val compact = mutableListOf<JsonObject>()
+        var bytes = 0
+        for (result in results.take(maxResults)) {
+            val entry = buildJsonObject {
+                put("title", truncateUtf8(result.string("title").orEmpty(), 256))
+                // Keep links intact so the model and UI can still open the source.
+                put("url", result.string("url").orEmpty())
+                put("snippet", truncateUtf8(result.string("snippet").orEmpty(), 768))
+                result.string("publishedDate")?.let { put("publishedDate", it.take(64)) }
+            }
+            val size = entry.toString().toByteArray(Charsets.UTF_8).size
+            if (bytes + size > 8_000) continue
+            compact += entry
+            bytes += size
+        }
+        return buildJsonObject { put("results", JsonArray(compact)) }
     }
 
     private fun domains(element: JsonElement?): List<String> = element

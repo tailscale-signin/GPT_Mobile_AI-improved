@@ -43,7 +43,8 @@ data class AgentToolResult(
     val isError: Boolean,
     val traceContent: ToolResultContent? = null,
     val measurement: ToolPayloadMetrics? = null,
-    val sharedResult: Boolean = false
+    val sharedResult: Boolean = false,
+    val outputBudgetExhausted: Boolean = false
 )
 
 sealed interface ToolResultContent {

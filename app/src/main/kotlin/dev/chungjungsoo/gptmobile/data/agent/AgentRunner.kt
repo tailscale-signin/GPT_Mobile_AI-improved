@@ -236,7 +236,14 @@ class AgentRunner(
                 )
             }
             val allResults = (executedResults + deferredResults).toMutableList()
-            val mustFinalize = executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit
+            val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
+            val mustFinalize = outputBudgetExhausted || (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
+            if (outputBudgetExhausted) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                finalResponseRequested = true
+                emit(AgentRunEvent.Notice("Tool output limit reached. Finishing with the results already available.", persistent = false))
+            }
             val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
             val shouldInjectWrapUp = ToolBudgetPolicy.shouldInjectWrapUpPrompt(executionToolCallLimit, limits, toolCallCount)
 
@@ -298,7 +305,7 @@ class AgentRunner(
             } else {
                 tool.execute(call.callId, call.arguments)
             }
-            result.copy(content = boundContent(result.content))
+            if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {

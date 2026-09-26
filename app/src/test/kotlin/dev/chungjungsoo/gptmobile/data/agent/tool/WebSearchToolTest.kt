@@ -26,6 +26,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebSearchToolTest {
+    @Test
+    fun `oversized search snippets keep source links and respect the requested count`() = runBlocking {
+        val entries = (1..10).map { index ->
+            buildJsonObject {
+                put("title", "Source $index")
+                put("url", "https://example.com/$index")
+                put("snippet", "Useful description ".repeat(10000))
+            }
+        }
+        val server = server("/search", buildJsonObject { put("results", JsonArray(entries)) }.toString())
+        val result = tool(WebSearchProvider.PERPLEXITY, server.url("/search")).execute(
+            "search",
+            buildJsonObject {
+                put("query", "public docs")
+                put("maxResults", 3)
+            }
+        )
+        val content = (result.content as ToolResultContent.Json).value.jsonObject
+        val results = content.getValue("results").jsonArray
+        assertEquals(3, results.size)
+        assertEquals("https://example.com/1", results.first().jsonObject.getValue("url").jsonPrimitive.content)
+        assertTrue(content.toString().toByteArray().size < 8000)
+    }
 
     private val servers = mutableListOf<HttpServer>()
     private val networkClients = mutableListOf<NetworkClient>()

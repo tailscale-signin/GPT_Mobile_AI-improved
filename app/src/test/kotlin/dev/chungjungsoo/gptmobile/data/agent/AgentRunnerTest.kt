@@ -21,6 +21,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test
+    fun `exhausted search output closes tool use and requests the final answer`() = runBlocking {
+        val limits = AgentRunLimits(maxToolOutputBytes = 32)
+        val bound = ToolExecutionBudget(limits).bind(
+            tool("web_search") { callId, _ ->
+                AgentToolResult(callId, ToolResultContent.Text("Useful source " + "x".repeat(100)), false)
+            }
+        )
+        val events = AgentRunner(limits).run(
+            session { tools, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        emit(toolCall("search", "web_search"))
+                    } else {
+                        assertTrue(tools.isEmpty())
+                        assertTrue((exchanges.single().results.single().content as ToolResultContent.Text).text.contains("Useful source"))
+                        emit(ProviderEvent.TextDelta("Answer from the source"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(bound)
+        ).toList()
+        assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.TextDelta })
+    }
 
     @Test
     fun `approval latency is not charged to tool timeout by the runner`() = runBlocking {

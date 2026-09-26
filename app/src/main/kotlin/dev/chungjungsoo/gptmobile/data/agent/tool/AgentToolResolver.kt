@@ -92,7 +92,8 @@ class AgentToolResolver @Inject constructor(
             config = WebSearchProviderConfig(
                 provider = WebSearchProvider.AUTO,
                 bearerToken = "",
-                endpointUrl = "http://127.0.0.1:8000/search"
+                endpointUrl = "http://127.0.0.1:8000/search",
+                allowLocalSearch = !memoryExcluded
             ),
             networkClient = networkClient
         )

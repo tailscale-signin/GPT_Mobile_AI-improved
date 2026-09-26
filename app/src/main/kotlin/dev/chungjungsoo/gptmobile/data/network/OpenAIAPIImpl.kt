@@ -16,11 +16,13 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
@@ -123,7 +125,8 @@ class OpenAIAPIImpl @Inject constructor(
                 val prompt = legacyPollinationsPrompt(preparedRequest)
                 val legacyResponse = FreeAiRequestLimiter.shared.withRequest(free) {
                     networkClient().prepareGet("${free.apiUrl}/${URLEncoder.encode(prompt, "UTF-8").replace("+", "%20")}") {
-                        applyPlatformStreamingTimeout(timeoutSeconds)
+                        timeout { requestTimeoutMillis = timeoutSeconds.coerceIn(15, 120) * 1_000L }
+                        parameter("model", free.model)
                         accept(ContentType.Text.Plain)
                     }.execute { response ->
                         if (response.status.value == 429) {

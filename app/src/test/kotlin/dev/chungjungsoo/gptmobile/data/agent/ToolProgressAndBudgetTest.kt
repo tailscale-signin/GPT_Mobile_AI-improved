@@ -23,8 +23,9 @@ class ToolProgressAndBudgetTest {
         val result = tool.execute("search", buildJsonObject {})
         assertTrue(result.outputBudgetExhausted)
         assertTrue((result.content as ToolResultContent.Text).text.contains("https://kotlinlang.org"))
-        assertTrue((result.traceContent as ToolResultContent.Text).text.contains("https://kotlinlang.org"))
-        assertTrue(result.traceContent.text.contains("truncated"))
+        val trace = (result.traceContent as ToolResultContent.Text).text
+        assertTrue(trace.contains("https://kotlinlang.org"))
+        assertTrue(trace.contains("truncated"))
         val exhausted = tool.execute("read-next", buildJsonObject {})
         assertTrue(exhausted.isError)
         assertTrue(exhausted.outputBudgetExhausted)

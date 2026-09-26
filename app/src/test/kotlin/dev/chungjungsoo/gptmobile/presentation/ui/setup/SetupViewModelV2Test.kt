@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelStore
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogDefaultConfig
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.repository.FakeLocalModelRepository
 import dev.chungjungsoo.gptmobile.data.repository.FakeModelCatalogRepository
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalModelItemStatus
@@ -19,12 +20,45 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SetupViewModelV2Test {
+    @Test
+    fun `Free wizard skips credentials and persists the selected provider`() = runTest {
+        val settings = RecordingSettingRepository()
+        val viewModel = setupViewModel(settings = settings)
+        viewModel.selectClientType(ClientType.FREE)
+        assertEquals(2, viewModel.wizardTotalSteps())
+        viewModel.nextWizardStep()
+        assertEquals(SetupViewModelV2.WIZARD_STEP_MODEL, viewModel.wizardStep.value)
+        assertEquals(1, viewModel.wizardDisplayStep())
+        viewModel.selectFreeProvider(FreeAiProvider.OVHCLOUD)
+        assertTrue(viewModel.canProceed.value)
+        viewModel.previousWizardStep()
+        assertEquals(SetupViewModelV2.WIZARD_STEP_BASICS, viewModel.wizardStep.value)
+        viewModel.nextWizardStep()
+        viewModel.updateApiKey("stale-credential")
+        viewModel.savePlatform()
+        val saved = settings.addedPlatforms.single()
+        assertEquals(ClientType.FREE, saved.compatibleType)
+        assertEquals(FreeAiProvider.OVHCLOUD.apiUrl, saved.apiUrl)
+        assertEquals(FreeAiProvider.OVHCLOUD.model, saved.model)
+        assertNull(saved.token)
+    }
+
+    @Test
+    fun `LLM7 save availability follows the approved build flag`() = runTest {
+        val viewModel = setupViewModel()
+        viewModel.selectClientType(ClientType.FREE)
+        viewModel.nextWizardStep()
+        viewModel.selectFreeProvider(FreeAiProvider.LLM7)
+        assertEquals(FreeAiProvider.LLM7.isAvailable, viewModel.canProceed.value)
+    }
+
     @Before
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())

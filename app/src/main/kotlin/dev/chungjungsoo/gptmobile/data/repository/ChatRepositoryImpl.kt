@@ -215,7 +215,10 @@ class ChatRepositoryImpl(
             val customRunner = agentRunnerForPlatform(platform, chatToolConfig?.maxToolCalls)
             val budgetSettings = settingRepository.getFeatureSettings().tokenBudget.normalized()
             val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
-            val limits = if (platform.compatibleType == ClientType.LITERT_LM) {
+            val limits = if (platform.compatibleType == ClientType.FREE && FreeAiProvider.requireFor(platform) == FreeAiProvider.POLLINATIONS) {
+                // The legacy GET endpoint accepts a small prompt in its URL.
+                profileBudget.copy(contextTokens = minOf(profileBudget.contextTokens, 1536), outputTokens = minOf(profileBudget.outputTokens, 256))
+            } else if (platform.compatibleType == ClientType.LITERT_LM) {
                 profileBudget.copy(contextTokens = minOf(profileBudget.contextTokens, platform.maxTokens ?: 4096))
             } else {
                 profileBudget

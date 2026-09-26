@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.content.TextContent as HttpTextContent
@@ -38,7 +39,7 @@ class FreeAiTransportTest {
             assertFalse(body.containsKey("models"))
             respond("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
         }
-        val client = HttpClient(engine)
+        val client = HttpClient(engine) { install(HttpTimeout) }
         try {
             val network = mockk<NetworkClient>()
             every { network.invoke() } returns client
@@ -65,7 +66,7 @@ class FreeAiTransportTest {
             assertTrue(prompt.endsWith("assistant:"))
             respond("A and B.", headers = headersOf(HttpHeaders.ContentType, "text/plain"))
         }
-        val client = HttpClient(engine)
+        val client = HttpClient(engine) { install(HttpTimeout) }
         try {
             val network = mockk<NetworkClient>()
             every { network.invoke() } returns client
@@ -74,8 +75,9 @@ class FreeAiTransportTest {
                 10,
                 ProviderRequestConfig(FreeAiProvider.POLLINATIONS.apiUrl, null, freeProvider = FreeAiProvider.POLLINATIONS)
             ).single()
-            assertEquals("A and B.", result.choices!!.single().delta.content)
-            assertEquals("stop", result.choices.single().finishReason)
+            val choice = requireNotNull(result.choices).single()
+            assertEquals("A and B.", choice.delta.content)
+            assertEquals("stop", choice.finishReason)
         } finally {
             client.close()
         }

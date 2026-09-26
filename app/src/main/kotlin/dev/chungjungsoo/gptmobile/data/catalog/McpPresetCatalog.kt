@@ -58,7 +58,9 @@ data class McpPreset(
     val isPreinstalled: Boolean = false,
     val verifiedRemote: Boolean = false,
     val setupInstructions: String = "",
-    val requiredEndpointQueryParameter: String? = null
+    val requiredEndpointQueryParameter: String? = null,
+    val integratedTool: String? = null,
+    val documentationOnly: Boolean = false
 ) {
     fun hasRequiredEndpointParameters(endpoint: String): Boolean {
         val parameter = requiredEndpointQueryParameter ?: return true
@@ -78,7 +80,7 @@ data class McpPreset(
     val url: String get() = commandOrUrl
     val defaultEndpoint: String get() = commandOrUrl
     val isDirectlyInstallable: Boolean
-        get() = !isPreinstalled && transportType == McpTransportType.STREAMABLE_HTTP && commandOrUrl.startsWith("https://") && requiredEndpointQueryParameter == null
+        get() = !isPreinstalled && !documentationOnly && transportType == McpTransportType.STREAMABLE_HTTP && commandOrUrl.startsWith("https://") && requiredEndpointQueryParameter == null
 }
 
 typealias McpServerPreset = McpPreset
@@ -94,7 +96,87 @@ typealias McpServerPreset = McpPreset
  * as one-tap installs because the Android client does not launch Node/Python MCP servers.
  */
 object McpPresetCatalog {
-    val presets = listOf(
+    val presets = LocalMcpPresets.presets + listOf(
+        McpPreset(
+            id = "linear",
+            name = "Linear",
+            description = "Search and manage issues, projects and comments in your Linear workspace.",
+            category = McpCategory.PRODUCTIVITY,
+            commandOrUrl = "https://mcp.linear.app/mcp",
+            iconName = "linear",
+            author = "Linear",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("Linear account and authorized access"),
+            toolCapabilities = listOf("Search issues", "Manage projects", "Create and update work items"),
+            websiteUrl = "https://linear.app/docs/mcp",
+            verifiedRemote = false,
+            setupInstructions = "Save, then Authorize in connection settings. Alternatively select Bearer / API Key and use a Linear API key. For read-only tools, change the endpoint to https://mcp.linear.app/mcp/readonly."
+        ),
+        McpPreset(
+            id = "sentry",
+            name = "Sentry",
+            description = "Investigate application errors and performance with context from Sentry.",
+            category = McpCategory.DEVELOPMENT,
+            commandOrUrl = "https://mcp.sentry.dev/mcp",
+            iconName = "sentry",
+            author = "Sentry",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("Sentry account and authorized access"),
+            toolCapabilities = listOf("Find issues", "Analyze errors and performance", "Inspect project context"),
+            websiteUrl = "https://mcp.sentry.dev/",
+            verifiedRemote = false,
+            setupInstructions = "Requires a Sentry account with project access. Save, then Authorize in connection settings. Optionally append /{organizationSlug}/{projectSlug} using your actual organization and project to limit scope."
+        ),
+        McpPreset(
+            id = "vercel",
+            name = "Vercel",
+            description = "Explore documentation, projects, deployments and logs through the official Vercel MCP.",
+            category = McpCategory.DEVELOPMENT,
+            commandOrUrl = "https://mcp.vercel.com",
+            iconName = "vercel",
+            author = "Vercel",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("Vercel account and authorized access"),
+            toolCapabilities = listOf("Search documentation", "Inspect deployments", "Read deployment logs"),
+            websiteUrl = "https://vercel.com/docs/agent-resources/vercel-mcp",
+            verifiedRemote = false,
+            setupInstructions = "Vercel restricts authenticated access to approved clients. GPT Mobile approval and Android sign-in are not verified. Obtain an approved public OAuth client registration before authorizing; configure its client ID in connection settings. Availability and usage depend on your Vercel plan."
+        ),
+        McpPreset(
+            id = "atlassian",
+            name = "Atlassian Rovo",
+            description = "Search and manage Jira work items and Confluence content with existing workspace permissions.",
+            category = McpCategory.PRODUCTIVITY,
+            commandOrUrl = "https://mcp.atlassian.com/v2/mcp",
+            iconName = "atlassian",
+            author = "Atlassian",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("Atlassian account and authorized access"),
+            toolCapabilities = listOf("Search Jira and Confluence", "Create and update work items", "Retrieve workspace context"),
+            websiteUrl = "https://developer.atlassian.com/cloud/rovo-mcp/",
+            verifiedRemote = false,
+            setupInstructions = "Requires an Atlassian Cloud account and workspace access; your administrator may restrict MCP access. Save, then Authorize in connection settings. Some tools consume Rovo credits. Android OAuth redirect acceptance has not been verified."
+        ),
+        McpPreset(
+            id = "cloudflare-browser",
+            name = "Cloudflare Browser Rendering",
+            description = "Render web pages, extract content and capture screenshots through Cloudflare.",
+            category = McpCategory.BROWSER,
+            commandOrUrl = "https://browser.mcp.cloudflare.com/mcp",
+            iconName = "cloudflare",
+            author = "Cloudflare",
+            suggestedAuthType = "OAUTH",
+            pricing = McpPricingType.FREE_WITH_SIGNUP,
+            requiredFields = listOf("Cloudflare account and authorized access"),
+            toolCapabilities = listOf("Render web pages", "Extract page content", "Capture screenshots"),
+            websiteUrl = "https://github.com/cloudflare/mcp-server-cloudflare",
+            verifiedRemote = false,
+            setupInstructions = "Requires Cloudflare account access to Browser Rendering. Save, then Authorize in connection settings, or select Bearer / API Key with a suitably scoped Cloudflare API token. Usage limits and charges depend on your Cloudflare plan."
+        ),
         McpPreset(
             id = "builtin-web",
             name = "Web Search & URL Reader",

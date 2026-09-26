@@ -6,6 +6,9 @@ import java.util.Locale
 internal fun friendlyToolActivity(toolName: String): String {
     val name = toolName.lowercase(Locale.ROOT)
     return when {
+        name == "memory_capture" -> "Remembering your preferences"
+        name == "memory_recall" -> "Recalling saved facts"
+        name == "delegate_to_model" -> "Asking another model"
         "nearby" in name || "places" in name -> "Finding nearby places"
         "route" in name || "directions" in name -> "Planning your route"
         "reverse_geocode" in name -> "Finding the address"

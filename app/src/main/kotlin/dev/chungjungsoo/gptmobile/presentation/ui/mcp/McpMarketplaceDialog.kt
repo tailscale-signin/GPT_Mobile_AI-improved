@@ -229,6 +229,7 @@ fun McpMarketplaceScreen(
     ) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<McpCategory?>(null) }
     var selectedPricing by remember { mutableStateOf<McpPricingType?>(null) }
@@ -402,7 +403,13 @@ fun McpMarketplaceScreen(
                     McpMarketplaceDetailCard(
                         preset = preset,
                         isInstalled = isInstalled,
-                        onAddClick = { configuringPreset = preset }
+                        onAddClick = {
+                            if (preset.documentationOnly) {
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(preset.websiteUrl))) }
+                            } else {
+                                configuringPreset = preset
+                            }
+                        }
                     )
                 }
 
@@ -415,22 +422,26 @@ fun McpMarketplaceScreen(
 
     // Modal Configuration Dialog to ensure all needed fields are filled in
     configuringPreset?.let { preset ->
-        McpPresetConfigureDialog(
-            preset = preset,
-            onDismissRequest = { configuringPreset = null },
-            onConfirm = { name, alias, endpoint, authType, credential, allowCleartext ->
-                onInstallPresetWithConfig(
-                    preset,
-                    name,
-                    alias,
-                    endpoint,
-                    authType,
-                    credential,
-                    allowCleartext
-                )
-                configuringPreset = null
-            }
-        )
+        if (preset.integratedTool != null) {
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalToolConfigurationDialog(preset.integratedTool) { configuringPreset = null }
+        } else {
+            McpPresetConfigureDialog(
+                preset = preset,
+                onDismissRequest = { configuringPreset = null },
+                onConfirm = { name, alias, endpoint, authType, credential, allowCleartext ->
+                    onInstallPresetWithConfig(
+                        preset,
+                        name,
+                        alias,
+                        endpoint,
+                        authType,
+                        credential,
+                        allowCleartext
+                    )
+                    configuringPreset = null
+                }
+            )
+        }
     }
 }
 
@@ -615,7 +626,9 @@ fun McpMarketplaceDetailCard(
 
                 Spacer(modifier = Modifier.width(10.dp))
 
-                if (isInstalled) {
+                if (preset.integratedTool != null) {
+                    Button(onClick = onAddClick) { Text("Configure") }
+                } else if (isInstalled) {
                     OutlinedButton(
                         onClick = { },
                         enabled = false,
@@ -640,7 +653,15 @@ fun McpMarketplaceDetailCard(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (preset.commandOrUrl.isBlank()) "Set up" else "Add")
+                        Text(
+                            if (preset.documentationOnly) {
+                                "Guide"
+                            } else if (preset.commandOrUrl.isBlank()) {
+                                "Set up"
+                            } else {
+                                "Add"
+                            }
+                        )
                     }
                 }
             }
@@ -677,6 +698,7 @@ fun McpMarketplaceDetailCard(
                 ) {
                     Text(
                         text = when {
+                            preset.documentationOnly -> "Companion / guide"
                             preset.isPreinstalled -> "Integrated"
                             preset.commandOrUrl.isBlank() -> "Self-hosted"
                             else -> "Streamable HTTP"

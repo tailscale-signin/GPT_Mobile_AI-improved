@@ -71,6 +71,7 @@ class FactVaultRepository @Inject constructor(
     private val graph: KnowledgeGraphEngine
 ) {
     private val mutex = Mutex()
+    private var hasLoaded = false
     private val json = Json { ignoreUnknownKeys = true }
     private val _state = MutableStateFlow(FactVaultSnapshot())
     val state = _state.asStateFlow()
@@ -105,7 +106,7 @@ class FactVaultRepository @Inject constructor(
         persist(FactVaultSnapshot(enabled = false))
     }
 
-    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false): FactRecall = mutex.withLock {
+    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true): FactRecall = mutex.withLock {
         loadLocked()
         if (!_state.value.enabled) return@withLock FactRecall()
         var current = _state.value
@@ -132,7 +133,7 @@ class FactVaultRepository @Inject constructor(
                     !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
             }.take(settings.maxRecall)
         )
-        if (!settings.learningEnabled) return@withLock recall
+        if (!capture || !settings.learningEnabled) return@withLock recall
         // Only extract user-provided text. Never learn from assistant output or tool responses.
         val extractor = KnowledgeGraphEngine()
         extractor.extractAndStoreFromText(query.take(MAX_QUERY_CHARS))
@@ -150,7 +151,9 @@ class FactVaultRepository @Inject constructor(
     private suspend fun loadLocked() {
         val bytes = vault.read(VAULT_REFERENCE)
         val snapshot = if (bytes == null) {
-            FactVaultSnapshot()
+            // Existing payloads retain their old default (disabled), including omitted fields.
+            // Only a genuinely new vault starts enabled.
+            FactVaultSnapshot(enabled = !hasLoaded)
         } else {
             try {
                 json.decodeFromString<FactVaultSnapshot>(bytes.decodeToString())
@@ -159,8 +162,13 @@ class FactVaultRepository @Inject constructor(
             }
         }
         require(snapshot.version == 1) { "Unsupported fact vault version." }
-        _state.value = snapshot
-        rebuildGraph(snapshot)
+        hasLoaded = true
+        if (bytes == null) {
+            persist(snapshot)
+        } else {
+            _state.value = snapshot
+            rebuildGraph(snapshot)
+        }
     }
 
     private suspend fun persist(snapshot: FactVaultSnapshot) {

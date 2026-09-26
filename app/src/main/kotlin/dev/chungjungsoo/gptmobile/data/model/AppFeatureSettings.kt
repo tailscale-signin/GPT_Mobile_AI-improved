@@ -26,7 +26,8 @@ data class AppFeatureSettings(
     val qnnAutomaticFallback: Boolean = true,
     val localCpuThreads: Int = 0,
     val localModelCache: Boolean = true,
-    val localIdleMinutes: Int = 10
+    val localIdleMinutes: Int = 10,
+    val delegation: ModelDelegationSettings = ModelDelegationSettings()
 ) {
     fun withFeature(feature: AppFeature, enabled: Boolean): AppFeatureSettings = when (feature) {
         AppFeature.BACKGROUND_GENERATION -> copy(backgroundGeneration = enabled)

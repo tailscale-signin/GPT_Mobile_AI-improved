@@ -75,6 +75,10 @@ data class ChatCompletionRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val tools: List<ChatFunctionTool>? = null,
 
+    @SerialName("tool_choice")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val toolChoice: String? = null,
+
     @SerialName("models")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val models: List<String>? = null,

@@ -101,14 +101,14 @@ class WebSearchTool(
         return try {
             val response = networkClient().post(config.endpointUrl) {
                 when (config.provider) {
-                    WebSearchProvider.EXA -> header("x-api-key", config.bearerToken)
-                    WebSearchProvider.FIRECRAWL, WebSearchProvider.PERPLEXITY -> bearerAuth(config.bearerToken)
+                    WebSearchProvider.EXA -> header("x-api-key", config.bearerToken.trim())
+                    WebSearchProvider.FIRECRAWL, WebSearchProvider.PERPLEXITY -> bearerAuth(config.bearerToken.trim())
                     WebSearchProvider.AUTO -> Unit
                 }
                 setBody(payload(request))
             }
             if (response.status.value !in 200..299) {
-                return error(callId, "Web search failed: HTTP ${response.status.value}.")
+                return error(callId, providerFailureMessage(response.status.value))
             }
             val content = runCatching { normalized(config.provider, response.bodyAsText()) }.getOrElse { exception ->
                 return if (exception is MissingRequiredResultFieldException) {
@@ -126,6 +126,20 @@ class WebSearchTool(
             throw exception
         } catch (_: Exception) {
             error(callId, "Web search failed: malformed or unsupported provider response.")
+        }
+    }
+
+    private fun providerFailureMessage(status: Int): String {
+        val provider = when (config.provider) {
+            WebSearchProvider.FIRECRAWL -> "Firecrawl"
+            WebSearchProvider.PERPLEXITY -> "Perplexity"
+            WebSearchProvider.EXA -> "Exa"
+            WebSearchProvider.AUTO -> "Web search"
+        }
+        return when (status) {
+            401 -> "$provider web search authentication failed (HTTP 401). Update this connection's $provider API key in Settings → Tool Connections. AI platform keys are configured separately."
+            403 -> "$provider web search access was denied (HTTP 403). Check this search connection's API key permissions and provider account."
+            else -> "Web search failed: HTTP $status."
         }
     }
 

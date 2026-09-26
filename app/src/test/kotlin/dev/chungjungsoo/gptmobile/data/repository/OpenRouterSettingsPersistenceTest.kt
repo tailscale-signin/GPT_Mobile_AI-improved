@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.database.entity.ProviderConnection
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings
@@ -53,6 +55,60 @@ class OpenRouterSettingsPersistenceTest {
             assertEquals("vault-token", repository.loadSettings().apiKey)
             repository.saveSettings(OpenRouterSettings(apiKey = "new-token"))
             coVerify { settings.updatePlatformV2(match { it.id == 7 && it.token == "new-token" && it.secretRef == "profile" }) }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun sharedConnectionKeyAndUrlReachAllLinkedProfilesAfterSaveAndReload() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            val store = PreferenceDataStoreFactory.create(scope = scope) { File(temp.root, "shared.preferences_pb") }
+            val platformDao = mockk<PlatformV2Dao>()
+            val profiles = listOf("first", "second").mapIndexed { index, uid ->
+                PlatformV2(id = index + 1, uid = uid, name = uid, compatibleType = ClientType.OPENROUTER, providerConnectionUid = "shared")
+            }
+            coEvery { platformDao.getPlatforms() } returns profiles
+            val connections = FakeProviderConnectionDao(
+                listOf(
+                    ProviderConnection("shared", "Router", ClientType.OPENROUTER, "https://old.example/v1", "shared-key"),
+                    ProviderConnection("other", "Other", ClientType.OPENROUTER, "https://other.example/v1", "other-key")
+                )
+            )
+            val vault = MemoryVault().apply {
+                put("shared-key", "old-token".encodeToByteArray())
+                put("other-key", "unrelated-token".encodeToByteArray())
+            }
+            val settings = SettingRepositoryImpl(mockk(), platformDao, connections, mockk(), vault)
+            val repository = OpenRouterSettingsRepositoryImpl(store, settings, vault)
+            assertEquals("old-token", repository.loadSettings().apiKey)
+            repository.saveSettings(OpenRouterSettings(apiKey = "  replacement-token  ", baseUrl = " https://openrouter.ai/api/v1 "))
+            assertEquals(listOf("replacement-token", "replacement-token"), settings.fetchPlatformV2s().map { it.token })
+            assertEquals(listOf("https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1"), settings.fetchPlatformV2s().map { it.apiUrl })
+            assertEquals("replacement-token", OpenRouterSettingsRepositoryImpl(store, settings, vault).loadSettings().apiKey)
+            assertEquals("unrelated-token", vault.read("other-key")?.decodeToString())
+            assertFalse(store.data.first().asMap().values.any { it.toString().contains("replacement-token") })
+            coVerify(exactly = 0) { platformDao.editPlatform(any()) }
+
+            repository.saveSettings(OpenRouterSettings(apiKey = ""))
+            assertEquals(listOf(null, null), settings.fetchPlatformV2s().map { it.token })
+            vault.put("openrouter-settings", "stale-standalone-key".encodeToByteArray())
+            assertEquals("", OpenRouterSettingsRepositoryImpl(store, settings, vault).loadSettings().apiKey)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun clearingALegacyKeyUsesAnExplicitEmptyCredential() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            val store = PreferenceDataStoreFactory.create(scope = scope) { File(temp.root, "legacy.preferences_pb") }
+            val settings = mockk<SettingRepository>(relaxed = true)
+            coEvery { settings.fetchPlatformV2s() } returns listOf(PlatformV2(id = 1, name = "Router", compatibleType = ClientType.OPENROUTER, token = "old", secretRef = "profile"))
+            OpenRouterSettingsRepositoryImpl(store, settings, MemoryVault()).saveSettings(OpenRouterSettings(apiKey = ""))
+            coVerify { settings.updatePlatformV2(match { it.token == "" }) }
         } finally {
             scope.cancel()
         }

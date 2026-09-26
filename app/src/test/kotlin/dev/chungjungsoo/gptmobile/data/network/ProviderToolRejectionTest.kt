@@ -227,6 +227,48 @@ class ProviderToolRejectionTest {
         assertEquals("Model route was not found", chunk.error?.message)
     }
 
+    @Test
+    fun authenticationFailureWithToolsKeepsItsStatusAndExplainsWhichKeyToFix() = withServer(401, """{"error":{"message":"User not found.","code":401}}""") { baseUrl ->
+        val client = NetworkClient(CIO)
+        try {
+            val api = OpenAIAPIImpl(client)
+            val chunk = runBlocking { api.streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).single() }
+            assertEquals("401", chunk.error?.code)
+            assertTrue(chunk.error!!.message.contains("platform connection"))
+            assertTrue(chunk.error!!.message.contains("HTTP 401"))
+            val response = runBlocking { api.streamResponses(responsesRequest(withTools = true), 5, config(baseUrl)).single() } as ResponseErrorEvent
+            assertEquals(chunk.error!!.message, response.message)
+        } finally {
+            client().close()
+        }
+    }
+
+    @Test
+    fun authenticationFailureInsideASuccessfulStreamIsAlsoActionable() {
+        val body = "data: {\"error\":{\"message\":\"User not found.\",\"code\":401}}\n\ndata: [DONE]\n\n"
+        withServer(200, body) { baseUrl ->
+            val client = NetworkClient(CIO)
+            try {
+                val chunk = runBlocking { OpenAIAPIImpl(client).streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).single() }
+                assertEquals("401", chunk.error?.code)
+                assertTrue(chunk.error!!.message.contains("Settings → Platforms"))
+            } finally {
+                client().close()
+            }
+        }
+    }
+
+    @Test
+    fun openRouterAuthGuidanceUsesTheProviderHostWithoutEchoingSecrets() {
+        val config = ProviderRequestConfig("https://openrouter.ai/api/v1", "secret-key")
+        val message = config.readableProviderError("User not found. secret-key", "401")
+        assertTrue(message.startsWith("OpenRouter"))
+        assertTrue(message.contains("service status"))
+        assertFalse(message.contains("secret-key"))
+        assertEquals("Model not found", config.readableProviderError("Model not found", "404"))
+        assertTrue(config.readableProviderError("Forbidden", "403").contains("permissions"))
+    }
+
     private fun responsesRequest(withTools: Boolean) = ResponsesRequest(
         model = "model",
         input = listOf(ResponseInputMessage("user", ResponseInputContent.text("hello"))),

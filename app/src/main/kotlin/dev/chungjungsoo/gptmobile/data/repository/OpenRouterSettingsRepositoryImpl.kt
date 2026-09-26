@@ -29,25 +29,41 @@ class OpenRouterSettingsRepositoryImpl @Inject constructor(
             runCatching { json.decodeFromString<OpenRouterSettings>(encoded) }.getOrNull()
         } ?: OpenRouterSettings(apiKey = "")
         val platform = findPlatform()
-        val key = platform?.token ?: secretVault.read(SECRET_REF)?.let { bytes ->
-            try {
-                bytes.decodeToString()
-            } finally {
-                bytes.fill(0)
-            }
-        }.orEmpty()
+        // A linked profile's connection is authoritative, including a cleared key.
+        val key = if (platform != null) {
+            platform.token.orEmpty()
+        } else {
+            secretVault.read(SECRET_REF)?.let { bytes ->
+                try {
+                    bytes.decodeToString()
+                } finally {
+                    bytes.fill(0)
+                }
+            }.orEmpty()
+        }
         return saved.copy(apiKey = key, baseUrl = platform?.apiUrl?.takeIf(String::isNotBlank) ?: saved.baseUrl)
     }
 
     override suspend fun saveSettings(settings: OpenRouterSettings) {
         val platform = findPlatform()
+        val apiKey = settings.apiKey.trim()
+        val baseUrl = settings.baseUrl.trim()
         if (platform != null) {
-            settingRepository.updatePlatformV2(platform.copy(token = settings.apiKey.takeIf(String::isNotBlank), apiUrl = settings.baseUrl))
+            val connectionUid = platform.providerConnectionUid
+            if (connectionUid != null) {
+                val connection = checkNotNull(settingRepository.getProviderConnection(connectionUid)) {
+                    "OpenRouter connection is missing. Select a platform connection for this AI profile."
+                }
+                settingRepository.updateProviderConnection(connection.copy(apiUrl = baseUrl), apiKey)
+            } else {
+                // An empty string explicitly clears a legacy profile key; null keeps it.
+                settingRepository.updatePlatformV2(platform.copy(token = apiKey, apiUrl = baseUrl))
+            }
             secretVault.delete(SECRET_REF)
-        } else if (settings.apiKey.isBlank()) {
+        } else if (apiKey.isBlank()) {
             secretVault.delete(SECRET_REF)
         } else {
-            val bytes = settings.apiKey.encodeToByteArray()
+            val bytes = apiKey.encodeToByteArray()
             try {
                 secretVault.put(SECRET_REF, bytes)
             } finally {
@@ -55,7 +71,7 @@ class OpenRouterSettingsRepositoryImpl @Inject constructor(
             }
         }
         // The API key stays in the device vault; ordinary preferences are portable.
-        dataStore.edit { it[SETTINGS] = json.encodeToString(settings.copy(apiKey = "")) }
+        dataStore.edit { it[SETTINGS] = json.encodeToString(settings.copy(apiKey = "", baseUrl = baseUrl)) }
     }
 
     private suspend fun findPlatform(): PlatformV2? = settingRepository.fetchPlatformV2s().firstOrNull {

@@ -112,6 +112,9 @@ class ChatViewModel @Inject constructor(
     fun decideToolApproval(id: String, allow: Boolean) {
         viewModelScope.launch { toolApprovals?.decide(id, allow) }
     }
+    fun alwaysAllowTool(id: String) {
+        viewModelScope.launch { toolApprovals?.alwaysAllow(id) }
+    }
 
     sealed class LoadingState {
         data object Idle : LoadingState()

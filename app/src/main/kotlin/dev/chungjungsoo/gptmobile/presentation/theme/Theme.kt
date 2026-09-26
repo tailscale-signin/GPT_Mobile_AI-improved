@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -47,7 +48,7 @@ private val lightScheme = lightColorScheme(
     surfaceVariant = surfaceVariantLight,
     onSurfaceVariant = onSurfaceVariantLight,
     outline = outlineLight,
-    outlineVariant = outlineVariantLight,
+    outlineVariant = outlineVariantLight
 )
 
 // Deliberately cyan-black rather than neutral/absolute black. Keeping every surface
@@ -87,43 +88,43 @@ private val darkScheme = darkColorScheme(
     surfaceContainerLow = Color(0xFF062329),
     surfaceContainer = Color(0xFF0A292F),
     surfaceContainerHigh = Color(0xFF103239),
-    surfaceContainerHighest = Color(0xFF173C43),
+    surfaceContainerHighest = Color(0xFF173C43)
 )
 
 val extendedLight = ExtendedColorScheme(
     ColorFamily(customColor1Light, onCustomColor1Light, customColor1ContainerLight, onCustomColor1ContainerLight),
     ColorFamily(chatGPTOfficialColorLight, onChatGPTOfficialColorLight, chatGPTOfficialColorContainerLight, onChatGPTOfficialColorContainerLight),
-    ColorFamily(customColor2Light, onCustomColor2Light, customColor2ContainerLight, onCustomColor2ContainerLight),
+    ColorFamily(customColor2Light, onCustomColor2Light, customColor2ContainerLight, onCustomColor2ContainerLight)
 )
 
 val extendedDark = ExtendedColorScheme(
     ColorFamily(customColor1Dark, onCustomColor1Dark, customColor1ContainerDark, onCustomColor1ContainerDark),
     ColorFamily(chatGPTOfficialColorDark, onChatGPTOfficialColorDark, chatGPTOfficialColorContainerDark, onChatGPTOfficialColorContainerDark),
-    ColorFamily(customColor2Dark, onCustomColor2Dark, customColor2ContainerDark, onCustomColor2ContainerDark),
+    ColorFamily(customColor2Dark, onCustomColor2Dark, customColor2ContainerDark, onCustomColor2ContainerDark)
 )
 
 val extendedLightMediumContrast = ExtendedColorScheme(
     ColorFamily(customColor1LightMediumContrast, onCustomColor1LightMediumContrast, customColor1ContainerLightMediumContrast, onCustomColor1ContainerLightMediumContrast),
     ColorFamily(chatGPTOfficialColorLightMediumContrast, onChatGPTOfficialColorLightMediumContrast, chatGPTOfficialColorContainerLightMediumContrast, onChatGPTOfficialColorContainerLightMediumContrast),
-    ColorFamily(customColor2LightMediumContrast, onCustomColor2LightMediumContrast, customColor2ContainerLightMediumContrast, onCustomColor2ContainerLightMediumContrast),
+    ColorFamily(customColor2LightMediumContrast, onCustomColor2LightMediumContrast, customColor2ContainerLightMediumContrast, onCustomColor2ContainerLightMediumContrast)
 )
 
 val extendedLightHighContrast = ExtendedColorScheme(
     ColorFamily(customColor1LightHighContrast, onCustomColor1LightHighContrast, customColor1ContainerLightHighContrast, onCustomColor1ContainerLightHighContrast),
     ColorFamily(chatGPTOfficialColorLightHighContrast, onChatGPTOfficialColorLightHighContrast, chatGPTOfficialColorContainerLightHighContrast, onChatGPTOfficialColorContainerLightHighContrast),
-    ColorFamily(customColor2LightHighContrast, onCustomColor2LightHighContrast, customColor2ContainerLightHighContrast, onCustomColor2ContainerLightHighContrast),
+    ColorFamily(customColor2LightHighContrast, onCustomColor2LightHighContrast, customColor2ContainerLightHighContrast, onCustomColor2ContainerLightHighContrast)
 )
 
 val extendedDarkMediumContrast = ExtendedColorScheme(
     ColorFamily(customColor1DarkMediumContrast, onCustomColor1DarkMediumContrast, customColor1ContainerDarkMediumContrast, onCustomColor1ContainerDarkMediumContrast),
     ColorFamily(chatGPTOfficialColorDarkMediumContrast, onChatGPTOfficialColorDarkMediumContrast, chatGPTOfficialColorContainerDarkMediumContrast, onChatGPTOfficialColorContainerDarkMediumContrast),
-    ColorFamily(customColor2DarkMediumContrast, onCustomColor2DarkMediumContrast, customColor2ContainerDarkMediumContrast, onCustomColor2ContainerDarkMediumContrast),
+    ColorFamily(customColor2DarkMediumContrast, onCustomColor2DarkMediumContrast, customColor2ContainerDarkMediumContrast, onCustomColor2ContainerDarkMediumContrast)
 )
 
 val extendedDarkHighContrast = ExtendedColorScheme(
     ColorFamily(customColor1DarkHighContrast, onCustomColor1DarkHighContrast, customColor1ContainerDarkHighContrast, onCustomColor1ContainerDarkHighContrast),
     ColorFamily(chatGPTOfficialColorDarkHighContrast, onChatGPTOfficialColorDarkHighContrast, chatGPTOfficialColorContainerDarkHighContrast, onChatGPTOfficialColorContainerDarkHighContrast),
-    ColorFamily(customColor2DarkHighContrast, onCustomColor2DarkHighContrast, customColor2ContainerDarkHighContrast, onCustomColor2ContainerDarkHighContrast),
+    ColorFamily(customColor2DarkHighContrast, onCustomColor2DarkHighContrast, customColor2ContainerDarkHighContrast, onCustomColor2ContainerDarkHighContrast)
 )
 
 @Immutable
@@ -141,6 +142,7 @@ fun GPTMobileTheme(
     dynamicTheme: DynamicTheme = DynamicTheme.OFF,
     themeMode: ThemeMode = ThemeMode.LIGHT,
     customPrimaryArgb: Long? = null,
+    customPalette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette? = null,
     content: @Composable () -> Unit
 ) {
     val useDarkTheme = when (themeMode) {
@@ -150,27 +152,46 @@ fun GPTMobileTheme(
     }
     val context = LocalContext.current
     val customPrimary = customPrimaryArgb?.let(::Color)
-    val colorScheme = when {
-        customPrimary != null && useDarkTheme -> darkScheme.copy(
-            primary = customPrimary,
-            secondary = customPrimary,
-            tertiary = customPrimary
-        )
-        customPrimary != null -> lightScheme.copy(
-            primary = customPrimary,
-            secondary = customPrimary,
-            tertiary = customPrimary
-        )
+    val baseScheme = when {
         useDarkTheme -> darkScheme
         dynamicTheme == DynamicTheme.ON -> dynamicLightColorScheme(context)
         else -> lightScheme
+    }
+    fun foreground(color: Color): Color = if (androidx.core.graphics.ColorUtils.calculateLuminance(color.toArgb()) > 0.179) Color.Black else Color.White
+    val colorScheme = when {
+        customPalette != null -> {
+            val primary = Color(customPalette.primary)
+            val secondary = Color(customPalette.secondary)
+            val background = Color(customPalette.background)
+            val surface = Color(customPalette.surface)
+            val surfaceText = foreground(surface)
+            val container = androidx.compose.ui.graphics.lerp(surface, primary, 0.18f)
+            baseScheme.copy(
+                primary = primary, onPrimary = foreground(primary),
+                secondary = secondary, onSecondary = foreground(secondary),
+                tertiary = secondary, onTertiary = foreground(secondary),
+                primaryContainer = container, onPrimaryContainer = foreground(container),
+                secondaryContainer = androidx.compose.ui.graphics.lerp(surface, secondary, 0.18f),
+                onSecondaryContainer = foreground(androidx.compose.ui.graphics.lerp(surface, secondary, 0.18f)),
+                tertiaryContainer = container, onTertiaryContainer = foreground(container),
+                background = background, onBackground = foreground(background),
+                surface = surface, onSurface = surfaceText, onSurfaceVariant = surfaceText.copy(alpha = 0.8f),
+                surfaceContainer = surface, surfaceContainerLow = surface, surfaceContainerLowest = background,
+                surfaceContainerHigh = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.06f),
+                surfaceContainerHighest = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.1f),
+                surfaceDim = background, surfaceBright = surface,
+                outline = surfaceText.copy(alpha = 0.6f), outlineVariant = surfaceText.copy(alpha = 0.3f)
+            )
+        }
+        customPrimary != null -> baseScheme.copy(primary = customPrimary, onPrimary = foreground(customPrimary), secondary = customPrimary, tertiary = customPrimary)
+        else -> baseScheme
     }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !useDarkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = foreground(colorScheme.background) == Color.Black
         }
     }
     MaterialTheme(colorScheme = colorScheme, typography = AppTypography, content = content)

@@ -4,6 +4,7 @@ import android.os.SystemClock
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.sync.Mutex
@@ -24,6 +25,10 @@ class LocalEngineHolder(
     private val delegate: LocalRuntime,
     private val timeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) : LocalRuntime {
+    override val handlesEngineFallback get() = delegate.handlesEngineFallback
+    override val state get() = delegate.state
+    override fun loadedEngineSpec(): LocalEngineSpec? = delegate.loadedEngineSpec()
+
     private val mutex = Mutex()
     private var loadedSpec: LocalEngineSpec? = null
 
@@ -58,6 +63,7 @@ class LocalEngineHolder(
             loadedSpec = spec
         } catch (error: Throwable) {
             loadedSpec = null
+            withContext(NonCancellable) { delegate.unloadEngine() }
             throw error
         }
     }
@@ -102,17 +108,25 @@ class LocalEngineHolder(
      * active, already unloaded, or has not exceeded the idle threshold.
      */
     override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
-        if (loadedSpec == null) return false
-        val now = timeProvider()
-        val lastUsed = lastAccessedElapsedRealtimeMs
-        if (lastUsed > 0L && (now - lastUsed) >= idleThresholdMs) {
-            unloadEngine()
-            return true
+        // Never cancel a running generation to enforce an idle timeout. Check the
+        // timestamp and unload under the same lock as generation/model switching.
+        if (!mutex.tryLock()) return false
+        return try {
+            val idleMs = timeProvider() - lastAccessedElapsedRealtimeMs
+            if (loadedSpec == null || idleMs < idleThresholdMs) {
+                false
+            } else {
+                delegate.unloadEngine()
+                loadedSpec = null
+                lastAccessedElapsedRealtimeMs = 0L
+                true
+            }
+        } finally {
+            mutex.unlock()
         }
-        return false
     }
 
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec && delegate.isEngineLoaded(spec)
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec && delegate.isEngineLoaded(spec)
 
     override fun hasOpenConversation(): Boolean = delegate.hasOpenConversation()
 

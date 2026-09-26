@@ -1,17 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.llama
 
 import dev.chungjungsoo.gptmobile.domain.model.BatchConfig
-import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
-import dev.chungjungsoo.gptmobile.domain.model.LlamaBatchSettings
-import dev.chungjungsoo.gptmobile.domain.model.OpenRouterBatchSettings
 import dev.chungjungsoo.gptmobile.domain.model.PlatformType
-import dev.chungjungsoo.gptmobile.domain.service.BatchManager
 import dev.chungjungsoo.gptmobile.domain.service.BatchResult
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [34], application = android.app.Application::class)
 class LlamaBatchClientTest {
 
     @Test

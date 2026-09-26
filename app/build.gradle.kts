@@ -24,8 +24,8 @@ extensions.configure<ApplicationExtension> {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31
         targetSdk = 36
-        versionCode = 66
-        versionName = "0.9.11.0"
+        versionCode = 67
+        versionName = "0.9.12.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -127,11 +127,9 @@ extensions.configure<ApplicationExtension> {
                 "**/libandroidx.graphics.path.so",
                 "**/libQnn*.so"
             )
-            pickFirsts += setOf(
-                "**/libQnn*.so",
-                "**/libLiteRtDispatch_Qualcomm.so",
-                "**/libLiteRtCompilerPlugin_Qualcomm.so"
-            )
+            // LLM packages are AOT compiled. Keep one QAIRT version from qnn-runtime;
+            // do not mix it with checked-in HTP stubs/skeletons via pickFirsts.
+            excludes += setOf("**/libQnnDsp*.so", "**/libQnnGpu.so", "**/libQnnHtpPrepare.so")
         }
     }
 }
@@ -238,15 +236,19 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.openid.appauth)
 
+    // Document text extraction for cloud and on-device models
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("org.apache.poi:poi:5.4.1")
+    implementation("org.apache.poi:poi-scratchpad:5.4.1")
+
     // JSON parsing
     implementation("com.google.code.gson:gson:2.11.0")
 
     // On-device LiteRT-LM serving
     implementation(libs.litertlm)
 
-    // Qualcomm AI Engine Direct (QNN) SDK and LiteRT Delegate
+    // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.
     implementation(libs.qnn.runtime)
-    implementation(libs.qnn.litert.delegate)
 
     // License page UI
     implementation(libs.auto.license.core)

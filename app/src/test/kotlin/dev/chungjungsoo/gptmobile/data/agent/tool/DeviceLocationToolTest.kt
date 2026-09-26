@@ -37,10 +37,9 @@ class DeviceLocationToolTest {
         assertEquals("call-1", result.callId)
         assertTrue(result.isError)
         assertTrue(result.content is ToolResultContent.Text)
-        assertEquals(
-            "Location permission is not granted on this device.",
-            (result.content as ToolResultContent.Text).text
-        )
+        val message = (result.content as ToolResultContent.Text).text
+        assertTrue(message.contains("permission is not granted"))
+        assertTrue(message.contains("Enable Device location"))
     }
 
     @Test
@@ -53,10 +52,9 @@ class DeviceLocationToolTest {
         assertEquals("call-2", result.callId)
         assertTrue(result.isError)
         assertTrue(result.content is ToolResultContent.Text)
-        assertEquals(
-            "Unable to determine device location at this time.",
-            (result.content as ToolResultContent.Text).text
-        )
+        val message = (result.content as ToolResultContent.Text).text
+        assertTrue(message.contains("No recent device location fix"))
+        assertTrue(message.contains("Do not substitute a timezone"))
     }
 
     @Test

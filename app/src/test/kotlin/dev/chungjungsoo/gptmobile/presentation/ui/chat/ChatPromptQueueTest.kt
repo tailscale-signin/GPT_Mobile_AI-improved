@@ -146,6 +146,44 @@ class ChatPromptQueueTest {
         model.askQuestion()
     }
 
+    @Test
+    fun `queue waits while every profile is paused and resumes without losing the draft`() = runTest(dispatcher) {
+        val model = createViewModel()
+        runCurrent()
+        model.togglePlatformDisabled("profile-1")
+        send(model, "Queued while paused")
+        model.question.setTextAndPlaceCursorAtEnd("Next draft")
+        completePersistedRuns()
+        activeRuns.value = emptyMap()
+        runCurrent()
+        assertTrue(submissions.isEmpty())
+        assertEquals(1, model.queuedPromptCount.value)
+        model.togglePlatformDisabled("profile-1")
+        runCurrent()
+        assertEquals(listOf("Queued while paused"), submissions.map { it.userMessage.content })
+        assertEquals("Next draft", model.question.text.toString())
+        assertEquals(0, model.queuedPromptCount.value)
+    }
+
+    @Test
+    fun `sending during attachment preparation keeps the draft and does not enqueue incomplete content`() = runTest(dispatcher) {
+        val model = createViewModel()
+        runCurrent()
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val file = java.io.File(context.cacheDir, "preparing.txt").apply { writeText("Document content") }
+        try {
+            model.addSelectedFile(file.absolutePath)
+            model.question.setTextAndPlaceCursorAtEnd("Read this document")
+            model.askQuestion()
+            assertEquals("Read this document", model.question.text.toString())
+            assertEquals(0, model.queuedPromptCount.value)
+            assertTrue(submissions.isEmpty())
+        } finally {
+            store.clear()
+            file.delete()
+        }
+    }
+
     private fun completePersistedRuns() {
         messages.value = messages.value.map { message ->
             if (message.platformType != null) message.copy(content = "Finished response") else message
@@ -171,7 +209,7 @@ class ChatPromptQueueTest {
             activePlatform = profiles.map { it.uid },
             conversationMode = if (combined) ConversationMode.COMBINED else ConversationMode.STANDARD
         )
-        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "First prompt")) + profiles.mapIndexed { index, profile ->
+        messages.value = listOf(MessageV2(id = 1, chatId = 7, content = "First prompt", platformType = null)) + profiles.mapIndexed { index, profile ->
             MessageV2(id = index + 2, chatId = 7, content = "", platformType = profile.uid, currentRunId = "first-$index")
         }
         runs.value = profiles.mapIndexed { index, profile ->

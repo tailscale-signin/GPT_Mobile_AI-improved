@@ -53,9 +53,12 @@ class FileUtilsTest {
     }
 
     @Test
-    fun `non image mime types are not supported by image upload pipeline`() {
+    fun `documents and images are accepted but executable files are rejected`() {
         assertTrue(FileUtils.isSupportedUploadMimeType("image/jpeg"))
-        assertFalse(FileUtils.isSupportedUploadMimeType("application/pdf"))
+        assertTrue(FileUtils.isSupportedUploadMimeType("application/pdf"))
+        assertTrue(FileUtils.isSupportedUploadMimeType("application/msword"))
+        assertTrue(FileUtils.isSupportedUploadMimeType("application/vnd.ms-excel"))
+        assertFalse(FileUtils.isSupportedUploadMimeType("application/vnd.android.package-archive"))
     }
 
     @Test

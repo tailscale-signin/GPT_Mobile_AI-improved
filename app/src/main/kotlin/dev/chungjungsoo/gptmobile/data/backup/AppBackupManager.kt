@@ -181,6 +181,8 @@ class AppBackupManager @Inject constructor(
             val uiPreferences = if (options.includeUiPreferences) {
                 UiPreferencesBackupDto(
                     themeMode = theme.themeMode.ordinal,
+                    customPrimaryArgb = theme.customPrimaryArgb,
+                    customPalette = theme.customPalette,
                     dynamicTheme = theme.dynamicTheme == DynamicTheme.ON,
                     debugMode = settingRepository.getDebugMode(),
                     localRuntimeBackend = settingRepository.getLocalRuntimeBackend().name
@@ -197,7 +199,9 @@ class AppBackupManager @Inject constructor(
                 exportedAt = System.currentTimeMillis(),
                 theme = ThemeBackupDto(
                     dynamicTheme = theme.dynamicTheme == DynamicTheme.ON,
-                    themeMode = theme.themeMode.ordinal
+                    themeMode = theme.themeMode.ordinal,
+                    customPrimaryArgb = theme.customPrimaryArgb,
+                    customPalette = theme.customPalette
                 ),
                 platforms = platforms,
                 toolConnections = connectionsWithCreds,
@@ -239,13 +243,13 @@ class AppBackupManager @Inject constructor(
             payload.uiPreferences?.let { uiPrefs ->
                 val dynamicTheme = if (uiPrefs.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
                 val themeMode = ThemeMode.getByValue(uiPrefs.themeMode) ?: ThemeMode.SYSTEM
-                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
+                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = uiPrefs.customPrimaryArgb, customPalette = uiPrefs.customPalette))
                 settingRepository.updateDebugMode(uiPrefs.debugMode)
                 settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.fromString(uiPrefs.localRuntimeBackend))
             } ?: payload.theme?.let { themeDto ->
                 val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
                 val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
+                settingRepository.updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette))
             }
 
             // Restore Tool Connections

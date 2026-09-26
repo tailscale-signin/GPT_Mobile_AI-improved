@@ -78,7 +78,7 @@ object ThinkingParser {
         val mainText = rawText.replace(match.value, "").trim()
 
         return ParsedReasoningContent(
-            thinking = thinkingPart,
+            thinking = thinkingPart.takeIf(String::isNotBlank),
             displayContent = mainText,
             isThinkingInProgress = isStillThinking
         )

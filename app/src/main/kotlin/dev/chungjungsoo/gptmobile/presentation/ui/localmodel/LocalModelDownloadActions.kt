@@ -155,7 +155,7 @@ class LocalModelDownloadActions(
     }
 
     private fun entryWithResolvedSize(entry: CatalogEntry): CatalogEntry {
-        val resolvedSize = SocVariantResolver.resolve(entry, deviceSocModel).sizeInBytes
+        val resolvedSize = SocVariantResolver.resolveForRuntime(entry, deviceSocModel).sizeInBytes
         return if (resolvedSize > 0L) entry.copy(sizeInBytes = resolvedSize) else entry
     }
 

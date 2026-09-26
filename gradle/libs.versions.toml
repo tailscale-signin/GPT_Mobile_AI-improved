@@ -82,7 +82,6 @@ androidx-lifecycle-runtime-compose-android = { group = "androidx.lifecycle", nam
 openid-appauth = { group = "net.openid", name = "appauth", version.ref = "appauth" }
 litertlm = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
 qnn-runtime = { group = "com.qualcomm.qti", name = "qnn-runtime", version.ref = "qnn" }
-qnn-litert-delegate = { group = "com.qualcomm.qti", name = "qnn-litert-delegate", version.ref = "qnn" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }

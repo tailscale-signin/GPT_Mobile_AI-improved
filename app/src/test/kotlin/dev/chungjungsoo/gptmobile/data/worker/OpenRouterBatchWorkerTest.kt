@@ -6,14 +6,11 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dev.chungjungsoo.gptmobile.data.database.dao.OpenRouterBatchCacheDao
-import dev.chungjungsoo.gptmobile.data.database.entity.OpenRouterBatchCacheEntity
 import dev.chungjungsoo.gptmobile.data.repository.OpenRouterSettingsRepository
 import dev.chungjungsoo.gptmobile.domain.model.OpenRouterSettings
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -22,7 +19,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(sdk = [34], application = android.app.Application::class)
 class OpenRouterBatchWorkerTest {
 
     private lateinit var context: Context
@@ -77,11 +74,22 @@ class OpenRouterBatchWorkerTest {
 
     @Test
     fun `enqueueBatchRequest enqueues WorkRequest without throwing`() {
-        OpenRouterBatchWorker.enqueueBatchRequest(
-            context = context,
-            requestId = "req-12345",
-            prompt = "Test prompt",
-            apiKey = "sk-or-dummy-key"
-        )
+        val manager = mockk<androidx.work.WorkManager>(relaxed = true)
+        val request = io.mockk.slot<androidx.work.OneTimeWorkRequest>()
+        io.mockk.mockkObject(androidx.work.WorkManager.Companion)
+        try {
+            io.mockk.every { androidx.work.WorkManager.getInstance(context) } returns manager
+            OpenRouterBatchWorker.enqueueBatchRequest(
+                context = context,
+                requestId = "req-12345",
+                prompt = "Test prompt",
+                apiKey = "sk-or-dummy-key"
+            )
+            io.mockk.verify { manager.enqueue(capture(request)) }
+            org.junit.Assert.assertEquals("req-12345", request.captured.workSpec.input.getString(OpenRouterBatchWorker.KEY_REQUEST_ID))
+            org.junit.Assert.assertEquals(androidx.work.NetworkType.CONNECTED, request.captured.workSpec.constraints.requiredNetworkType)
+        } finally {
+            io.mockk.unmockkObject(androidx.work.WorkManager.Companion)
+        }
     }
 }

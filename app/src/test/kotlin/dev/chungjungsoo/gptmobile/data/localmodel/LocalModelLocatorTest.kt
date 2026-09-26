@@ -1,14 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.localmodel
 
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalModelValidator
+import java.io.ByteArrayInputStream
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.ByteArrayInputStream
-import java.io.File
 
 class LocalModelLocatorTest {
 
@@ -17,12 +16,12 @@ class LocalModelLocatorTest {
 
     @Test
     fun supportedModelFileExtensions() {
-        assertTrue(LocalModelLocator.isSupportedModelFile("gemma-2b.bin"))
-        assertTrue(LocalModelLocator.isSupportedModelFile("model.task"))
-        assertTrue(LocalModelLocator.isSupportedModelFile("model.tflite"))
-        assertTrue(LocalModelLocator.isSupportedModelFile("model.litertmodel"))
+        assertFalse(LocalModelLocator.isSupportedModelFile("gemma-2b.bin"))
+        assertFalse(LocalModelLocator.isSupportedModelFile("model.task"))
+        assertFalse(LocalModelLocator.isSupportedModelFile("model.tflite"))
+        assertFalse(LocalModelLocator.isSupportedModelFile("model.litertmodel"))
         assertTrue(LocalModelLocator.isSupportedModelFile("model.litertlm"))
-        assertTrue(LocalModelLocator.isSupportedModelFile("model.gguf"))
+        assertFalse(LocalModelLocator.isSupportedModelFile("model.gguf"))
 
         assertFalse(LocalModelLocator.isSupportedModelFile("model.txt"))
         assertFalse(LocalModelLocator.isSupportedModelFile("model.exe"))
@@ -38,9 +37,9 @@ class LocalModelLocatorTest {
 
     @Test
     fun locateExistingModelSuccess() {
-        val file = tempFolder.newFile("test_local_model.bin")
+        val file = tempFolder.newFile("test_local_model.litertlm")
         // Write enough dummy bytes to satisfy min size
-        val dummyData = ByteArray(1024)
+        val dummyData = ByteArray(1024).also { "LITERTLM".toByteArray().copyInto(it) }
         file.writeBytes(dummyData)
 
         val result = LocalModelLocator.locateExistingModel(file, minSizeBytes = 512L)
@@ -65,12 +64,12 @@ class LocalModelLocatorTest {
     @Test
     fun importModelFromStreamSuccess() {
         val targetRootDir = tempFolder.newFolder("target_models")
-        val content = ByteArray(2048) { it.toByte() }
+        val content = ByteArray(2048).also { "LITERTLM".toByteArray().copyInto(it) }
         val stream = ByteArrayInputStream(content)
 
         val result = LocalModelLocator.importModel(
             inputStream = stream,
-            fileName = "custom_model.tflite",
+            fileName = "custom_model.litertlm",
             targetModelsRootDir = targetRootDir,
             minSizeBytes = 1024L
         )
@@ -91,7 +90,7 @@ class LocalModelLocatorTest {
 
         val result = LocalModelLocator.importModel(
             inputStream = stream,
-            fileName = "small_model.bin",
+            fileName = "small_model.litertlm",
             targetModelsRootDir = targetRootDir,
             minSizeBytes = 1024L
         )
@@ -99,5 +98,23 @@ class LocalModelLocatorTest {
         assertTrue(result is LocalModelImportResult.Failure)
         val failure = result as LocalModelImportResult.Failure
         assertEquals(LocalModelImportResult.Failure.Reason.INVALID_MODEL, failure.reason)
+    }
+
+    @Test
+    fun failedReimportPreservesTheWorkingFile() {
+        val root = tempFolder.newFolder("atomic")
+        val valid = ByteArray(1024).also { "LITERTLM".toByteArray().copyInto(it) }
+        val original = LocalModelLocator.importModel(valid.inputStream(), "model.litertlm", root, 512) as LocalModelImportResult.Success
+        val failed = LocalModelLocator.importModel(ByteArray(100).inputStream(), "model.litertlm", root, 512)
+        assertTrue(failed is LocalModelImportResult.Failure)
+        assertTrue(File(original.absoluteFilePath).readBytes().contentEquals(valid))
+    }
+
+    @Test
+    fun importRejectsPathTraversalBeforeWriting() {
+        val root = tempFolder.newFolder("paths")
+        val result = LocalModelLocator.importModel(ByteArray(1024).inputStream(), "../escape.litertlm", root, 512)
+        assertTrue(result is LocalModelImportResult.Failure)
+        assertTrue(root.listFiles().orEmpty().isEmpty())
     }
 }

@@ -56,7 +56,9 @@ class FakeLocalRuntime : LocalRuntime {
         loadedSpec = effectiveSpec
     }
 
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec
+    override fun loadedEngineSpec(): LocalEngineSpec? = loadedSpec
+
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean = loadedSpec == spec
 
     override suspend fun createConversation(config: LocalConversationConfig) {
         val policy = getAdaptiveThrottlingPolicy()
@@ -77,7 +79,6 @@ class FakeLocalRuntime : LocalRuntime {
         generationCancelled = false
         sendMessageCalls += text
         sendMessageImages += images
-        emit(LocalRuntimeEvent.PhaseChanged(LocalInferencePhase.PREFILL))
         if (emitDelayMillis > 0L) {
             delay(emitDelayMillis)
         }

@@ -1,31 +1,24 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
 import android.content.ClipData
-import android.content.res.Configuration
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,7 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -49,12 +41,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -65,8 +55,6 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -76,7 +64,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -111,18 +98,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -133,7 +116,6 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -148,17 +130,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
-import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
-import dev.chungjungsoo.gptmobile.domain.model.SortType
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.GPTMobileIcon
 import dev.chungjungsoo.gptmobile.util.getPlatformName
-import kotlin.math.abs
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class PlatformSortOrder {
@@ -575,7 +551,7 @@ fun FancySwipeChatCard(
     )
 
     // Full-color swipe backgrounds
-    val archiveColor = Color(0xFF4CAF50)
+    val archiveColor = Color(0xFF00BCD4)
     val deleteColor = Color(0xFFF44336)
 
     // Card surface tint dynamically reacting to swipe progress
@@ -587,11 +563,7 @@ fun FancySwipeChatCard(
         else -> MaterialTheme.colorScheme.surface
     }
 
-    val animatedCardColor by animateColorAsState(
-        targetValue = cardContainerColor,
-        animationSpec = tween(150),
-        label = "swipe_card_color"
-    )
+    val animatedCardColor = cardContainerColor
 
     val cardElevation = if (progress > 0.1f) 4.dp else 1.dp
 
@@ -1257,27 +1229,15 @@ fun SelectPlatformDialog(
     val configuration = LocalWindowInfo.current
     val screenWidth = with(LocalDensity.current) { configuration.containerSize.width.toDp() }
     val screenHeight = with(LocalDensity.current) { configuration.containerSize.height.toDp() }
-    val sortOrder = PlatformSortOrder.ENABLED_FIRST
     var combinedMode by rememberSaveable { mutableStateOf(false) }
-    val selectedCount = selectedPlatforms.count { it }
+    val selectedCount = platforms.indices.count { platforms[it].enabled && selectedPlatforms.getOrElse(it) { false } }
     val canCombine = selectedCount >= 2
 
     LaunchedEffect(canCombine) {
         if (!canCombine) combinedMode = false
     }
-
-    // Map platform indices for stable checkbox selection even when sorted
-    val indexedPlatforms = remember(platforms, sortOrder) {
-        val list = platforms.mapIndexed { index, platform -> Pair(index, platform) }
-        when (sortOrder) {
-            PlatformSortOrder.DEFAULT -> list
-            PlatformSortOrder.NAME -> list.sortedBy { it.second.name.lowercase() }
-            PlatformSortOrder.PROVIDER -> list.sortedBy { it.second.compatibleType.name }
-            PlatformSortOrder.ENABLED_FIRST -> list.sortedWith(
-                compareByDescending<Pair<Int, PlatformV2>> { it.second.enabled }
-                    .thenByDescending { it.second.isFavorite }
-            )
-        }
+    val indexedPlatforms = remember(platforms) {
+        platforms.mapIndexed { index, platform -> index to platform }.filter { it.second.enabled }
     }
 
     AlertDialog(
@@ -1307,7 +1267,7 @@ fun SelectPlatformDialog(
                     FilterChip(
                         selected = !combinedMode,
                         onClick = { combinedMode = false },
-                        label = { Text(stringResource(R.string.chat_mode_standard)) }
+                        label = { Text("Separate") }
                     )
                     FilterChip(
                         selected = combinedMode,
@@ -1316,7 +1276,6 @@ fun SelectPlatformDialog(
                         label = { Text(stringResource(R.string.chat_mode_combined)) }
                     )
                 }
-
             }
         },
         text = {
@@ -1343,9 +1302,9 @@ fun SelectPlatformDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = selectedPlatforms.any { it },
+                enabled = selectedCount > 0,
                 onClick = {
-                    val selected = platforms.filterIndexed { i, _ -> selectedPlatforms[i] }.map { it.uid }
+                    val selected = platforms.filterIndexed { i, platform -> platform.enabled && selectedPlatforms.getOrElse(i) { false } }.map { it.uid }
                     onConfirmation(
                         selected,
                         if (combinedMode && selected.size >= 2) ConversationMode.COMBINED else ConversationMode.STANDARD

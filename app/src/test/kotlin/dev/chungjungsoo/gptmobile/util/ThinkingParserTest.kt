@@ -53,13 +53,13 @@ class ThinkingParserTest {
     }
 
     @Test
-    fun parse_withEmptyThinkingBlock_returnsEmptyThinking() {
+    fun parse_withEmptyThinkingBlock_doesNotShowEmptyThinking() {
         val raw = "<think></think>Actual answer"
         val result = ThinkingParser.parse(raw)
 
-        assertEquals("", result.thinking)
+        assertEquals(null, result.thinking)
         assertEquals("Actual answer", result.displayContent)
-        assertTrue(result.hasThinking)
+        assertFalse(result.hasThinking)
         assertFalse(result.isThinkingInProgress)
     }
 }

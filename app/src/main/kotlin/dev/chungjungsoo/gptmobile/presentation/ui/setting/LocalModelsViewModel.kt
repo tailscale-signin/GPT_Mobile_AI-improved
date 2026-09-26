@@ -52,7 +52,7 @@ class LocalModelsViewModel @Inject constructor(
         deviceSocModel = deviceSocModel
     )
 
-    private val _listState = MutableStateFlow(LocalModelsListState())
+    private val localListState = MutableStateFlow(LocalModelsListState())
     private val customDialogState = MutableStateFlow<LocalModelsDialog>(LocalModelsDialog.Hidden)
     private val hasHuggingFaceToken = MutableStateFlow(false)
     private val searchQuery = MutableStateFlow("")
@@ -79,7 +79,7 @@ class LocalModelsViewModel @Inject constructor(
     }
 
     val uiState: StateFlow<LocalModelsUiState> = combine(
-        _listState,
+        localListState,
         downloadActions.uiState,
         customDialogState,
         hasHuggingFaceToken,
@@ -154,7 +154,7 @@ class LocalModelsViewModel @Inject constructor(
                     .sumOf { it.totalBytes }
                 items to storage
             }.collect { (items, storage) ->
-                _listState.update {
+                localListState.update {
                     it.copy(
                         items = items,
                         isLoading = false,
@@ -252,7 +252,7 @@ class LocalModelsViewModel @Inject constructor(
 
     fun importCustomModel(contentResolver: ContentResolver, uri: Uri) {
         viewModelScope.launch {
-            val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "custom.gguf"
+            val fileName = queryDisplayName(contentResolver, uri) ?: uri.lastPathSegment ?: "custom.litertlm"
             val inputStream = runCatching { contentResolver.openInputStream(uri) }.getOrNull()
             if (inputStream == null) {
                 customDialogState.value = LocalModelsDialog.ImportFailed("Could not open file stream.")
@@ -326,7 +326,7 @@ class LocalModelsViewModel @Inject constructor(
         const val HUGGING_FACE_SEARCH_DEBOUNCE_MS = 350L
     }
 
-    private fun currentStatus(catalogEntryId: String): LocalModelItemStatus? = _listState.value.items.firstOrNull { it.entry.id == catalogEntryId }?.status
+    private fun currentStatus(catalogEntryId: String): LocalModelItemStatus? = localListState.value.items.firstOrNull { it.entry.id == catalogEntryId }?.status
 }
 
 private data class HuggingFaceSearchState(

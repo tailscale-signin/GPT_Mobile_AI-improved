@@ -149,7 +149,8 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun fetchThemes(): ThemeSetting = ThemeSetting(
         dynamicTheme = settingDataSource.getDynamicTheme() ?: DynamicTheme.OFF,
         themeMode = settingDataSource.getThemeMode() ?: ThemeMode.SYSTEM,
-        customPrimaryArgb = settingDataSource.getCustomPrimaryArgb()
+        customPrimaryArgb = settingDataSource.getCustomPrimaryArgb(),
+        customPalette = settingDataSource.getCustomPalette()
     )
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
@@ -309,6 +310,7 @@ class SettingRepositoryImpl @Inject constructor(
         settingDataSource.updateDynamicTheme(themeSetting.dynamicTheme)
         settingDataSource.updateThemeMode(themeSetting.themeMode)
         settingDataSource.updateCustomPrimaryArgb(themeSetting.customPrimaryArgb)
+        settingDataSource.updateCustomPalette(themeSetting.customPalette)
     }
 
     override suspend fun addPlatformV2(platform: PlatformV2) {
@@ -405,7 +407,9 @@ class SettingRepositoryImpl @Inject constructor(
             exportedAt = System.currentTimeMillis(),
             theme = ThemeBackupDto(
                 dynamicTheme = currentThemes.dynamicTheme == DynamicTheme.ON,
-                themeMode = currentThemes.themeMode.ordinal
+                themeMode = currentThemes.themeMode.ordinal,
+                customPrimaryArgb = currentThemes.customPrimaryArgb,
+                customPalette = currentThemes.customPalette
             ),
             platforms = currentPlatforms.map { p ->
                 PlatformBackupDto(
@@ -445,7 +449,7 @@ class SettingRepositoryImpl @Inject constructor(
         backup.theme?.let { themeDto ->
             val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
             val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode))
+            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette))
         }
 
         if (backup.favoriteGroups.isNotEmpty()) {

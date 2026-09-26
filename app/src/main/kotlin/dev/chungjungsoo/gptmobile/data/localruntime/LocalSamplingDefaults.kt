@@ -49,7 +49,7 @@ fun localSamplingDefaults(
         temperature = entry.defaultConfig.temperature,
         topP = entry.defaultConfig.topP,
         topK = entry.defaultConfig.topK,
-        maxTokens = resolvedMaxTokens,
+        maxTokens = resolvedEngineMaxTokens(resolvedMaxTokens, accelerator, entry, deviceSocModel, deviceRamGb),
         accelerator = accelerator
     )
 }

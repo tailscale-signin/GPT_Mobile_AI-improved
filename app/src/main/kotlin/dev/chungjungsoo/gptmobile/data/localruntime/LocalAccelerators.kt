@@ -32,7 +32,9 @@ object LocalAccelerators {
         deviceSocModel: String
     ): Boolean {
         val listsNpu = supported.any { it.equals(NPU, ignoreCase = true) }
-        return listsNpu && SocVariantResolver.hasMatchingVariant(socToModelFiles, deviceSocModel)
+        return listsNpu &&
+            QualcommSocSupport.htpVersion(deviceSocModel) != null &&
+            SocVariantResolver.hasMatchingVariant(socToModelFiles, deviceSocModel)
     }
 
     fun defaultFrom(
@@ -42,6 +44,7 @@ object LocalAccelerators {
     ): String {
         val options = selectable(supported, socToModelFiles, deviceSocModel).toSet()
         return when {
+            NPU in options -> NPU
             GPU in options -> GPU
             else -> supported.map { it.lowercase() }.firstOrNull { it in options } ?: CPU
         }
@@ -99,7 +102,9 @@ object LocalAccelerators {
                 unavailableReason = AcceleratorUnavailableReason.MODEL_HAS_NO_BUILD
             )
         }
-        if (!SocVariantResolver.hasMatchingVariant(socToModelFiles, deviceSocModel)) {
+        if (QualcommSocSupport.htpVersion(deviceSocModel) == null ||
+            !SocVariantResolver.hasMatchingVariant(socToModelFiles, deviceSocModel)
+        ) {
             return AcceleratorOption(
                 accelerator = NPU,
                 enabled = false,

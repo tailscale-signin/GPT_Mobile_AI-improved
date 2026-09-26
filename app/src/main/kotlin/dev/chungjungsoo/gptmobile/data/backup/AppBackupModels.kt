@@ -18,6 +18,8 @@ data class ToolConnectionWithCredential(
 @Serializable
 data class UiPreferencesBackupDto(
     val themeMode: Int = 0,
+    val customPrimaryArgb: Long? = null,
+    val customPalette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette? = null,
     val dynamicTheme: Boolean = false,
     val debugMode: Boolean = false,
     val localRuntimeBackend: String = "DEFAULT"

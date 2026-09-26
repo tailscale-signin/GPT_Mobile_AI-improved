@@ -13,6 +13,7 @@ case "$TASK" in
     all)
         run_resources
         "${GRADLE[@]}" :app:testDebugUnitTest :app:lintDebug assembleDebug
+        python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
         ;;
     resources)
         run_resources
@@ -25,6 +26,7 @@ case "$TASK" in
         ;;
     build)
         "${GRADLE[@]}" assembleDebug
+        python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
         ;;
     *)
         echo "Unknown validation target: $TASK" >&2

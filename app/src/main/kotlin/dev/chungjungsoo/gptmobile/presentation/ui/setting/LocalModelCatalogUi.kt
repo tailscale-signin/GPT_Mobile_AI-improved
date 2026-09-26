@@ -95,7 +95,7 @@ fun catalogLocalModelItems(
             modelsById[entry.id],
             workById[entry.id],
             diskPartialBytes = partialBytesById[entry.id] ?: 0L,
-            downloadSizeBytes = SocVariantResolver.resolve(entry, deviceSocModel).sizeInBytes
+            downloadSizeBytes = SocVariantResolver.resolveForRuntime(entry, deviceSocModel).sizeInBytes
         )
     }
     val catalogIds = catalog.map { it.id }.toSet()

@@ -97,9 +97,9 @@ class LocalAcceleratorsTest {
     }
 
     @Test
-    fun `default accelerator prefers GPU and never picks ineligible NPU`() {
+    fun `default accelerator prefers a packaged Qualcomm NPU and never an ineligible NPU`() {
         assertEquals(
-            LocalAccelerators.GPU,
+            LocalAccelerators.NPU,
             LocalAccelerators.defaultFrom(
                 supported = listOf("cpu", "gpu", "npu"),
                 socToModelFiles = mapOf("SM8650" to VARIANT),
@@ -162,7 +162,7 @@ class LocalAcceleratorsTest {
     }
 
     @Test
-    fun `NPU is enabled when the model and device SOC qualify`() {
+    fun `NPU is disabled when vendor runtime libraries are not packaged`() {
         val choices = LocalAccelerators.choices(
             supported = listOf("cpu", "gpu", "npu"),
             socToModelFiles = mapOf("Tensor G4" to VARIANT),
@@ -170,8 +170,8 @@ class LocalAcceleratorsTest {
         )
 
         val npu = choices.single { it.accelerator == LocalAccelerators.NPU }
-        assertTrue(npu.enabled)
-        assertEquals(null, npu.unavailableReason)
+        assertFalse(npu.enabled)
+        assertEquals(AcceleratorUnavailableReason.DEVICE_NOT_SUPPORTED, npu.unavailableReason)
     }
 
     @Test

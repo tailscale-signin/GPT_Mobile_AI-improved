@@ -74,6 +74,7 @@ class SettingDataSourceImpl @Inject constructor(
     )
     val dynamicThemeKey = intPreferencesKey("dynamic_mode")
     val themeModeKey = intPreferencesKey("theme_mode")
+    private val customPaletteKey = stringPreferencesKey("custom_theme_palette")
     val customPrimaryArgbKey = longPreferencesKey("custom_primary_argb")
     val localRuntimeBackendKey = stringPreferencesKey("local_runtime_backend")
     val debugModeKey = booleanPreferencesKey("debug_mode")
@@ -88,6 +89,19 @@ class SettingDataSourceImpl @Inject constructor(
     override suspend fun updateDynamicTheme(theme: DynamicTheme) {
         dataStore.edit { pref ->
             pref[dynamicThemeKey] = theme.ordinal
+        }
+    }
+
+    override suspend fun getCustomPalette(): dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette? =
+        dataStore.data.first()[customPaletteKey]?.let { raw ->
+            runCatching {
+                json.decodeFromString<dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette>(raw)
+            }.getOrNull()
+        }
+
+    override suspend fun updateCustomPalette(palette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette?) {
+        dataStore.edit { pref ->
+            if (palette == null) pref.remove(customPaletteKey) else pref[customPaletteKey] = json.encodeToString(palette)
         }
     }
 

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12.0] - 2026-09-25
+
+### Added
+- Queued prompts, redesigned model controls, profile activation, themes, conversation statistics, document attachments, and expanded MCP marketplace branding.
+- Shared read-only tool calls across concurrent models, configurable in Advanced Settings.
+- Inline tool execution metrics and encrypted opt-in Fact Vault with cloud and LiteRT recall.
+
+### Fixed
+- Queue completion, input-draft preservation, shared-call JSON keys, location-map initialization, provider integration, and cumulative token usage.
+- False fact extraction, contextual recall limits, and clearing unreadable vault data.
+- Release bundle failures are fatal; bundle signing avoids copying a file onto itself; release updates use the tag name.
+
+### Release
+- Version `0.9.12.0`, version code `67`.
+- Require persistent repository signing credentials and publish SHA-256 checksums with APK/AAB assets.
+
 ## [0.9.11.0] - 2026-09-25
 
 ### Added & Improved

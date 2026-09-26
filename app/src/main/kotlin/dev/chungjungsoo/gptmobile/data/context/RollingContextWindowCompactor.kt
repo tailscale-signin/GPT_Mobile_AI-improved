@@ -38,7 +38,7 @@ object RollingContextWindowCompactor {
         val currentUserChars = currentUserPrompt.length
         val totalFixedChars = systemPromptChars + currentUserChars
 
-        val totalBudgetChars = maxContextTokens * CHARS_PER_TOKEN_ESTIMATE
+        val totalBudgetChars = maxContextTokens.toLong() * CHARS_PER_TOKEN_ESTIMATE
         val availableHistoryChars = maxOf(0, totalBudgetChars - totalFixedChars)
 
         val totalPriorChars = priorTurns.sumOf { it.charCount() }
@@ -63,7 +63,7 @@ object RollingContextWindowCompactor {
         for (i in candidates.indices.reversed()) {
             val turn = candidates[i]
             val turnChars = turn.charCount()
-            if (accumulatedChars + turnChars > remainingBudget && startIndex < candidates.size) {
+            if (accumulatedChars + turnChars > remainingBudget) {
                 break
             }
             accumulatedChars += turnChars
@@ -90,7 +90,7 @@ object RollingContextWindowCompactor {
         val currentUserChars = currentUserPrompt.length
         val totalFixedChars = systemPromptChars + currentUserChars
 
-        val totalBudgetChars = maxContextTokens * CHARS_PER_TOKEN_ESTIMATE
+        val totalBudgetChars = maxContextTokens.toLong() * CHARS_PER_TOKEN_ESTIMATE
         val availableHistoryChars = maxOf(0, totalBudgetChars - totalFixedChars)
 
         val totalHistoryChars = messages.sumOf { it.text.length }
@@ -108,21 +108,21 @@ object RollingContextWindowCompactor {
         }
 
         val remainingBudget = availableHistoryChars - anchorChars
-        val candidates = messages.drop(anchorCount)
-        var accumulatedChars = 0
-        var startIndex = candidates.size
-
-        for (i in candidates.indices.reversed()) {
-            val msg = candidates[i]
-            val chars = msg.text.length
-            if (accumulatedChars + chars > remainingBudget && startIndex < candidates.size) {
-                break
-            }
+        // Evict complete user/model turns so a retained reply never loses its question.
+        val turns = mutableListOf<MutableList<LocalHistoryMessage>>()
+        messages.drop(anchorCount).forEach { message ->
+            if (message.role == LocalHistoryRole.USER || turns.isEmpty()) turns += mutableListOf<LocalHistoryMessage>()
+            turns.last() += message
+        }
+        var accumulatedChars = 0L
+        var startIndex = turns.size
+        for (i in turns.indices.reversed()) {
+            val chars = turns[i].sumOf { it.text.length.toLong() }
+            if (accumulatedChars + chars > remainingBudget) break
             accumulatedChars += chars
             startIndex = i
         }
-
-        return anchorMessages + candidates.subList(startIndex, candidates.size)
+        return anchorMessages + turns.drop(startIndex).flatten()
     }
 
     private fun ConversationTurn.charCount(): Int =

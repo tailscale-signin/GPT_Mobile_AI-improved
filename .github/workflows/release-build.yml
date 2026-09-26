@@ -79,12 +79,15 @@ jobs:
           set -o pipefail
           ./gradlew assembleRelease --stacktrace --no-daemon --max-workers=2 2>&1 | tee gradle-release-build.log
 
+      - name: Verify local runtime native libraries
+        run: python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/release/*.apk
+
       - name: Build Release Bundle
         env:
           GRADLE_OPTS: "-Xmx4608m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8"
         run: |
           echo "Building Release Bundle..."
-          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2 || echo "Bundle build non-fatal warning"
+          ./gradlew bundleRelease --stacktrace --no-daemon --max-workers=2
 
       - name: Sign APKs with apksigner
         run: |
@@ -153,10 +156,14 @@ jobs:
               "$RAW_AAB" \
               "$KEY_ALIAS"
             mkdir -p app/build/outputs/bundle/release/
-            cp -f "$RAW_AAB" app/build/outputs/bundle/release/app-release.aab
+            if [ "$(realpath "$RAW_AAB")" != "$(realpath -m app/build/outputs/bundle/release/app-release.aab)" ]; then
+              cp -f "$RAW_AAB" app/build/outputs/bundle/release/app-release.aab
+            fi
+            jarsigner -verify app/build/outputs/bundle/release/app-release.aab
             echo "Successfully signed AAB."
           else
-            echo "No AAB found to sign, skipping AAB signing."
+            echo "ERROR: No AAB found to sign."
+            exit 1
           fi
 
       - name: Upload Release APKs
@@ -171,7 +178,7 @@ jobs:
         with:
           name: gpt-mobile-release-bundle-${{ github.sha }}
           path: app/build/outputs/bundle/release/app-release.aab
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Extract Version Info
         id: version_info
@@ -232,7 +239,14 @@ jobs:
 
           echo "Found ${#ASSETS_TO_UPLOAD[@]} asset(s) to publish: ${ASSETS_TO_UPLOAD[*]}"
 
-          RELEASE_NOTES_BODY="Release build for v${VERSION_NAME} (Package: dev.chungjungsoo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
+          # Hash final signed files; entries use asset basenames for local verification.
+          : > SHA256SUMS.txt
+          for asset in "${ASSETS_TO_UPLOAD[@]}"; do
+            (cd "$(dirname "$asset")" && sha256sum "$(basename "$asset")") >> SHA256SUMS.txt
+          done
+          ASSETS_TO_UPLOAD+=(SHA256SUMS.txt)
+
+          RELEASE_NOTES_BODY="Release build for v${VERSION_NAME} (Package: dev.melo.gptmobile.improved). Includes signed ABI-split APKs (arm64-v8a, x86_64, universal) optimized with R8 minification & resource shrinking."
           if [ -f "RELEASE_NOTES.md" ]; then
             RELEASE_NOTES_BODY=$(cat RELEASE_NOTES.md)
           fi
@@ -260,7 +274,7 @@ jobs:
 
           if [ -n "$EXISTING_RELEASE" ]; then
             echo "Found existing release (id: $EXISTING_RELEASE), updating and uploading assets..."
-            gh release edit "$EXISTING_RELEASE" "${FLAGS[@]}" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY" || true
+            gh release edit "$TAG_NAME" "${FLAGS[@]}" --draft=false --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES_BODY"
             gh release upload "$TAG_NAME" "${ASSETS_TO_UPLOAD[@]}" --clobber
           else
             echo "Creating fresh GitHub Release $TAG_NAME..."

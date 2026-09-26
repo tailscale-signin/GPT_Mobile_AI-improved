@@ -40,8 +40,8 @@ internal fun throwIfToolDefinitionsRejected(
         "\"tools\" is not supported",
         "unknown field: tools",
         "unrecognized field \"tools\"",
-        "function_declarations",
-        "invalid json payload received. unknown name"
+        "unknown name \"function_declarations\"",
+        "function calling is not supported"
     ).any(normalizedError::contains)
     val noOpenRouterToolEndpoints = statusCode == 404 &&
         normalizedError.contains("no endpoints found that support tool use")

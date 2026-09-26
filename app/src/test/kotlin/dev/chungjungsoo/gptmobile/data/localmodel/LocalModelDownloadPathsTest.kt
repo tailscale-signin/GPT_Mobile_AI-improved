@@ -191,4 +191,21 @@ class LocalModelDownloadPathsTest {
         assertTrue(LocalModelDownloadPaths.isPartialFile("model.litertlm.part"))
         assertFalse(LocalModelDownloadPaths.isPartialFile("model.litertlm"))
     }
+
+    @Test
+    fun `large files cannot use a truncation tolerance or contain excess bytes`() {
+        val total = 100L * 1024 * 1024
+        assertFalse(LocalModelDownloadPaths.isCompleteDownload(total - 1, total))
+        assertFalse(LocalModelDownloadPaths.isCompleteDownload(total + 1, total))
+        assertFalse(LocalModelDownloadPaths.isCompleteDownload(total * 99 / 100, total))
+        assertTrue(LocalModelDownloadPaths.isCompleteDownload(total, total))
+    }
+
+    @Test
+    fun `response length supersedes approximate catalog sizes and accounts for resume`() {
+        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes(null, 100, 0, 101))
+        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes("bytes 50-99/100", 50, 50, 101))
+        assertEquals(100L, LocalModelDownloadPaths.responseTotalBytes(null, 50, 50, 101))
+        assertEquals(101L, LocalModelDownloadPaths.responseTotalBytes(null, -1, 0, 101))
+    }
 }

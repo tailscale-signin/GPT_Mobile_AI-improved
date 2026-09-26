@@ -1,14 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.File
-import java.io.FileOutputStream
-import java.security.MessageDigest
 
 class LocalModelValidatorTest {
 
@@ -100,5 +99,14 @@ class LocalModelValidatorTest {
         val invalid = invalidResult as ModelValidationResult.Invalid
         assertEquals(ModelValidationResult.Invalid.Reason.CHECKSUM_MISMATCH, invalid.reason)
         assertTrue(invalid.details?.contains("SHA-256") == true)
+    }
+
+    @Test
+    fun litertLmSignatureIsRequiredEvenForLargeFilesAndPartialDownloads() {
+        val file = tempFolder.newFile("model.litertlm.part")
+        java.io.RandomAccessFile(file, "rw").use { it.setLength(LocalModelValidator.DEFAULT_MIN_SIZE_BYTES) }
+        assertTrue(LocalModelValidator.validate(file.path) is ModelValidationResult.Invalid)
+        java.io.RandomAccessFile(file, "rw").use { it.write("LITERTLM".toByteArray()) }
+        assertTrue(LocalModelValidator.validate(file.path) is ModelValidationResult.Valid)
     }
 }

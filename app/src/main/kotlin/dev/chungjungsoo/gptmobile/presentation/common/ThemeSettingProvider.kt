@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 
 val LocalDynamicTheme = compositionLocalOf { DynamicTheme.OFF }
 val LocalThemeMode = compositionLocalOf { ThemeMode.SYSTEM }
+val LocalCustomPalette = compositionLocalOf<dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette?> { null }
 val LocalCustomPrimaryArgb = compositionLocalOf<Long?> { null }
 val LocalThemeViewModel = compositionLocalOf<ThemeViewModel> {
     error("CompositionLocal LocalThemeViewModel is not present")
@@ -26,6 +27,7 @@ fun ThemeSettingProvider(
             LocalDynamicTheme provides dynamicTheme,
             LocalThemeMode provides themeMode,
             LocalCustomPrimaryArgb provides customPrimaryArgb,
+            LocalCustomPalette provides customPalette,
             content = content
         )
     }

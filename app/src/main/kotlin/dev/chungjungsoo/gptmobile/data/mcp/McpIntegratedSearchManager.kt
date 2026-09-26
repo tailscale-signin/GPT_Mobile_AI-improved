@@ -28,15 +28,17 @@ data class McpIntegratedSearchConfig(
      * carrying over any maxTools constraint and active tool definitions.
      */
     fun applyToChatMcpToolConfig(baseConfig: ChatMcpToolConfig): ChatMcpToolConfig {
-        return baseConfig.copy(
-            maxTools = maxTools ?: baseConfig.maxTools
-        )
+        // Apply only search-tool restrictions; preserve every unrelated chat toggle.
+        val disabledSearchTools = toolToggles.filter { (name, enabled) ->
+            !isIntegratedSearchEnabled || !enabled
+        }.keys
+        return baseConfig.copy(maxTools = maxTools ?: baseConfig.maxTools).let { config ->
+            disabledSearchTools.fold(config) { current, name -> current.withToolDisabled(name) }
+        }
     }
 
     companion object {
-        fun defaultToolToggles(): Map<String, Boolean> {
-            return McpSearchToolSet.tools.associate { it.name to true }
-        }
+        fun defaultToolToggles(): Map<String, Boolean> = McpSearchToolSet.tools.associate { it.name to true }
     }
 }
 
@@ -59,28 +61,28 @@ class McpIntegratedSearchManager(
     initialConfig: McpIntegratedSearchConfig = McpIntegratedSearchConfig()
 ) : McpIntegratedSearchRepository {
 
-    private val _configFlow = MutableStateFlow(initialConfig)
-    override val searchConfigFlow: Flow<McpIntegratedSearchConfig> = _configFlow.asStateFlow()
+    private val _searchConfigFlow = MutableStateFlow(initialConfig)
+    override val searchConfigFlow: Flow<McpIntegratedSearchConfig> = _searchConfigFlow.asStateFlow()
 
-    override fun getSearchConfig(): McpIntegratedSearchConfig = _configFlow.value
+    override fun getSearchConfig(): McpIntegratedSearchConfig = _searchConfigFlow.value
 
     override fun setIntegratedSearchEnabled(enabled: Boolean) {
-        _configFlow.value = _configFlow.value.copy(isIntegratedSearchEnabled = enabled)
+        _searchConfigFlow.value = _searchConfigFlow.value.copy(isIntegratedSearchEnabled = enabled)
     }
 
     override fun setToolEnabled(toolName: String, enabled: Boolean) {
-        val currentToggles = _configFlow.value.toolToggles.toMutableMap()
+        val currentToggles = _searchConfigFlow.value.toolToggles.toMutableMap()
         currentToggles[toolName] = enabled
-        _configFlow.value = _configFlow.value.copy(toolToggles = currentToggles)
+        _searchConfigFlow.value = _searchConfigFlow.value.copy(toolToggles = currentToggles)
     }
 
     override fun setMaxTools(limit: Int?) {
         val clampedLimit = limit?.coerceAtLeast(0)
-        _configFlow.value = _configFlow.value.copy(maxTools = clampedLimit)
+        _searchConfigFlow.value = _searchConfigFlow.value.copy(maxTools = clampedLimit)
     }
 
     override fun resetToDefaults() {
-        _configFlow.value = McpIntegratedSearchConfig(
+        _searchConfigFlow.value = McpIntegratedSearchConfig(
             isIntegratedSearchEnabled = true,
             toolToggles = McpIntegratedSearchConfig.defaultToolToggles(),
             maxTools = null
@@ -88,7 +90,7 @@ class McpIntegratedSearchManager(
     }
 
     override fun getActiveTools(): List<McpBuiltinTool> {
-        val config = _configFlow.value
+        val config = _searchConfigFlow.value
         if (!config.isIntegratedSearchEnabled) return emptyList()
 
         val enabledTools = McpSearchToolSet.tools.filter { tool ->

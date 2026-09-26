@@ -20,6 +20,7 @@ data class ChatCompletionRequest(
     val messages: List<ChatMessage>,
 
     @SerialName("stream")
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val stream: Boolean = true,
 
     @SerialName("stream_options")
@@ -103,9 +104,11 @@ data class ChatCompletionRequest(
     val options: OllamaOptions? = null
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ChatStreamOptions(
     @SerialName("include_usage")
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val includeUsage: Boolean = true
 )
 

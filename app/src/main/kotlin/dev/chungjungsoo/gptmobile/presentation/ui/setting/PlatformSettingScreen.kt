@@ -66,7 +66,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -342,6 +341,15 @@ fun PlatformSettingScreen(
                 )
                 ProfileSectionTitle(title = stringResource(R.string.advanced_settings))
                 val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
+                val usesNpuSampling = isLocalPlatform && !LocalAccelerators.shouldApplySampler(platformData.accelerator.orEmpty())
+                if (usesNpuSampling) {
+                    Text(
+                        "NPU uses the model’s built-in sampling defaults.",
+                        Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 val notSetText = stringResource(R.string.not_set)
                 var creativityDraft by remember(
                     platformData.uid,
@@ -361,14 +369,14 @@ fun PlatformSettingScreen(
                     onValueChangeFinished = {
                         settingViewModel.updateCreativity(creativityDraft)
                     },
-                    enabled = platformData.enabled && !isReasoningDisabled
+                    enabled = platformData.enabled && !isReasoningDisabled && !usesNpuSampling
                 )
                 if (isLocalPlatform) {
                     SettingItem(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.top_k),
                         description = platformData.topK?.toString() ?: notSetText,
-                        enabled = platformData.enabled,
+                        enabled = platformData.enabled && !usesNpuSampling,
                         onItemClick = settingViewModel::openTopKDialog,
                         showTrailingIcon = false,
                         showLeadingIcon = true,

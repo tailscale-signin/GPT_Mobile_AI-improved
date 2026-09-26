@@ -119,4 +119,30 @@ class ProviderEventAssemblerTest {
         assertEquals("read_url", event.name)
         assertEquals(buildJsonObject { put("url", "https://example.com") }, event.arguments)
     }
+
+    @Test
+    fun `Responses completion forwards provider token usage`() {
+        val fixture = """{"type":"response.completed","response":{"id":"r1","status":"completed","usage":{"input_tokens":100,"output_tokens":42,"total_tokens":142}}}"""
+        val events = OpenAIResponsesEventAssembler().accept(NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(fixture))
+        assertEquals(ProviderEvent.Usage(100, 42, 142), events.filterIsInstance<ProviderEvent.Usage>().single())
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test
+    fun `Claude usage includes cached input and cumulative output`() {
+        val assembler = AnthropicEventAssembler()
+        val start = """{"type":"message_start","message":{"id":"m1","model":"claude","content":[],"usage":{"input_tokens":20,"cache_read_input_tokens":30,"cache_creation_input_tokens":10,"output_tokens":1}}}"""
+        val delta = """{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":25}}"""
+        assembler.accept(NetworkClient.json.decodeFromString<MessageResponseChunk>(start))
+        val events = assembler.accept(NetworkClient.json.decodeFromString<MessageResponseChunk>(delta))
+        assertEquals(ProviderEvent.Usage(60, 25, 85), events.single())
+    }
+
+    @Test
+    fun `Gemini usage includes reasoning output without inventing unknown usage`() {
+        val fixture = """{"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":8,"thoughtsTokenCount":6,"totalTokenCount":26}}"""
+        val events = GeminiEventMapper.accept(NetworkClient.json.decodeFromString<GenerateContentResponse>(fixture))
+        assertEquals(ProviderEvent.Usage(12, 14, 26), events.filterIsInstance<ProviderEvent.Usage>().single())
+        assertTrue(GeminiEventMapper.accept(GenerateContentResponse()).filterIsInstance<ProviderEvent.Usage>().isEmpty())
+    }
 }

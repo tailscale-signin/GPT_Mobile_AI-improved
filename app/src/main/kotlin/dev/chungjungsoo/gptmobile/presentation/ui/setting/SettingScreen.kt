@@ -24,9 +24,8 @@ import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
@@ -39,7 +38,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,9 +67,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.LocalThemeViewModel
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.util.getDynamicThemeTitle
 import dev.chungjungsoo.gptmobile.util.getThemeModeTitle
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,12 +80,12 @@ fun SettingScreen(
     onNavigateToAdvancedSettings: () -> Unit,
     onNavigateToDebugDiagnostics: () -> Unit,
     onNavigateToAboutPage: () -> Unit,
+    onNavigateToFactVault: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsState()
     val providerConnections by settingViewModel.providerConnections.collectAsState()
     val dialogState by settingViewModel.dialogState.collectAsState()
-    val localRuntimeBackend by settingViewModel.localRuntimeBackend.collectAsState()
     val debugMode by settingViewModel.debugMode.collectAsState()
     val featureSettings by settingViewModel.featureSettings.collectAsState()
     val backupStatus by settingViewModel.backupStatus.collectAsState()
@@ -144,6 +139,11 @@ fun SettingScreen(
                         icon = Icons.Default.SmartToy,
                         title = "AI Platforms & Profiles",
                         onClick = onNavigateToAiPlatforms
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Psychology,
+                        title = "Fact Vault",
+                        onClick = onNavigateToFactVault
                     )
                     SettingsDestination(
                         icon = Icons.Default.Storage,
@@ -400,10 +400,12 @@ fun ThemeSettingDialog(settingViewModel: SettingViewModelV2) {
                     }
                 }
                 Spacer(Modifier.fillMaxWidth().height(24.dp))
+                CustomPaletteEditor()
+                Spacer(Modifier.height(24.dp))
                 Text("Accent color", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.fillMaxWidth().height(8.dp))
                 val accentChoices = listOf(
-                    "Current theme" to null,
+                    "Default app palette" to null,
                     "Cyan" to 0xFF00BCD4L,
                     "Blue" to 0xFF2196F3L,
                     "Purple" to 0xFF9C27B0L,

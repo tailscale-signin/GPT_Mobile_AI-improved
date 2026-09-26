@@ -16,7 +16,7 @@ class LocalEngineHolderTest {
     @Test
     fun `reuses engine for the same spec and reloads for a different spec`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val first = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
         val second = LocalEngineSpec("/models/b.litertlm", LocalAccelerators.CPU, 2048)
 
@@ -37,7 +37,7 @@ class LocalEngineHolderTest {
                 listOf(LocalRuntimeEvent.TextDelta("two"), LocalRuntimeEvent.Done)
             )
         }
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val order = mutableListOf<String>()
 
         val first = launch {
@@ -63,7 +63,7 @@ class LocalEngineHolderTest {
     @Test
     fun `reloads engine when vision flag changes`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val textOnly = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024, isVisionEnabled = false)
         val vision = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024, isVisionEnabled = true)
 
@@ -87,14 +87,14 @@ class LocalEngineHolderTest {
                 }
             }
         }
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
 
         holder.loadEngine(cpu)
         runCatching { holder.loadEngine(gpu) }
         holder.loadEngine(cpu)
 
         assertEquals(listOf(cpu, gpu, cpu), fake.loadEngineCalls)
-        assertEquals(1, fake.unloadEngineCalls)
+        assertEquals(2, fake.unloadEngineCalls)
         assertTrue(holder.isEngineLoaded(cpu))
         assertFalse(holder.isEngineLoaded(gpu))
     }
@@ -102,7 +102,7 @@ class LocalEngineHolderTest {
     @Test
     fun `reloads engine when accelerator changes from GPU to NPU`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val gpu = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
         val npu = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.NPU, 1024)
 
@@ -116,7 +116,7 @@ class LocalEngineHolderTest {
     @Test
     fun `forwards image payloads to the delegate`() = runTest {
         val fake = FakeLocalRuntime()
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val image = byteArrayOf(1, 2, 3)
 
         holder.sendMessage("look", listOf(image)).toList()
@@ -135,7 +135,7 @@ class LocalEngineHolderTest {
                 listOf(LocalRuntimeEvent.TextDelta("one"), LocalRuntimeEvent.Done)
             )
         }
-        val holder = LocalEngineHolder(fake)
+        val holder = LocalEngineHolder(fake, timeProvider = { 1_000L })
         val spec = LocalEngineSpec("/models/a.litertlm", LocalAccelerators.GPU, 1024)
         holder.loadEngine(spec)
 
@@ -210,5 +210,28 @@ class LocalEngineHolderTest {
         simulatedTime = 50_000L + 5 * 60 * 1000L
         assertFalse(holder.unloadIfIdle(10 * 60 * 1000L))
         assertTrue(holder.isEngineLoaded(spec))
+    }
+
+    @Test
+    fun `idle expiry during a stalled response does not cancel or unload it`() = runTest {
+        var clock = 1_000L
+        val pause = CompletableDeferred<Unit>()
+        val fake = FakeLocalRuntime().apply {
+            pauseAfterFirst = pause
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("first"), LocalRuntimeEvent.Done))
+        }
+        val holder = LocalEngineHolder(fake) { clock }
+        holder.loadEngine(LocalEngineSpec("model.litertlm", "cpu", 1024))
+        val job = launch { holder.sendMessage("hello").toList() }
+        while (fake.sendMessageCalls.isEmpty()) yield()
+        clock += 700_000
+        assertFalse(holder.unloadIfIdle(600_000))
+        assertEquals(0, fake.cancelActiveCalls)
+        assertEquals(0, fake.unloadEngineCalls)
+        pause.complete(Unit)
+        job.join()
+        assertFalse(holder.unloadIfIdle(600_000))
+        clock += 600_000
+        assertTrue(holder.unloadIfIdle(600_000))
     }
 }

@@ -1,38 +1,37 @@
-# Release Notes - v0.9.11.0
+# GPT Mobile AI (Improved) v0.9.12.0
 
-Welcome to **GPT Mobile AI (Improved)** v0.9.11.0!
+## Highlights
 
-This full release brings a major architecture, UX, runtime, and diagnostics overhaul—integrating live tool context tracking, enhanced provider adapter resilience, fine-grained application feature controls, native device location freshness, and complete backup improvements alongside the Creativity slider and custom colored profile labels.
+- Queue follow-up prompts while models generate, with safe turn completion and preserved input drafts.
+- Redesigned model controls, profile activation, settings, themes, conversation statistics, and document attachments.
+- Share identical read-only tool calls across models in a conversation turn, with an Advanced Settings control.
+- Expanded MCP marketplace with provider branding, memory and threading categories, and clearer connection requirements.
+- Inline expandable tool traces show execution status, duration, argument size, result bytes, and estimated tokens.
+- Encrypted, opt-in Fact Vault under Settings. Review, disable, or delete local facts; matching facts are recalled into cloud and LiteRT prompts with visible recall chips.
+- Improved location-map initialization, provider integration, local-runtime fallback coverage, and cumulative usage tracking.
 
----
+## Fixes
 
-### Key Highlights & Improvements
+- Preserve drafts during document preparation and release queued prompts after the complete multi-model turn.
+- Keep in-flight shared tool calls reusable and canonicalize equivalent JSON arguments.
+- Avoid learning questions, negations, or quoted statements as affirmative memory facts.
+- Prevent unrelated personal memories from crowding out specific matches; apply same-turn exclusions before the recall limit.
+- Allow clearing unreadable Fact Vault data.
+- Preserve measured tool results and recall references in existing chat timeline storage.
 
-#### 1. App-Wide Architecture & Diagnostics Redesign
-- **Live Tool Context**: Integrated `LiveToolContext` for precise tracking of active tool execution states and session telemetry across local and remote runs.
-- **Provider Adapters Hardening**: Hardened provider adapters with normalized routing strategies for OpenRouter, OpenAI-compatible gateways, Anthropic, and Google Gemini.
-- **Application Feature Settings**: Added granular feature flags (`AppFeatureSettings`) allowing customized controls for foreground AI generation and smart suggestion actions directly in Advanced Settings.
-- **Diagnostics HUD**: Enhanced execution inspection and metrics telemetry for real-time memory, thermal, and generation throughput monitoring.
+## Installation and artifacts
 
-#### 2. Native Device Location Freshness & Dynamic Capabilities
-- **Direct Native Geolocation**: Replaced stale catalog dependencies with live, device-level Android location queries via `DeviceLocationProvider` and `LocationFreshness`.
-- **Haversine Distance & Geocoding**: High-precision distance calculations and reliable geocoding tool capabilities directly in the agent tool registry.
+- Version: **0.9.12.0** (version code **67**).
+- Android 12 or newer; target Android 16.
+- Package: `dev.melo.gptmobile.improved`.
+- Signed APKs: **arm64-v8a**, **x86_64**, and **universal**. Most modern Android phones use arm64-v8a.
+- Signed Android App Bundle (AAB) and SHA-256 checksums are produced by the release workflow.
+- Updating an existing installation requires the same release signing key. The workflow requires configured signing credentials instead of generating a replacement key.
 
-#### 3. Complete Backup & Granular Archive Management
-- **Structured Database & File Archives**: Implemented `CompleteBackupOptions`, `CompleteBackupSelection`, and `CompleteBackupDatabase` enabling users to select specific entities (conversations, credentials, models, attachments) to include or exclude.
-- **Encrypted Protection**: AES-256-GCM authenticated archives secured by the Android Keystore without requiring manual password management.
+## Memory and telemetry notes
 
-#### 4. Creativity Slider & Reusable Colored Profile Labels
-- **Single Intuitive Slider**: Replaced separate raw Temperature and Top-P numeric inputs with an intuitive Creativity slider ranging from "Direct & logical" to "Creative & exploratory".
-- **Visual Profile Badges**: Configurable colored profile labels that persist across profile cards, platform settings, and model selection filters.
+Fact Vault learning is off by default. Extraction uses simple English patterns, not a new embedding model. Relevant enabled facts are included in requests to the selected provider. Tool token counts are estimates, not billed usage. Gateway payload sizes are shown only when available.
 
-#### 5. Local Runtime Router & Hugging Face Model Discovery
-- **Hugging Face Search Integration**: Directly discover and explore compatible models from Hugging Face through `HuggingFaceModelSearchClient`.
-- **Local Runtime Routing**: Dynamic routing across LiteRT-LM, Qualcomm QNN NPU, OpenCL GPU, and multi-threaded CPU fallbacks.
+## Validation
 
-#### 6. Build & Packaging Details
-- **Version Code**: `66`
-- **Version Name**: `0.9.11.0`
-- **Target SDK**: 36 (Android 16) | **Min SDK**: 31 (Android 12)
-- **Architectures**: `arm64-v8a`, `x86_64`, Universal APK
-- **Release Artifacts**: Signed APK variants (arm64-v8a, x86_64, Universal) and release Android App Bundle (AAB) signed with deterministic release keys.
+The feature and fix commits passed 76 focused regression tests and the debug APK build. Signed release packaging is performed by the release workflow using the repository signing credentials.

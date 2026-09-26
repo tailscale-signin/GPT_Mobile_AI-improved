@@ -153,7 +153,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
                             canRotate = true
                         } else {
-                            emit(ProviderEvent.Failed(t.message ?: "OpenAI stream request failed"))
+                            emit(ProviderEvent.Failed(providerFailureMessage(t, "OpenAI stream request failed")))
                             return@flow
                         }
                     }
@@ -309,6 +309,9 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                         try {
                             groqAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                (chunk.usage ?: chunk.groqMetadata?.usage)?.let { usage ->
+                                    emit(ProviderEvent.Usage(usage.promptTokens, usage.completionTokens, usage.totalTokens))
+                                }
                                 chunk.error?.let { error ->
                                     roundFailed = true
                                     lastFailedMessage = error.message
@@ -347,7 +350,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
                                 canRotate = true
                             } else {
-                                emit(ProviderEvent.Failed(t.message ?: "Groq stream request failed"))
+                                emit(ProviderEvent.Failed(providerFailureMessage(t, "Groq stream request failed")))
                                 return@flow
                             }
                         }
@@ -522,7 +525,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     break
                                 } else if (isTimeoutOrConnection) {
                                     // If connecting to localhost or 127.0.0.1 fails immediately, try switching to 10.0.2.2 for Android emulator
-                                    if (!emulatorFallbackTried && isLocalLoopbackUrl(currentConfig.apiUrl)) {
+                                    val connectionFailed = caughtThrowable is java.net.ConnectException ||
+                                        rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
+                                        rawError.orEmpty().contains("failed to connect", ignoreCase = true)
+                                    if (!emulatorFallbackTried && connectionFailed && isLocalLoopbackUrl(currentConfig.apiUrl)) {
                                         val fallbackUrl = rewriteLoopbackForEmulator(currentConfig.apiUrl)
                                         if (fallbackUrl != currentConfig.apiUrl) {
                                             emulatorFallbackTried = true
@@ -647,7 +653,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
                                 canRotate = true
                             } else {
-                                emit(ProviderEvent.Failed(t.message ?: "OpenAI-compatible stream request failed"))
+                                emit(ProviderEvent.Failed(providerFailureMessage(t, "OpenAI-compatible stream request failed")))
                                 return@flow
                             }
                         }
@@ -802,7 +808,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
                             canRotate = true
                         } else {
-                            emit(ProviderEvent.Failed(t.message ?: "Anthropic stream request failed"))
+                            emit(ProviderEvent.Failed(providerFailureMessage(t, "Anthropic stream request failed")))
                             return@flow
                         }
                     }
@@ -1011,7 +1017,7 @@ class GeminiAdapter @Inject constructor(
                         if (ApiCredentialRotator.isRotatableError(t) && attempt < attempts - 1) {
                             canRotate = true
                         } else {
-                            emit(ProviderEvent.Failed(t.message ?: "Gemini stream request failed"))
+                            emit(ProviderEvent.Failed(providerFailureMessage(t, "Gemini stream request failed")))
                             return@flow
                         }
                     }
@@ -1161,3 +1167,10 @@ private fun createGroqChatCompletionRequest(
 
 private const val GROQ_OUTPUT_LIMIT_MESSAGE =
     "Groq reached the model output limit before producing a final answer."
+
+private fun providerFailureMessage(error: Throwable, fallback: String): String =
+    if (error is dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException) {
+        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).userMessage
+    } else {
+        error.message ?: fallback
+    }

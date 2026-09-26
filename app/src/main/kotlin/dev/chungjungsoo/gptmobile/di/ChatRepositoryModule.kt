@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.di
 
 import android.content.Context
+import com.example.gptmobileai.debug.ToolMetricsCollector
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -19,6 +20,7 @@ import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
+import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl
@@ -66,7 +68,9 @@ object ChatRepositoryModule {
         localModelRepository: LocalModelRepository,
         modelCatalogRepository: ModelCatalogRepository,
         @DeviceSocModel deviceSocModel: String,
-        titleSummarizer: ConversationTitleSummarizer
+        titleSummarizer: ConversationTitleSummarizer,
+        factVault: FactVaultRepository,
+        toolMetricsCollector: ToolMetricsCollector
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -87,6 +91,8 @@ object ChatRepositoryModule {
         localModelRepository = localModelRepository,
         modelCatalogRepository = modelCatalogRepository,
         deviceSocModel = deviceSocModel,
-        titleSummarizer = titleSummarizer
+        titleSummarizer = titleSummarizer,
+        factVault = factVault,
+        toolMetricsCollector = toolMetricsCollector
     )
 }

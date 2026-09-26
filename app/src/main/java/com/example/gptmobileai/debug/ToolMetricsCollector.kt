@@ -1,17 +1,28 @@
 package com.example.gptmobileai.debug
 
-import com.example.gptmobileai.data.model.ToolCallEvent
 import com.example.gptmobileai.data.model.ToolExecutionMetrics
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.ceil
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.concurrent.ConcurrentHashMap
 
 class ToolMetricsCollector(
     private val eventBus: TelemetryCollector,
     private val config: AetherionMaxConfig = AetherionMaxConfig
 ) {
-    private val toolMetricsMap = ConcurrentHashMap<String, ToolCallEvent>()
+    private data class Totals(
+        val calls: Int = 0,
+        val successes: Int = 0,
+        val tokens: Long = 0,
+        val durationMs: Long = 0,
+        val minMs: Long = Long.MAX_VALUE,
+        val maxMs: Long = 0,
+        val recentDurations: List<Long> = emptyList(),
+        val errors: Map<String, Int> = emptyMap()
+    )
+
+    private val toolMetricsMap = ConcurrentHashMap<String, Totals>()
 
     private val _liveToolMetrics = MutableStateFlow<Map<String, LiveToolMetrics>>(emptyMap())
     val liveToolMetrics: StateFlow<Map<String, LiveToolMetrics>> = _liveToolMetrics.asStateFlow()
@@ -26,6 +37,7 @@ class ToolMetricsCollector(
         val successRate: Double
     )
 
+    @Synchronized
     fun onToolExecuted(
         toolId: String,
         tokensUsed: Int,
@@ -33,15 +45,23 @@ class ToolMetricsCollector(
         success: Boolean,
         errorType: String? = null
     ) {
-        val event = ToolCallEvent(
-            toolId = toolId,
-            tokensUsed = tokensUsed,
-            executionTimeMs = executionTimeMs,
-            success = success,
-            errorType = errorType
+        val duration = executionTimeMs.coerceAtLeast(0)
+        val previous = toolMetricsMap[toolId] ?: Totals()
+        val errors = previous.errors.toMutableMap()
+        if (!success) {
+            val type = errorType ?: "unknown"
+            errors[type] = (errors[type] ?: 0) + 1
+        }
+        toolMetricsMap[toolId] = Totals(
+            calls = previous.calls + 1,
+            successes = previous.successes + if (success) 1 else 0,
+            tokens = previous.tokens + tokensUsed.coerceAtLeast(0),
+            durationMs = previous.durationMs + duration,
+            minMs = minOf(previous.minMs, duration),
+            maxMs = maxOf(previous.maxMs, duration),
+            recentDurations = (previous.recentDurations + duration).takeLast(128),
+            errors = errors
         )
-
-        toolMetricsMap[toolId] = event
 
         eventBus.emit(
             TelemetryEvent.ToolExecuted(
@@ -59,43 +79,37 @@ class ToolMetricsCollector(
     private fun updateLiveMetrics() {
         val updated = mutableMapOf<String, LiveToolMetrics>()
 
-        toolMetricsMap.forEach { (toolId, event) ->
-            val totalCalls = if (event.executionTimeMs >= 0L) 1 else 0
-            val successfulCalls = if (event.success) 1 else 0
-            val failedCalls = if (event.success) 0 else 1
-            val totalTokensUsed = event.tokensUsed
-            val avgExecutionTimeMs = event.executionTimeMs.toDouble()
-
+        toolMetricsMap.forEach { (toolId, totals) ->
             updated[toolId] = LiveToolMetrics(
                 toolId = toolId,
-                totalCalls = totalCalls,
-                successfulCalls = successfulCalls,
-                failedCalls = failedCalls,
-                totalTokensUsed = totalTokensUsed,
-                avgExecutionTimeMs = avgExecutionTimeMs,
-                successRate = if (totalCalls > 0) (successfulCalls * 100.0 / totalCalls) else 0.0
+                totalCalls = totals.calls,
+                successfulCalls = totals.successes,
+                failedCalls = totals.calls - totals.successes,
+                totalTokensUsed = totals.tokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                avgExecutionTimeMs = totals.durationMs.toDouble() / totals.calls,
+                successRate = totals.successes * 100.0 / totals.calls
             )
         }
 
         _liveToolMetrics.value = updated
     }
 
-    fun getToolSummary(): Map<String, ToolExecutionMetrics> {
-        return toolMetricsMap.mapValues { (key, event) ->
-            ToolExecutionMetrics(
-                toolId = key,
-                toolName = key,
-                serverName = "local",
-                totalCalls = 1,
-                successfulCalls = if (event.success) 1 else 0,
-                failedCalls = if (event.success) 0 else 1,
-                totalTokensUsed = event.tokensUsed,
-                avgExecutionTimeMs = event.executionTimeMs.toDouble(),
-                minExecutionTimeMs = event.executionTimeMs.toDouble(),
-                maxExecutionTimeMs = event.executionTimeMs.toDouble(),
-                p95ExecutionTimeMs = event.executionTimeMs.toDouble(),
-                errorTypes = if (event.errorType != null) mapOf(event.errorType to 1) else emptyMap()
-            )
-        }
+    @Synchronized
+    fun getToolSummary(): Map<String, ToolExecutionMetrics> = toolMetricsMap.mapValues { (key, totals) ->
+        val sorted = totals.recentDurations.sorted()
+        ToolExecutionMetrics(
+            toolId = key,
+            toolName = key,
+            serverName = "client",
+            totalCalls = totals.calls,
+            successfulCalls = totals.successes,
+            failedCalls = totals.calls - totals.successes,
+            totalTokensUsed = totals.tokens.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            avgExecutionTimeMs = totals.durationMs.toDouble() / totals.calls,
+            minExecutionTimeMs = totals.minMs.toDouble(),
+            maxExecutionTimeMs = totals.maxMs.toDouble(),
+            p95ExecutionTimeMs = sorted[(ceil(sorted.size * 0.95).toInt() - 1).coerceAtLeast(0)].toDouble(),
+            errorTypes = totals.errors
+        )
     }
 }

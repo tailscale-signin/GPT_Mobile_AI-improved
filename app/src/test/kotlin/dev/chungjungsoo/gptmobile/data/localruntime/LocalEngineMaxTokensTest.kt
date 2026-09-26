@@ -106,6 +106,14 @@ class LocalEngineMaxTokensTest {
         assertEquals(4096, maxTokens)
     }
 
+    @Test
+    fun `low and mid RAM limits are bounded and invalid input is normalized`() {
+        assertEquals(1024, resolvedEngineMaxTokens(32768, "gpu", null, "", 4))
+        assertEquals(4096, resolvedEngineMaxTokens(32768, "gpu", null, "", 8))
+        assertEquals(1024, resolvedEngineMaxTokens(0, "cpu", null, "", 16))
+        assertEquals(1024, resolvedEngineMaxTokens(-1, "cpu", null, "", 16))
+    }
+
     private fun npuEntry() = CatalogEntry(
         id = "gemma3-1b-it",
         supportedAccelerators = listOf("gpu", "cpu", "npu"),

@@ -3,142 +3,168 @@ package dev.chungjungsoo.gptmobile.data.localruntime
 import android.util.Log
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
-import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.withContext
 
-/**
- * Composite [LocalRuntime] router that dynamically dispatches to either the
- * Qualcomm QNN runtime engine or the LiteRT-LM runtime engine according to user preference,
- * defaulting to Qualcomm QNN, and automatically falling back to LiteRT-LM if Qualcomm QNN fails.
- */
+/** Selects the runtime, owns QNN fallback, and publishes the engine that actually loaded. */
 class LocalRuntimeRouter(
     private val settingRepository: SettingRepository,
     private val qnnRuntime: LocalRuntime,
     private val liteRtRuntime: LocalRuntime
 ) : LocalRuntime {
+    override val handlesEngineFallback = true
+    private val _state = MutableStateFlow(LocalRuntimeState())
+    override val state = _state.asStateFlow()
 
-    @Volatile
-    private var activeLoadedRuntime: LocalRuntime? = null
+    @Volatile private var activeLoadedRuntime: LocalRuntime? = null
+    private var requestedSpec: LocalEngineSpec? = null
+    private var delegatedSpec: LocalEngineSpec? = null
+    private var preferenceAtLoad: LocalRuntimeBackend? = null
 
-    private suspend fun getActiveBackend(): LocalRuntimeBackend = try {
-        settingRepository.getLocalRuntimeBackend()
-    } catch (t: Throwable) {
-        Log.w(TAG, "Failed reading runtime backend preference, falling back to QUALCOMM_QNN", t)
-        LocalRuntimeBackend.QUALCOMM_QNN
-    }
-
-    private suspend fun getActiveRuntime(): LocalRuntime = when (getActiveBackend()) {
-        LocalRuntimeBackend.QUALCOMM_QNN -> qnnRuntime
-        LocalRuntimeBackend.LITERT_LM -> liteRtRuntime
-    }
-
-    override val deviceRamGb: Long
-        get() = (activeLoadedRuntime ?: qnnRuntime).deviceRamGb
-
-    override fun getHardwareState(): DeviceHardwareState =
-        (activeLoadedRuntime ?: qnnRuntime).getHardwareState()
-
+    override val deviceRamGb: Long get() = (activeLoadedRuntime ?: liteRtRuntime).deviceRamGb
+    override fun getHardwareState(): DeviceHardwareState = (activeLoadedRuntime ?: liteRtRuntime).getHardwareState()
     override fun getAdaptiveThrottlingPolicy(): AdaptiveThrottlingPolicy =
-        (activeLoadedRuntime ?: qnnRuntime).getAdaptiveThrottlingPolicy()
+        (activeLoadedRuntime ?: liteRtRuntime).getAdaptiveThrottlingPolicy()
+    override fun loadedEngineSpec(): LocalEngineSpec? = state.value.engineSpec
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
-        val preferredBackend = getActiveBackend()
-        Log.i(TAG, "Loading engine using preferred backend: ${preferredBackend.name}")
-
-        when (preferredBackend) {
-            LocalRuntimeBackend.QUALCOMM_QNN -> {
+        val preferred = settingRepository.getLocalRuntimeBackend()
+        unloadEngine()
+        try {
+            if (preferred == LocalRuntimeBackend.QUALCOMM_QNN) {
                 try {
                     qnnRuntime.loadEngine(spec)
-                    activeLoadedRuntime = qnnRuntime
-                    Log.i(TAG, "Successfully loaded engine using QUALCOMM_QNN backend")
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (qnnError: Exception) {
-                    val autoFallback = runCatching {
-                        settingRepository.getFeatureSettings().qnnAutomaticFallback
-                    }.getOrDefault(true)
-                    if (!autoFallback) {
-                        Log.e(TAG, "QUALCOMM_QNN failed and automatic fallback is disabled", qnnError)
-                        throw qnnError
+                    activate(qnnRuntime, LocalRuntimeBackend.QUALCOMM_QNN, spec, spec, preferred)
+                    return
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    if (error !is Exception && error !is LinkageError) throw error
+                    // Failed initialization can own native resources, even before a spec is cached.
+                    qnnRuntime.unloadEngine()
+                    if (!settingRepository.getFeatureSettings().qnnAutomaticFallback) {
+                        throw LocalRuntimeFallbackDisabledException(error)
                     }
-
-                    Log.w(
-                        TAG,
-                        "Failed to load engine using QUALCOMM_QNN backend, falling back to LITERT_LM",
-                        qnnError
-                    )
-                    // Verify QNN library status for diagnostics before falling back.
-                    val qnnContext = (qnnRuntime as? LocalRuntimeQnnImpl)?.context
-                    if (qnnContext != null && QnnEnvironment.verifyQnnLibraries(qnnContext)) {
-                        Log.w(TAG, "QNN environment is available but engine failed to load, falling back to LiteRT")
+                    Log.w(TAG, "QNN failed; trying LiteRT-LM", error)
+                    // Retrying NPU with the same Qualcomm dispatch is not a fallback.
+                    val fallback = if (LocalAccelerators.normalize(spec.accelerator) == LocalAccelerators.NPU) {
+                        spec.copy(accelerator = LocalAccelerators.GPU, litertDispatchLibDir = null)
+                    } else {
+                        spec.copy(litertDispatchLibDir = null)
                     }
-                    liteRtRuntime.loadEngine(spec)
-                    activeLoadedRuntime = liteRtRuntime
-
-                    // Persist the actual active runtime so Settings never claims QNN after
-                    // a successful automatic fallback.
-                    runCatching {
+                    val actual = loadLiteRt(fallback)
+                    activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, spec, actual, preferred, error.message)
+                    // Update the visible selection only after a working fallback exists.
+                    try {
                         settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.LITERT_LM)
-                    }.onFailure { persistenceError ->
-                        Log.w(TAG, "LiteRT fallback succeeded but runtime preference could not be persisted", persistenceError)
+                        preferenceAtLoad = LocalRuntimeBackend.LITERT_LM
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (persistenceError: Exception) {
+                        Log.w(TAG, "Could not save the active LiteRT-LM backend", persistenceError)
                     }
+                    return
                 }
             }
-            LocalRuntimeBackend.LITERT_LM -> {
-                liteRtRuntime.loadEngine(spec)
-                activeLoadedRuntime = liteRtRuntime
+            val actual = loadLiteRt(spec)
+            activate(
+                liteRtRuntime,
+                LocalRuntimeBackend.LITERT_LM,
+                spec,
+                actual,
+                preferred,
+                if (actual.accelerator != spec.accelerator) "${spec.accelerator.uppercase()} initialization failed" else null
+            )
+        } catch (error: Throwable) {
+            withContext(NonCancellable) { unloadEngine() }
+            throw error
+        }
+    }
+
+    private suspend fun loadLiteRt(spec: LocalEngineSpec): LocalEngineSpec {
+        val accelerators = when (LocalAccelerators.normalize(spec.accelerator)) {
+            LocalAccelerators.NPU -> listOf(LocalAccelerators.NPU, LocalAccelerators.GPU, LocalAccelerators.CPU)
+            LocalAccelerators.GPU -> listOf(LocalAccelerators.GPU, LocalAccelerators.CPU)
+            else -> listOf(LocalAccelerators.CPU)
+        }
+        var lastError: Throwable? = null
+        for (accelerator in accelerators) {
+            val candidate = spec.copy(
+                accelerator = accelerator,
+                litertDispatchLibDir = spec.litertDispatchLibDir.takeIf { accelerator == LocalAccelerators.NPU }
+            )
+            try {
+                liteRtRuntime.loadEngine(candidate)
+                return candidate
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (error !is Exception && error !is LinkageError) throw error
+                lastError = error
+                liteRtRuntime.unloadEngine()
             }
         }
+        throw checkNotNull(lastError)
+    }
+
+    private fun activate(
+        runtime: LocalRuntime,
+        backend: LocalRuntimeBackend,
+        requested: LocalEngineSpec,
+        delegated: LocalEngineSpec,
+        preference: LocalRuntimeBackend,
+        fallbackReason: String? = null
+    ) {
+        activeLoadedRuntime = runtime
+        requestedSpec = requested
+        delegatedSpec = delegated
+        preferenceAtLoad = preference
+        _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason)
+    }
+
+    override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
+        val runtime = activeLoadedRuntime ?: return false
+        // Read the current preference so switching settings invalidates a warm engine.
+        if (preferenceAtLoad != settingRepository.getLocalRuntimeBackend() || requestedSpec != spec) return false
+        return delegatedSpec?.let { runtime.isEngineLoaded(it) } == true
     }
 
     override suspend fun createConversation(config: LocalConversationConfig) {
-        val runtime = activeLoadedRuntime ?: getActiveRuntime()
-        runtime.createConversation(config)
+        checkNotNull(activeLoadedRuntime) { "Local engine is not loaded" }.createConversation(config)
     }
 
-    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> {
-        val runtime = when {
-            qnnRuntime.hasOpenConversation() -> qnnRuntime
-            liteRtRuntime.hasOpenConversation() -> liteRtRuntime
-            activeLoadedRuntime != null -> activeLoadedRuntime!!
-            else -> qnnRuntime
-        }
-        return runtime.sendMessage(text, images)
-    }
+    override fun sendMessage(text: String, images: List<ByteArray>): Flow<LocalRuntimeEvent> =
+        activeLoadedRuntime?.sendMessage(text, images) ?: flowOf(LocalRuntimeEvent.Error("Local engine is not loaded"))
 
     override fun cancelActive() {
-        qnnRuntime.cancelActive()
-        liteRtRuntime.cancelActive()
+        activeLoadedRuntime?.cancelActive()
     }
 
-    override fun hasOpenConversation(): Boolean =
-        qnnRuntime.hasOpenConversation() || liteRtRuntime.hasOpenConversation()
-
-    override fun isEngineLoaded(spec: LocalEngineSpec): Boolean =
-        activeLoadedRuntime?.isEngineLoaded(spec)
-            ?: (qnnRuntime.isEngineLoaded(spec) || liteRtRuntime.isEngineLoaded(spec))
+    override fun hasOpenConversation(): Boolean = activeLoadedRuntime?.hasOpenConversation() == true
 
     override suspend fun closeConversation() {
-        qnnRuntime.closeConversation()
-        liteRtRuntime.closeConversation()
+        activeLoadedRuntime?.closeConversation()
     }
 
     override suspend fun unloadEngine() {
         activeLoadedRuntime = null
-        qnnRuntime.unloadEngine()
-        liteRtRuntime.unloadEngine()
-    }
-
-    override suspend fun unloadIfIdle(idleThresholdMs: Long): Boolean {
-        val qnnUnloaded = qnnRuntime.unloadIfIdle(idleThresholdMs)
-        val liteRtUnloaded = liteRtRuntime.unloadIfIdle(idleThresholdMs)
-        if (qnnUnloaded && liteRtUnloaded) {
-            activeLoadedRuntime = null
+        requestedSpec = null
+        delegatedSpec = null
+        preferenceAtLoad = null
+        _state.value = LocalRuntimeState()
+        try {
+            qnnRuntime.unloadEngine()
+        } finally {
+            liteRtRuntime.unloadEngine()
         }
-        return qnnUnloaded || liteRtUnloaded
     }
 
-    companion object {
-        private const val TAG = "LocalRuntimeRouter"
+    private companion object {
+        const val TAG = "LocalRuntimeRouter"
     }
 }

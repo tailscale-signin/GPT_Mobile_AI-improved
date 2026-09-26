@@ -17,6 +17,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [34], application = android.app.Application::class)
 class LocalRuntimeRouterTest {
 
     private lateinit var qnnRuntime: FakeLocalRuntime
@@ -37,111 +39,119 @@ class LocalRuntimeRouterTest {
     }
 
     @Test
-    fun loadEngine_whenQnnSelected_delegatesToQnnRuntime() = runTest {
-        fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        val spec = testEngineSpec()
-
-        router.loadEngine(spec)
-
-        assertEquals(1, qnnRuntime.loadEngineCalls.size)
+    fun defaultPreferenceLoadsQnnAndPublishesActualNpu() = runTest {
+        router.loadEngine(testEngineSpec())
+        assertEquals(listOf(testEngineSpec()), qnnRuntime.loadEngineCalls)
         assertTrue(liteRtRuntime.loadEngineCalls.isEmpty())
+        assertEquals(LocalRuntimeBackend.QUALCOMM_QNN, router.state.value.backend)
+        assertEquals(LocalAccelerators.NPU, router.state.value.engineSpec?.accelerator)
     }
 
     @Test
-    fun loadEngine_whenLiteRtSelected_delegatesToLiteRtRuntime() = runTest {
+    fun liteRtSelectionDoesNotTryQnn() = runTest {
         fakeSettingRepository.backend = LocalRuntimeBackend.LITERT_LM
-        val spec = testEngineSpec()
-
+        val spec = testEngineSpec().copy(accelerator = LocalAccelerators.GPU)
         router.loadEngine(spec)
-
-        assertEquals(1, liteRtRuntime.loadEngineCalls.size)
+        assertEquals(listOf(spec), liteRtRuntime.loadEngineCalls)
         assertTrue(qnnRuntime.loadEngineCalls.isEmpty())
     }
 
     @Test
-    fun loadEngine_whenQnnFails_fallsBackToLiteRtRuntime() = runTest {
-        fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        qnnRuntime.failLoadEngineIf = { _ -> RuntimeException("QNN native load error") }
-        val spec = testEngineSpec()
-
-        router.loadEngine(spec)
-
-        assertEquals(1, qnnRuntime.loadEngineCalls.size)
-        assertEquals(1, liteRtRuntime.loadEngineCalls.size)
+    fun qnnFailureUsesGpuAndPersistsTheWorkingBackend() = runTest {
+        qnnRuntime.failLoadEngineIf = { IllegalStateException("HTP unavailable") }
+        router.loadEngine(testEngineSpec())
+        assertEquals(listOf(LocalAccelerators.GPU), liteRtRuntime.loadEngineCalls.map { it.accelerator })
         assertEquals(LocalRuntimeBackend.LITERT_LM, fakeSettingRepository.backend)
-        assertTrue(router.isEngineLoaded(spec))
+        assertEquals(LocalAccelerators.GPU, router.state.value.engineSpec?.accelerator)
+        assertTrue(router.isEngineLoaded(testEngineSpec()))
+        assertTrue(qnnRuntime.unloadEngineCalls > 0)
     }
 
     @Test
-    fun createConversationAndSendMessage_afterFallback_delegatesToLiteRtRuntime() = runTest {
-        fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        qnnRuntime.failLoadEngineIf = { _ -> RuntimeException("QNN load error") }
-        val spec = testEngineSpec()
-        router.loadEngine(spec)
-        router.createConversation(testConversationConfig())
-
-        val events = router.sendMessage("Fallback test", emptyList()).toList()
-
-        assertEquals(1, liteRtRuntime.createConversationCalls.size)
-        assertEquals(listOf("Fallback test"), liteRtRuntime.sendMessageCalls)
-        assertTrue(qnnRuntime.createConversationCalls.isEmpty())
-        assertTrue(qnnRuntime.sendMessageCalls.isEmpty())
-        assertTrue(events.isNotEmpty())
+    fun gpuDriverFailureUsesCpuAndKeepsTheRequestedSpecWarm() = runTest {
+        fakeSettingRepository.backend = LocalRuntimeBackend.LITERT_LM
+        liteRtRuntime.failLoadEngineIf = { if (it.accelerator == LocalAccelerators.GPU) UnsatisfiedLinkError("driver") else null }
+        val holder = LocalEngineHolder(router) { 1000L }
+        val spec = testEngineSpec().copy(accelerator = LocalAccelerators.GPU)
+        holder.loadEngine(spec)
+        holder.loadEngine(spec)
+        assertEquals(listOf(LocalAccelerators.GPU, LocalAccelerators.CPU), liteRtRuntime.loadEngineCalls.map { it.accelerator })
+        assertEquals(LocalAccelerators.CPU, holder.loadedEngineSpec()?.accelerator)
     }
 
     @Test
-    fun sendMessage_routesToActiveConversationRuntime() = runTest {
-        fakeSettingRepository.backend = LocalRuntimeBackend.QUALCOMM_QNN
-        val spec = testEngineSpec()
-        router.loadEngine(spec)
-        router.createConversation(testConversationConfig())
-
-        val events = router.sendMessage("Hello NPU", emptyList()).toList()
-
-        assertEquals(listOf("Hello NPU"), qnnRuntime.sendMessageCalls)
-        assertTrue(liteRtRuntime.sendMessageCalls.isEmpty())
-        assertTrue(events.isNotEmpty())
+    fun fallbackDisabledNeverAttemptsLiteRtOrCpu() = runTest {
+        fakeSettingRepository.features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(qnnAutomaticFallback = false)
+        qnnRuntime.failLoadEngineIf = { IllegalStateException("QNN failed") }
+        val error = runCatching { router.loadEngine(testEngineSpec()) }.exceptionOrNull()
+        assertTrue(error is LocalRuntimeFallbackDisabledException)
+        assertTrue(liteRtRuntime.loadEngineCalls.isEmpty())
+        assertEquals(LocalRuntimeBackend.QUALCOMM_QNN, fakeSettingRepository.backend)
+        assertEquals(null, router.state.value.engineSpec)
     }
 
     @Test
-    fun cancelActive_cancelsBothRuntimes() {
-        router.cancelActive()
-
-        assertEquals(1, qnnRuntime.cancelActiveCalls)
-        assertEquals(1, liteRtRuntime.cancelActiveCalls)
+    fun cancelledQnnLoadDoesNotFallbackOrChangePreference() = runTest {
+        qnnRuntime.failLoadEngineIf = { kotlinx.coroutines.CancellationException("cancel") }
+        val error = runCatching { router.loadEngine(testEngineSpec()) }.exceptionOrNull()
+        assertTrue(error is kotlinx.coroutines.CancellationException)
+        assertTrue(liteRtRuntime.loadEngineCalls.isEmpty())
+        assertEquals(LocalRuntimeBackend.QUALCOMM_QNN, fakeSettingRepository.backend)
+        assertFalse(router.isEngineLoaded(testEngineSpec()))
     }
 
     @Test
-    fun unloadEngine_unloadsBothRuntimes() = runTest {
-        router.unloadEngine()
-
-        assertEquals(1, qnnRuntime.unloadEngineCalls)
-        assertEquals(1, liteRtRuntime.unloadEngineCalls)
-    }
-
-    @Test
-    fun closeConversation_closesBothRuntimes() = runTest {
-        router.closeConversation()
-
-        assertEquals(1, qnnRuntime.closeConversationCalls)
-        assertEquals(1, liteRtRuntime.closeConversationCalls)
-    }
-
-    @Test
-    fun hasOpenConversation_reflectsAnyRuntimeWithOpenConversation() = runTest {
+    fun failedFallbackDoesNotPersistSuccessOrLeaveAnActiveEngine() = runTest {
+        qnnRuntime.failLoadEngineIf = { IllegalStateException("QNN failed") }
+        liteRtRuntime.failLoadEngineIf = { IllegalStateException("unsupported model") }
+        assertTrue(runCatching { router.loadEngine(testEngineSpec()) }.isFailure)
+        assertEquals(LocalRuntimeBackend.QUALCOMM_QNN, fakeSettingRepository.backend)
+        assertEquals(null, router.loadedEngineSpec())
         assertFalse(router.hasOpenConversation())
+    }
 
-        qnnRuntime.createConversation(testConversationConfig())
-        assertTrue(router.hasOpenConversation())
+    @Test
+    fun settingsSwitchInvalidatesWarmEngineAndRoutesTheNextConversation() = runTest {
+        val holder = LocalEngineHolder(router) { 1000L }
+        val spec = testEngineSpec()
+        holder.loadEngine(spec)
+        holder.createConversation(testConversationConfig())
+        fakeSettingRepository.backend = LocalRuntimeBackend.LITERT_LM
+        assertFalse(holder.isEngineLoaded(spec))
+        holder.loadEngine(spec)
+        holder.createConversation(testConversationConfig())
+        holder.sendMessage("new backend").toList()
+        assertTrue(qnnRuntime.sendMessageCalls.isEmpty())
+        assertEquals(listOf("new backend"), liteRtRuntime.sendMessageCalls)
+        assertFalse(qnnRuntime.hasOpenConversation())
+    }
 
-        qnnRuntime.closeConversation()
-        liteRtRuntime.createConversation(testConversationConfig())
-        assertTrue(router.hasOpenConversation())
+    @Test
+    fun sendAndCancelUseOnlyTheRuntimeThatOwnsTheConversation() = runTest {
+        router.loadEngine(testEngineSpec())
+        router.createConversation(testConversationConfig())
+        router.sendMessage("hello").toList()
+        router.cancelActive()
+        assertEquals(listOf("hello"), qnnRuntime.sendMessageCalls)
+        assertTrue(liteRtRuntime.sendMessageCalls.isEmpty())
+        assertEquals(1, qnnRuntime.cancelActiveCalls)
+        assertEquals(0, liteRtRuntime.cancelActiveCalls)
+        router.closeConversation()
+        assertFalse(router.hasOpenConversation())
+    }
+
+    @Test
+    fun unloadedRouterReportsFailureInsteadOfGuessingARuntime() = runTest {
+        assertTrue(router.sendMessage("hello").toList().single() is LocalRuntimeEvent.Error)
+        router.loadEngine(testEngineSpec())
+        router.unloadEngine()
+        assertFalse(router.isEngineLoaded(testEngineSpec()))
+        assertEquals(null, router.state.value.backend)
     }
 
     private fun testEngineSpec() = LocalEngineSpec(
         modelPath = "/path/to/model.bin",
-        accelerator = "test",
+        accelerator = LocalAccelerators.NPU,
         maxTokens = 512
     )
 
@@ -152,7 +162,9 @@ class LocalRuntimeRouterTest {
     )
 
     private class FakeRouterSettingRepository : SettingRepository {
-        var backend: LocalRuntimeBackend = LocalRuntimeBackend.QUALCOMM_QNN
+        var backend: LocalRuntimeBackend = LocalRuntimeBackend.DEFAULT
+        var features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+        override suspend fun getFeatureSettings() = features
 
         override suspend fun fetchProviderConnections(): List<ProviderConnection> = emptyList()
         override fun observeProviderConnections(): Flow<List<ProviderConnection>> = kotlinx.coroutines.flow.flowOf(emptyList())

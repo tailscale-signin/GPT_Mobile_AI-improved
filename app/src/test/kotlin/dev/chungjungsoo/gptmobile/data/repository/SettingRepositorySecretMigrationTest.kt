@@ -5,11 +5,11 @@ import dev.chungjungsoo.gptmobile.data.database.dao.PlatformV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.datastore.SettingDataSource
-import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.DynamicTheme
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.model.ThemeMode
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -51,17 +51,18 @@ class SettingRepositorySecretMigrationTest {
         val p1 = platformDao.getPlatform(1)
         val p2 = platformDao.getPlatform(2)
 
-        assertEquals("", p1?.token)
+        assertNull(p1?.token)
         assertTrue(p1?.secretRef?.isNotBlank() == true)
         assertEquals("legacy-token-1", secretVault.read(p1!!.secretRef!!)?.decodeToString())
 
-        assertEquals("legacy-token-2", p2?.token)
+        assertNull(p2?.token)
+        assertEquals("legacy-token-2", secretVault.read("existing-ref")?.decodeToString())
         assertEquals("existing-ref", p2?.secretRef)
 
         assertNull(settingDataSource.getToken(ApiType.OPENAI))
         assertNull(settingDataSource.getToken(ApiType.ANTHROPIC))
-        assertEquals("legacy-openai-token", secretVault.read("setting_token_OPENAI")?.decodeToString())
-        assertEquals("legacy-claude-token", secretVault.read("setting_token_ANTHROPIC")?.decodeToString())
+        assertEquals("legacy-openai-token", secretVault.read("legacy_openai")?.decodeToString())
+        assertEquals("legacy-claude-token", secretVault.read("legacy_anthropic")?.decodeToString())
     }
 
     @Test
@@ -84,12 +85,13 @@ class SettingRepositorySecretMigrationTest {
         val errors = repository.migrateSecrets()
 
         assertEquals(1, errors.size)
-        assertEquals("p1", errors.first().source)
+        assertEquals("profile:p1", errors.first().source)
 
         val p1 = platformDao.getPlatform(1)
         assertEquals("legacy-token-1", p1?.token)
         assertNull(p1?.secretRef)
-        assertTrue(secretVault.values.isEmpty())
+        // A failed database edit keeps both the plaintext reference and its verified vault copy for retry.
+        assertEquals("legacy-token-1", secretVault.read("room_profile_1")?.decodeToString())
     }
 
     @Test

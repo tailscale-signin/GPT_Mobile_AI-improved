@@ -96,7 +96,7 @@ class SharedToolCallBroker(
             }
 
             try {
-                return existing.result.await().copy(callId = callId)
+                return existing.result.await().copy(callId = callId, sharedResult = true)
             } catch (cancellation: CancellationException) {
                 currentCoroutineContext().ensureActive()
                 entries.remove(key, existing)

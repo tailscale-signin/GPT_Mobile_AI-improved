@@ -13,7 +13,10 @@ data class GenerateContentResponse(
     val promptFeedback: PromptFeedback? = null,
 
     @SerialName("error")
-    val error: ErrorDetail? = null
+    val error: ErrorDetail? = null,
+
+    @SerialName("usageMetadata")
+    val usageMetadata: GeminiUsageMetadata? = null
 )
 
 @Serializable
@@ -44,4 +47,12 @@ data class ErrorDetail(
 
     @SerialName("status")
     val status: String? = null
+)
+
+@Serializable
+data class GeminiUsageMetadata(
+    @SerialName("promptTokenCount") val promptTokens: Int? = null,
+    @SerialName("candidatesTokenCount") val candidateTokens: Int? = null,
+    @SerialName("thoughtsTokenCount") val thoughtTokens: Int? = null,
+    @SerialName("totalTokenCount") val totalTokens: Int? = null
 )

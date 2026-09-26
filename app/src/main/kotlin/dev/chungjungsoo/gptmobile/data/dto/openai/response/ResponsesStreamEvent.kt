@@ -285,7 +285,10 @@ data class ResponseObject(
     val status: String? = null,
 
     @SerialName("error")
-    val error: ResponseError? = null
+    val error: ResponseError? = null,
+
+    @SerialName("usage")
+    val usage: ResponseUsage? = null
 )
 
 @Serializable
@@ -331,4 +334,11 @@ data class SummaryPart(
 
     @SerialName("text")
     val text: String? = null
+)
+
+@Serializable
+data class ResponseUsage(
+    @SerialName("input_tokens") val inputTokens: Int? = null,
+    @SerialName("output_tokens") val outputTokens: Int? = null,
+    @SerialName("total_tokens") val totalTokens: Int? = null
 )

@@ -5,44 +5,13 @@ import android.os.Build
 import android.system.Os
 import android.util.Log
 import java.io.File
-import java.io.FileOutputStream
 import java.util.zip.ZipFile
 
-/**
- * Qualcomm QNN (Qualcomm Neural Network) and Hexagon DSP runtime environment configurator.
- *
- * Handles:
- * 1. Pre-seeding `ADSP_LIBRARY_PATH` (semicolon-separated for DSP FastRPC) and `LD_LIBRARY_PATH`
- *    before any QNN or LiteRT shared library is dlopened.
- * 2. Ensuring required Hexagon skeleton (`libQnnHtpV79Skel.so`) and dispatch shared libraries
- *    are physically extracted to internal storage if the device/APK packaging left them unextracted.
- * 3. Probing QNN native library and driver readiness.
- */
+/** Configures the Qualcomm dispatch/HTP libraries before LiteRT-LM opens them. */
 object QnnEnvironment {
     private const val TAG = "QnnEnvironment"
 
-    private const val QNN_DISPATCH_DIR = "qnn_dispatch"
-
-    val REQUIRED_QNN_LIBS = listOf(
-        "libLiteRtCompilerPlugin_Qualcomm.so",
-        "libLiteRtDispatch_Qualcomm.so",
-        "libQnnHtp.so",
-        "libQnnHtpV79CalculatorStub.so",
-        "libQnnHtpV79Skel.so",
-        "libQnnHtpV79Stub.so",
-        "libQnnIr.so",
-        "libQnnSaver.so",
-        "libQnnSystem.so"
-    )
-
-    @Volatile
-    private var isConfigured = false
-
-    @Volatile
-    private var dispatchDir: String = ""
-
-    @Volatile
-    private var lastProbeStatus: QnnProbeStatus? = null
+    @Volatile private var lastProbeStatus: QnnProbeStatus? = null
 
     data class QnnProbeStatus(
         val isQualcommDevice: Boolean,
@@ -54,224 +23,114 @@ object QnnEnvironment {
         val missingLibraries: List<String>,
         val skelFileExists: Boolean,
         val skelFilePath: String,
+        // Prerequisites only; successful native initialization is the execution check.
         val isReady: Boolean,
         val errorMessage: String? = null
     )
 
-    /**
-     * Configures the QNN environment variables (`ADSP_LIBRARY_PATH` & `LD_LIBRARY_PATH`).
-     * MUST be called as early as possible (e.g. in [Application.onCreate]) before any native
-     * library loading occurs.
-     */
     @Synchronized
     fun initialize(context: Context): QnnProbeStatus {
-        val appContext = context.applicationContext
-        val nativeLibDir = appContext.applicationInfo.nativeLibraryDir
-
-        // Determine or extract directory containing physical QNN libraries
-        val resolvedDispatchDir = ensurePhysicalLibraries(appContext)
-        dispatchDir = resolvedDispatchDir
-
-        val adspSearchPaths = listOf(
-            resolvedDispatchDir,
-            nativeLibDir,
-            "/vendor/lib64/rfs/dsp/snap",
-            "/vendor/lib64/hw/audio",
-            "/vendor/dsp/cdsp",
-            "/vendor/lib64/snap",
+        lastProbeStatus?.let { return it }
+        val app = context.applicationContext
+        val soc = Build.SOC_MODEL.orEmpty()
+        val nativeDir = File(app.applicationInfo.nativeLibraryDir)
+        val required = QualcommSocSupport.requiredLibraries(soc)
+        val qualcomm = isQualcommPlatform()
+        val arm64 = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+        val dispatch = if (qualcomm && arm64 && required.isNotEmpty()) {
+            ensurePhysicalLibraries(app, required)
+        } else {
+            nativeDir
+        }
+        val missing = required.filterNot { File(dispatch, it).isUsableLibrary() }
+        val htp = QualcommSocSupport.htpVersion(soc)
+        val skel = htp?.let { File(dispatch, "libQnnHtpV${it}Skel.so") }
+        val adsp = listOf(
+            dispatch.path,
+            nativeDir.path,
             "/vendor/lib/rfsa/adsp",
             "/system/lib/rfsa/adsp",
-            "/system/vendor/lib/rfsa/adsp",
+            "/vendor/dsp/cdsp",
             "/dsp"
-        ).distinct()
-
-        val adspEnvValue = adspSearchPaths.joinToString(";") // Semicolon delimiter for DSP FastRPC
-
-        val ldSearchPaths = listOf(
-            resolvedDispatchDir,
-            nativeLibDir,
-            "/vendor/lib64",
-            "/system/lib64"
-        ).distinct()
-
-        val ldEnvValue = ldSearchPaths.joinToString(":") // Colon delimiter for Linux linker
-
-        try {
-            Os.setenv("ADSP_LIBRARY_PATH", adspEnvValue, true)
-            Log.d(TAG, "Configured ADSP_LIBRARY_PATH=$adspEnvValue")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to setenv ADSP_LIBRARY_PATH: ${t.message}")
+        ).plus(runCatching { Os.getenv("ADSP_LIBRARY_PATH") }.getOrNull().orEmpty().split(';'))
+            .filter(String::isNotBlank).distinct().joinToString(";")
+        val ld = listOf(dispatch.path, nativeDir.path)
+            .plus(runCatching { Os.getenv("LD_LIBRARY_PATH") }.getOrNull().orEmpty().split(':'))
+            .filter(String::isNotBlank).distinct().joinToString(":")
+        var environmentError: String? = null
+        if (qualcomm && arm64 && required.isNotEmpty()) {
+            try {
+                Os.setenv("ADSP_LIBRARY_PATH", adsp, true)
+                Os.setenv("LD_LIBRARY_PATH", ld, true)
+            } catch (error: Exception) {
+                environmentError = "Could not configure Qualcomm library paths: ${error.message}"
+            }
         }
-
-        try {
-            val currentLd = runCatching { Os.getenv("LD_LIBRARY_PATH") }.getOrNull()
-            val finalLd = if (!currentLd.isNullOrBlank()) "$ldEnvValue:$currentLd" else ldEnvValue
-            Os.setenv("LD_LIBRARY_PATH", finalLd, true)
-            Log.d(TAG, "Configured LD_LIBRARY_PATH=$finalLd")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Failed to setenv LD_LIBRARY_PATH: ${t.message}")
+        val reason = when {
+            !qualcomm -> "This device is not a Qualcomm platform"
+            !arm64 -> "Qualcomm NPU requires an arm64 process"
+            required.isEmpty() -> "No packaged Qualcomm NPU support for SoC $soc"
+            missing.isNotEmpty() -> "Missing Qualcomm libraries: ${missing.joinToString()}"
+            environmentError != null -> environmentError
+            else -> null
         }
-
-        isConfigured = true
-
-        val probe = probeEnvironment(appContext, resolvedDispatchDir, adspEnvValue, ldEnvValue)
-        lastProbeStatus = probe
-        return probe
+        return QnnProbeStatus(
+            isQualcommDevice = qualcomm, socModel = soc, nativeLibDir = nativeDir.path,
+            dispatchDir = dispatch.path, adspPath = adsp, ldPath = ld, missingLibraries = missing,
+            skelFileExists = skel?.isUsableLibrary() == true,
+            skelFilePath = skel?.takeIf { it.isUsableLibrary() }?.path.orEmpty(),
+            isReady = reason == null, errorMessage = reason
+        ).also { lastProbeStatus = it }
     }
 
-    fun getDispatchDir(context: Context): String {
-        if (!isConfigured) {
-            initialize(context)
-        }
-        return dispatchDir.ifBlank { context.applicationInfo.nativeLibraryDir }
-    }
+    fun getDispatchDir(context: Context): String = getProbeStatus(context).dispatchDir
+    fun isEnvironmentConfigured(): Boolean = lastProbeStatus != null
+    fun getProbeStatus(context: Context): QnnProbeStatus = lastProbeStatus ?: initialize(context)
+    fun verifyQnnLibraries(context: Context): Boolean = getProbeStatus(context).isReady
 
-    fun isEnvironmentConfigured(): Boolean = isConfigured
-
-    fun getProbeStatus(context: Context): QnnProbeStatus {
-        return lastProbeStatus ?: initialize(context)
-    }
-
-    /**
-     * Checks if physical `.so` files are available in [nativeLibDir]. If some are missing
-     * (e.g. `extractNativeLibs = false` on Android 10+), extracts them from the APK's
-     * `lib/arm64-v8a` into [context.filesDir]/qnn_dispatch.
-     */
-    private fun ensurePhysicalLibraries(context: Context): String {
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val skelInNative = File(nativeDir, "libQnnHtpV79Skel.so")
-
-        if (skelInNative.exists() && skelInNative.length() > 0L) {
-            Log.d(TAG, "All QNN libraries physically present in nativeLibraryDir: ${nativeDir.absolutePath}")
-            return nativeDir.absolutePath
-        }
-
-        // FastRPC requires libQnnHtpV79Skel.so on the physical filesystem. Extract from APK if needed.
-        val targetDir = File(context.noBackupFilesDir, QNN_DISPATCH_DIR)
-        if (!targetDir.exists()) {
-            targetDir.mkdirs()
-        }
-
-        runCatching {
-            val apkPath = context.applicationInfo.sourceDir
-            ZipFile(File(apkPath)).use { zip ->
-                for (libName in REQUIRED_QNN_LIBS) {
-                    val targetFile = File(targetDir, libName)
-                    val sourceInNative = File(nativeDir, libName)
-
-                    if (sourceInNative.exists() && sourceInNative.length() > 0L) {
-                        if (!targetFile.exists() || targetFile.length() != sourceInNative.length()) {
-                            sourceInNative.copyTo(targetFile, overwrite = true)
+    private fun ensurePhysicalLibraries(context: Context, required: List<String>): File {
+        val info = context.applicationInfo
+        val nativeDir = File(info.nativeLibraryDir)
+        if (required.all { File(nativeDir, it).isUsableLibrary() }) return nativeDir
+        // App updates can replace a library without changing its length. Scope extracted
+        // files to the installed version rather than reusing files by size alone.
+        val install = context.packageManager.getPackageInfo(context.packageName, 0)
+        val target = File(context.noBackupFilesDir, "qnn_dispatch/${install.longVersionCode}-${install.lastUpdateTime}")
+        target.mkdirs()
+        val apks = listOfNotNull(info.sourceDir) + info.splitSourceDirs.orEmpty()
+        required.forEach { name ->
+            val output = File(target, name)
+            if (output.isUsableLibrary()) return@forEach
+            val temporary = File(target, "$name.tmp")
+            try {
+                val source = File(nativeDir, name)
+                if (source.isUsableLibrary()) {
+                    source.copyTo(temporary, overwrite = true)
+                } else {
+                    for (apk in apks) {
+                        ZipFile(apk).use { zip ->
+                            val entry = zip.getEntry("lib/arm64-v8a/$name") ?: return@use
+                            zip.getInputStream(entry).use { input -> temporary.outputStream().use(input::copyTo) }
                         }
-                    } else {
-                        val entry = zip.getEntry("lib/arm64-v8a/$libName")
-                        if (entry != null && (!targetFile.exists() || targetFile.length() != entry.size)) {
-                            zip.getInputStream(entry).use { input ->
-                                FileOutputStream(targetFile).use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-                            targetFile.setReadable(true, false)
-                            targetFile.setExecutable(true, false)
-                            Log.i(TAG, "Extracted $libName to ${targetFile.absolutePath}")
-                        }
+                        if (temporary.isUsableLibrary()) break
                     }
                 }
-            }
-        }.onFailure { error ->
-            Log.w(TAG, "Failed extracting QNN native libraries from APK: ${error.message}")
-        }
-
-        val skelInTarget = File(targetDir, "libQnnHtpV79Skel.so")
-        return if (skelInTarget.exists() && skelInTarget.length() > 0L) {
-            targetDir.absolutePath
-        } else {
-            nativeDir.absolutePath
-        }
-    }
-
-    private fun probeEnvironment(
-        context: Context,
-        dispatchPath: String,
-        adspPath: String,
-        ldPath: String
-    ): QnnProbeStatus {
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val dispatchDirFile = File(dispatchPath)
-
-        val missing = mutableListOf<String>()
-        var skelFoundPath = ""
-
-        for (lib in REQUIRED_QNN_LIBS) {
-            val inDispatch = File(dispatchDirFile, lib)
-            val inNative = File(nativeDir, lib)
-            val exists = (inDispatch.exists() && inDispatch.length() > 0L) ||
-                (inNative.exists() && inNative.length() > 0L)
-            if (!exists) {
-                missing.add(lib)
-            }
-            if (lib == "libQnnHtpV79Skel.so") {
-                if (inDispatch.exists()) {
-                    skelFoundPath = inDispatch.absolutePath
-                } else if (inNative.exists()) {
-                    skelFoundPath = inNative.absolutePath
+                if (temporary.isUsableLibrary()) {
+                    check(temporary.renameTo(output)) { "Could not publish $name" }
                 }
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not extract $name", error)
+            } finally {
+                temporary.delete()
             }
         }
-
-        val isQualcomm = isQualcommPlatform()
-        val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Build.SOC_MODEL.orEmpty()
-        } else {
-            Build.HARDWARE.orEmpty()
-        }
-
-        val ready = skelFoundPath.isNotBlank() && (
-            File(dispatchDirFile, "libLiteRtDispatch_Qualcomm.so").exists() ||
-            File(nativeDir, "libLiteRtDispatch_Qualcomm.so").exists()
-        )
-
-        return QnnProbeStatus(
-            isQualcommDevice = isQualcomm,
-            socModel = socModel,
-            nativeLibDir = nativeDir.absolutePath,
-            dispatchDir = dispatchPath,
-            adspPath = adspPath,
-            ldPath = ldPath,
-            missingLibraries = missing,
-            skelFileExists = skelFoundPath.isNotBlank(),
-            skelFilePath = skelFoundPath,
-            isReady = ready,
-            errorMessage = if (!ready) "QNN libraries or HTP skeleton missing from filesystem" else null
-        )
+        return target
     }
 
-    fun isQualcommPlatform(): Boolean {
-        val manufacturer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Build.SOC_MANUFACTURER.orEmpty()
-        } else {
-            ""
-        }
-        val hardware = Build.HARDWARE.orEmpty()
-        val board = Build.BOARD.orEmpty()
-        return manufacturer.contains("qualcomm", ignoreCase = true) ||
-            hardware.contains("qcom", ignoreCase = true) ||
-            hardware.contains("qualcomm", ignoreCase = true) ||
-            board.contains("qcom", ignoreCase = true)
-    }
-    
-    /**
-     * Verifies that QNN libraries are properly loaded and available for use
-     */
-    fun verifyQnnLibraries(context: Context): Boolean {
-        try {
-            val probe = getProbeStatus(context)
-            val librariesAvailable = probe.isReady && probe.skelFileExists
-            Log.d(TAG, "QNN libraries verification: ${if (librariesAvailable) "PASSED" else "FAILED"}")
-            return librariesAvailable
-        } catch (e: Exception) {
-            Log.e(TAG, "Error verifying QNN libraries: ${e.message}", e)
-            return false
-        }
-    }
+    internal fun File.isUsableLibrary(): Boolean = isFile && canRead() && length() > 0L
+
+    fun isQualcommPlatform(): Boolean =
+        Build.SOC_MANUFACTURER.orEmpty().let { it.contains("qualcomm", true) || it.equals("qti", true) } ||
+            Build.HARDWARE.orEmpty().let { it.contains("qcom", true) || it.contains("qualcomm", true) } ||
+            QualcommSocSupport.htpVersion(Build.SOC_MODEL.orEmpty()) != null
 }

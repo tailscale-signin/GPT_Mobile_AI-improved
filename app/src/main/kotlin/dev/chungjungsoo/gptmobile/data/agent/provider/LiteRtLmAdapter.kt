@@ -19,9 +19,9 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalEngineSpec
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryMessage
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalHistoryRole
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferenceMetrics
-import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeEvent
+import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeFallbackDisabledException
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalSamplerConfig
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalToolDescriptor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalToolExecutor
@@ -35,6 +35,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -164,137 +165,142 @@ class LiteRtLmAdapter(
                     localRuntime.runExclusiveFlow(
                         onContended = { send(ProviderEvent.Notice(waitingForEngineNotice)) }
                     ) {
-                        exclusiveToolsByName = runToolsByName
-                        exclusiveToolEventSink = runToolEventSink
-                        if (!isEngineLoaded(spec) && loadingModelNotice.isNotBlank()) {
-                            send(ProviderEvent.Notice(loadingModelNotice))
-                        }
-                        val loadedSpec = loadEngineOrFallback(spec) { event -> send(event) }
-                        val snapshot = openConversation
-                        val canReuse = !isConversationDirty &&
-                            hasOpenConversation() &&
-                            snapshot != null &&
-                            snapshot.profileUid == platform.uid &&
-                            snapshot.engineSpec == loadedSpec &&
-                            snapshot.sampler == sampler &&
-                            snapshot.systemPrompt == platform.systemPrompt &&
-                            snapshot.toolsKey == toolsKey &&
-                            snapshot.consumed == incomingPrior
-                        if (!canReuse) {
-                            if (hasOpenConversation()) {
-                                closeConversation()
-                            }
-                            yield() // Cooperative yield before starting heavy conversation allocation
-                            val seedHistory = if (visionCapable) {
-                                historyMessages(
-                                    priorTurns = compactedPriorTurns,
-                                    visionCapable = true,
-                                    includeImageBytes = true
-                                )
-                            } else {
-                                history
-                            }
-                            createConversation(
-                                LocalConversationConfig(
-                                    sampler = sampler,
-                                    systemPrompt = platform.systemPrompt,
-                                    initialMessages = seedHistory,
-                                    tools = descriptors,
-                                    isConstrainedDecodingEnabled = descriptors.isNotEmpty(),
-                                    toolExecutor = if (descriptors.isNotEmpty()) {
-                                        LocalToolExecutor { name, argumentsJson ->
-                                            executeBoundTool(
-                                                name,
-                                                argumentsJson,
-                                                exclusiveToolsByName,
-                                                exclusiveToolEventSink
-                                            )
-                                        }
-                                    } else {
-                                        null
+                        flow<Unit> {
+                            try {
+                                exclusiveToolsByName = runToolsByName
+                                exclusiveToolEventSink = runToolEventSink
+                                if (!isEngineLoaded(spec) && loadingModelNotice.isNotBlank()) {
+                                    send(ProviderEvent.Notice(loadingModelNotice))
+                                }
+                                val loadedSpec = loadEngineOrFallback(spec) { event -> send(event) }
+                                val snapshot = openConversation
+                                val canReuse = !isConversationDirty &&
+                                    hasOpenConversation() &&
+                                    snapshot != null &&
+                                    snapshot.profileUid == platform.uid &&
+                                    snapshot.engineSpec == loadedSpec &&
+                                    snapshot.sampler == sampler &&
+                                    snapshot.systemPrompt == platform.systemPrompt &&
+                                    snapshot.toolsKey == toolsKey &&
+                                    snapshot.consumed == incomingPrior
+                                if (!canReuse) {
+                                    if (hasOpenConversation()) {
+                                        closeConversation()
                                     }
-                                )
-                            )
-                            openConversation = OpenConversation(
-                                profileUid = platform.uid,
-                                engineSpec = loadedSpec,
-                                sampler = sampler,
-                                systemPrompt = platform.systemPrompt,
-                                toolsKey = toolsKey,
-                                consumed = incomingPrior
-                            )
-                        }
-                        isConversationDirty = true
-                        yield() // Cooperative yield before dispatching prompt evaluation
-                        sendMessage(latestUserText, latestImages)
-                    }.collect { event ->
-                        when (event) {
-                            is LocalRuntimeEvent.PhaseChanged -> {
-                                send(ProviderEvent.PhaseChanged(event.phase))
-                            }
-
-                            is LocalRuntimeEvent.TextDelta -> {
-                                assistantReply.append(event.text)
-                                send(ProviderEvent.TextDelta(event.text))
-                            }
-
-                            is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
-
-                            is LocalRuntimeEvent.Metrics -> {
-                                latestMetrics = event.metrics
-                            }
-
-                            is LocalRuntimeEvent.Error -> {
-                                failed = true
-                                isConversationDirty = true
-                                send(ProviderEvent.Failed(event.message))
-                            }
-
-                            LocalRuntimeEvent.Done -> Unit
-                        }
-                    }
-                    if (!failed) {
-                        latestMetrics?.let { metrics ->
-                            val telemetryNotice = formatTelemetryNotice(metrics, localRuntime)
-                            if (telemetryNotice.isNotBlank()) {
-                                send(ProviderEvent.Notice(telemetryNotice))
-                            }
-                        }
-                        send(ProviderEvent.Completed)
-                        val snapshot = openConversation
-                        if (snapshot != null) {
-                            openConversation = snapshot.copy(
-                                consumed = snapshot.consumed.extend(
-                                    listOfNotNull(
-                                        LocalHistoryMessage(
-                                            role = LocalHistoryRole.USER,
-                                            text = latestUserText,
-                                            imageIds = latestImageIds
-                                        ),
-                                        assistantReply.toString().takeIf { it.isNotBlank() }?.let { content ->
-                                            LocalHistoryMessage(LocalHistoryRole.MODEL, content)
-                                        }
+                                    yield() // Cooperative yield before starting heavy conversation allocation
+                                    val seedHistory = if (visionCapable) {
+                                        historyMessages(
+                                            priorTurns = compactedPriorTurns,
+                                            visionCapable = true,
+                                            includeImageBytes = true
+                                        )
+                                    } else {
+                                        history
+                                    }
+                                    createConversation(
+                                        LocalConversationConfig(
+                                            sampler = sampler,
+                                            systemPrompt = platform.systemPrompt,
+                                            initialMessages = seedHistory,
+                                            tools = descriptors,
+                                            isConstrainedDecodingEnabled = descriptors.isNotEmpty(),
+                                            toolExecutor = if (descriptors.isNotEmpty()) {
+                                                LocalToolExecutor { name, argumentsJson ->
+                                                    executeBoundTool(
+                                                        name,
+                                                        argumentsJson,
+                                                        exclusiveToolsByName,
+                                                        exclusiveToolEventSink
+                                                    )
+                                                }
+                                            } else {
+                                                null
+                                            }
+                                        )
                                     )
-                                )
-                            )
-                            isConversationDirty = false
+                                    openConversation = OpenConversation(
+                                        profileUid = platform.uid,
+                                        engineSpec = loadedSpec,
+                                        sampler = sampler,
+                                        systemPrompt = platform.systemPrompt,
+                                        toolsKey = toolsKey,
+                                        consumed = incomingPrior
+                                    )
+                                }
+                                isConversationDirty = true
+                                yield() // Cooperative yield before dispatching prompt evaluation
+                                sendMessage(latestUserText, latestImages).collect { event ->
+                                    when (event) {
+                                        is LocalRuntimeEvent.PhaseChanged -> {
+                                            send(ProviderEvent.PhaseChanged(event.phase))
+                                        }
+
+                                        is LocalRuntimeEvent.TextDelta -> {
+                                            assistantReply.append(event.text)
+                                            send(ProviderEvent.TextDelta(event.text))
+                                        }
+
+                                        is LocalRuntimeEvent.ThinkingDelta -> send(ProviderEvent.ThinkingDelta(event.text))
+
+                                        is LocalRuntimeEvent.Metrics -> {
+                                            latestMetrics = event.metrics
+                                        }
+
+                                        is LocalRuntimeEvent.Error -> {
+                                            failed = true
+                                            isConversationDirty = true
+                                            send(ProviderEvent.Failed(event.message))
+                                        }
+
+                                        LocalRuntimeEvent.Done -> Unit
+                                    }
+                                }
+                                if (!failed) {
+                                    latestMetrics?.let { metrics ->
+                                        val telemetryNotice = formatTelemetryNotice(metrics, localRuntime)
+                                        if (telemetryNotice.isNotBlank()) {
+                                            send(ProviderEvent.Notice(telemetryNotice))
+                                        }
+                                    }
+                                    val snapshot = openConversation
+                                    if (snapshot != null) {
+                                        openConversation = snapshot.copy(
+                                            consumed = snapshot.consumed.extend(
+                                                listOfNotNull(
+                                                    LocalHistoryMessage(
+                                                        role = LocalHistoryRole.USER,
+                                                        text = latestUserText,
+                                                        imageIds = latestImageIds
+                                                    ),
+                                                    assistantReply.toString().takeIf { it.isNotBlank() }?.let { content ->
+                                                        LocalHistoryMessage(LocalHistoryRole.MODEL, content)
+                                                    }
+                                                )
+                                            )
+                                        )
+                                        isConversationDirty = false
+                                    }
+                                }
+                                if (!failed) send(ProviderEvent.Completed)
+                            } catch (error: CancellationException) {
+                                cancelActive()
+                                isConversationDirty = true
+                                throw error
+                            } catch (error: Throwable) {
+                                isConversationDirty = true
+                                throw error
+                            } finally {
+                                exclusiveToolsByName = emptyMap()
+                                exclusiveToolEventSink = null
+                            }
                         }
-                    }
+                    }.collect { }
                 } catch (error: CancellationException) {
-                    localRuntime.cancelActive()
-                    isConversationDirty = true
                     throw error
                 } catch (error: LocalEngineLoadException) {
-                    isConversationDirty = true
-                    val detail = error.cause?.message?.takeIf { it.isNotBlank() } ?: error.message
-                    val message = if (!detail.isNullOrBlank() && detail != engineLoadFailedError) {
-                        "$engineLoadFailedError: $detail"
-                    } else {
-                        engineLoadFailedError
-                    }
-                    send(ProviderEvent.Failed(message))
+                    // Native diagnostics are retained in Logcat; keep the conversation error readable.
+                    send(ProviderEvent.Failed(engineLoadFailedError))
                 } catch (error: Exception) {
-                    isConversationDirty = true
                     send(ProviderEvent.Failed(error.message ?: "Local inference failed"))
                 }
             }
@@ -384,11 +390,19 @@ class LiteRtLmAdapter(
     ): LocalEngineSpec {
         try {
             loadEngine(requested)
-            return requested
+            val active = loadedEngineSpec() ?: requested
+            if (active.accelerator != requested.accelerator) {
+                send(ProviderEvent.Notice("${requested.accelerator.uppercase()} unavailable — running on ${active.accelerator.uppercase()}", persistent = true))
+            }
+            return active
         } catch (error: CancellationException) {
             throw error
-        } catch (error: Exception) {
+        } catch (error: LocalRuntimeFallbackDisabledException) {
+            throw error
+        } catch (error: Throwable) {
+            if (error !is Exception && error !is LinkageError) throw error
             logEngineFailure(requested, error)
+            if (handlesEngineFallback) throw LocalEngineLoadException(engineLoadFailedError, error)
             if (LocalAccelerators.normalize(requested.accelerator) == LocalAccelerators.CPU) {
                 throw LocalEngineLoadException(engineLoadFailedError, error)
             }
@@ -397,7 +411,10 @@ class LiteRtLmAdapter(
                 loadEngine(cpuSpec)
             } catch (cpuCancelled: CancellationException) {
                 throw cpuCancelled
-            } catch (cpuError: Exception) {
+            } catch (error: LocalRuntimeFallbackDisabledException) {
+                throw error
+            } catch (cpuError: Throwable) {
+                if (cpuError !is Exception && cpuError !is LinkageError) throw cpuError
                 logEngineFailure(cpuSpec, cpuError)
                 throw LocalEngineLoadException(engineLoadFailedError, cpuError)
             }
@@ -406,7 +423,7 @@ class LiteRtLmAdapter(
             if (notice.isNotBlank()) {
                 send(ProviderEvent.Notice(notice, persistent = true))
             }
-            return cpuSpec
+            return loadedEngineSpec() ?: cpuSpec
         }
     }
 
@@ -500,7 +517,7 @@ class LiteRtLmAdapter(
     ): String {
         if (metrics.totalDurationMs <= 0L && metrics.totalChunks <= 0) return ""
         val tpsFormatted = String.format(Locale.US, "%.1f", metrics.tokensPerSecond)
-        val baseNotice = "Local: ${tpsFormatted} tok/s · TTFT ${metrics.timeToFirstTokenMs}ms · ~${metrics.estimatedTokens} tokens"
+        val baseNotice = "Local: $tpsFormatted tok/s · TTFT ${metrics.timeToFirstTokenMs}ms · ~${metrics.estimatedTokens} tokens"
 
         val hwState = runtime.getHardwareState()
         val throttleSuffix = when {

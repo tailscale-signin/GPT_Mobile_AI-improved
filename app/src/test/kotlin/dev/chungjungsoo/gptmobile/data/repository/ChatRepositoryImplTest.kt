@@ -75,6 +75,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatRepositoryImplTest {
+    @Test
+    fun `saved facts prefix both cloud and local system prompts`() = runBlocking {
+        val storage = object : SecretVault {
+            var bytes: ByteArray? = null
+            override suspend fun put(secretRef: String, secret: ByteArray) {
+                bytes = secret.copyOf()
+            }
+            override suspend fun read(secretRef: String) = bytes?.copyOf()
+            override suspend fun delete(secretRef: String) {
+                bytes = null
+            }
+        }
+        val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
+        facts.setEnabled(true)
+        facts.prepareTurn("I prefer Kotlin", 1, 1)
+        val api = FakeGroqAPI(emptyFlow())
+        val cloud = createRepository(groqAPI = api, factVault = facts)
+        val cloudStates = cloud.completeChat(
+            userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "Help me with Kotlin", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = groqPlatform(reasoning = false, model = "qwen/qwen3-32b").copy(systemPrompt = "Base instructions"),
+            runId = "memory-cloud"
+        ).toList()
+        val system = api.lastRequest!!.messages.first()
+        assertEquals(dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.SYSTEM, system.role)
+        assertTrue(system.content.toString().contains("Kotlin"))
+        assertTrue(system.content.toString().contains("Base instructions"))
+        assertEquals(1, cloudStates.filterIsInstance<ApiState.MemoryRecalled>().single().facts.size)
+
+        val runtime = FakeLocalRuntime()
+        val local = createRepository(localRuntime = runtime, localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm")), factVault = facts)
+        local.completeChat(
+            userMessages = listOf(MessageV2(id = 3, chatId = 1, content = "Kotlin", platformType = null)),
+            assistantMessages = emptyList(),
+            platform = localPlatform(),
+            runId = "memory-local"
+        ).toList()
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().startsWith("Saved local facts"))
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Kotlin"))
+    }
 
     @Test(expected = IllegalStateException::class)
     fun `blank response input without encodable parts throws`() {
@@ -134,7 +174,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3-32b"),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -148,6 +188,36 @@ class ChatRepositoryImplTest {
         assertEquals(1, groqAPI.streamCalls)
         assertEquals(0, openAIAPI.streamChatCompletionCalls)
         assertEquals(8_192, groqAPI.lastRequest?.maxCompletionTokens)
+    }
+
+    @Test
+    fun `local documents reach native history and current prompt exactly once`() = runBlocking {
+        val runtime = FakeLocalRuntime()
+        val repository = createRepository(
+            localRuntime = runtime,
+            localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm"))
+        )
+        val document = ChatAttachment(
+            localFilePath = "/unopened/document.pdf",
+            preparedFilePath = "",
+            displayName = "document.pdf",
+            mimeType = "application/pdf",
+            sizeBytes = 12,
+            extractedText = "document contents"
+        )
+        val states = repository.completeChat(
+            userMessages = listOf(
+                MessageV2(id = 1, content = "First document", platformType = null, attachments = listOf(document.copy(extractedText = "prior document"))),
+                MessageV2(id = 2, content = "Summarize", platformType = null, attachments = listOf(document))
+            ),
+            assistantMessages = listOf(listOf(MessageV2(content = "Prior answer", platformType = localPlatform().uid))),
+            platform = localPlatform(),
+            runId = "local-documents"
+        ).toList()
+        assertFalse(states.any { it is ApiState.Error })
+        assertEquals(1, Regex("document contents").findAll(runtime.sendMessageCalls.single()).count())
+        assertEquals(1, Regex("prior document").findAll(runtime.createConversationCalls.single().initialMessages.first().text).count())
+        assertFalse(states.filterIsInstance<ApiState.Notice>().any { it.message == LiteRtLmAdapter.DEFAULT_IGNORED_ATTACHMENTS })
     }
 
     @Test
@@ -173,7 +243,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = localPlatform(),
             runId = "local-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -220,7 +290,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = localPlatform(),
             runId = "run-local-tool"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -228,13 +298,20 @@ class ChatRepositoryImplTest {
                 ApiState.Notice(LiteRtLmAdapter.DEFAULT_LOADING_MODEL),
                 ApiState.Success("before"),
                 ApiState.ToolCall(toolSequence = 0),
+                ApiState.ToolCall(toolSequence = 0),
                 ApiState.Success("after"),
                 ApiState.Done
             ),
-            states
+            states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }
         )
+        val completedMetrics = states.filterIsInstance<ApiState.ToolCall>().last().metrics
+        assertTrue(completedMetrics?.durationMs != null)
+        assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(1, runtime.sendMessageCalls.size)
-        assertEquals(listOf("current_date"), runtime.createConversationCalls.single().tools.map { it.name })
+        assertEquals(
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            runtime.createConversationCalls.single().tools.map { it.name }.sorted()
+        )
         assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
         val event = traceDao.events.single()
         assertEquals("run-local-tool", event.runId)
@@ -265,7 +342,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b"),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -299,7 +376,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3-32b"),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -322,7 +399,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = false, model = "qwen/qwen3-32b"),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         val request = groqAPI.lastRequest
         assertEquals("hidden", request?.reasoningFormat)
@@ -340,7 +417,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = false, model = "openai/gpt-oss-20b"),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         val request = groqAPI.lastRequest
         assertNull(request?.reasoningFormat)
@@ -358,7 +435,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = googlePlatform(),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(1, googleAPI.streamCalls)
         assertEquals(
@@ -389,7 +466,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = googlePlatform(),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -418,7 +495,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = googlePlatform(),
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -483,7 +560,7 @@ class ChatRepositoryImplTest {
             ),
             platform = customPlatform,
             runId = "test-run"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(listOf(ApiState.Loading, ApiState.Done), states)
         assertEquals(1, openAIAPI.streamChatCompletionCalls)
@@ -550,20 +627,24 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = customPlatform(),
             runId = "run-web"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
                 ApiState.Loading,
                 ApiState.Success("before"),
                 ApiState.ToolCall(toolSequence = 0),
+                ApiState.ToolCall(toolSequence = 0),
                 ApiState.Success("after"),
                 ApiState.Done
             ),
-            states
+            states.map { if (it is ApiState.ToolCall) it.copy(metrics = null) else it }
         )
+        val completedMetrics = states.filterIsInstance<ApiState.ToolCall>().last().metrics
+        assertTrue(completedMetrics?.durationMs != null)
+        assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(
-            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
             openAIAPI.requests.first().tools!!.map { it.function.name }.sorted()
         )
         assertEquals("call_exact", openAIAPI.requests.last().messages.takeLast(2).first().toolCalls!!.single().id)
@@ -593,7 +674,7 @@ class ChatRepositoryImplTest {
             assistantMessages = emptyList(),
             platform = customPlatform(),
             runId = "test-cb"
-        ).toList()
+        ).toList().filterNot { it is ApiState.GatewayProgressChanged }
 
         assertEquals(
             listOf(
@@ -613,7 +694,8 @@ class ChatRepositoryImplTest {
         toolEventRecorder: ToolEventRecorder = ToolEventRecorder(proxy(), proxy()),
         localRuntime: LocalRuntime = FakeLocalRuntime(),
         localModelRepository: LocalModelRepository = FakeLocalModelRepository(),
-        modelCatalogRepository: ModelCatalogRepository = FakeModelCatalogRepository()
+        modelCatalogRepository: ModelCatalogRepository = FakeModelCatalogRepository(),
+        factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = ContextWrapper(null),
         chatRoomV2Dao = proxy(),
@@ -637,7 +719,8 @@ class ChatRepositoryImplTest {
         localRuntime = localRuntime,
         localModelRepository = localModelRepository,
         modelCatalogRepository = modelCatalogRepository,
-        deviceSocModel = ""
+        deviceSocModel = "",
+        factVault = factVault
     )
 
     private fun emptyToolResolver(): AgentToolResolver {
@@ -706,14 +789,18 @@ class ChatRepositoryImplTest {
     @Suppress("UNCHECKED_CAST")
     private inline fun <reified T> proxy(): T {
         val handler = InvocationHandler { _, method, _ ->
-            when (method.returnType) {
-                Boolean::class.javaPrimitiveType -> false
-                Int::class.javaPrimitiveType -> 0
-                Long::class.javaPrimitiveType -> 0L
-                Float::class.javaPrimitiveType -> 0f
-                Double::class.javaPrimitiveType -> 0.0
-                Unit::class.java -> Unit
-                else -> null
+            when {
+                method.name == "fetchPlatformV2s" -> emptyList<PlatformV2>()
+                method.name == "getFeatureSettings" -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+                else -> when (method.returnType) {
+                    Boolean::class.javaPrimitiveType -> false
+                    Int::class.javaPrimitiveType -> 0
+                    Long::class.javaPrimitiveType -> 0L
+                    Float::class.javaPrimitiveType -> 0f
+                    Double::class.javaPrimitiveType -> 0.0
+                    Unit::class.java -> Unit
+                    else -> null
+                }
             }
         }
 

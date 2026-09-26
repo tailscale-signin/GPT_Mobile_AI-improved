@@ -46,7 +46,7 @@ object LocalModelValidator {
         modelPath: String,
         expectedSha256: String? = null,
         minSizeBytes: Long = DEFAULT_MIN_SIZE_BYTES,
-        verifyTFLiteHeader: Boolean = false
+        verifyTFLiteHeader: Boolean = true
     ): ModelValidationResult {
         val file = File(modelPath)
 
@@ -69,6 +69,24 @@ object LocalModelValidator {
                 ModelValidationResult.Invalid.Reason.FILE_TOO_SMALL,
                 "File size $size bytes is below minimum required $minSizeBytes bytes"
             )
+        }
+
+        // LiteRT-LM uses its own container signature, not the TFLite FlatBuffer magic.
+        // Also check temporary downloads before they are renamed to the final package.
+        if (file.name.removeSuffix(".part").endsWith(".litertlm", ignoreCase = true)) {
+            val validHeader = runCatching {
+                file.inputStream().use { input ->
+                    val header = ByteArray(8)
+                    input.read(header) == header.size && String(header, Charsets.US_ASCII) == "LITERTLM"
+                }
+            }.getOrDefault(false)
+            if (!validHeader) {
+                return ModelValidationResult.Invalid(
+                    file,
+                    ModelValidationResult.Invalid.Reason.CORRUPTED_HEADER,
+                    "Invalid LiteRT-LM package header; expected LITERTLM"
+                )
+            }
         }
 
         // TFLite / FlatBuffer header check: standard TFLite models start with magic string "TFL3" at byte offset 4

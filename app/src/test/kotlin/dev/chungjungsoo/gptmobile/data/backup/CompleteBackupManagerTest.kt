@@ -189,6 +189,32 @@ class CompleteBackupManagerTest {
         assertFalse(manager.backup(Uri.fromFile(archive), CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS))).success)
     }
 
+    @Test
+    fun memoryShardsFollowMemorySelectionAndNeverCredentialSelection() = runBlocking {
+        val memory = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(vault, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
+        memory.load()
+        repeat(40) { memory.saveManual("Memory $it " + "x".repeat(890)) }
+        assertTrue(vault.references().any { it.startsWith("memory-part-") })
+        vault.put("provider", "first-token".toByteArray())
+        val credentials = File(context.cacheDir, "credentials-only.gptbackup")
+        val credentialsSaved = manager.backup(Uri.fromFile(credentials), CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS)), password = "passphrase")
+        assertTrue(credentialsSaved.message, credentialsSaved.success)
+        val memoryArchive = File(context.cacheDir, "memory-only.gptbackup")
+        val memorySaved = manager.backup(Uri.fromFile(memoryArchive), CompleteBackupSelection(setOf(CompleteBackupSection.MEMORY)), password = "passphrase")
+        assertTrue(memorySaved.message, memorySaved.success)
+        memory.clear()
+        val emptyKeys = vault.references().filter { it.startsWith("memory-part-") }.toSet()
+        assertTrue(emptyKeys.isEmpty())
+        assertTrue(manager.restore(Uri.fromFile(credentials), legacyPassword = "passphrase").success)
+        assertEquals(emptyKeys, vault.references().filter { it.startsWith("memory-part-") }.toSet())
+        memory.load()
+        assertTrue(memory.state.value.facts.isEmpty())
+        assertTrue(manager.restore(Uri.fromFile(memoryArchive), legacyPassword = "passphrase").success)
+        memory.load()
+        assertEquals(40, memory.state.value.facts.size)
+        assertEquals("first-token", vault.read("provider")!!.decodeToString())
+    }
+
     private suspend fun seed(attachment: File) {
         database.chatRoomDao().addChatRoom(ChatRoomV2(id = 7, title = "saved", enabledPlatform = listOf("profile"), isFavorite = true, draftText = "draft"))
         database.messageDao().addMessages(

@@ -12,6 +12,47 @@ import org.junit.Test
 class FactVaultRepositoryTest {
 
     @Test
+    fun `large memory shards survive reload and failed manifest publish keeps the old snapshot`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.load()
+        repeat(70) { repository.saveManual("Memory $it " + "a".repeat(890)) }
+        assertTrue(storage.values.keys.any { it.startsWith("memory-part-") })
+        assertTrue(storage.values.values.all { it.size <= 64 * 1024 })
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        restored.load()
+        assertEquals(70, restored.state.value.facts.size)
+        val before = storage.values.keys.toSet()
+        storage.failManifest = true
+        assertTrue(runCatching { restored.saveManual("New memory") }.isFailure)
+        assertEquals(before, storage.values.keys)
+        storage.failManifest = false
+        restored.load()
+        assertEquals(70, restored.state.value.facts.size)
+    }
+
+    @Test
+    fun `memory tools only store user quotes and honor review cloud and tombstone controls`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.load()
+        repository.updateSettings(repository.state.value.settings.copy(reviewBeforeRecall = true, allowCloudRecall = false))
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 11, chatId = 7, content = "Remember that I am allergic to peanuts", platformType = null)
+        val id = repository.rememberUserText("I am allergic to peanuts", message)
+        assertTrue(repository.visibleFacts(7, true).isEmpty())
+        assertTrue(runCatching { repository.rememberUserText("I am allergic to shellfish", message) }.isFailure)
+        repository.setFactEnabled(id, true)
+        repository.pin(id, true)
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        assertEquals(1, restored.visibleFacts(7, true).size)
+        assertTrue(restored.state.value.facts.single().pinned)
+        assertTrue(restored.visibleFacts(7, false).isEmpty())
+        restored.deleteFact(id)
+        assertTrue(runCatching { restored.rememberUserText("I am allergic to peanuts", message) }.isFailure)
+        assertTrue(restored.state.value.facts.isEmpty())
+    }
+
+    @Test
     fun `same fact has independent identity and forgetting in each project`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.prepareTurn("I prefer Kotlin", 1, 1, scope = "project:one")
@@ -136,8 +177,10 @@ class FactVaultRepositoryTest {
     private class MemoryVault : SecretVault {
         val values = mutableMapOf<String, ByteArray>()
         var failWrites = false
+        var failManifest = false
         override suspend fun put(secretRef: String, secret: ByteArray) {
-            check(!failWrites) { "Storage unavailable" }
+            check(!failWrites && !(failManifest && secretRef == FactVaultRepository.VAULT_REFERENCE)) { "Storage unavailable" }
+            check(secret.size <= 64 * 1024) { "Oversize secret" }
             values[secretRef] = secret.copyOf()
         }
         override suspend fun read(secretRef: String) = values[secretRef]?.copyOf()

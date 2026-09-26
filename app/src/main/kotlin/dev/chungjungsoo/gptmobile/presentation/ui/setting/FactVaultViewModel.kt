@@ -41,7 +41,11 @@ class FactVaultViewModel @Inject constructor(
     fun saveFact(text: String, id: String? = null) = perform { repository.saveManual(text, id) }
     fun clear() = perform { repository.clear() }
     fun removeDocument(id: String) = perform { documentsRepository.dao.deleteDocument(id) }
-    fun indexDocuments() = perform { _status.value = "${library.indexAll()} documents indexed locally." }
+    fun indexDocuments() = perform {
+        require(repository.state.value.enabled) { "Enable memory before indexing documents." }
+        val result = library.indexAll()
+        _status.value = "${result.indexed} documents indexed locally · ${result.skipped} missing, unsupported or empty documents skipped."
+    }
 
     private fun perform(action: suspend () -> Unit) {
         if (_busy.value) return

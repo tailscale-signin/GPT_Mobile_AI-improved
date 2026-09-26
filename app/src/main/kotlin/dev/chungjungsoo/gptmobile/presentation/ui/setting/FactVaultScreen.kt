@@ -160,7 +160,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                     if (attachments.isEmpty()) item { Text("Attach a file in any conversation to see it here.") }
                     items(attachments.filter { it.attachment.resolvedDisplayName.contains(query, true) }, key = { "${it.chatId}:${it.attachment.filePathForDisplay}" }) { entry ->
                         val attachment = entry.attachment
-                        val indexed = documents.firstOrNull { it.chatId == entry.chatId && it.title == attachment.resolvedDisplayName }
+                        val indexed = documents.firstOrNull { it.id == entry.documentId }
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -825,8 +825,8 @@ private fun SearchBackendDialog(
                     toolBindingState.searchConnections.forEach { connection ->
                         PreferenceListSwitch(
                             title = connection.name,
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
                             description = connection.type.lowercase().replaceFirstChar { it.uppercase() },
-                            icon = Icons.Default.Language,
                             isChecked = connection.connectionUid in selected,
                             onCheckedChange = { enabled -> selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid }
                         )

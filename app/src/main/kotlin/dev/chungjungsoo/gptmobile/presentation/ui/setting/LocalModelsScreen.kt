@@ -70,6 +70,7 @@ import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalModelsScreen(
+    startInMarketplace: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: LocalModelsViewModel = hiltViewModel(),
     runtimeViewModel: LocalRuntimeSettingsViewModel = hiltViewModel(),
@@ -83,7 +84,7 @@ fun LocalModelsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
     val context = LocalContext.current
-    var marketplace by rememberSaveable { mutableStateOf(false) }
+    var marketplace by rememberSaveable { mutableStateOf(startInMarketplace) }
     var architecture by rememberSaveable { mutableStateOf("All") }
     val backend by runtimeViewModel.backend.collectAsStateWithLifecycle()
     BackHandler(marketplace) { marketplace = false }
@@ -160,8 +161,18 @@ fun LocalModelsScreen(
                             val litert = item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
                             item.entry.downloadUrl.isNotBlank() &&
                                 item.entry.minRamGb <= runtimeViewModel.ramGb &&
-                                (if (architecture == "QNN" || (architecture == "All" && backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN)) qnn else litert)
-                        }.sortedWith(compareByDescending<LocalModelListItem> { it.entry.capabilities.tools }.thenBy { it.downloadSizeBytes }).take(3)
+                                (
+                                    when (architecture) {
+                                        "QNN" -> qnn
+                                        "LiteRT" -> litert
+                                        else -> qnn || litert
+                                    }
+                                    )
+                        }.sortedWith(
+                            compareByDescending<LocalModelListItem> {
+                                backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN && dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(it.entry.supportedAccelerators, it.entry.socToModelFiles, runtimeViewModel.soc)
+                            }.thenByDescending { it.entry.capabilities.tools }.thenBy { it.downloadSizeBytes }
+                        ).take(3)
                         if (uiState.searchQuery.isBlank() && recommendations.isNotEmpty()) {
                             item { Text("Recommended models", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium) }
                             items(recommendations, key = { "recommended-${it.entry.id}" }) { item ->
@@ -546,13 +557,15 @@ private fun LocalModelItem(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            val hasNpu = item.entry.supportedAccelerators.any { it.equals("npu", true) }
+            val hasNpu = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(item.entry.supportedAccelerators, item.entry.socToModelFiles, android.os.Build.SOC_MODEL.orEmpty())
             val hasLiteRt = item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
             Text(
                 if (hasNpu) {
-                    if (hasLiteRt) "QNN preferred · LiteRT compatible" else "QNN · matching Snapdragon required"
-                } else {
+                    if (hasLiteRt) "QNN preferred · LiteRT compatible" else "QNN preferred"
+                } else if (hasLiteRt) {
                     "LiteRT preferred"
+                } else {
+                    "QNN · matching Snapdragon required"
                 },
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelSmall,

@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
+import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
@@ -31,6 +32,7 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ChatPlatformModelV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.ChatRoomV2Dao
 import dev.chungjungsoo.gptmobile.data.database.dao.MessageV2Dao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -226,7 +228,14 @@ class ChatRepositoryImpl(
                     resolvedTools.map { it.tool }
                 )
             }
-            val runnerTools = if (session.handlesToolsInternally) {
+            val groundedSession = session.withDeviceLocation(
+                clientType = platform.compatibleType,
+                userPrompt = latestUser?.content,
+                nativeLocationToolName = resolvedTools.firstOrNull {
+                    it.connectionUid == null && it.realToolName == BuiltInAgentTool.DEVICE_LOCATION
+                }?.modelToolName
+            )
+            val runnerTools = if (groundedSession.handlesToolsInternally) {
                 emptyList()
             } else {
                 resolvedTools.map { it.tool }
@@ -290,7 +299,7 @@ class ChatRepositoryImpl(
                 )
             }
 
-            customRunner.run(session, runnerTools).collect { runEvent ->
+            customRunner.run(groundedSession, runnerTools).collect { runEvent ->
                 when (runEvent) {
                     is AgentRunEvent.Provider -> when (val providerEvent = runEvent.event) {
                         is ProviderEvent.ThinkingDelta -> {

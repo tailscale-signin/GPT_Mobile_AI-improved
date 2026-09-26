@@ -478,6 +478,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                                 try {
                                     openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig).collect { chunk ->
+                                        if (chunk.streamFinished) assembler.finish().forEach { emit(it) }
                                         chunk.usage?.let { usage ->
                                             emit(
                                                 ProviderEvent.Usage(
@@ -507,9 +508,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             hasReceivedTokens = true
                                             choice.finishReason?.let { lastFinishReason = it }
                                             assembler.accept(
-                                                content = choice.delta.content,
-                                                reasoning = if (chunk.gatewayProgress == null) choice.delta.effectiveReasoning else null,
-                                                toolCalls = choice.delta.toolCalls,
+                                                content = choice.effectiveDelta.content,
+                                                reasoning = if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null,
+                                                toolCalls = choice.effectiveDelta.toolCalls,
                                                 finishReason = choice.finishReason
                                             ).forEach { emit(it) }
                                         }
@@ -519,6 +520,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     caughtThrowable = t
                                 }
 
+                                assembler.discardIncomplete().forEach { emit(it) }
                                 val rawError = chunkError ?: caughtThrowable?.message
                                 val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
 
@@ -587,6 +589,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                         try {
                             openAIAPI.streamChatCompletion(request, platform.timeout, config).collect { chunk ->
+                                if (chunk.streamFinished) assembler.finish().forEach { emit(it) }
                                 chunk.usage?.let { usage ->
                                     emit(
                                         ProviderEvent.Usage(
@@ -620,11 +623,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     val effectiveReasoning =
-                                        if (chunk.gatewayProgress == null) choice.delta.effectiveReasoning else null
+                                        if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null
                                     if (llamaReasoningParser != null) {
                                         // For Llama endpoints (llama-server), stream reasoning chunks directly or extract <think> tags in content
                                         llamaReasoningParser.append(
-                                            contentChunk = choice.delta.content,
+                                            contentChunk = choice.effectiveDelta.content,
                                             reasoningChunk = effectiveReasoning
                                         ).forEach { state ->
                                             state.toProviderEvent()?.let { emit(it) }
@@ -632,19 +635,20 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         assembler.accept(
                                             content = null,
                                             reasoning = null,
-                                            toolCalls = choice.delta.toolCalls,
+                                            toolCalls = choice.effectiveDelta.toolCalls,
                                             finishReason = choice.finishReason
                                         ).forEach { emit(it) }
                                     } else {
                                         assembler.accept(
-                                            content = choice.delta.content,
+                                            content = choice.effectiveDelta.content,
                                             reasoning = effectiveReasoning,
-                                            toolCalls = choice.delta.toolCalls,
+                                            toolCalls = choice.effectiveDelta.toolCalls,
                                             finishReason = choice.finishReason
                                         ).forEach { emit(it) }
                                     }
                                 }
                             }
+                            assembler.discardIncomplete().forEach { emit(it) }
                             llamaReasoningParser?.flush()?.forEach { state ->
                                 state.toProviderEvent()?.let { emit(it) }
                             }

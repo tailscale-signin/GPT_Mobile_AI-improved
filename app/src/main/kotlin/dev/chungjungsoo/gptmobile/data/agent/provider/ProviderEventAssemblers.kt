@@ -110,19 +110,34 @@ class ChatCompletionsEventAssembler {
             delta.function?.name?.let { call.name = it }
             delta.function?.arguments?.let { call.arguments.append(it) }
         }
-        if (finishReason == "tool_calls") {
-            pending.values.forEach { call ->
-                val callId = call.callId
-                val name = call.name
-                events += if (callId == null || name == null) {
-                    ProviderEvent.Failed("Provider returned an incomplete function call.")
-                } else {
-                    toolCall(callId, name, call.arguments.toString()).single()
-                }
-            }
-            pending.clear()
+        when (finishReason) {
+            "tool_calls", "stop" -> events += finish()
+            null -> Unit
+            else -> events += discardIncomplete()
         }
         return events
+    }
+
+    /** Called only for a completed choice or an explicit SSE [DONE]. */
+    fun finish(): List<ProviderEvent> {
+        val events = pending.values.map { call ->
+            val name = call.name
+            if (name.isNullOrBlank()) {
+                ProviderEvent.Failed("Provider returned an incomplete function call.")
+            } else {
+                // Some compatible servers omit IDs; preserve supplied IDs and replay generated ones.
+                val callId = call.callId?.takeIf(String::isNotBlank) ?: "call_${java.util.UUID.randomUUID()}"
+                toolCall(callId, name, call.arguments.toString()).single()
+            }
+        }
+        pending.clear()
+        return events
+    }
+
+    fun discardIncomplete(): List<ProviderEvent> {
+        if (pending.isEmpty()) return emptyList()
+        pending.clear()
+        return listOf(ProviderEvent.Failed("Provider stopped before completing the tool call. No incomplete tool was run."))
     }
 }
 

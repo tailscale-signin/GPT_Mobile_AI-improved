@@ -102,7 +102,7 @@ class OpenAIAPIImpl @Inject constructor(
                 applyPlatformStreamingTimeout(timeoutSeconds)
                 contentType(ContentType.Application.Json)
                 setBody(NetworkClient.openAIJson.encodeToString(request))
-                accept(ContentType.Text.EventStream)
+                accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                 config.token?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
             }.execute { response ->
@@ -148,8 +148,28 @@ class OpenAIAPIImpl @Inject constructor(
                     null
                 }
 
+                // llama.cpp and other compatible providers return choices[].message for stream=false.
+                val responseType = response.contentType()
+                if (responseType?.match(ContentType.Application.Json) == true ||
+                    (!request.stream && responseType?.match(ContentType.Text.EventStream) != true)
+                ) {
+                    val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(response.body<String>())
+                    val chunk = decoded.copy(
+                        choices = decoded.choices?.map { choice ->
+                            if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
+                        },
+                        gatewayMetadata = gatewayMetadata ?: decoded.gatewayMetadata,
+                        error = decoded.error?.let { error ->
+                            error.copy(message = config.readableProviderError(error.message, error.code))
+                        }
+                    )
+                    emit(chunk)
+                    return@execute
+                }
+
                 // If gateway metadata is present, emit an initial chunk carrying the metadata
                 var firstChunk = true
+                var receivedToolCalls = false
 
                 // Success - read SSE stream
                 val channel = response.bodyAsChannel()
@@ -158,22 +178,27 @@ class OpenAIAPIImpl @Inject constructor(
                     val data = SseUtils.extractSseData(line) ?: continue
 
                     // OpenAI sends "[DONE]" as final message
-                    if (data == "[DONE]") break
+                    if (data == "[DONE]") {
+                        if (receivedToolCalls) emit(ChatCompletionChunk(streamFinished = true))
+                        break
+                    }
 
-                    try {
-                        val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
-                        val chunk = decoded.error?.let { error ->
-                            decoded.copy(error = error.copy(message = config.readableProviderError(error.message, error.code)))
-                        } ?: decoded
-                        receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
-                        if (firstChunk && gatewayMetadata != null) {
-                            firstChunk = false
-                            emit(chunk.copy(gatewayMetadata = gatewayMetadata))
-                        } else {
-                            emit(chunk)
-                        }
-                    } catch (_: Exception) {
-                        // Skip malformed chunks
+                    val decoded = try {
+                        NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                    } catch (_: kotlinx.serialization.SerializationException) {
+                        // Skip malformed data without swallowing collector failures or cancellation.
+                        continue
+                    }
+                    val chunk = decoded.error?.let { error ->
+                        decoded.copy(error = error.copy(message = config.readableProviderError(error.message, error.code)))
+                    } ?: decoded
+                    receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
+                    receivedToolCalls = receivedToolCalls || chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() }
+                    if (firstChunk && gatewayMetadata != null) {
+                        firstChunk = false
+                        emit(chunk.copy(gatewayMetadata = gatewayMetadata))
+                    } else {
+                        emit(chunk)
                     }
                 }
 
@@ -295,7 +320,7 @@ class OpenAIAPIImpl @Inject constructor(
 
 private fun ChatCompletionChunk.hasAssistantStreamPayload(): Boolean =
     choices.orEmpty().any { choice ->
-        val delta = choice.delta
+        val delta = choice.effectiveDelta
         !delta.content.isNullOrEmpty() ||
             !delta.effectiveReasoning.isNullOrEmpty() ||
             !delta.toolCalls.isNullOrEmpty() ||

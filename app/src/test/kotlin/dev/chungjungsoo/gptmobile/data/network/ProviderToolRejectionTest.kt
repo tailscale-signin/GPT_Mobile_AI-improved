@@ -246,7 +246,7 @@ class ProviderToolRejectionTest {
     @Test
     fun authenticationFailureInsideASuccessfulStreamIsAlsoActionable() {
         val body = "data: {\"error\":{\"message\":\"User not found.\",\"code\":401}}\n\ndata: [DONE]\n\n"
-        withServer(200, body) { baseUrl ->
+        withServer(200, body, contentType = "text/event-stream") { baseUrl ->
             val client = NetworkClient(CIO)
             try {
                 val chunk = runBlocking { OpenAIAPIImpl(client).streamChatCompletion(chatRequest(withTools = true), 5, config(baseUrl)).single() }
@@ -312,12 +312,13 @@ class ProviderToolRejectionTest {
     private fun <T> withServer(
         status: Int,
         body: String,
+        contentType: String = "application/json",
         onRequest: (HttpExchange) -> Unit = {},
         block: (String) -> T
     ): T = withHttpServer(block) { exchange ->
         onRequest(exchange)
         exchange.requestBody.close()
-        exchange.respond(status, "application/json", body)
+        exchange.respond(status, contentType, body)
     }
 
     private fun <T> withOpenRouterFallbackServer(

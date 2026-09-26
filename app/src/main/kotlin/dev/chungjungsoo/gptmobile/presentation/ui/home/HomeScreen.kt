@@ -1215,7 +1215,7 @@ fun SelectPlatformDialog(
         if (!canCombine) combinedMode = false
     }
     val indexedPlatforms = remember(platforms) {
-        platforms.mapIndexed { index, platform -> index to platform }.filter { it.second.enabled }
+        orderedChatProfiles(platforms)
     }
 
     AlertDialog(
@@ -1254,6 +1254,12 @@ fun SelectPlatformDialog(
                         label = { Text(stringResource(R.string.chat_mode_combined)) }
                     )
                 }
+                Text(
+                    text = stringResource(if (combinedMode) R.string.chat_mode_combined_description else R.string.chat_mode_standard_description),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         text = {

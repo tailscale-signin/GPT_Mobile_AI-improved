@@ -89,12 +89,45 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
                     }
                 }
             }
+            item {
+                StatisticsCard("Estimated output · unreported runs") {
+                    Text("≈ ${numbers.format(stats.estimatedTokens)} tokens across ${stats.estimatedRuns} completed runs", style = MaterialTheme.typography.titleMedium)
+                    Text("Rough text-only estimate: one token per four characters. Excludes reasoning, images, deleted answers and overwritten retries. Estimates are separate from reported totals and charts.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             item { RankedUsageChart("Generated tokens by model", stats.modelTokens) }
             item { RankedUsageChart("Generated tokens by AI profile", stats.profileTokens) }
             item { RankedUsageChart("Model usage · runs", stats.modelRuns) }
             item {
+                StatisticsCard("Most-used tools") {
+                    val maximum = stats.toolUsage.firstOrNull()?.calls?.coerceAtLeast(1) ?: 1
+                    if (stats.toolUsage.isEmpty()) Text("No tool calls in this period")
+                    stats.toolUsage.take(12).forEach { tool ->
+                        Text(tool.name, style = MaterialTheme.typography.bodyMedium)
+                        Text("${tool.calls} calls · ${tool.failures} failures", style = MaterialTheme.typography.labelMedium)
+                        LinearProgressIndicator(progress = { tool.calls.toFloat() / maximum }, modifier = Modifier.fillMaxWidth())
+                    }
+                    if (stats.toolUsage.size > 12) Text("Top 12 of ${stats.toolUsage.size} tools")
+                }
+            }
+            item {
+                StatisticsCard("Profile, provider & model") {
+                    if (stats.profileModelUsage.isEmpty()) Text("No model runs in this period")
+                    stats.profileModelUsage.take(12).forEach { usage ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(usage.profileName, fontWeight = FontWeight.SemiBold)
+                            Text("${usage.provider} · ${usage.model}", style = MaterialTheme.typography.bodyMedium)
+                            Text("${usage.runs} runs · ${numbers.format(usage.reportedTokens)} reported output tokens", style = MaterialTheme.typography.labelMedium)
+                            if (usage.estimatedTokens > 0) Text("≈ ${numbers.format(usage.estimatedTokens)} additional estimated tokens", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (stats.profileModelUsage.size > 12) Text("Top 12 of ${stats.profileModelUsage.size} combinations")
+                }
+            }
+            item {
                 StatisticsCard("Activity & reliability") {
                     listOf(
+                        "Run success" to (stats.successPercent?.let { "%.1f%%".format(it) } ?: "—"),
                         "Conversations" to stats.conversations.toString(),
                         "AI profiles used" to stats.profiles.toString(),
                         "Completed runs" to stats.completed.toString(),
@@ -112,7 +145,7 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
                 }
             }
             item {
-                Text("Based on the latest 10,000 stored runs and tool calls. Providers that omit usage are excluded from token totals. Run duration includes tools and network time.", modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Based on the latest 10,000 stored runs and tool calls. Success is completed ÷ (completed + failed + interrupted); canceled and active runs are excluded. Providers that omit usage are excluded from token totals. Run duration includes tools and network time.", modifier = Modifier.padding(20.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

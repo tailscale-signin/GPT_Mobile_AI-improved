@@ -39,8 +39,8 @@ class DebugDiagnosticsViewModel @Inject constructor(
     agentPersistenceDao: AgentPersistenceDao
 ) : ViewModel() {
     val analytics: StateFlow<DebugAnalyticsState> = combine(
-        agentRunDao.observeRecent(80),
-        agentPersistenceDao.observeRecentToolEvents(160)
+        agentRunDao.observeRecent(250),
+        agentPersistenceDao.observeRecentToolEvents(500)
     ) { runs, tools ->
         DebugAnalyticsState(
             recentRuns = runs,

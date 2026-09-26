@@ -330,6 +330,8 @@ class ToolEventRecorderTest {
 }
 
 private class FakeAgentRunDao : AgentRunDao {
+    override fun observeUnreportedOutputLengths(limit: Int): Flow<List<dev.chungjungsoo.gptmobile.data.database.dao.RunOutputLength>> = MutableStateFlow(emptyList())
+
     var advancedSequence: Pair<String, Int>? = null
 
     override suspend fun upsert(run: AgentRun) = Unit

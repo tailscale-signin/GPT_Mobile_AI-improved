@@ -136,7 +136,7 @@ fun DebugDiagnosticsScreen(
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Recent runs", analytics.recentRuns.size.toString(), Modifier.weight(1f))
+                    MetricCard("Recent runs (up to 250)", analytics.recentRuns.size.toString(), Modifier.weight(1f))
                     MetricCard("Failed", analytics.failedRuns.toString(), Modifier.weight(1f))
                     MetricCard("Active", analytics.activeRuns.toString(), Modifier.weight(1f))
                 }
@@ -144,7 +144,7 @@ fun DebugDiagnosticsScreen(
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MetricCard("Tool calls", analytics.recentToolEvents.size.toString(), Modifier.weight(1f))
+                    MetricCard("Tool calls (up to 500)", analytics.recentToolEvents.size.toString(), Modifier.weight(1f))
                     MetricCard("Tool failures", analytics.failedToolCalls.toString(), Modifier.weight(1f))
                     MetricCard(
                         "Avg tool",

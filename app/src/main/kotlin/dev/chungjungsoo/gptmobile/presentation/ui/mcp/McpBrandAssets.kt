@@ -7,6 +7,10 @@ import dev.chungjungsoo.gptmobile.R
 object McpBrandAssets {
     @DrawableRes
     fun drawableFor(iconName: String): Int? = when (iconName) {
+        "linear" -> R.drawable.mcp_brand_linear
+        "sentry" -> R.drawable.mcp_brand_sentry
+        "vercel" -> R.drawable.mcp_brand_vercel
+        "atlassian" -> R.drawable.mcp_brand_atlassian
         "airtable" -> R.drawable.mcp_brand_airtable
         "asana" -> R.drawable.mcp_brand_asana
         "brave" -> R.drawable.mcp_brand_brave

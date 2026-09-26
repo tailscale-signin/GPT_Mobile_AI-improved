@@ -137,4 +137,24 @@ class McpPresetCatalogTest {
             assertTrue(preset.setupInstructions.isNotBlank())
         }
     }
+
+    @Test
+    fun restoredPresetsUseDocumentedHttpEndpointsAndHonestSetupStatus() {
+        val endpoints = mapOf(
+            "linear" to "https://mcp.linear.app/mcp",
+            "sentry" to "https://mcp.sentry.dev/mcp",
+            "vercel" to "https://mcp.vercel.com",
+            "atlassian" to "https://mcp.atlassian.com/v2/mcp",
+            "cloudflare-browser" to "https://browser.mcp.cloudflare.com/mcp"
+        )
+        endpoints.forEach { (id, endpoint) ->
+            val preset = McpPresetCatalog.findById(id)!!
+            assertEquals(endpoint, preset.commandOrUrl)
+            assertEquals(McpTransportType.STREAMABLE_HTTP, preset.transportType)
+            assertEquals("OAUTH", preset.suggestedAuthType)
+            assertFalse(preset.verifiedRemote)
+            assertTrue(preset.setupInstructions.isNotBlank())
+        }
+        assertTrue(McpPresetCatalog.findById("vercel")!!.setupInstructions.contains("approved"))
+    }
 }

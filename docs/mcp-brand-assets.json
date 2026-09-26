@@ -183,5 +183,33 @@
     "license": "Provider-owned brand asset; trademark remains with its owner.",
     "file": "app/src/main/res/drawable-nodpi/mcp_brand_brightdata.png",
     "sha256": "6bb191fb0e34e86daf137c09af199881ff2031467a5aa37ae497cf9ac3fb51b6"
+  },
+  "linear": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/linear.svg",
+    "brandSource": "https://linear.app/brand",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_linear.xml",
+    "sha256": "b737323e02a687eb5c92e3f4073723842ec4025a1efb4bb5b0ef9a7dc4c21c06"
+  },
+  "sentry": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/sentry.svg",
+    "brandSource": "https://sentry.io/branding/",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_sentry.xml",
+    "sha256": "a242fdfec20d1fac623ee31d0ed6bcb17bc3a7e7d6183eb5638053fc39990b51"
+  },
+  "vercel": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/vercel.svg",
+    "brandSource": "https://vercel.com/geist/brands",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_vercel.xml",
+    "sha256": "d6e9a764b4607c2e9c7bff5e59496b6fdd1528d74dba3876e7f6f9dfdf8b8721"
+  },
+  "atlassian": {
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/atlassian.svg",
+    "brandSource": "https://atlassian.design/foundations/logos/",
+    "license": "Simple Icons CC0; brand trademarks remain with their owners.",
+    "file": "app/src/main/res/drawable/mcp_brand_atlassian.xml",
+    "sha256": "ad8b0a00e617f8aaa9a9dfeed0ac533c4142e96f492f4079509c747ad6336c76"
   }
 }

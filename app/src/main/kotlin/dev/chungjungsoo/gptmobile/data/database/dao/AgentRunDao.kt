@@ -6,6 +6,8 @@ import androidx.room.Upsert
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import kotlinx.coroutines.flow.Flow
 
+data class RunOutputLength(val runId: String, val characters: Long)
+
 @Dao
 interface AgentRunDao {
     @Upsert
@@ -20,8 +22,18 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     fun observeByChatId(chatId: Int): Flow<List<AgentRun>>
 
-    @Query("SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT :limit")
+    @Query("SELECT * FROM agent_runs ORDER BY created_at DESC, run_id DESC LIMIT :limit")
     fun observeRecent(limit: Int = 100): Flow<List<AgentRun>>
+
+    // Join on both IDs: retries reuse the message, but must not reuse its latest answer.
+    // Count in SQLite so analytics never loads full response bodies into memory.
+    @Query(
+        "SELECT r.run_id AS runId, LENGTH(TRIM(m.content)) AS characters " +
+            "FROM (SELECT * FROM agent_runs ORDER BY created_at DESC, run_id DESC LIMIT :limit) r " +
+            "JOIN messages_v2 m ON m.message_id = r.assistant_message_id AND m.current_run_id = r.run_id " +
+            "WHERE r.output_tokens IS NULL AND r.status = 'COMPLETED' AND m.platform_type IS NOT NULL"
+    )
+    fun observeUnreportedOutputLengths(limit: Int = 10_000): Flow<List<RunOutputLength>>
 
     @Query(
         "UPDATE agent_runs SET status = :status, started_at = :startedAt, " +

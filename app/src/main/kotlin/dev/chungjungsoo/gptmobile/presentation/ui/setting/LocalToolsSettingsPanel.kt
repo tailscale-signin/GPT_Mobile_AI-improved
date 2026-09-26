@@ -59,9 +59,11 @@ fun LocalToolsSettingsPanel(
             Column(Modifier.padding(16.dp)) {
                 Text(stringResource(R.string.local_tools_settings_panel_label_2), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.local_tools_settings_panel_label_3), style = MaterialTheme.typography.bodySmall)
-                DelegationNumber("Context window tokens", budget.contextTokens, 2048..1048576, true) { value -> viewModel.updateBudget { it.copy(contextTokens = value) } }
+                LocalToolToggle("No app context limit", budget.contextTokens == Int.MAX_VALUE, true) { enabled -> viewModel.updateBudget { it.copy(contextTokens = if (enabled) Int.MAX_VALUE else 32768) } }
+                if (budget.contextTokens != Int.MAX_VALUE) DelegationNumber("Context window tokens", budget.contextTokens, 2048..1048576, true) { value -> viewModel.updateBudget { it.copy(contextTokens = value) } }
                 DelegationNumber("Output reserve tokens", budget.outputTokens, 128..32768, true) { value -> viewModel.updateBudget { it.copy(outputTokens = value) } }
-                DelegationNumber("Total run tokens including delegates", budget.totalRunTokens, 4096..2097152, true) { value -> viewModel.updateBudget { it.copy(totalRunTokens = value) } }
+                LocalToolToggle("No app total-token limit", budget.totalRunTokens == Int.MAX_VALUE, true) { enabled -> viewModel.updateBudget { it.copy(totalRunTokens = if (enabled) Int.MAX_VALUE else 65536) } }
+                if (budget.totalRunTokens != Int.MAX_VALUE) DelegationNumber("Total run tokens including delegates", budget.totalRunTokens, 4096..2097152, true) { value -> viewModel.updateBudget { it.copy(totalRunTokens = value) } }
             }
         }
         Card(Modifier.fillMaxWidth()) {

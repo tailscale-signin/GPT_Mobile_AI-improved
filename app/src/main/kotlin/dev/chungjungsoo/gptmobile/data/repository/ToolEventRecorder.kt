@@ -61,6 +61,7 @@ class ToolEventRecorder @Inject constructor(
             status = ToolEventStatus.RUNNING,
             startedAt = startedAt
         )
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Tool", "Started $modelToolName · run $runId · call $callId")
         dao.insertToolEvent(event)
         return event
     }
@@ -71,6 +72,7 @@ class ToolEventRecorder @Inject constructor(
         completedAt: Long,
         error: String? = null
     ): ToolEvent? {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Tool", "Finished ${result.callId} · error=${result.isError}", if (result.isError) "E" else "I")
         val content = (result.traceContent ?: result.content).serialized().forStorage()
         val isCompletedEmpty = !result.isError && result.traceContent == null && content.value.isBlank()
         val resultType = if (isCompletedEmpty) ToolEventResultType.EMPTY else content.type

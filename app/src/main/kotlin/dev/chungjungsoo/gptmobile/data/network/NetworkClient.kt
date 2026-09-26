@@ -79,10 +79,12 @@ class NetworkClient @Inject constructor(
             install(Logging) {
                 logger = object : Logger {
                     override fun log(message: String) {
-                        if (diagnosticsEnabled) Logger.DEFAULT.log(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(message))
+                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Network", message)
+                        if (diagnosticsEnabled && !dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value) Logger.DEFAULT.log(dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(message))
                     }
                 }
-                level = resolveNetworkLogLevel()
+                level = LogLevel.HEADERS
+                filter { diagnosticsEnabled || dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.enabled.value }
                 sanitizeHeader { header -> isSensitiveHeader(header) }
             }
 

@@ -10,7 +10,7 @@ object LocalMcpPresets {
             transportType = McpTransportType.STDIO, iconName = "memory",
             author = "GPT Mobile", isPreinstalled = true, integratedTool = "memory",
             toolCapabilities = listOf("Capture user preferences and relationships", "Recall matching facts", "Review, disable and delete saved facts"),
-            setupInstructions = "Enabled for a new Fact Vault. Existing saved choices are preserved. Configure or disable in Settings → Tool connections. Cloud recall, chat scope, review and retention are configurable."
+            setupInstructions = "Enabled for a new Memory. Existing saved choices are preserved. Configure or disable in Settings → Tool connections. Cloud recall, chat scope, review and retention are configurable."
         ),
         McpPreset(
             id = "builtin-model-delegation", name = "Built-in Model Delegation",
@@ -85,7 +85,7 @@ object LocalMcpPresets {
             toolCapabilities = listOf("Shared session history, code indexing and concept-graph memory."),
             websiteUrl = "https://github.com/Lyellr88/marm-memory",
             documentationOnly = false,
-            setupInstructions = "Install marm-mcp-server on your computer. Start its HTTP server, configure network access and authentication, and enter its reachable /mcp endpoint. The default localhost:8001 address only works on that computer. Use Bearer auth for a network-exposed server. External memory is separate from the built-in Fact Vault."
+            setupInstructions = "Install marm-mcp-server on your computer. Start its HTTP server, configure network access and authentication, and enter its reachable /mcp endpoint. The default localhost:8001 address only works on that computer. Use Bearer auth for a network-exposed server. External memory is separate from the built-in Memory."
         ),
         McpPreset(
             id = "truememory", name = "TrueMemory", description = "External automatic capture and recall backed by local SQLite.",
@@ -96,7 +96,7 @@ object LocalMcpPresets {
             toolCapabilities = listOf("External automatic capture and recall backed by local SQLite."),
             websiteUrl = "https://github.com/buildingjoshbetter/TrueMemory",
             documentationOnly = false,
-            setupInstructions = "Install and configure TrueMemory on the host computer. Expose its MCP server through Streamable HTTP. Desktop client hooks do not automatically capture GPT Mobile conversations; enable the discovered tools explicitly. External memory does not share the phone Fact Vault."
+            setupInstructions = "Install and configure TrueMemory on the host computer. Expose its MCP server through Streamable HTTP. Desktop client hooks do not automatically capture GPT Mobile conversations; enable the discovered tools explicitly. External memory does not share the phone Memory."
         ),
         McpPreset(
             id = "clawmem", name = "ClawMem", description = "Hybrid search and memory for desktop AI agents.",
@@ -140,7 +140,7 @@ object LocalMcpPresets {
             toolCapabilities = listOf("Document retrieval with citations through an external RAG deployment."),
             websiteUrl = "https://github.com/agentset-ai/agentset",
             documentationOnly = false,
-            setupInstructions = "Deploy Agentset or use your account deployment. Configure document ingestion and its MCP endpoint, then paste the endpoint and credentials here. Storage and model processing follow that deployment, not the phone Fact Vault settings."
+            setupInstructions = "Deploy Agentset or use your account deployment. Configure document ingestion and its MCP endpoint, then paste the endpoint and credentials here. Storage and model processing follow that deployment, not the phone Memory settings."
         ),
         McpPreset(
             id = "dbhub", name = "DBHub", description = "Inspect schemas and query databases through a compact MCP server.",
@@ -316,7 +316,7 @@ object LocalMcpPresets {
             toolCapabilities = listOf("Shared structured memory across MCP clients."),
             websiteUrl = "https://github.com/decisionnode/DecisionNode",
             documentationOnly = false,
-            setupInstructions = "Configure DecisionNode storage and its MCP server on your host. Expose Streamable HTTP through an adapter if needed, then connect using the host endpoint. This memory store is independent of the phone Fact Vault."
+            setupInstructions = "Configure DecisionNode storage and its MCP server on your host. Expose Streamable HTTP through an adapter if needed, then connect using the host endpoint. This memory store is independent of the phone Memory."
         ),
         McpPreset(
             id = "qodex", name = "QodeX", description = "Standalone local-first CLI agent.",

@@ -26,6 +26,7 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -100,7 +101,6 @@ import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
-import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.formatPlatformTimeout
@@ -629,9 +629,7 @@ fun PlatformSettingScreen(
                 SettingItem(
                     modifier = Modifier.height(64.dp),
                     title = stringResource(R.string.web_search),
-                    description = toolBindingState.searchConnections.firstOrNull {
-                        it.connectionUid == toolBindingState.selectedSearchConnectionUid
-                    }?.name ?: stringResource(R.string.not_set),
+                    description = "Built-in search + ${toolBindingState.selectedSearchConnectionUids.size} connected engines",
                     enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
                     onItemClick = settingViewModel::openSearchBackendDialog,
                     showTrailingIcon = true,
@@ -816,38 +814,34 @@ private fun SearchBackendDialog(
     settingViewModel: PlatformSettingViewModel
 ) {
     if (toolBindingState.isSearchBackendDialogOpen) {
+        var selected by remember(toolBindingState.selectedSearchConnectionUids) { mutableStateOf(toolBindingState.selectedSearchConnectionUids) }
         AlertDialog(
-            title = { Text(stringResource(R.string.search_backend)) },
+            icon = { Icon(dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"), null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Search engines") },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    RadioItem(
-                        modifier = Modifier.semantics { contentDescription = "None" },
-                        title = stringResource(R.string.none),
-                        description = null,
-                        value = "",
-                        selected = toolBindingState.selectedSearchConnectionUid == null
-                    ) {
-                        settingViewModel.selectSearchBackend(null)
-                    }
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("One search, more perspectives. Each query searches all enabled engines and combines unique sources.", style = MaterialTheme.typography.bodyMedium)
+                    Text("Built-in web search is included. Selected MCP web-search tools participate automatically; connection permissions still apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     toolBindingState.searchConnections.forEach { connection ->
-                        RadioItem(
-                            modifier = Modifier.semantics { contentDescription = connection.name },
+                        PreferenceListSwitch(
                             title = connection.name,
-                            description = connection.alias,
-                            value = connection.connectionUid,
-                            selected = toolBindingState.selectedSearchConnectionUid == connection.connectionUid
-                        ) {
-                            settingViewModel.selectSearchBackend(connection.connectionUid)
-                        }
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = connection.type.lowercase().replaceFirstChar { it.uppercase() },
+                            isChecked = connection.connectionUid in selected,
+                            onCheckedChange = { enabled -> selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid }
+                        )
                     }
+                    if (toolBindingState.searchConnections.isEmpty()) Text("Add Exa, Firecrawl, or Perplexity in Tool connections.")
+                    Row {
+                        TextButton(onClick = { selected = toolBindingState.searchConnections.map { it.connectionUid }.toSet() }) { Text("Select all") }
+                        TextButton(onClick = { selected = emptySet() }) { Text("Built-in only") }
+                    }
+                    toolBindingState.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             onDismissRequest = settingViewModel::closeSearchBackendDialog,
-            confirmButton = {
-                TextButton(onClick = settingViewModel::closeSearchBackendDialog) {
-                    Text(stringResource(R.string.close))
-                }
-            }
+            confirmButton = { TextButton(onClick = { settingViewModel.selectSearchBackends(selected) }) { Text("Save engines") } },
+            dismissButton = { TextButton(onClick = settingViewModel::closeSearchBackendDialog) { Text("Cancel") } }
         )
     }
 }

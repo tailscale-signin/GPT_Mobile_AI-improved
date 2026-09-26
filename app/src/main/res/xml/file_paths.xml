@@ -3,4 +3,7 @@
     <external-files-path
         name="external_files"
         path="." />
+    <cache-path name="diagnostic_exports" path="diagnostics/" />
+    <files-path name="restored_attachments" path="attachments/" />
+    <cache-path name="attachment_previews" path="attachment-previews/" />
 </paths>

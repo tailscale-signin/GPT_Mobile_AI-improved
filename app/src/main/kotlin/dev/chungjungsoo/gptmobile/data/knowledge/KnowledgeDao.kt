@@ -27,7 +27,7 @@ interface KnowledgeDao {
     @Query("DELETE FROM knowledge_projects WHERE id = :id")
     suspend fun deleteProject(id: String)
 
-    @Query("SELECT * FROM knowledge_documents WHERE deleted = 0 ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM knowledge_documents WHERE deleted = 0 AND chatId IS NOT NULL ORDER BY updatedAt DESC")
     fun documents(): Flow<List<KnowledgeDocument>>
 
     @Query("SELECT * FROM knowledge_documents WHERE id = :id")
@@ -53,6 +53,12 @@ interface KnowledgeDao {
 
     @Query("SELECT c.* FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.documentId WHERE d.deleted = 0 AND (d.chatId = :chatId OR d.projectId = :projectId) ORDER BY d.updatedAt DESC, c.chunkIndex LIMIT 2048")
     suspend fun scopedChunks(chatId: Int, projectId: String?): List<KnowledgeChunk>
+
+    @Query("SELECT c.* FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.documentId WHERE d.deleted = 0 AND d.chatId IS NOT NULL ORDER BY d.updatedAt DESC, c.chunkIndex LIMIT 8192")
+    suspend fun memoryChunks(): List<KnowledgeChunk>
+
+    @Query("SELECT c.* FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.documentId WHERE d.deleted = 0 AND d.chatId IS NOT NULL AND (:chatId IS NULL OR d.chatId = :chatId) AND (c.text LIKE :pattern OR d.title LIKE :pattern) ORDER BY d.updatedAt DESC, c.chunkIndex LIMIT 512")
+    suspend fun matchingMemoryChunks(pattern: String, chatId: Int?): List<KnowledgeChunk>
 
     @Transaction suspend fun replaceDocument(document: KnowledgeDocument, chunks: List<KnowledgeChunk>, explicitlyRestore: Boolean = false) {
         val previous = this.document(document.id)

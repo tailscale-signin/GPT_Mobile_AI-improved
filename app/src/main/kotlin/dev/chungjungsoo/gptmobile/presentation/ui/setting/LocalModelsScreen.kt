@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,6 +45,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -65,6 +70,7 @@ import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocalModelsScreen(
+    startInMarketplace: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: LocalModelsViewModel = hiltViewModel(),
     runtimeViewModel: LocalRuntimeSettingsViewModel = hiltViewModel(),
@@ -78,6 +84,10 @@ fun LocalModelsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
     val context = LocalContext.current
+    var marketplace by rememberSaveable { mutableStateOf(startInMarketplace) }
+    var architecture by rememberSaveable { mutableStateOf("All") }
+    val backend by runtimeViewModel.backend.collectAsStateWithLifecycle()
+    BackHandler(marketplace) { marketplace = false }
 
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -92,7 +102,9 @@ fun LocalModelsScreen(
         topBar = {
             LocalModelsTopBar(
                 scrollBehavior = scrollBehavior,
-                onNavigationClick = onNavigationClick
+                onNavigationClick = { if (marketplace) marketplace = false else onNavigationClick() },
+                marketplace = marketplace,
+                onMarketplace = { marketplace = true }
             )
         }
     ) { innerPadding ->
@@ -110,66 +122,130 @@ fun LocalModelsScreen(
 
             else -> {
                 LazyColumn(Modifier.padding(innerPadding), state = scrollState) {
-                    item(key = "overview") { LocalModelsOverviewCard(uiState) }
-                    item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
-                    item(key = "search") {
-                        ModelCatalogSearch(
-                            query = uiState.searchQuery,
-                            selectedFilter = uiState.filter,
-                            selectedSource = uiState.source,
-                            isSearchingHuggingFace = uiState.isSearchingHuggingFace,
-                            huggingFaceSearchError = uiState.huggingFaceSearchError,
-                            onQueryChange = viewModel::updateSearchQuery,
-                            onFilterChange = viewModel::updateFilter,
-                            onSourceChange = viewModel::updateModelSource,
-                            onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
-                        )
-                    }
-                    item(key = "account") {
-                        HuggingFaceAccountSection(
-                            hasToken = uiState.hasHuggingFaceToken,
-                            onAddToken = viewModel::openAccessTokenDialog,
-                            onRemoveToken = viewModel::removeHuggingFaceAccessToken
-                        )
-                    }
-                    item(key = "import") {
-                        CustomModelImportSection(
-                            onImportClick = {
-                                openDocumentLauncher.launch(arrayOf("*/*"))
+                    if (!marketplace) {
+                        item(key = "overview") { LocalModelsOverviewCard(uiState) }
+                        item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
+                        item { Text("Your models", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.titleLarge) }
+                        val installed = uiState.allItems.filter { it.status == LocalModelItemStatus.READY }
+                        if (installed.isEmpty()) {
+                            item {
+                                Card(Modifier.fillMaxWidth().padding(16.dp)) {
+                                    Column(Modifier.padding(20.dp)) {
+                                        Text("Your next AI can run on this device.", style = MaterialTheme.typography.titleMedium)
+                                        Text("Choose a compatible model to get started.", style = MaterialTheme.typography.bodySmall)
+                                        Button(onClick = { marketplace = true }) {
+                                            Icon(Icons.Outlined.Storefront, null)
+                                            Text("Browse marketplace")
+                                        }
+                                    }
+                                }
                             }
-                        )
-                    }
-                    if (uiState.items.isEmpty()) {
-                        item(key = "empty") {
-                            Text(
-                                text = stringResource(R.string.local_models_empty),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
-                            )
                         }
+                        items(installed, key = { "installed-${it.entry.id}" }) { item ->
+                            LocalModelItem(item, LocalModelSource.CATALOG, false, {}, {}, { viewModel.onDeleteClick(item.entry) }, { runtimeViewModel.createProfile(item.entry, onOpenProfile) })
+                        }
+                        val downloading = uiState.allItems.count { it.status == LocalModelItemStatus.DOWNLOADING }
+                        if (downloading > 0) item { TextButton(onClick = { marketplace = true }) { Text("View $downloading active downloads") } }
                     } else {
-                        item(key = "storage") {
-                            Text(
-                                text = stringResource(
-                                    R.string.local_model_storage_used,
-                                    ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                        item {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Find your next local model", style = MaterialTheme.typography.headlineSmall)
+                                Text("Recommended for ${runtimeViewModel.soc} · ${runtimeViewModel.ramGb} GB RAM", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("All", "LiteRT", "QNN").forEach { label -> FilterChip(architecture == label, { architecture = label }, label = { Text(label) }) }
+                                }
+                            }
+                        }
+                        val recommendations = uiState.allItems.filter { item ->
+                            val qnn = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(item.entry.supportedAccelerators, item.entry.socToModelFiles, runtimeViewModel.soc)
+                            val litert = item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
+                            item.entry.downloadUrl.isNotBlank() &&
+                                item.entry.minRamGb <= runtimeViewModel.ramGb &&
+                                (
+                                    when (architecture) {
+                                        "QNN" -> qnn
+                                        "LiteRT" -> litert
+                                        else -> qnn || litert
+                                    }
+                                    )
+                        }.sortedWith(
+                            compareByDescending<LocalModelListItem> {
+                                backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN && dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(it.entry.supportedAccelerators, it.entry.socToModelFiles, runtimeViewModel.soc)
+                            }.thenByDescending { it.entry.capabilities.tools }.thenBy { it.downloadSizeBytes }
+                        ).take(3)
+                        if (uiState.searchQuery.isBlank() && recommendations.isNotEmpty()) {
+                            item { Text("Recommended models", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium) }
+                            items(recommendations, key = { "recommended-${it.entry.id}" }) { item ->
+                                LocalModelItem(
+                                    item,
+                                    LocalModelSource.CATALOG,
+                                    uiState.checkingAccessEntryId == item.entry.id,
+                                    { requestDownload(item.entry) },
+                                    { viewModel.cancelDownload(item.entry) },
+                                    { viewModel.onDeleteClick(item.entry) },
+                                    { runtimeViewModel.createProfile(item.entry, onOpenProfile) }
+                                )
+                            }
+                        }
+                        item(key = "search") {
+                            ModelCatalogSearch(
+                                query = uiState.searchQuery,
+                                selectedFilter = uiState.filter,
+                                selectedSource = uiState.source,
+                                isSearchingHuggingFace = uiState.isSearchingHuggingFace,
+                                huggingFaceSearchError = uiState.huggingFaceSearchError,
+                                onQueryChange = viewModel::updateSearchQuery,
+                                onFilterChange = viewModel::updateFilter,
+                                onSourceChange = viewModel::updateModelSource,
+                                onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
                             )
                         }
-                        items(uiState.items, key = { it.entry.id }, contentType = { "model" }) { item ->
-                            LocalModelItem(
-                                item = item,
-                                source = uiState.source,
-                                isCheckingAccess = uiState.checkingAccessEntryId == item.entry.id,
-                                onDownload = { requestDownload(item.entry) },
-                                onCancel = { viewModel.cancelDownload(item.entry) },
-                                onDelete = { viewModel.onDeleteClick(item.entry) },
-                                onCreateProfile = { runtimeViewModel.createProfile(item.entry, onOpenProfile) }
+                        item(key = "account") {
+                            HuggingFaceAccountSection(
+                                hasToken = uiState.hasHuggingFaceToken,
+                                onAddToken = viewModel::openAccessTokenDialog,
+                                onRemoveToken = viewModel::removeHuggingFaceAccessToken
                             )
+                        }
+                        item(key = "import") {
+                            CustomModelImportSection(
+                                onImportClick = {
+                                    openDocumentLauncher.launch(arrayOf("*/*"))
+                                }
+                            )
+                        }
+                        if (uiState.items.isEmpty()) {
+                            item(key = "empty") {
+                                Text(
+                                    text = stringResource(R.string.local_models_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+                                )
+                            }
+                        } else {
+                            item(key = "storage") {
+                                Text(
+                                    text = stringResource(
+                                        R.string.local_model_storage_used,
+                                        ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                                )
+                            }
+                            items(uiState.items.filter { item -> architecture == "All" || if (architecture == "QNN") item.entry.supportedAccelerators.any { it.equals("npu", true) } else item.entry.supportedAccelerators.none { it.equals("npu", true) } || item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) } }, key = { it.entry.id }, contentType = { "model" }) { item ->
+                                LocalModelItem(
+                                    item = item,
+                                    source = uiState.source,
+                                    isCheckingAccess = uiState.checkingAccessEntryId == item.entry.id,
+                                    onDownload = { requestDownload(item.entry) },
+                                    onCancel = { viewModel.cancelDownload(item.entry) },
+                                    onDelete = { viewModel.onDeleteClick(item.entry) },
+                                    onCreateProfile = { runtimeViewModel.createProfile(item.entry, onOpenProfile) }
+                                )
+                            }
                         }
                     }
                 }
@@ -196,7 +272,9 @@ fun LocalModelsScreen(
 @Composable
 private fun LocalModelsTopBar(
     scrollBehavior: TopAppBarScrollBehavior,
-    onNavigationClick: () -> Unit
+    onNavigationClick: () -> Unit,
+    marketplace: Boolean,
+    onMarketplace: () -> Unit
 ) {
     LargeTopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
@@ -206,7 +284,7 @@ private fun LocalModelsTopBar(
         title = {
             Text(
                 modifier = Modifier.padding(4.dp),
-                text = stringResource(R.string.local_models),
+                text = if (marketplace) "Model marketplace" else "Local models",
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -219,21 +297,22 @@ private fun LocalModelsTopBar(
                 Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
             }
         },
+        actions = { if (!marketplace) IconButton(onClick = onMarketplace) { Icon(Icons.Outlined.Storefront, "Open model marketplace", tint = MaterialTheme.colorScheme.primary) } },
         scrollBehavior = scrollBehavior
     )
 }
 
 @Composable
 private fun LocalModelsOverviewCard(state: LocalModelsUiState) {
-    val downloaded = state.items.count { it.status == LocalModelItemStatus.READY }
+    val downloaded = state.allItems.count { it.status == LocalModelItemStatus.READY }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Text("Local AI model library", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("AI on your device", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
-                "Search compatible indexed models, download optimized variants, or import a validated local model file.",
+                "Manage installed models and tune your runtime. Open the marketplace to find, download or import models.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.padding(top = 4.dp)
@@ -243,7 +322,7 @@ private fun LocalModelsOverviewCard(state: LocalModelsUiState) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 LocalModelStat(state.totalItemCount.toString(), "indexed", Modifier.weight(1f))
-                LocalModelStat(downloaded.toString(), "shown downloaded", Modifier.weight(1f))
+                LocalModelStat(downloaded.toString(), "installed", Modifier.weight(1f))
                 LocalModelStat(
                     ModelCatalogParser.formatDownloadSize(state.totalStorageBytes),
                     "storage",
@@ -478,6 +557,20 @@ private fun LocalModelItem(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            val hasNpu = dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(item.entry.supportedAccelerators, item.entry.socToModelFiles, android.os.Build.SOC_MODEL.orEmpty())
+            val hasLiteRt = item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
+            Text(
+                if (hasNpu) {
+                    if (hasLiteRt) "QNN preferred · LiteRT compatible" else "QNN preferred"
+                } else if (hasLiteRt) {
+                    "LiteRT preferred"
+                } else {
+                    "QNN · matching Snapdragon required"
+                },
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = MaterialTheme.shapes.medium,

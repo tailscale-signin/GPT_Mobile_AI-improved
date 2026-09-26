@@ -37,12 +37,17 @@ data class ModelInvocation(
     val firstTokenMs: Long? = null
 )
 
+class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
+
 @Dao
 interface InvocationDao {
     @Upsert suspend fun save(invocation: ModelInvocation)
 
     @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 100")
     fun recent(): Flow<List<ModelInvocation>>
+
+    @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 10000")
+    fun statistics(): Flow<List<ModelInvocation>>
 
     @Query("SELECT COALESCE(SUM(inputTokens + outputTokens), 0) FROM model_invocations WHERE turnKey = :turnKey")
     suspend fun committedTokens(turnKey: String): Long
@@ -51,9 +56,7 @@ interface InvocationDao {
     suspend fun recover()
 
     @Transaction suspend fun reserve(invocation: ModelInvocation, limit: Int) {
-        check(committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens <= limit) {
-            "The conversation turn reached its total token budget, including other models, delegates and synthesis. Increase the limit in Tool connections to continue."
-        }
+        if (limit != Int.MAX_VALUE && committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens > limit) throw TokenAllowanceReached()
         save(invocation)
     }
 }
@@ -89,7 +92,14 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                 (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 outputLimit
             )
-            dao.reserve(record, totalLimit)
+            try {
+                dao.reserve(record, totalLimit)
+            } catch (_: TokenAllowanceReached) {
+                emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?"))
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Request ${record.id} · $provider / $model · $kind · input estimate=${record.inputTokens}")
             val started = System.nanoTime()
             var first: Long? = null
             var input: Int? = null
@@ -115,6 +125,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                 }
             } finally {
                 withContext(NonCancellable) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · completed=$completed · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=${output ?: -1}", if (completed) "I" else "W")
                     dao.save(
                         record.copy(
                             inputTokens = input ?: record.inputTokens,

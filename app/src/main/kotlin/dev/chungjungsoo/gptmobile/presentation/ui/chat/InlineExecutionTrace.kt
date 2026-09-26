@@ -103,6 +103,8 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(toolActivityIcon(event.toolName), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Text(summary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (running) {
                             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                 (1..3).forEach { index -> Text("•", color = MaterialTheme.colorScheme.primary.copy(alpha = if (index <= dots) 1f else 0.15f)) }
@@ -127,7 +129,6 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        Text(summary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Icon(if (expanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     }
                     AnimatedVisibility(

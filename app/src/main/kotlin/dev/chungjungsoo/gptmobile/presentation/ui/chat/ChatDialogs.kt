@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -90,6 +93,7 @@ fun ChatModelDialog(
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeCloudPickerUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
+    var section by rememberSaveable { mutableStateOf("Models") }
     var modelSearch by rememberSaveable { mutableStateOf("") }
     var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
 
@@ -98,166 +102,182 @@ fun ChatModelDialog(
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
             .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.chat_models)) },
+        title = { Text("Conversation settings") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = modelSearch,
-                    onValueChange = { modelSearch = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                    label = { Text("Filter profiles") },
-                    singleLine = true
-                )
-                Text("Creativity · %.2f".format(creativity), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                Slider(
-                    value = creativity,
-                    onValueChange = { creativity = it },
-                    valueRange = 0f..2f,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                )
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Location tools", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = locationToolsEnabled,
-                        enabled = locationToolsAvailable,
-                        onCheckedChange = onLocationToolsChanged
-                    )
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Models", "Tools", "Response").forEach { label ->
+                        FilterChip(selected = section == label, onClick = { section = label }, label = { Text(label) })
+                    }
                 }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Web search tools", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = webSearchToolsEnabled,
-                        enabled = webSearchToolsAvailable,
-                        onCheckedChange = onWebSearchToolsChanged
+                if (section == "Models") {
+                    OutlinedTextField(
+                        value = modelSearch,
+                        onValueChange = { modelSearch = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                        label = { Text("Filter profiles") },
+                        singleLine = true
                     )
+                    Text(
+                        text = "Models in this conversation",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                    )
+                    platformOrder.filter { uid ->
+                        modelSearch.isBlank() ||
+                            platformNames[uid].orEmpty().contains(modelSearch, ignoreCase = true) ||
+                            models[uid].orEmpty().contains(modelSearch, ignoreCase = true)
+                    }.forEach { platformUid ->
+                        val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
+                        val clientType = platformClientTypes[platformUid]
+                        val isMember = platformUid in activePlatformUids
+                        val isTemporarilyEnabled = platformUid !in disabledPlatformUids
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                if (!isTemporarilyEnabled) {
+                                    "Paused"
+                                } else if (isMember) {
+                                    "Added"
+                                } else {
+                                    "Available"
+                                },
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Switch(
+                                checked = isMember,
+                                onCheckedChange = { active -> onPlatformActiveChanged(platformUid, active) }
+                            )
+                        }
+
+                        if (clientType == ClientType.LITERT_LM) {
+                            Text(
+                                text = stringResource(R.string.chat_model_for_platform, platformName),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                            LocalModelPicker(
+                                models = downloadedLocalModels,
+                                selectedCatalogEntryId = models[platformUid].orEmpty(),
+                                onModelSelected = { value ->
+                                    models = models.toMutableMap().apply { put(platformUid, value) }
+                                },
+                                onNavigateToLocalModels = onNavigateToLocalModels,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                            )
+                        } else if (clientType == ClientType.OLLAMA) {
+                            // Ollama platform: support both direct text entry and unified picker selection
+                            OutlinedTextField(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                value = models[platformUid].orEmpty(),
+                                onValueChange = { value ->
+                                    models = models.toMutableMap().apply { put(platformUid, value) }
+                                },
+                                singleLine = true,
+                                label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
+                                trailingIcon = {
+                                    IconButton(onClick = { activeCloudPickerUid = platformUid }) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = stringResource(R.string.unified_model_picker)
+                                        )
+                                    }
+                                },
+                                supportingText = {
+                                    Text(stringResource(R.string.model_supporting))
+                                }
+                            )
+                        } else if (clientType == ClientType.LLAMA) {
+                            // Llama platform: support both direct text entry and Llama router model picker selection
+                            OutlinedTextField(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                value = models[platformUid].orEmpty(),
+                                onValueChange = { value ->
+                                    models = models.toMutableMap().apply { put(platformUid, value) }
+                                },
+                                singleLine = true,
+                                label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
+                                trailingIcon = {
+                                    IconButton(onClick = { activeLlamaPickerPlatformUid = platformUid }) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = stringResource(R.string.llama_select_router_model)
+                                        )
+                                    }
+                                },
+                                supportingText = {
+                                    Text(stringResource(R.string.model_supporting))
+                                }
+                            )
+                        } else {
+                            OutlinedTextField(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                value = models[platformUid].orEmpty(),
+                                onValueChange = { value ->
+                                    models = models.toMutableMap().apply { put(platformUid, value) }
+                                },
+                                singleLine = true,
+                                label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
+                                trailingIcon = {
+                                    IconButton(onClick = { activeCloudPickerUid = platformUid }) {
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Browse provider models")
+                                    }
+                                },
+                                supportingText = {
+                                    Text(stringResource(R.string.model_supporting))
+                                }
+                            )
+                        }
+                    }
                 }
-                mcpTools.forEach { tool ->
+                if (section == "Tools") {
+                    Text("Applies immediately to this conversation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(tool.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        Switch(checked = isToolEnabled(tool.id), onCheckedChange = { onToolChanged(tool.id, it) })
-                    }
-                }
-                Text(
-                    text = "Models in this conversation",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
-                )
-                platformOrder.filter { uid ->
-                    modelSearch.isBlank() ||
-                        platformNames[uid].orEmpty().contains(modelSearch, ignoreCase = true) ||
-                        models[uid].orEmpty().contains(modelSearch, ignoreCase = true)
-                }.forEach { platformUid ->
-                    val platformName = platformNames[platformUid] ?: stringResource(R.string.unknown)
-                    val clientType = platformClientTypes[platformUid]
-                    val isMember = platformUid in activePlatformUids
-                    val isTemporarilyEnabled = platformUid !in disabledPlatformUids
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(platformName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            if (!isTemporarilyEnabled) {
-                                "Paused"
-                            } else if (isMember) {
-                                "Added"
-                            } else {
-                                "Available"
-                            },
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                        Spacer(Modifier.width(8.dp))
+                        Text("Location tools", modifier = Modifier.weight(1f))
                         Switch(
-                            checked = isMember,
-                            onCheckedChange = { active -> onPlatformActiveChanged(platformUid, active) }
+                            checked = locationToolsEnabled,
+                            enabled = locationToolsAvailable,
+                            onCheckedChange = onLocationToolsChanged
                         )
                     }
-
-                    if (clientType == ClientType.LITERT_LM) {
-                        Text(
-                            text = stringResource(R.string.chat_model_for_platform, platformName),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                        LocalModelPicker(
-                            models = downloadedLocalModels,
-                            selectedCatalogEntryId = models[platformUid].orEmpty(),
-                            onModelSelected = { value ->
-                                models = models.toMutableMap().apply { put(platformUid, value) }
-                            },
-                            onNavigateToLocalModels = onNavigateToLocalModels,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
-                        )
-                    } else if (clientType == ClientType.OLLAMA) {
-                        // Ollama platform: support both direct text entry and unified picker selection
-                        OutlinedTextField(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            value = models[platformUid].orEmpty(),
-                            onValueChange = { value ->
-                                models = models.toMutableMap().apply { put(platformUid, value) }
-                            },
-                            singleLine = true,
-                            label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
-                            trailingIcon = {
-                                IconButton(onClick = { activeCloudPickerUid = platformUid }) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = stringResource(R.string.unified_model_picker)
-                                    )
-                                }
-                            },
-                            supportingText = {
-                                Text(stringResource(R.string.model_supporting))
-                            }
-                        )
-                    } else if (clientType == ClientType.LLAMA) {
-                        // Llama platform: support both direct text entry and Llama router model picker selection
-                        OutlinedTextField(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            value = models[platformUid].orEmpty(),
-                            onValueChange = { value ->
-                                models = models.toMutableMap().apply { put(platformUid, value) }
-                            },
-                            singleLine = true,
-                            label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
-                            trailingIcon = {
-                                IconButton(onClick = { activeLlamaPickerPlatformUid = platformUid }) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = stringResource(R.string.llama_select_router_model)
-                                    )
-                                }
-                            },
-                            supportingText = {
-                                Text(stringResource(R.string.model_supporting))
-                            }
-                        )
-                    } else {
-                        OutlinedTextField(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            value = models[platformUid].orEmpty(),
-                            onValueChange = { value ->
-                                models = models.toMutableMap().apply { put(platformUid, value) }
-                            },
-                            singleLine = true,
-                            label = { Text(text = stringResource(R.string.chat_model_for_platform, platformName)) },
-                            trailingIcon = {
-                                IconButton(onClick = { activeCloudPickerUid = platformUid }) {
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Browse provider models")
-                                }
-                            },
-                            supportingText = {
-                                Text(stringResource(R.string.model_supporting))
-                            }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Web search tools", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = webSearchToolsEnabled,
+                            enabled = webSearchToolsAvailable,
+                            onCheckedChange = onWebSearchToolsChanged
                         )
                     }
+                    mcpTools.forEach { tool ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(toolActivityIcon(tool.name), null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text(tool.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Switch(checked = isToolEnabled(tool.id), onCheckedChange = { onToolChanged(tool.id, it) })
+                        }
+                    }
+                    Text("Web search queries all enabled search connections and combines their results. Individual switches control which engines participate.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (section == "Response") {
+                    Text("Creativity · %.2f".format(creativity), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    Slider(
+                        value = creativity,
+                        onValueChange = { creativity = it },
+                        valueRange = 0f..2f,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                    )
+                    Text("Focused answers at the left; more varied ideas at the right. Model and creativity changes apply when saved.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
@@ -273,7 +293,7 @@ fun ChatModelDialog(
                     )
                 }
             ) {
-                Text(stringResource(R.string.update_chat_models))
+                Text("Save changes")
             }
         },
         dismissButton = {

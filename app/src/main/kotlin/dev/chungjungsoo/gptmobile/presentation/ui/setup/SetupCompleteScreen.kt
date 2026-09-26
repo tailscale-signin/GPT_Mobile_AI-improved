@@ -5,9 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -48,12 +46,11 @@ fun SetupCompleteScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             SetupCompleteText(isPendingLocalPlatform = isPendingLocalPlatform)
-            SetupCompleteLogo(
-                Modifier
-                    .widthIn(min = screenWidth)
-                    .heightIn(min = screenWidth)
-                    .padding(screenWidth * 0.1f)
-            )
+            Column(Modifier.padding(24.dp)) {
+                Text("1. Tap New chat", style = MaterialTheme.typography.titleMedium)
+                Text("2. Choose your AI and send a message", modifier = Modifier.padding(vertical = 12.dp))
+                Text("3. Use the wrench to adjust models and tools")
+            }
             Spacer(modifier = Modifier.weight(1f))
             PrimaryLongButton(
                 onClick = { onNavigate(Route.CHAT_LIST) },
@@ -83,13 +80,7 @@ private fun SetupCompleteText(
         )
         Text(
             modifier = Modifier.padding(4.dp),
-            text = stringResource(
-                if (isPendingLocalPlatform) {
-                    R.string.setup_complete_pending_description
-                } else {
-                    R.string.setup_complete_description
-                }
-            ),
+            text = if (isPendingLocalPlatform) "Your model is downloading. It will be ready when the download finishes." else "You're ready to chat. Change any setting later.",
             style = MaterialTheme.typography.bodyLarge
         )
     }

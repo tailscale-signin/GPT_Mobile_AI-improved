@@ -139,11 +139,11 @@ class AgentToolResolverTest {
             val resolver = resolver(dao, vault)
             dao.bind(connection("search-$index", connectionType, endpointUrl = null, secretRef = "secret-$index"), binding("profile-1", "search-$index", "web_search"))
 
-            val resolved = resolver.resolve("profile-1").single { it.modelToolName == "web_search" }
+            val resolved = resolver.resolve("profile-1").single { it.realToolName == "web_search" && it.connectionUid != null }
             val config = resolved.tool.webSearchConfig()
 
             assertEquals("web_search", resolved.realToolName)
-            assertEquals("web_search", resolved.modelToolName)
+            assertEquals("web_search_search_$index", resolved.modelToolName)
             assertEquals("search-$index", resolved.connectionUid)
             assertEquals("Search $index", resolved.connectionName)
             assertEquals(expectedProvider, config.provider)
@@ -163,7 +163,7 @@ class AgentToolResolverTest {
             binding("profile-1", "search-1", "web_search")
         )
 
-        val config = resolver.resolve("profile-1").single { it.modelToolName == "web_search" }.tool.webSearchConfig()
+        val config = resolver.resolve("profile-1").single { it.realToolName == "web_search" && it.connectionUid != null }.tool.webSearchConfig()
 
         assertEquals("https://api.exa.ai/search", config.endpointUrl)
     }
@@ -174,10 +174,10 @@ class AgentToolResolverTest {
         val resolver = resolver(dao)
         dao.bind(connection("search-1", ToolConnectionType.FIRECRAWL, secretRef = null), binding("profile-1", "search-1", "web_search"))
 
-        val resolved = resolver.resolve("profile-1").single { it.modelToolName == "web_search" }
+        val resolved = resolver.resolve("profile-1").single { it.realToolName == "web_search" && it.connectionUid != null }
         val result = resolved.tool.execute("call-1", buildJsonObject {})
 
-        assertEquals("web_search", resolved.tool.definition.name)
+        assertEquals("web_search_search_1", resolved.tool.definition.name)
         assertTrue(result.isError)
         val text = (result.content as ToolResultContent.Text).text
         assertTrue(text.contains("missing credential"))
@@ -436,7 +436,7 @@ class AgentToolResolverTest {
     }
 
     @Test
-    fun `resolved tools are deterministic and duplicate model names keep first binding`() = runBlocking {
+    fun `resolved search engines are deterministic and retain every distinct binding`() = runBlocking {
         val dao = ResolverFakeToolConnectionDao()
         val vault = ResolverFakeSecretVault(
             mapOf(
@@ -452,11 +452,11 @@ class AgentToolResolverTest {
         val resolved = resolver.resolve("profile-1")
 
         assertEquals(
-            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search", "web_search_search_a", "web_search_search_b"),
             resolved.map { it.modelToolName }
         )
-        assertEquals("search-a", resolved.single { it.modelToolName == "web_search" }.connectionUid)
-        assertEquals(WebSearchProvider.FIRECRAWL, resolved.single { it.modelToolName == "web_search" }.tool.webSearchConfig().provider)
+        assertEquals("search-a", resolved.single { it.connectionUid == "search-a" }.connectionUid)
+        assertEquals(WebSearchProvider.FIRECRAWL, resolved.single { it.connectionUid == "search-a" }.tool.webSearchConfig().provider)
     }
 
     @Test

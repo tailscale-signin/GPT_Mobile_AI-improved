@@ -15,6 +15,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ContextBudgetServiceTest {
+    @Test fun `defaults preserve context and use fifty tool calls`() {
+        val turns = (0..9).map { ConversationTurn(MessageV2(content = "history ".repeat(3000), platformType = null), null, it == 9) }
+        val plan = ContextBudgetService.plan(turns, "system", emptyList(), TokenBudgetSettings())
+        assertEquals(turns, plan.turns)
+        assertEquals(Int.MAX_VALUE, TokenBudgetSettings().contextTokens)
+        assertEquals(Int.MAX_VALUE, TokenBudgetSettings().totalRunTokens)
+        assertEquals(50, dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits().maxToolCalls)
+        assertEquals(50, PlatformV2(name = "New model").maxToolCalls)
+    }
+
     @Test fun `small text only contexts do not reserve space for unavailable tools`() {
         val current = ConversationTurn(MessageV2(content = "Hi", platformType = null), null, true)
         val plan = ContextBudgetService.plan(listOf(current), "Concise reply.", emptyList(), TokenBudgetSettings(contextTokens = 256))

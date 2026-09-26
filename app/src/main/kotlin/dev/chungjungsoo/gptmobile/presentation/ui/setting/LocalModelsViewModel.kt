@@ -114,6 +114,7 @@ class LocalModelsViewModel @Inject constructor(
         }
 
         LocalModelsUiState(
+            allItems = list.items,
             items = if (discovery.source == LocalModelSource.CATALOG) catalogItems else hfItems,
             totalItemCount = if (discovery.source == LocalModelSource.CATALOG) list.items.size else discovery.huggingFaceEntries.size,
             searchQuery = discovery.query,

@@ -19,14 +19,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk
-import dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeWorkspaceRepository
+import dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import javax.inject.Inject
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class KnowledgeSourceActivity : ComponentActivity() {
-    @Inject lateinit var repository: KnowledgeWorkspaceRepository
+    @Inject lateinit var repository: MemoryDocumentRepository
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         var title by mutableStateOf("Document source")

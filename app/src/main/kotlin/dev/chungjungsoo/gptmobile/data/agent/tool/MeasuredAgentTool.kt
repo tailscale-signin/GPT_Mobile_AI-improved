@@ -14,6 +14,7 @@ class MeasuredAgentTool(
     private val onMeasured: (AgentToolResult) -> Unit = {}
 ) : AgentTool {
     override val definition = delegate.definition
+    override val managesExecutionBudget = delegate.managesExecutionBudget
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val started = nanoTime()

@@ -112,6 +112,17 @@ class ChatViewModel @Inject constructor(
     fun decideToolApproval(id: String, allow: Boolean) {
         viewModelScope.launch { toolApprovals?.decide(id, allow) }
     }
+    fun alwaysAllowTool(id: String) {
+        viewModelScope.launch {
+            try {
+                toolApprovals?.alwaysAllow(id)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not save permission. You can still allow this action once."
+            }
+        }
+    }
 
     sealed class LoadingState {
         data object Idle : LoadingState()
@@ -375,11 +386,7 @@ class ChatViewModel @Inject constructor(
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
             _selectedAttachments.value = emptyList()
-            _attachmentNotice.value = if (hasUnpausedProfile()) {
-                "Queued — sends automatically after the current response."
-            } else {
-                "Queued — resume an AI profile to send."
-            }
+
             return
         }
         sendQuestion(questionText, attachments)

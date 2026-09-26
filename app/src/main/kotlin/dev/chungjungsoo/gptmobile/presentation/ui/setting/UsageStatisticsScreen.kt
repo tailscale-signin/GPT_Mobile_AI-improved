@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -93,6 +94,24 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
                 StatisticsCard("Estimated output · unreported runs") {
                     Text("≈ ${numbers.format(stats.estimatedTokens)} tokens across ${stats.estimatedRuns} completed runs", style = MaterialTheme.typography.titleMedium)
                     Text("Rough text-only estimate: one token per four characters. Excludes reasoning, images, deleted answers and overwritten retries. Estimates are separate from reported totals and charts.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                StatisticsCard("Model performance") {
+                    Text("Compare requests, latency and token cost. Includes primary, delegated and synthesis requests.", style = MaterialTheme.typography.bodySmall)
+                    if (stats.performance.isEmpty()) Text("Send a message to start tracking performance.")
+                    val maximum = stats.performance.maxOfOrNull { it.p95LatencyMs ?: 0 }?.coerceAtLeast(1) ?: 1
+                    stats.performance.forEach { row ->
+                        val color = modelChartColor(row.model)
+                        Text(row.model, color = color, fontWeight = FontWeight.SemiBold)
+                        Text("${row.provider} · ${row.requests} requests · ${row.completed} completed", style = MaterialTheme.typography.labelMedium)
+                        Text("${numbers.format(row.inputTokens)} input / ${numbers.format(row.outputTokens)} output tokens · ${row.estimatedRequests} estimates", style = MaterialTheme.typography.bodySmall)
+                        Text("Latency p50 ${formatLatency(row.medianLatencyMs)} · p95 ${formatLatency(row.p95LatencyMs)}", style = MaterialTheme.typography.bodySmall)
+                        LinearProgressIndicator(progress = { (row.p95LatencyMs ?: 0).toFloat() / maximum }, modifier = Modifier.fillMaxWidth().height(8.dp), color = color)
+                        Text("First text token p50 ${formatLatency(row.medianFirstTokenMs)} · p95 ${formatLatency(row.p95FirstTokenMs)}", style = MaterialTheme.typography.bodySmall)
+                        Text(row.outputTokensPerSecond?.let { "%.1f reported output tokens / second".format(it) } ?: "Throughput unavailable until a provider reports tokens", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Text("Latency measures complete model requests. Throughput uses reported output tokens / request duration, including time to first token. p95 uses the nearest-rank percentile. Estimates are not billing totals.", style = MaterialTheme.typography.labelSmall)
                 }
             }
             item { RankedUsageChart("Generated tokens by model", stats.modelTokens) }
@@ -161,7 +180,7 @@ private fun RankedUsageChart(title: String, values: List<Pair<String, Long>>) {
                 Text(name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 Text(NumberFormat.getIntegerInstance().format(value), style = MaterialTheme.typography.labelLarge)
             }
-            LinearProgressIndicator(progress = { value.toFloat() / maximum }, modifier = Modifier.fillMaxWidth().height(8.dp))
+            LinearProgressIndicator(progress = { value.toFloat() / maximum }, color = modelChartColor(name), modifier = Modifier.fillMaxWidth().height(8.dp))
         }
         if (values.size > 12) Text("Top 12 of ${values.size}", style = MaterialTheme.typography.labelSmall)
     }
@@ -176,3 +195,11 @@ private fun StatisticsCard(title: String, content: @Composable () -> Unit) {
         }
     }
 }
+
+@Composable
+internal fun modelChartColor(name: String): Color {
+    val colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, Color(0xFF16A6A1), Color(0xFFE99538), Color(0xFFAC7DEC), Color(0xFFE2739C))
+    return colors[(name.hashCode() and Int.MAX_VALUE) % colors.size]
+}
+
+private fun formatLatency(value: Long?): String = value?.let { "%.2f s".format(it / 1000.0) } ?: "—"

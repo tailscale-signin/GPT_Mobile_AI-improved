@@ -78,7 +78,6 @@ fun SettingScreen(
     onNavigateToDebugDiagnostics: () -> Unit,
     onNavigateToAboutPage: () -> Unit,
     onNavigateToFactVault: () -> Unit = {},
-    onNavigateToKnowledge: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsState()
@@ -88,19 +87,6 @@ fun SettingScreen(
     val featureSettings by settingViewModel.featureSettings.collectAsState()
     val backupStatus by settingViewModel.backupStatus.collectAsState()
     val backupUi by settingViewModel.backupUi.collectAsState()
-    var settingsQuery by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
-    val searchableDestinations = listOf(
-        "AI Platforms & Profiles" to onNavigateToAiPlatforms,
-        "Fact Vault · Memory" to onNavigateToFactVault,
-        stringResource(R.string.local_models) to onNavigateToLocalModels,
-        stringResource(R.string.tool_connections) to onNavigateToToolConnections,
-        "Advanced Settings" to onNavigateToAdvancedSettings,
-        "Debug & Diagnostics" to onNavigateToDebugDiagnostics,
-        stringResource(R.string.knowledge_workspaces) to onNavigateToKnowledge,
-        stringResource(R.string.theme_settings) to settingViewModel::openThemeDialog,
-        stringResource(R.string.backup_and_restore) to settingViewModel::openBackupRestoreDialog,
-        stringResource(R.string.about) to onNavigateToAboutPage
-    )
     val context = LocalContext.current
 
     val backupLauncher = rememberLauncherForActivityResult(
@@ -143,97 +129,83 @@ fun SettingScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             item {
-                OutlinedTextField(value = settingsQuery, onValueChange = { settingsQuery = it }, label = { Text("Search settings") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                SettingsCategory(
+                    title = "AI & models"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.SmartToy,
+                        title = "AI Platforms & Profiles",
+                        onClick = onNavigateToAiPlatforms
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Psychology,
+                        title = "Memory",
+                        onClick = onNavigateToFactVault
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Storage,
+                        title = stringResource(R.string.local_models),
+                        onClick = onNavigateToLocalModels
+                    )
+                }
             }
-            if (settingsQuery.isNotBlank()) {
-                item {
-                    Column {
-                        searchableDestinations.filter { it.first.contains(settingsQuery.trim(), ignoreCase = true) }.forEach { (title, action) ->
-                            SettingsDestination(icon = Icons.Default.Tune, title = title, onClick = action)
-                        }
-                    }
-                }
-            } else {
-                item {
-                    SettingsCategory(
-                        title = "AI & models"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.SmartToy,
-                            title = "AI Platforms & Profiles",
-                            onClick = onNavigateToAiPlatforms
-                        )
-                        SettingsDestination(
-                            icon = Icons.Default.Psychology,
-                            title = "Fact Vault",
-                            onClick = onNavigateToFactVault
-                        )
-                        SettingsDestination(
-                            icon = Icons.Default.Storage,
-                            title = stringResource(R.string.local_models),
-                            onClick = onNavigateToLocalModels
-                        )
-                    }
-                }
 
-                item {
-                    SettingsCategory(
-                        title = "Tools & connectivity"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.Build,
-                            title = stringResource(R.string.tool_connections),
-                            onClick = onNavigateToToolConnections
-                        )
-                    }
+            item {
+                SettingsCategory(
+                    title = "Tools & connectivity"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.Build,
+                        title = stringResource(R.string.tool_connections),
+                        onClick = onNavigateToToolConnections
+                    )
                 }
+            }
 
-                item {
-                    SettingsCategory(
-                        title = "Experience"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.Palette,
-                            title = stringResource(R.string.theme_settings),
-                            onClick = settingViewModel::openThemeDialog
-                        )
-                        SettingsDestination(
-                            icon = Icons.Default.Tune,
-                            title = "Advanced Settings",
-                            onClick = onNavigateToAdvancedSettings
-                        )
-                    }
+            item {
+                SettingsCategory(
+                    title = "Experience"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.Palette,
+                        title = stringResource(R.string.theme_settings),
+                        onClick = settingViewModel::openThemeDialog
+                    )
+                    SettingsDestination(
+                        icon = Icons.Default.Tune,
+                        title = "Advanced Settings",
+                        onClick = onNavigateToAdvancedSettings
+                    )
                 }
+            }
 
-                item {
-                    SettingsCategory(
-                        title = "Diagnostics & data"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.BugReport,
-                            title = "Debug & Diagnostics",
-                            onClick = onNavigateToDebugDiagnostics
-                        )
+            item {
+                SettingsCategory(
+                    title = "Diagnostics & data"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.BugReport,
+                        title = "Debug and Statistics",
+                        onClick = onNavigateToDebugDiagnostics
+                    )
 
-                        SettingsDestination(icon = Icons.Default.Backup, title = stringResource(R.string.knowledge_workspaces), onClick = onNavigateToKnowledge)
-                        SettingsDestination(
-                            icon = Icons.Default.Backup,
-                            title = stringResource(R.string.backup_and_restore),
-                            onClick = settingViewModel::openBackupRestoreDialog
-                        )
-                    }
+                    SettingsDestination(
+                        icon = Icons.Default.Backup,
+                        title = stringResource(R.string.backup_and_restore),
+                        onClick = settingViewModel::openBackupRestoreDialog
+                    )
                 }
+            }
 
-                item {
-                    SettingsCategory(
-                        title = "About"
-                    ) {
-                        SettingsDestination(
-                            icon = Icons.Default.Info,
-                            title = stringResource(R.string.about),
-                            onClick = onNavigateToAboutPage
-                        )
-                    }
+            item {
+                SettingsCategory(
+                    title = "About"
+                ) {
+                    SettingsDestination(
+                        icon = Icons.Default.Info,
+                        title = stringResource(R.string.about),
+                        onClick = onNavigateToAboutPage
+                    )
                 }
             }
             item { Spacer(Modifier.height(48.dp)) }

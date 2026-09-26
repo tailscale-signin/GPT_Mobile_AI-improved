@@ -102,7 +102,7 @@ data class LocalRuntimeState(
 
 private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
 
-class LocalRuntimeFallbackDisabledException(cause: Throwable) : IllegalStateException("QNN could not start and automatic fallback is disabled. Select LiteRT-LM or enable fallback in Advanced Settings.", cause)
+class LocalRuntimeFallbackDisabledException(cause: Throwable) : IllegalStateException("QNN could not start and automatic fallback is disabled. Select LiteRT-LM or enable fallback in Local models → Performance tuning.", cause)
 
 interface LocalRuntime {
     val handlesEngineFallback: Boolean get() = false

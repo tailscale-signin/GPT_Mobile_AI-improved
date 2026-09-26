@@ -47,8 +47,13 @@ class ToolConnectionsViewModel @Inject constructor(
     secretVault: SecretVault,
     private val oauthCoordinator: McpOAuthCoordinator,
     private val mcpClientManager: McpClientManager,
-    private val agentToolResolver: AgentToolResolver? = null
+    private val agentToolResolver: AgentToolResolver? = null,
+    private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null
 ) : ViewModel() {
+    fun revokeToolGrants(connectionUid: String) {
+        toolTrust?.revoke(connectionUid)
+    }
+
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)
 
     private val _uiState = MutableStateFlow(ToolConnectionsUiState())

@@ -1,5 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
 import android.Manifest
 import android.content.ClipData
 import android.content.Context
@@ -439,6 +444,9 @@ fun ChatScreen(
                             onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                         )
                     }
+                    items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
+                        QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt)
+                    }
                     if (groupedMessages.userMessages.isNotEmpty()) {
                         item(key = "chat-bottom-anchor") {
                             Spacer(Modifier.size(1.dp))
@@ -463,21 +471,6 @@ fun ChatScreen(
                 }
             }
 
-            val voiceAnswer = groupedMessages.assistantMessages.lastOrNull()?.firstOrNull()
-            VoiceChatControls(
-                generating = !isIdle,
-                answer = voiceAnswer?.content.orEmpty(),
-                answerId = voiceAnswer?.id,
-                onSend = chatViewModel::sendPromptResponse,
-                onInterrupt = chatViewModel::cancelActiveRuns
-            )
-            PromptQueuePanel(
-                entries = pendingPrompts,
-                onEdit = chatViewModel::editQueuedPrompt,
-                onRemove = chatViewModel::removeQueuedPrompt,
-                onPause = chatViewModel::pauseQueuedPrompt,
-                onMove = chatViewModel::moveQueuedPrompt
-            )
             ChatInputBox(
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
@@ -1171,8 +1164,9 @@ private fun ChatTopBar(
                 onClick = onChatModelItemClick
             ) {
                 Icon(
-                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_model),
-                    contentDescription = stringResource(R.string.chat_models)
+                    imageVector = Icons.Outlined.Build,
+                    tint = MaterialTheme.colorScheme.primary,
+                    contentDescription = "Conversation settings"
                 )
             }
             IconButton(
@@ -1375,18 +1369,11 @@ fun ChatInputBox(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 2.dp
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+        shadowElevation = 1.dp
     ) {
         Column {
-            if (queuedPromptCount > 0) {
-                Text(
-                    text = pluralStringResource(R.plurals.chat_queued_prompts, queuedPromptCount, queuedPromptCount),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
             if (selectedAttachments.isNotEmpty()) {
                 FileThumbnailRow(
                     selectedAttachments = selectedAttachments,
@@ -1412,7 +1399,8 @@ fun ChatInputBox(
                             onClick = { filePickerLauncher.launch("*/*") }
                         ) {
                             Icon(
-                                imageVector = ImageVector.vectorResource(R.drawable.ic_attach_file),
+                                imageVector = Icons.Rounded.AttachFile,
+                                tint = MaterialTheme.colorScheme.primary,
                                 contentDescription = stringResource(R.string.attach_file)
                             )
                         }
@@ -1432,7 +1420,8 @@ fun ChatInputBox(
                             }
                         }
                         val showStop = isRunning && !hasQuestionText && selectedAttachments.isEmpty()
-                        IconButton(
+                        FilledIconButton(
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                             enabled = showStop || (chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty())),
                             onClick = if (showStop) onCancelButtonClick else onSendButtonClick
                         ) {
@@ -1443,7 +1432,7 @@ fun ChatInputBox(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_send),
+                                    imageVector = Icons.Rounded.ArrowUpward,
                                     contentDescription = stringResource(R.string.send)
                                 )
                             }

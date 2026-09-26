@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.worker.LocalModelDownloadWorker
 
 data class LocalModelsUiState(
     val items: List<LocalModelListItem> = emptyList(),
+    val allItems: List<LocalModelListItem> = emptyList(),
     val totalItemCount: Int = 0,
     val searchQuery: String = "",
     val filter: LocalModelFilter = LocalModelFilter.ALL,

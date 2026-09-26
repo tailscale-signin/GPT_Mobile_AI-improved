@@ -8,7 +8,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
-import dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeWorkspaceRepository
+import dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -116,7 +116,7 @@ class DurableExecutionIntegrationTest {
     }
 
     @Test fun `deleted knowledge does not reappear when original attachment is seen again`() = runBlocking {
-        val repository = KnowledgeWorkspaceRepository(database)
+        val repository = MemoryDocumentRepository(database)
         val id = repository.index("Manual", "The camera uses a blue lens.", chatId = 1)
         assertTrue(repository.context(1, "camera lens").contains("blue lens"))
         repository.dao.deleteDocument(id)

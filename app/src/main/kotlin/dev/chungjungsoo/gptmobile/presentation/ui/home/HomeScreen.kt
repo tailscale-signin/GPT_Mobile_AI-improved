@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.home
 
+import androidx.compose.material.icons.outlined.AddComment
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
 import android.content.ClipData
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -790,7 +793,7 @@ private fun ChatListItem(
                     Text(
                         text = usingPlatform,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
                     )
                     if (profileLabels.isNotEmpty()) {
                         Row(
@@ -816,7 +819,7 @@ private fun ConversationModeSymbol(chatRoom: ChatRoomV2, isServerChat: Boolean) 
         isServerChat -> Icons.Outlined.Dns to "Local or server AI conversation"
         else -> Icons.Outlined.ChatBubbleOutline to "Conversation"
     }
-    Surface(modifier = Modifier.size(34.dp), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)) {
+    Box(modifier = Modifier.size(34.dp), contentAlignment = Alignment.Center) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, description, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
         }
@@ -1363,8 +1366,11 @@ fun NewChatButton(expanded: Boolean, onClick: () -> Unit) {
     ExtendedFloatingActionButton(
         onClick = onClick,
         expanded = expanded,
-        icon = { Icon(Icons.Filled.Add, stringResource(R.string.new_chat)) },
-        text = { Text(text = stringResource(R.string.new_chat)) }
+        icon = { Icon(Icons.Outlined.AddComment, stringResource(R.string.new_chat)) },
+        shape = RoundedCornerShape(24.dp),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        text = { Text(text = stringResource(R.string.new_chat), fontWeight = FontWeight.SemiBold) }
     )
 }
 
@@ -1426,10 +1432,10 @@ fun HomeTopBar(
         TopAppBar(
             title = { },
             actions = {
-                IconButton(onClick = onSearchToggle) {
+                FilledTonalIconButton(onClick = onSearchToggle, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f), contentColor = MaterialTheme.colorScheme.primary)) {
                     Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.search))
                 }
-                IconButton(onClick = onSettingClick) {
+                FilledTonalIconButton(onClick = onSettingClick, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f), contentColor = MaterialTheme.colorScheme.primary)) {
                     Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.settings))
                 }
             },

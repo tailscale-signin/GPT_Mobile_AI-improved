@@ -78,7 +78,6 @@ fun SettingScreen(
     onNavigateToDebugDiagnostics: () -> Unit,
     onNavigateToAboutPage: () -> Unit,
     onNavigateToFactVault: () -> Unit = {},
-    onNavigateToKnowledge: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsState()
@@ -88,19 +87,6 @@ fun SettingScreen(
     val featureSettings by settingViewModel.featureSettings.collectAsState()
     val backupStatus by settingViewModel.backupStatus.collectAsState()
     val backupUi by settingViewModel.backupUi.collectAsState()
-    var settingsQuery by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
-    val searchableDestinations = listOf(
-        "AI Platforms & Profiles" to onNavigateToAiPlatforms,
-        "Fact Vault · Memory" to onNavigateToFactVault,
-        stringResource(R.string.local_models) to onNavigateToLocalModels,
-        stringResource(R.string.tool_connections) to onNavigateToToolConnections,
-        "Advanced Settings" to onNavigateToAdvancedSettings,
-        "Debug & Diagnostics" to onNavigateToDebugDiagnostics,
-        stringResource(R.string.knowledge_workspaces) to onNavigateToKnowledge,
-        stringResource(R.string.theme_settings) to settingViewModel::openThemeDialog,
-        stringResource(R.string.backup_and_restore) to settingViewModel::openBackupRestoreDialog,
-        stringResource(R.string.about) to onNavigateToAboutPage
-    )
     val context = LocalContext.current
 
     val backupLauncher = rememberLauncherForActivityResult(
@@ -142,18 +128,6 @@ fun SettingScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            item {
-                OutlinedTextField(value = settingsQuery, onValueChange = { settingsQuery = it }, label = { Text("Search settings") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            }
-            if (settingsQuery.isNotBlank()) {
-                item {
-                    Column {
-                        searchableDestinations.filter { it.first.contains(settingsQuery.trim(), ignoreCase = true) }.forEach { (title, action) ->
-                            SettingsDestination(icon = Icons.Default.Tune, title = title, onClick = action)
-                        }
-                    }
-                }
-            } else {
                 item {
                     SettingsCategory(
                         title = "AI & models"
@@ -165,7 +139,7 @@ fun SettingScreen(
                         )
                         SettingsDestination(
                             icon = Icons.Default.Psychology,
-                            title = "Fact Vault",
+                            title = "Memory",
                             onClick = onNavigateToFactVault
                         )
                         SettingsDestination(
@@ -211,11 +185,10 @@ fun SettingScreen(
                     ) {
                         SettingsDestination(
                             icon = Icons.Default.BugReport,
-                            title = "Debug & Diagnostics",
+                            title = "Debug and Statistics",
                             onClick = onNavigateToDebugDiagnostics
                         )
 
-                        SettingsDestination(icon = Icons.Default.Backup, title = stringResource(R.string.knowledge_workspaces), onClick = onNavigateToKnowledge)
                         SettingsDestination(
                             icon = Icons.Default.Backup,
                             title = stringResource(R.string.backup_and_restore),
@@ -235,7 +208,6 @@ fun SettingScreen(
                         )
                     }
                 }
-            }
             item { Spacer(Modifier.height(48.dp)) }
         }
     }

@@ -46,7 +46,8 @@ class AgentToolResolver @Inject constructor(
     private val mcpClientManager: McpClientManager,
     private val mcpOAuthCoordinator: McpOAuthCoordinator,
     private val deviceLocationTool: DeviceLocationTool,
-    private val factVault: FactVaultRepository? = null
+    private val factVault: FactVaultRepository? = null,
+    private val memoryDocuments: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null
 ) {
     suspend fun discoverMcpTools(connection: ToolConnection): List<Tool> {
         val config = mcpConfig(connection)
@@ -113,6 +114,10 @@ class AgentToolResolver @Inject constructor(
                 if (memoryAvailable) {
                     listOf(true, false).forEach { capture ->
                         val tool = LocalMemoryTool(factVault, userMessage, platform.isPrivateDestination(), capture)
+                        resolved += tool.resolved(null, "Local memory", tool.definition.name)
+                    }
+                    LocalMemoryGraphTool.operations.forEach { operation ->
+                        val tool = LocalMemoryGraphTool(factVault, memoryDocuments, userMessage, platform.isPrivateDestination(), operation)
                         resolved += tool.resolved(null, "Local memory", tool.definition.name)
                     }
                 }

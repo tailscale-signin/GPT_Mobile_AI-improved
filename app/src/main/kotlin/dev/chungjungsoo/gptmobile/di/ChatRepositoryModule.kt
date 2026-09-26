@@ -71,7 +71,7 @@ object ChatRepositoryModule {
         titleSummarizer: ConversationTitleSummarizer,
         factVault: FactVaultRepository,
         toolMetricsCollector: ToolMetricsCollector,
-        knowledge: dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeWorkspaceRepository,
+        knowledge: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository,
         toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager,
         invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger
     ): ChatRepository = ChatRepositoryImpl(

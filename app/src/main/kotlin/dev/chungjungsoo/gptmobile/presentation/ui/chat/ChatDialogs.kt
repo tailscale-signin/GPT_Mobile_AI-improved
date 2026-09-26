@@ -14,6 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -90,6 +93,7 @@ fun ChatModelDialog(
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeCloudPickerUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
+    var section by rememberSaveable { mutableStateOf("Models") }
     var modelSearch by rememberSaveable { mutableStateOf("") }
     var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
 
@@ -98,9 +102,15 @@ fun ChatModelDialog(
         modifier = Modifier
             .widthIn(max = screenWidth - 40.dp)
             .heightIn(max = screenHeight - 80.dp),
-        title = { Text(text = stringResource(R.string.chat_models)) },
+        title = { Text("Conversation settings") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Models", "Tools", "Response").forEach { label ->
+                        FilterChip(selected = section == label, onClick = { section = label }, label = { Text(label) })
+                    }
+                }
+                if (section == "Models") {
                 OutlinedTextField(
                     value = modelSearch,
                     onValueChange = { modelSearch = it },
@@ -108,35 +118,6 @@ fun ChatModelDialog(
                     label = { Text("Filter profiles") },
                     singleLine = true
                 )
-                Text("Creativity · %.2f".format(creativity), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                Slider(
-                    value = creativity,
-                    onValueChange = { creativity = it },
-                    valueRange = 0f..2f,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
-                )
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Location tools", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = locationToolsEnabled,
-                        enabled = locationToolsAvailable,
-                        onCheckedChange = onLocationToolsChanged
-                    )
-                }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Web search tools", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = webSearchToolsEnabled,
-                        enabled = webSearchToolsAvailable,
-                        onCheckedChange = onWebSearchToolsChanged
-                    )
-                }
-                mcpTools.forEach { tool ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(tool.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        Switch(checked = isToolEnabled(tool.id), onCheckedChange = { onToolChanged(tool.id, it) })
-                    }
-                }
                 Text(
                     text = "Models in this conversation",
                     style = MaterialTheme.typography.titleSmall,
@@ -259,6 +240,46 @@ fun ChatModelDialog(
                         )
                     }
                 }
+                }
+                if (section == "Tools") {
+                    Text("Applies immediately to this conversation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Location tools", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = locationToolsEnabled,
+                        enabled = locationToolsAvailable,
+                        onCheckedChange = onLocationToolsChanged
+                    )
+                }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Web search tools", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = webSearchToolsEnabled,
+                        enabled = webSearchToolsAvailable,
+                        onCheckedChange = onWebSearchToolsChanged
+                    )
+                }
+                mcpTools.forEach { tool ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(toolActivityIcon(tool.name), null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(tool.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = isToolEnabled(tool.id), onCheckedChange = { onToolChanged(tool.id, it) })
+                    }
+                }
+                    Text("Web search queries all enabled search connections and combines their results. Individual switches control which engines participate.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (section == "Response") {
+                Text("Creativity · %.2f".format(creativity), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                Slider(
+                    value = creativity,
+                    onValueChange = { creativity = it },
+                    valueRange = 0f..2f,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                )
+                    Text("Focused answers at the left; more varied ideas at the right. Model and creativity changes apply when saved.", style = MaterialTheme.typography.bodySmall)
+                }
+
             }
         },
         onDismissRequest = onDismissRequest,
@@ -273,7 +294,7 @@ fun ChatModelDialog(
                     )
                 }
             ) {
-                Text(stringResource(R.string.update_chat_models))
+                Text("Save changes")
             }
         },
         dismissButton = {

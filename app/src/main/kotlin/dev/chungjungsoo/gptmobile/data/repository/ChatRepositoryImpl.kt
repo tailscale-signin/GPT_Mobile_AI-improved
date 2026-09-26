@@ -98,7 +98,7 @@ class ChatRepositoryImpl(
     private val titleSummarizer: ConversationTitleSummarizer? = null,
     private val factVault: FactVaultRepository? = null,
     private val toolMetricsCollector: ToolMetricsCollector? = null,
-    private val knowledge: dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeWorkspaceRepository? = null,
+    private val knowledge: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null
 ) : ChatRepository {
@@ -268,7 +268,7 @@ class ChatRepositoryImpl(
                 if (latestUser == null || platform.excludesMemory() || platform.disableAllTools || platform.disableLocalTools) {
                     FactRecall()
                 } else {
-                    factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.isPrivateDestination(), scope = knowledge?.dao?.projectForChat(latestUser.chatId)?.id?.let { "project:$it" } ?: "personal") ?: FactRecall()
+                    factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.isPrivateDestination()) ?: FactRecall()
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -279,7 +279,10 @@ class ChatRepositoryImpl(
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
             val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName }, compact = limits.contextTokens < 4096) +
                 if (resolvedTools.isNotEmpty()) "\nBefore the first tool call and after every 10 completed tool calls, " + dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION else ""
-            val documentContext = if (platform.excludesMemory()) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
+            val memorySettings = factVault?.state?.value
+            val canRecallDocuments = memorySettings?.enabled == true && memorySettings.settings.recallEnabled &&
+                (platform.isPrivateDestination() || memorySettings.settings.allowCloudRecall) && !platform.disableAllTools && !platform.disableLocalTools
+            val documentContext = if (platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
             val requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt
             )
@@ -630,12 +633,10 @@ class ChatRepositoryImpl(
             documents.map { document ->
                 val extracted = document.extractedText?.let { DocumentTextExtractor.Result(it, document.extractionNote) }
                     ?: DocumentTextExtractor.extract(context, java.io.File(document.filePathForDisplay), document.mimeType)
-                if (!platform.excludesMemory() && knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
+                if (!platform.excludesMemory() && factVault?.state?.value?.enabled == true && factVault.state.value.settings.learningEnabled && knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
                     knowledge.index(document.resolvedDisplayName, extracted.text.take(1_000_000), chatId = message.chatId)
-                    "Indexed attachment: ${document.resolvedDisplayName}. Relevant excerpts appear in document context."
-                } else {
-                    "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text.take(12000)}"
                 }
+                "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text.take(12000)}"
             }
         }
         return message.copy(

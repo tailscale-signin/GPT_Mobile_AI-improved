@@ -522,12 +522,9 @@ fun AddPlatformScreen(
                     }
                     AnimatedVisibility(visible = showAdvancedSettings) {
                         Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                            OutlinedTextField(
+                            dev.chungjungsoo.gptmobile.presentation.common.SystemPromptEditor(
                                 value = systemPrompt,
-                                onValueChange = { systemPrompt = it },
-                                label = { Text(stringResource(R.string.system_prompt)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                minLines = 3
+                                onValueChange = { systemPrompt = it }
                             )
                             CreativitySlider(
                                 value = creativity,

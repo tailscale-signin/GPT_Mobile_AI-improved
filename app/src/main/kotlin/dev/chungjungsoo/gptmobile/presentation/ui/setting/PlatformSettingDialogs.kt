@@ -1142,16 +1142,9 @@ private fun SystemPromptDialog(
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
-                Text(stringResource(R.string.system_prompt_description))
-                OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                dev.chungjungsoo.gptmobile.presentation.common.SystemPromptEditor(
                     value = textFieldPrompt,
-                    onValueChange = { textFieldPrompt = it },
-                    label = {
-                        Text(stringResource(R.string.system_prompt))
-                    }
+                    onValueChange = { textFieldPrompt = it }
                 )
             }
         },

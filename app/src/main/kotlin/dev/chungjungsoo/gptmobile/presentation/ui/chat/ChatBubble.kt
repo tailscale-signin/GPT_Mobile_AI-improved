@@ -179,7 +179,7 @@ fun UserChatBubble(
                         Text(
                             text = formattedTime,
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Light),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.24f)
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
                         )
                     }
                 }
@@ -360,7 +360,7 @@ fun OpponentChatBubble(
     Column(modifier = modifier) {
         if (debugMode) {
             RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
-            AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
+            if (!isLoading) AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
         }
 
         AnimatedVisibility(
@@ -584,7 +584,7 @@ fun OpponentChatBubble(
                         Text(
                             text = formattedTime,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Light),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.24f),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
                             modifier = Modifier.padding(end = 8.dp)
                         )
                     }

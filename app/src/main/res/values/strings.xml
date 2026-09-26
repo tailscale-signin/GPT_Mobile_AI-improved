@@ -728,7 +728,7 @@
     <string name="mcp_browser_dialog_label_3">Preview prompt</string>
     <string name="mcp_browser_dialog_label_4">Copy for a chat</string>
     <string name="mcp_browser_dialog_label_5">Close</string>
-    <string name="fact_vault_screen_label_1">Fact Vault</string>
+    <string name="fact_vault_screen_label_1">Memory</string>
     <string name="fact_vault_screen_label_2">Clear</string>
     <string name="fact_vault_screen_label_3">Learn and recall local facts</string>
     <string name="fact_vault_screen_label_4">Save simple preferences and relationships from your messages on this device. Matching enabled facts are included in future AI requests, including requests to cloud providers.</string>

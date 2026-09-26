@@ -12,7 +12,7 @@ object McpLocationToolSet {
     val tools: List<McpBuiltinTool> = listOf(
         McpBuiltinTool(
             name = BuiltInAgentTool.DEVICE_LOCATION,
-            description = "Get the Android phone's current coordinates, accuracy and altitude. Enable Device location for the AI profile and grant Android location permission."
+            description = "Get the Android phone's current coordinates, accuracy and altitude; optionally find nearby places on OpenStreetMap for map markers and walking/driving routes. Enable Device location for the AI profile and grant Android location permission."
         )
     )
 }

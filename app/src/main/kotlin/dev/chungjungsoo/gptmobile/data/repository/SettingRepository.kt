@@ -49,6 +49,7 @@ interface SettingRepository {
     suspend fun fetchProviderConnections(): List<ProviderConnection>
     fun observeProviderConnections(): Flow<List<ProviderConnection>>
     suspend fun getProviderConnection(uid: String): ProviderConnection?
+    suspend fun getProviderCredentials(uid: String): String? = null
     suspend fun addProviderConnection(connection: ProviderConnection, credential: String? = null): ProviderConnection
     suspend fun updateProviderConnection(connection: ProviderConnection, credential: String? = null): ProviderConnection
     suspend fun deleteProviderConnection(connection: ProviderConnection): Boolean

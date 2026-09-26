@@ -11,6 +11,59 @@ import org.junit.Test
 
 class FactVaultRepositoryTest {
     @Test
+    fun `cloud and chat scope are enforced after settings reload`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        repository.updateSettings(FactVaultSettings(allowCloudRecall = false, sameChatOnly = true))
+        val restored = FactVaultRepository(storage, KnowledgeGraphEngine())
+        assertTrue(restored.prepareTurn("Kotlin", 1, 2).facts.isEmpty())
+        assertTrue(restored.prepareTurn("Kotlin", 2, 2, isLocal = true).facts.isEmpty())
+        assertEquals(1, restored.prepareTurn("Kotlin", 1, 2, isLocal = true).facts.size)
+    }
+
+    @Test
+    fun `learning and recall switches work independently`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.updateSettings(FactVaultSettings(recallEnabled = false))
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        assertTrue(repository.prepareTurn("Kotlin", 1, 2).facts.isEmpty())
+        repository.updateSettings(FactVaultSettings(learningEnabled = false))
+        repository.prepareTurn("I prefer Java", 1, 3)
+        assertEquals(1, repository.state.value.facts.size)
+        assertEquals(1, repository.prepareTurn("Kotlin", 1, 4).facts.size)
+    }
+
+    @Test
+    fun `review requirement prevents new facts being recalled before approval`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.updateSettings(FactVaultSettings(reviewBeforeRecall = true, maxRecall = 1))
+        repository.prepareTurn("I prefer Kotlin", 1, 1)
+        assertTrue(repository.prepareTurn("Kotlin", 1, 2).facts.isEmpty())
+        val fact = repository.state.value.facts.single()
+        assertTrue(fact.savedAtMillis > 0)
+        assertFalse(fact.enabled)
+        repository.setFactEnabled(fact.id, true)
+        assertEquals(1, repository.prepareTurn("Kotlin", 1, 3).facts.size)
+    }
+
+    @Test
+    fun `expired dated facts are removed without expiring legacy facts`() = runBlocking {
+        val storage = MemoryVault()
+        val repository = FactVaultRepository(storage, KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I prefer Kotlin\nI prefer Java", 1, 1)
+        val old = repository.state.value.copy(settings = FactVaultSettings(retentionDays = 30), facts = repository.state.value.facts.mapIndexed { i, fact -> fact.copy(savedAtMillis = if (i == 0) 1L else 0L) })
+        storage.values[FactVaultRepository.VAULT_REFERENCE] = kotlinx.serialization.json.Json.encodeToString(FactVaultSnapshot.serializer(), old).encodeToByteArray()
+        repository.prepareTurn("What do I prefer?", 1, 2)
+        assertEquals(1, repository.state.value.facts.size)
+        assertEquals(0L, repository.state.value.facts.single().savedAtMillis)
+    }
+
+    @Test
     fun `same turn exclusions do not consume the recall limit`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.setEnabled(true)

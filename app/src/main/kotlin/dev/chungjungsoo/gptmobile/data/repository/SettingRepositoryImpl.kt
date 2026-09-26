@@ -363,6 +363,9 @@ class SettingRepositoryImpl @Inject constructor(
     override suspend fun getProviderConnection(uid: String): ProviderConnection? =
         providerConnectionDao.getConnection(uid)
 
+    override suspend fun getProviderCredentials(uid: String): String? =
+        providerConnectionDao.getConnection(uid)?.secretRef?.let { readSecret(it) }
+
     override suspend fun addProviderConnection(
         connection: ProviderConnection,
         credential: String?

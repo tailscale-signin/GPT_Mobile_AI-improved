@@ -17,6 +17,20 @@ import kotlinx.coroutines.delay
  */
 object ApiCredentialRotator {
 
+    // Only connection identities and counters are retained, never credential material.
+    private val requestOffsets = object : LinkedHashMap<String, Int>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?): Boolean = size > 256
+    }
+
+    @Synchronized
+    fun keysForNewRequest(connectionId: String, rawCredentials: String?): List<String> {
+        val keys = parseKeys(rawCredentials).ifEmpty { listOf("") }
+        if (keys.size == 1) return keys
+        val start = (requestOffsets[connectionId] ?: 0) % keys.size
+        requestOffsets[connectionId] = (start + 1) % keys.size
+        return keys.drop(start) + keys.take(start)
+    }
+
     private val KEY_DELIMITERS = Regex("[\\r\\n,]+")
     private const val HIGH_DEMAND_RETRY_DELAY_MS = 3000L
     private const val MAX_HIGH_DEMAND_RETRIES = 3
@@ -35,12 +49,10 @@ object ApiCredentialRotator {
     /**
      * Combines multiple API keys into a newline-delimited string for storage.
      */
-    fun formatKeys(keys: List<String>): String {
-        return keys.map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .joinToString("\n")
-    }
+    fun formatKeys(keys: List<String>): String = keys.map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .joinToString("\n")
 
     /**
      * Checks if a Throwable represents an API failure that should trigger rotation to the next key.

@@ -197,7 +197,7 @@ class ChatRepositoryImpl(
                 if (latestUser == null) {
                     FactRecall()
                 } else {
-                    factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id) ?: FactRecall()
+                    factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.OLLAMA, ClientType.LLAMA)) ?: FactRecall()
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation

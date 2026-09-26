@@ -19,7 +19,8 @@ data class VaultFact(
     val fact: KnowledgeFact,
     val enabled: Boolean = true,
     val sourceChatId: Int = 0,
-    val sourceMessageId: Int = 0
+    val sourceMessageId: Int = 0,
+    val savedAtMillis: Long = 0
 )
 
 /** References only: fact text stays encrypted in the vault, not copied into message metadata. */
@@ -27,11 +28,28 @@ data class VaultFact(
 data class RecalledFactRef(val id: String, val label: String)
 
 @Serializable
+data class FactVaultSettings(
+    val learningEnabled: Boolean = true,
+    val recallEnabled: Boolean = true,
+    val allowCloudRecall: Boolean = true,
+    val sameChatOnly: Boolean = false,
+    val learnPreferences: Boolean = true,
+    val learnRelationships: Boolean = true,
+    val reviewBeforeRecall: Boolean = false,
+    val maxFacts: Int = 64,
+    val maxRecall: Int = 5,
+    val retentionDays: Int = 0
+) {
+    fun normalized() = copy(maxFacts = maxFacts.coerceIn(16, 64), maxRecall = maxRecall.coerceIn(1, 10), retentionDays = retentionDays.coerceIn(0, 365))
+}
+
+@Serializable
 data class FactVaultSnapshot(
     val version: Int = 1,
     val enabled: Boolean = false,
     val facts: List<VaultFact> = emptyList(),
-    val suppressedIds: Set<String> = emptySet()
+    val suppressedIds: Set<String> = emptySet(),
+    val settings: FactVaultSettings = FactVaultSettings()
 )
 
 data class FactRecall(val facts: List<VaultFact> = emptyList()) {
@@ -64,6 +82,11 @@ class FactVaultRepository @Inject constructor(
         persist(_state.value.copy(enabled = enabled))
     }
 
+    suspend fun updateSettings(settings: FactVaultSettings) = mutex.withLock {
+        loadLocked()
+        persist(_state.value.copy(settings = settings.normalized()))
+    }
+
     suspend fun setFactEnabled(id: String, enabled: Boolean) = mutex.withLock {
         loadLocked()
         persist(_state.value.copy(facts = _state.value.facts.map { if (it.id == id) it.copy(enabled = enabled) else it }))
@@ -82,21 +105,44 @@ class FactVaultRepository @Inject constructor(
         persist(FactVaultSnapshot(enabled = false))
     }
 
-    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int): FactRecall = mutex.withLock {
+    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false): FactRecall = mutex.withLock {
         loadLocked()
         if (!_state.value.enabled) return@withLock FactRecall()
-        val current = _state.value
-        val selectedIds = graph.queryContextualFacts(query.take(MAX_QUERY_CHARS), maxResults = MAX_FACTS)
-            .map(::factId).toSet()
-        val recall = FactRecall(current.facts.filter { it.enabled && it.id in selectedIds && !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId) }.take(MAX_RECALL))
+        var current = _state.value
+        val settings = current.settings.normalized()
+        val now = System.currentTimeMillis()
+        if (settings.retentionDays > 0) {
+            val cutoff = now - settings.retentionDays * 86_400_000L
+            val retained = current.facts.filter { it.savedAtMillis == 0L || it.savedAtMillis >= cutoff }
+            if (retained.size != current.facts.size) {
+                current = current.copy(facts = retained)
+                persist(current)
+            }
+        }
+        val selectedIds = if (settings.recallEnabled && (isLocal || settings.allowCloudRecall)) {
+            graph.queryContextualFacts(query.take(MAX_QUERY_CHARS), maxResults = MAX_FACTS).map(::factId).toSet()
+        } else {
+            emptySet()
+        }
+        val recall = FactRecall(
+            current.facts.filter {
+                it.enabled &&
+                    it.id in selectedIds &&
+                    (!settings.sameChatOnly || it.sourceChatId == chatId) &&
+                    !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
+            }.take(settings.maxRecall)
+        )
+        if (!settings.learningEnabled) return@withLock recall
         // Only extract user-provided text. Never learn from assistant output or tool responses.
         val extractor = KnowledgeGraphEngine()
         extractor.extractAndStoreFromText(query.take(MAX_QUERY_CHARS))
         val extracted = extractor.getAllEntities().flatMap { extractor.querySubgraph(it.id, maxDepth = 1) }
-            .map(::normalizeFact).distinctBy(::factId)
+            .map(::normalizeFact).distinctBy(::factId).filter {
+                if (it.relation.relationType == "PREFERS") settings.learnPreferences else settings.learnRelationships
+            }
         val known = current.facts.map { it.id }.toSet() + current.suppressedIds
-        val additions = extracted.filter { factId(it) !in known }.take((MAX_FACTS - current.facts.size).coerceAtLeast(0))
-            .map { VaultFact(factId(it), it, sourceChatId = chatId, sourceMessageId = messageId) }
+        val additions = extracted.filter { factId(it) !in known }.take((settings.maxFacts - current.facts.size).coerceAtLeast(0))
+            .map { VaultFact(factId(it), it, enabled = !settings.reviewBeforeRecall, sourceChatId = chatId, sourceMessageId = messageId, savedAtMillis = now) }
         if (additions.isNotEmpty()) persist(current.copy(facts = current.facts + additions))
         recall
     }
@@ -152,7 +198,6 @@ class FactVaultRepository @Inject constructor(
     companion object {
         const val VAULT_REFERENCE = "fact-vault-v1"
         private const val MAX_FACTS = 64
-        private const val MAX_RECALL = 5
         private const val MAX_QUERY_CHARS = 8_000
         private const val MAX_VAULT_BYTES = 60 * 1024
 

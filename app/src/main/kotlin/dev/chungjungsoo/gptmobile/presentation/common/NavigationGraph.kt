@@ -119,6 +119,7 @@ fun NavGraphBuilder.setupNavigation(
         }
         composable(route = Route.SETUP_LOCAL_MODELS) {
             LocalModelsScreen(
+                onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
                 onNavigationClick = { navController.navigateUp() }
             )
         }
@@ -350,6 +351,7 @@ fun NavGraphBuilder.settingNavigation(
         }
         composable(Route.LOCAL_MODELS) {
             LocalModelsScreen(
+                onOpenProfile = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", uid)) },
                 onNavigationClick = { navController.navigateUp() }
             )
         }

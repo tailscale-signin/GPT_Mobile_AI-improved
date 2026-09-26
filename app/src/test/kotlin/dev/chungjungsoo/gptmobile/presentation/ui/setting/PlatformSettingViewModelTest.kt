@@ -192,7 +192,7 @@ class PlatformSettingViewModelTest {
             networkClient = networkClient,
             mcpClientManager = mcpManager,
             mcpOAuthCoordinator = oauthCoordinator,
-            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true))
+            deviceLocationTool = DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true))
         )
 
         return PlatformSettingViewModel(

@@ -176,6 +176,7 @@ fun GPTMobileTheme(
                 tertiaryContainer = container, onTertiaryContainer = foreground(container),
                 background = background, onBackground = foreground(background),
                 surface = surface, onSurface = surfaceText, onSurfaceVariant = surfaceText.copy(alpha = 0.8f),
+                surfaceVariant = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.06f),
                 surfaceContainer = surface, surfaceContainerLow = surface, surfaceContainerLowest = background,
                 surfaceContainerHigh = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.06f),
                 surfaceContainerHighest = androidx.compose.ui.graphics.lerp(surface, surfaceText, 0.1f),

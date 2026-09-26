@@ -17,14 +17,30 @@ import org.junit.Test
 class DeviceLocationToolTest {
 
     private val locationProvider: DeviceLocationProvider = mockk()
-    private val tool = DeviceLocationTool(locationProvider)
+    private val tool = DeviceLocationTool(locationProvider, mockk(relaxed = true))
+
+    @Test
+    fun `nearby request returns map markers while lookup failure preserves location`() = runTest {
+        every { locationProvider.hasPermission() } returns true
+        coEvery { locationProvider.getCurrentLocation(any()) } returns DeviceLocation(latitude = 43.0, longitude = -79.0, accuracy = null, altitude = null, timestamp = 10L, provider = "gps")
+        val places = mockk<NearbyPlacesClient>()
+        coEvery { places.nearby(any(), NearbyCategory.STORES, any(), any()) } returns listOf(NearbyPlace("node/1", "Shop", 43.001, -79.001, 140.0))
+        val tools = DeviceLocationTool(locationProvider, places)
+        val args = JsonObject(mapOf("nearby" to kotlinx.serialization.json.JsonPrimitive("stores")))
+        val good = tools.execute("1", args).content as ToolResultContent.Json
+        assertTrue(good.value.toString().contains("Shop"))
+        coEvery { places.nearby(any(), any(), any(), any()) } throws IllegalStateException("offline")
+        val failed = tools.execute("2", args)
+        assertFalse(failed.isError)
+        assertTrue((failed.content as ToolResultContent.Json).value.toString().contains("could not be loaded"))
+    }
 
     @Test
     fun `definition exposes correct metadata and inputSchema`() {
         assertEquals(BuiltInAgentTool.DEVICE_LOCATION, tool.definition.name)
         val schema = tool.definition.inputSchema
         assertEquals("object", schema["type"]?.jsonPrimitive?.content)
-        assertEquals(JsonObject(emptyMap()), schema["properties"]?.jsonObject)
+        assertEquals(setOf("nearby", "place_name", "radius_meters"), schema["properties"]?.jsonObject?.keys)
         assertEquals("false", schema["additionalProperties"]?.toString())
     }
 

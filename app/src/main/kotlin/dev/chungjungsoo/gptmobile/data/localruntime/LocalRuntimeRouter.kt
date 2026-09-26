@@ -25,6 +25,7 @@ class LocalRuntimeRouter(
     private var requestedSpec: LocalEngineSpec? = null
     private var delegatedSpec: LocalEngineSpec? = null
     private var preferenceAtLoad: LocalRuntimeBackend? = null
+    private var tuningAtLoad: Pair<Int?, Boolean>? = null
 
     override val deviceRamGb: Long get() = (activeLoadedRuntime ?: liteRtRuntime).deviceRamGb
     override fun getHardwareState(): DeviceHardwareState = (activeLoadedRuntime ?: liteRtRuntime).getHardwareState()
@@ -32,14 +33,16 @@ class LocalRuntimeRouter(
         (activeLoadedRuntime ?: liteRtRuntime).getAdaptiveThrottlingPolicy()
     override fun loadedEngineSpec(): LocalEngineSpec? = state.value.engineSpec
 
-    override suspend fun loadEngine(spec: LocalEngineSpec) {
+    override suspend fun loadEngine(requested: LocalEngineSpec) {
+        val tuning = settingRepository.getFeatureSettings().localEngineTuning()
+        val spec = requested.copy(cpuThreads = tuning.first, cacheEnabled = tuning.second)
         val preferred = settingRepository.getLocalRuntimeBackend()
         unloadEngine()
         try {
             if (preferred == LocalRuntimeBackend.QUALCOMM_QNN) {
                 try {
                     qnnRuntime.loadEngine(spec)
-                    activate(qnnRuntime, LocalRuntimeBackend.QUALCOMM_QNN, spec, spec, preferred)
+                    activate(qnnRuntime, LocalRuntimeBackend.QUALCOMM_QNN, requested, spec, preferred)
                     return
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -58,7 +61,7 @@ class LocalRuntimeRouter(
                         spec.copy(litertDispatchLibDir = null)
                     }
                     val actual = loadLiteRt(fallback)
-                    activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, spec, actual, preferred, error.message)
+                    activate(liteRtRuntime, LocalRuntimeBackend.LITERT_LM, requested, actual, preferred, error.message)
                     // Update the visible selection only after a working fallback exists.
                     try {
                         settingRepository.updateLocalRuntimeBackend(LocalRuntimeBackend.LITERT_LM)
@@ -75,7 +78,7 @@ class LocalRuntimeRouter(
             activate(
                 liteRtRuntime,
                 LocalRuntimeBackend.LITERT_LM,
-                spec,
+                requested,
                 actual,
                 preferred,
                 if (actual.accelerator != spec.accelerator) "${spec.accelerator.uppercase()} initialization failed" else null
@@ -124,13 +127,19 @@ class LocalRuntimeRouter(
         requestedSpec = requested
         delegatedSpec = delegated
         preferenceAtLoad = preference
+        tuningAtLoad = delegated.cpuThreads to delegated.cacheEnabled
         _state.value = LocalRuntimeState(backend, runtime.loadedEngineSpec() ?: delegated, fallbackReason)
     }
 
     override suspend fun isEngineLoaded(spec: LocalEngineSpec): Boolean {
         val runtime = activeLoadedRuntime ?: return false
         // Read the current preference so switching settings invalidates a warm engine.
-        if (preferenceAtLoad != settingRepository.getLocalRuntimeBackend() || requestedSpec != spec) return false
+        if (preferenceAtLoad != settingRepository.getLocalRuntimeBackend() ||
+            requestedSpec != spec ||
+            tuningAtLoad != settingRepository.getFeatureSettings().localEngineTuning()
+        ) {
+            return false
+        }
         return delegatedSpec?.let { runtime.isEngineLoaded(it) } == true
     }
 
@@ -156,6 +165,7 @@ class LocalRuntimeRouter(
         requestedSpec = null
         delegatedSpec = null
         preferenceAtLoad = null
+        tuningAtLoad = null
         _state.value = LocalRuntimeState()
         try {
             qnnRuntime.unloadEngine()
@@ -168,3 +178,7 @@ class LocalRuntimeRouter(
         const val TAG = "LocalRuntimeRouter"
     }
 }
+
+internal fun dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings.localEngineTuning(
+    availableCores: Int = Runtime.getRuntime().availableProcessors()
+): Pair<Int?, Boolean> = localCpuThreads.takeIf { it > 0 }?.coerceIn(1, availableCores.coerceIn(1, 64)) to localModelCache

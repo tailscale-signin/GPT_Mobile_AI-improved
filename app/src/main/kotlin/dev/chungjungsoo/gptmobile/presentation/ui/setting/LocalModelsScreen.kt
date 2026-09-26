@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -65,9 +67,11 @@ import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 fun LocalModelsScreen(
     modifier: Modifier = Modifier,
     viewModel: LocalModelsViewModel = hiltViewModel(),
+    runtimeViewModel: LocalRuntimeSettingsViewModel = hiltViewModel(),
+    onOpenProfile: (String) -> Unit = {},
     onNavigationClick: () -> Unit
 ) {
-    val scrollState = rememberScrollState()
+    val scrollState = rememberLazyListState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
     )
@@ -105,58 +109,66 @@ fun LocalModelsScreen(
             }
 
             else -> {
-                Column(
-                    Modifier
-                        .padding(innerPadding)
-                        .verticalScroll(scrollState)
-                ) {
-                    LocalModelsOverviewCard(uiState)
-                    ModelCatalogSearch(
-                        query = uiState.searchQuery,
-                        selectedFilter = uiState.filter,
-                        selectedSource = uiState.source,
-                        isSearchingHuggingFace = uiState.isSearchingHuggingFace,
-                        huggingFaceSearchError = uiState.huggingFaceSearchError,
-                        onQueryChange = viewModel::updateSearchQuery,
-                        onFilterChange = viewModel::updateFilter,
-                        onSourceChange = viewModel::updateModelSource,
-                        onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
-                    )
-                    HuggingFaceAccountSection(
-                        hasToken = uiState.hasHuggingFaceToken,
-                        onAddToken = viewModel::openAccessTokenDialog,
-                        onRemoveToken = viewModel::removeHuggingFaceAccessToken
-                    )
-                    CustomModelImportSection(
-                        onImportClick = {
-                            openDocumentLauncher.launch(arrayOf("*/*"))
-                        }
-                    )
+                LazyColumn(Modifier.padding(innerPadding), state = scrollState) {
+                    item(key = "overview") { LocalModelsOverviewCard(uiState) }
+                    item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
+                    item(key = "search") {
+                        ModelCatalogSearch(
+                            query = uiState.searchQuery,
+                            selectedFilter = uiState.filter,
+                            selectedSource = uiState.source,
+                            isSearchingHuggingFace = uiState.isSearchingHuggingFace,
+                            huggingFaceSearchError = uiState.huggingFaceSearchError,
+                            onQueryChange = viewModel::updateSearchQuery,
+                            onFilterChange = viewModel::updateFilter,
+                            onSourceChange = viewModel::updateModelSource,
+                            onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
+                        )
+                    }
+                    item(key = "account") {
+                        HuggingFaceAccountSection(
+                            hasToken = uiState.hasHuggingFaceToken,
+                            onAddToken = viewModel::openAccessTokenDialog,
+                            onRemoveToken = viewModel::removeHuggingFaceAccessToken
+                        )
+                    }
+                    item(key = "import") {
+                        CustomModelImportSection(
+                            onImportClick = {
+                                openDocumentLauncher.launch(arrayOf("*/*"))
+                            }
+                        )
+                    }
                     if (uiState.items.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.local_models_empty),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
-                        )
+                        item(key = "empty") {
+                            Text(
+                                text = stringResource(R.string.local_models_empty),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
+                            )
+                        }
                     } else {
-                        Text(
-                            text = stringResource(
-                                R.string.local_model_storage_used,
-                                ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
-                        )
-                        uiState.items.forEach { item ->
+                        item(key = "storage") {
+                            Text(
+                                text = stringResource(
+                                    R.string.local_model_storage_used,
+                                    ModelCatalogParser.formatDownloadSize(uiState.totalStorageBytes)
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                            )
+                        }
+                        items(uiState.items, key = { it.entry.id }, contentType = { "model" }) { item ->
                             LocalModelItem(
                                 item = item,
                                 source = uiState.source,
                                 isCheckingAccess = uiState.checkingAccessEntryId == item.entry.id,
                                 onDownload = { requestDownload(item.entry) },
                                 onCancel = { viewModel.cancelDownload(item.entry) },
-                                onDelete = { viewModel.onDeleteClick(item.entry) }
+                                onDelete = { viewModel.onDeleteClick(item.entry) },
+                                onCreateProfile = { runtimeViewModel.createProfile(item.entry, onOpenProfile) }
                             )
                         }
                     }
@@ -456,7 +468,8 @@ private fun LocalModelItem(
     isCheckingAccess: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onCreateProfile: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -507,6 +520,9 @@ private fun LocalModelItem(
                 onCancel = onCancel,
                 onDelete = onDelete
             )
+            if (item.status == LocalModelItemStatus.READY) {
+                Button(onClick = onCreateProfile, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Create AI profile") }
+            }
         }
     }
 }

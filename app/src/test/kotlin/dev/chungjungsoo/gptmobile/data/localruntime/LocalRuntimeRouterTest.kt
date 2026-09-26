@@ -39,6 +39,30 @@ class LocalRuntimeRouterTest {
     }
 
     @Test
+    fun tuningChangesInvalidateWarmEngineAndReachCpuBackend() = runTest {
+        fakeSettingRepository.backend = LocalRuntimeBackend.LITERT_LM
+        fakeSettingRepository.features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(localCpuThreads = 1, localModelCache = false)
+        val spec = testEngineSpec().copy(accelerator = LocalAccelerators.CPU)
+        val holder = LocalEngineHolder(router) { 1000L }
+        holder.loadEngine(spec)
+        assertEquals(1, liteRtRuntime.loadEngineCalls.last().cpuThreads)
+        assertFalse(liteRtRuntime.loadEngineCalls.last().cacheEnabled)
+        assertTrue(holder.isEngineLoaded(spec))
+        fakeSettingRepository.features = fakeSettingRepository.features.copy(localCpuThreads = 0, localModelCache = true)
+        assertFalse(holder.isEngineLoaded(spec))
+        holder.loadEngine(spec)
+        assertEquals(null, liteRtRuntime.loadEngineCalls.last().cpuThreads)
+        assertTrue(liteRtRuntime.loadEngineCalls.last().cacheEnabled)
+    }
+
+    @Test
+    fun threadCountIsBoundedToAvailableCoresAndZeroIsAutomatic() {
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(localCpuThreads = 99)
+        assertEquals(4, features.localEngineTuning(4).first)
+        assertEquals(null, features.copy(localCpuThreads = 0).localEngineTuning(4).first)
+    }
+
+    @Test
     fun defaultPreferenceLoadsQnnAndPublishesActualNpu() = runTest {
         router.loadEngine(testEngineSpec())
         assertEquals(listOf(testEngineSpec()), qnnRuntime.loadEngineCalls)

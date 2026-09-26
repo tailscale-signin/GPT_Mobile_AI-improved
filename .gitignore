@@ -42,3 +42,6 @@ node_modules/
 *.p12
 *.pfx
 release.keystore
+
+# Kotlin compiler sessions are local build state
+.kotlin/

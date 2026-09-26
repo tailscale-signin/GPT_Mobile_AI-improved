@@ -141,7 +141,7 @@
     <string name="update_chat_title">அரட்டை தலைப்பைப் புதுப்பிக்கவும்</string>
     <string name="chat_title">அரட்டை தலைப்பு</string>
     <string name="untitled_chat">பெயரிடப்படாத அரட்டை</string>
-    <string name="title_length_limit">தலைப்பு நீள வரம்பு: %1$s/50</string>
+    <string name="title_length_limit">தலைப்பு நீள வரம்பு: %1$d/50</string>
     <string name="chat_title_dialog_description">AI உருவாக்கிய தலைப்பு AICORE உதவி சாதனங்களுடன் மட்டுமே கிடைக்கிறது.</string>
     <string name="default_mode">இயல்புநிலை</string>
     <string name="ai_generated">AI உருவாக்கப்பட்டது (பீட்டா)</string>

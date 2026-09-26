@@ -12,7 +12,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
-import dev.chungjungsoo.gptmobile.data.model.isLocalPlatform
+import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -66,7 +66,8 @@ class AgentToolResolver @Inject constructor(
         profileUid: String,
         chatToolConfig: ChatMcpToolConfig? = null,
         userMessage: MessageV2? = null,
-        delegate: (suspend (PlatformV2, String, Int) -> String)? = null
+        delegate: (suspend (PlatformV2, String, Int) -> String)? = null,
+        onConnectionError: (String) -> Unit = {}
     ): List<ResolvedAgentTool> {
         val platforms = settingRepository.fetchPlatformV2s()
         val platform = platforms.firstOrNull { it.uid == profileUid }
@@ -106,7 +107,7 @@ class AgentToolResolver @Inject constructor(
                 }
                 if (memoryAvailable) {
                     listOf(true, false).forEach { capture ->
-                        val tool = LocalMemoryTool(factVault, userMessage, platform.compatibleType.isLocalPlatform(), capture)
+                        val tool = LocalMemoryTool(factVault, userMessage, platform.isPrivateDestination(), capture)
                         resolved += tool.resolved(null, "Local memory", tool.definition.name)
                     }
                 }
@@ -156,6 +157,7 @@ class AgentToolResolver @Inject constructor(
                     } catch (error: CancellationException) {
                         throw error
                     } catch (_: Exception) {
+                        onConnectionError("${mcpBindings.first().connection?.name ?: "MCP"}: tools unavailable. Check authentication and connection diagnostics.")
                     }
                 }
         }
@@ -272,6 +274,7 @@ class AgentToolResolver @Inject constructor(
                     authType = connection.authType,
                     config = { forceRefresh, rejectedHeader -> mcpConfig(connection, forceRefresh, rejectedHeader) },
                     remoteToolName = remoteTool.name,
+                    outputSchema = remoteTool.outputSchema,
                     clientManager = mcpClientManager
                 )
                 ResolvedAgentTool(
@@ -280,12 +283,12 @@ class AgentToolResolver @Inject constructor(
                     connectionName = connection.name,
                     realToolName = remoteTool.name,
                     modelToolName = tool.definition.name,
-                    shareableReadOnly = remoteTool.isSafelyShareableReadOnly()
+                    shareableReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim)
                 )
             }
     }
 
-    private suspend fun mcpConfig(
+    suspend fun mcpConfig(
         connection: ToolConnection,
         forceOAuthRefresh: Boolean = false,
         rejectedAuthorizationHeader: String? = null
@@ -305,7 +308,7 @@ class AgentToolResolver @Inject constructor(
         }
         return McpConnectionConfig(
             connectionUid = connection.connectionUid,
-            endpointUrl = connection.endpointUrl ?: throw IllegalArgumentException("MCP endpoint is required."),
+            endpointUrl = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault),
             allowCleartext = connection.allowCleartext,
             authorizationHeader = authorization
         )
@@ -361,7 +364,8 @@ private class McpAgentTool(
     private val authType: String,
     private val config: suspend (Boolean, String?) -> McpConnectionConfig,
     private val remoteToolName: String,
-    private val clientManager: McpClientManager
+    private val clientManager: McpClientManager,
+    private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null
 ) : AgentTool {
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val isFileTool = isFileReadingTool(remoteToolName)
@@ -394,6 +398,12 @@ private class McpAgentTool(
                 remoteToolName,
                 remoteArguments
             )
+        }
+        if (outputSchema != null && result.isError != true) {
+            val schema = kotlinx.serialization.json.Json.encodeToJsonElement(io.modelcontextprotocol.kotlin.sdk.types.ToolSchema.serializer(), outputSchema) as JsonObject
+            val invalid = result.structuredContent?.let { schemaError(schema, it) } ?: "The tool did not return its declared structured output."
+            if (invalid.isNotEmpty() && result.structuredContent == null) return AgentToolResult(callId, ToolResultContent.Text(invalid), true)
+            result.structuredContent?.let { schemaError(schema, it) }?.let { error -> return AgentToolResult(callId, ToolResultContent.Text(error), true) }
         }
         return mapMcpToolResult(callId, result, startLine, endLine)
     }

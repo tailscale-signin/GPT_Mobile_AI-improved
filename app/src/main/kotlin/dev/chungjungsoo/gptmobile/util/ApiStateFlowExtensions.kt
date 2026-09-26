@@ -88,6 +88,11 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     try {
         collect { chunk ->
             when (chunk) {
+                is ApiState.ProgressCheckpoint -> {
+                    buffer.appendProgress(chunk.text, chunk.modelAuthored)
+                    buffer.publishNow(onUpdate)
+                }
+
                 is ApiState.Thinking -> {
                     buffer.appendThought(chunk.thinkingChunk)
                     buffer.publishIfDue(onUpdate)
@@ -185,6 +190,21 @@ private class StreamingMessageBuffer(
                 type = AssistantTimelineItemType.TOOL,
                 toolSequence = toolSequence,
                 toolMetrics = metrics
+            )
+        }
+        timelineVersion += 1
+    }
+
+    fun appendProgress(text: String, modelAuthored: Boolean) {
+        val last = timeline.lastOrNull()
+        if (modelAuthored && last?.progressCheckpoint == true) {
+            timeline[timeline.lastIndex] = last.copy(content = (if (last.modelAuthored) last.content else "") + text, modelAuthored = true)
+        } else {
+            timeline += AssistantTimelineItem(
+                AssistantTimelineItemType.NOTICE,
+                content = text,
+                progressCheckpoint = true,
+                modelAuthored = modelAuthored
             )
         }
         timelineVersion += 1

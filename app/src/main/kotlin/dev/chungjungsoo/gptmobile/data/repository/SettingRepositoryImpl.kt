@@ -168,10 +168,12 @@ class SettingRepositoryImpl @Inject constructor(
 
     override fun observeDebugMode(): Flow<Boolean> = settingDataSource.observeDebugMode()
 
-    override suspend fun getFeatureSettings(): AppFeatureSettings = settingDataSource.getFeatureSettings()
+    override suspend fun getFeatureSettings(): AppFeatureSettings = settingDataSource.getFeatureSettings().also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
 
-    override suspend fun updateFeatureSettings(settings: AppFeatureSettings) =
+    override suspend fun updateFeatureSettings(settings: AppFeatureSettings) {
         settingDataSource.updateFeatureSettings(settings)
+        dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = settings.diagnosticsCollection
+    }
 
     override fun observeFeatureSettings(): Flow<AppFeatureSettings> =
         settingDataSource.observeFeatureSettings()

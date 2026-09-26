@@ -34,6 +34,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     entities = [
         ChatRoomV2::class,
         MessageV2::class,
+        dev.chungjungsoo.gptmobile.data.database.entity.MessageSearch::class,
         PlatformV2::class,
         ChatPlatformModelV2::class,
         ToolConnection::class,
@@ -42,10 +43,17 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         ToolEvent::class,
         LocalModel::class,
         OpenRouterBatchCacheEntity::class,
+        dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProject::class,
+        dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProjectChat::class,
+        dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDocument::class,
+        dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk::class,
+        dev.chungjungsoo.gptmobile.data.queue.PendingPrompt::class,
+        dev.chungjungsoo.gptmobile.data.permissions.ToolApproval::class,
+        dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation::class,
         ProviderConnection::class
     ],
-    version = 27,
-    exportSchema = false
+    version = 30,
+    exportSchema = true
 )
 @TypeConverters(
     StringListConverter::class,
@@ -55,6 +63,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
+    abstract fun toolApprovalDao(): dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalDao
+    abstract fun invocationDao(): dev.chungjungsoo.gptmobile.data.accounting.InvocationDao
+    abstract fun knowledgeDao(): dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDao
+    abstract fun pendingPromptDao(): dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao
     abstract fun platformDao(): PlatformV2Dao
     abstract fun providerConnectionDao(): ProviderConnectionDao
     abstract fun chatRoomDao(): ChatRoomV2Dao

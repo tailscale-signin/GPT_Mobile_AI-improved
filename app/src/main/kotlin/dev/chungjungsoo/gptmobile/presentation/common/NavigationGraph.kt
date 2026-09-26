@@ -217,6 +217,7 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
                 onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToAdvancedSettings = { navController.navigate(Route.ADVANCED_SETTINGS) },
+                onNavigateToKnowledge = { navController.navigate(Route.KNOWLEDGE_WORKSPACES) },
                 onNavigateToFactVault = { navController.navigate(Route.FACT_VAULT) },
                 onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
@@ -228,6 +229,11 @@ fun NavGraphBuilder.settingNavigation(
                 viewModel = viewModel,
                 onNavigationClick = { navController.navigateUp() }
             )
+        }
+
+        composable(Route.KNOWLEDGE_WORKSPACES) {
+            val viewModel: dev.chungjungsoo.gptmobile.presentation.ui.setting.KnowledgeWorkspaceViewModel = hiltViewModel()
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.KnowledgeWorkspaceScreen(viewModel, onBack = { navController.navigateUp() })
         }
 
         composable(Route.FACT_VAULT) {

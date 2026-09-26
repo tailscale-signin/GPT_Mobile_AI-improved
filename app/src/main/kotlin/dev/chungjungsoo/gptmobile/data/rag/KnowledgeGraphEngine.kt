@@ -160,12 +160,14 @@ class KnowledgeGraphEngine @Inject constructor() {
      */
     @Synchronized
     fun extractAndStoreFromText(text: String) {
-        val lines = text.lines()
+        val lines = text.split(Regex("[\\r\\n]+|(?<=[.!])\\s+"))
+        val subject = "([\\p{L}\\p{N}_-]+(?:[ ]+[\\p{L}\\p{N}_-]+){0,5})"
+        val target = "([^.!?;\\n]{1,120})"
         val relationKeywords = listOf(
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:is using|uses|use|built with|built on|runs on)\\s+([a-zA-Z0-9_-]+)") to "USES",
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:prefers|prefer|likes|like|favorite is)\\s+([a-zA-Z0-9_-]+)") to "PREFERS",
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:works at|work at|contributes to|part of)\\s+([a-zA-Z0-9_-]+)") to "CONTRIBUTES_TO",
-            Regex("(?i)([a-zA-Z0-9_-]+)\\s+(?:located in|lives in|live in|based in)\\s+([a-zA-Z0-9_-]+)") to "LOCATED_IN"
+            Regex("(?iu)$subject\\s+(?:is using|uses|use|built with|built on|runs on|uso|utilizo)\\s+$target") to "USES",
+            Regex("(?iu)$subject\\s+(?:prefers|prefer|likes|like|favorite is|prefiro|prefiero|préfère|gosto de|aime)\\s+$target") to "PREFERS",
+            Regex("(?iu)$subject\\s+(?:works at|work at|contributes to|part of|trabalho na|trabalho no|trabajo en|travaille chez)\\s+$target") to "CONTRIBUTES_TO",
+            Regex("(?iu)$subject\\s+(?:located in|lives in|live in|based in|moro em|vivo en|habite à)\\s+$target") to "LOCATED_IN"
         )
 
         for (line in lines) {
@@ -174,7 +176,7 @@ class KnowledgeGraphEngine @Inject constructor() {
             // otherwise become false facts such as “not PREFERS Kotlin”.
             if (trimmed.isEmpty() ||
                 '?' in trimmed ||
-                Regex("(?i)\\b(?:not|never|no longer)\\b|n['’]t\\b").containsMatchIn(trimmed)
+                Regex("(?i)\\b(?:not|never|no longer|não|nunca|jamais|pas)\\b|n['’]t\\b").containsMatchIn(trimmed)
             ) {
                 continue
             }
@@ -184,6 +186,8 @@ class KnowledgeGraphEngine @Inject constructor() {
                 if (match != null && match.groupValues.size >= 3) {
                     val subject = match.groupValues[1].trim()
                     val target = match.groupValues[2].trim()
+                    // A multiword subject must not turn reported speech into a fact.
+                    if (Regex("(?iu)\\b(?:said|says|told|wrote|quoted|asked|reported|claims|claimed|disse|dijo|dit)\\b").containsMatchIn(subject)) continue
                     if (subject.isNotBlank() && target.isNotBlank()) {
                         val srcEntity = KnowledgeEntity(id = subject.lowercase(Locale.ROOT), name = subject, type = "ENTITY")
                         val dstEntity = KnowledgeEntity(id = target.lowercase(Locale.ROOT), name = target, type = "ENTITY")

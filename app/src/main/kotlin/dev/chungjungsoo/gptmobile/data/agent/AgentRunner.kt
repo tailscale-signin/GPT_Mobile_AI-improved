@@ -18,16 +18,16 @@ data class AgentRunLimits(
     val maxRounds: Int = Int.MAX_VALUE,
     val maxToolCalls: Int = 12,
     val maxConcurrentTools: Int = 32,
-    val toolTimeoutMillis: Long = Long.MAX_VALUE,
-    val maxToolOutputBytes: Int = Int.MAX_VALUE,
-    val finalResponseToolCallReserve: Int = 1
+    val toolTimeoutMillis: Long = 45_000L,
+    val maxToolOutputBytes: Int = 256 * 1024,
+    val finalResponseToolCallReserve: Int = 0
 ) {
     companion object {
         const val DEFAULT_MAX_TOOL_CALLS: Int = 12
 
         fun defaultMaxConcurrentTools(): Int = 32
 
-        fun defaultMaxToolOutputBytes(): Int = Int.MAX_VALUE
+        fun defaultMaxToolOutputBytes(): Int = 256 * 1024
     }
 }
 
@@ -287,7 +287,7 @@ class AgentRunner(
         }
 
         return try {
-            val result = if (limits.toolTimeoutMillis < Long.MAX_VALUE) {
+            val result = if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
                 withTimeoutOrNull(limits.toolTimeoutMillis) {
                     tool.execute(call.callId, call.arguments)
                 } ?: AgentToolResult(

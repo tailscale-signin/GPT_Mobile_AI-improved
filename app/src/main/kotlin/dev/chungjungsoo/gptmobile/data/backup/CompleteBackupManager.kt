@@ -11,6 +11,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2Migrations
 import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
+import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.io.File
@@ -48,11 +49,15 @@ class CompleteBackupManager @Inject constructor(
 
     suspend fun backup(
         uri: Uri,
-        selection: CompleteBackupSelection = CompleteBackupSelection.ALL,
+        selection: CompleteBackupSelection = CompleteBackupSelection(),
         password: String? = null
     ): BackupRestoreResult = operation { work ->
         val selected = selection.normalized()
         require(selected.sections.isNotEmpty()) { "Select at least one backup section." }
+
+        require(!selected.requiresEncryption || (password?.length ?: 0) >= 8) {
+            "Choose a password of at least 8 characters to export credentials or memory."
+        }
 
         val storage = files()
         val sources = linkedMapOf<String, File>()
@@ -62,6 +67,7 @@ class CompleteBackupManager @Inject constructor(
             val dbFile = File(work, "database.sqlite")
             database.withTransaction {
                 ensureIdle(restoring = false)
+                dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository(database.toolConnectionDao(), secretVault).listConnections()
                 CompleteBackupDatabase.snapshot(database.openHelper.writableDatabase, dbFile)
             }
 
@@ -77,6 +83,12 @@ class CompleteBackupManager @Inject constructor(
                         }
                     } else {
                         snapshotDb.execSQL("UPDATE messages_v2 SET attachments = '[]'")
+                        snapshotDb.query("SELECT id, payload FROM pending_prompts").use { rows ->
+                            while (rows.moveToNext()) {
+                                val payload = json.decodeFromString<dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload>(rows.getString(1))
+                                snapshotDb.execSQL("UPDATE pending_prompts SET payload = ? WHERE id = ?", arrayOf<Any>(json.encodeToString(payload.copy(attachments = emptyList())), rows.getString(0)))
+                            }
+                        }
                     }
                 }
 
@@ -95,7 +107,7 @@ class CompleteBackupManager @Inject constructor(
         val manifest = CompleteBackupManifest(
             preferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.read() else emptyMap(),
             sharedPreferences = if (CompleteBackupSection.SETTINGS in selected.sections) preferences.readShared() else emptyMap(),
-            secrets = if (CompleteBackupSection.CREDENTIALS in selected.sections) readSecrets() else emptyMap(),
+            secrets = readSecrets(selected),
             files = sources.mapValues { it.value.length() },
             sections = selected.sections.mapTo(linkedSetOf()) { it.name }
         )
@@ -191,7 +203,8 @@ class CompleteBackupManager @Inject constructor(
         }
 
         val restoreSettings = CompleteBackupSection.SETTINGS in effective.sections
-        val restoreCredentials = CompleteBackupSection.CREDENTIALS in effective.sections
+        val restoreSecrets = effective.requiresEncryption
+        val selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) }
         val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
         val restoreModels = CompleteBackupSection.LOCAL_MODELS in effective.sections
         val restoreDatabase = effective.sections.any(::isDatabaseSection) &&
@@ -200,8 +213,8 @@ class CompleteBackupManager @Inject constructor(
         if (restoreSettings) {
             preferences.validate(manifest.preferences, manifest.sharedPreferences)
         }
-        if (restoreCredentials) {
-            validateSecrets(manifest.secrets)
+        if (restoreSecrets) {
+            validateSecrets(selectedSecrets)
         }
 
         val storage = files()
@@ -250,7 +263,7 @@ class CompleteBackupManager @Inject constructor(
 
             val oldPreferences = if (restoreSettings) preferences.read() else emptyMap()
             val oldShared = if (restoreSettings) preferences.readShared() else emptyMap()
-            val oldSecrets = if (restoreCredentials) readSecrets() else emptyMap()
+            val oldSecrets = if (restoreSecrets) readSecrets(effective) else emptyMap()
             val replacement = storage.replacement(staging, selectedPaths)
 
             try {
@@ -264,7 +277,7 @@ class CompleteBackupManager @Inject constructor(
                         )
                     }
                     if (selectedPaths.isNotEmpty()) replacement.apply()
-                    if (restoreCredentials) replaceSecrets(manifest.secrets)
+                    if (restoreSecrets) replaceSecrets(selectedSecrets, effective)
                     if (restoreSettings) {
                         preferences.replace(manifest.preferences, manifest.sharedPreferences)
                     }
@@ -272,7 +285,7 @@ class CompleteBackupManager @Inject constructor(
             } catch (error: Throwable) {
                 withContext(NonCancellable) {
                     if (selectedPaths.isNotEmpty()) runCatching { replacement.rollback() }
-                    if (restoreCredentials) runCatching { replaceSecrets(oldSecrets) }
+                    if (restoreSecrets) runCatching { replaceSecrets(oldSecrets, effective) }
                     if (restoreSettings) runCatching { preferences.replace(oldPreferences, oldShared) }
                 }
                 throw error
@@ -336,6 +349,17 @@ class CompleteBackupManager @Inject constructor(
                 db.execSQL("UPDATE messages_v2 SET attachments = ? WHERE message_id = ?", arrayOf<Any>(json.encodeToString(attachments), rows.getInt(0)))
             }
         }
+        db.query("SELECT id, payload FROM pending_prompts").use { rows ->
+            while (rows.moveToNext()) {
+                val payload = json.decodeFromString<dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload>(rows.getString(1))
+                val portable = payload.copy(
+                    attachments = payload.attachments.map {
+                        it.copy(localFilePath = transform(it.localFilePath), preparedFilePath = transform(it.preparedFilePath))
+                    }
+                )
+                db.execSQL("UPDATE pending_prompts SET payload = ? WHERE id = ?", arrayOf<Any>(json.encodeToString(portable), rows.getString(0)))
+            }
+        }
     }
 
     private fun validateModels(db: SupportSQLiteDatabase, paths: Set<String>) {
@@ -351,12 +375,12 @@ class CompleteBackupManager @Inject constructor(
         }
     }
 
-    private suspend fun readSecrets(): Map<String, String> {
+    private suspend fun readSecrets(selection: CompleteBackupSelection): Map<String, String> {
         val refs = (
             secretVault.references() +
                 database.platformDao().getPlatforms().mapNotNull { it.secretRef } +
                 database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
-            ).filterNot { it == BACKUP_KEY_REF }
+            ).filter { secretBelongsTo(it, selection) }
         return buildMap {
             refs.forEach { reference ->
                 secretVault.read(reference)?.let { bytes ->
@@ -368,6 +392,12 @@ class CompleteBackupManager @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when (reference) {
+        BACKUP_KEY_REF -> false
+        FactVaultRepository.VAULT_REFERENCE -> selection.includes(CompleteBackupSection.MEMORY)
+        else -> selection.includes(CompleteBackupSection.CREDENTIALS)
     }
 
     private fun validateSecrets(values: Map<String, String>) {
@@ -382,7 +412,7 @@ class CompleteBackupManager @Inject constructor(
         }
     }
 
-    private suspend fun replaceSecrets(values: Map<String, String>) {
+    private suspend fun replaceSecrets(values: Map<String, String>, selection: CompleteBackupSelection) {
         values.forEach { (reference, encoded) ->
             val bytes = Base64.getDecoder().decode(encoded)
             try {
@@ -391,7 +421,7 @@ class CompleteBackupManager @Inject constructor(
                 bytes.fill(0)
             }
         }
-        (secretVault.references() - values.keys - BACKUP_KEY_REF).forEach { secretVault.delete(it) }
+        (secretVault.references().filter { secretBelongsTo(it, selection) }.toSet() - values.keys).forEach { secretVault.delete(it) }
     }
 
     private suspend fun getOrCreateBackupKey(): ByteArray {
@@ -432,7 +462,8 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.AGENT_HISTORY -> true
 
         CompleteBackupSection.CREDENTIALS,
-        CompleteBackupSection.ATTACHMENTS -> false
+        CompleteBackupSection.ATTACHMENTS,
+        CompleteBackupSection.MEMORY -> false
     }
 
     private fun manifestSelection(manifest: CompleteBackupManifest): CompleteBackupSelection {
@@ -443,6 +474,9 @@ class CompleteBackupManager @Inject constructor(
         val modern = manifest.sections.mapNotNull { raw ->
             runCatching { CompleteBackupSection.valueOf(raw) }.getOrNull()
         }.toSet()
+        if (FactVaultRepository.VAULT_REFERENCE in manifest.secrets && CompleteBackupSection.CREDENTIALS in modern) {
+            return CompleteBackupSelection(modern + CompleteBackupSection.MEMORY).normalized()
+        }
         if (modern.isNotEmpty()) return CompleteBackupSelection(modern).normalized()
 
         // Compatibility with brief v2 development builds that used four broad section names.
@@ -473,6 +507,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.PLATFORMS -> "AI platforms"
         CompleteBackupSection.TOOLS -> "tool connections"
         CompleteBackupSection.CREDENTIALS -> "credentials"
+        CompleteBackupSection.MEMORY -> "memory"
         CompleteBackupSection.LOCAL_MODELS -> "local models"
         CompleteBackupSection.ATTACHMENTS -> "attachments"
         CompleteBackupSection.AGENT_HISTORY -> "agent history"

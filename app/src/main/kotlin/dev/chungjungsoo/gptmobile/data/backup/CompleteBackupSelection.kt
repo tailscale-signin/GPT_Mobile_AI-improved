@@ -9,6 +9,7 @@ enum class CompleteBackupSection {
     PLATFORMS,
     TOOLS,
     CREDENTIALS,
+    MEMORY,
     LOCAL_MODELS,
     ATTACHMENTS,
     AGENT_HISTORY
@@ -18,6 +19,9 @@ enum class CompleteBackupSection {
 data class CompleteBackupSelection(
     val sections: Set<CompleteBackupSection> = DEFAULT_SECTIONS
 ) {
+    val requiresEncryption: Boolean
+        get() = includes(CompleteBackupSection.CREDENTIALS) || includes(CompleteBackupSection.MEMORY)
+
     fun includes(section: CompleteBackupSection): Boolean = section in sections
 
     fun normalized(): CompleteBackupSelection {
@@ -37,6 +41,8 @@ data class CompleteBackupSelection(
 
     companion object {
         val DEFAULT_SECTIONS = CompleteBackupSection.entries.toSet() - setOf(
+            CompleteBackupSection.CREDENTIALS,
+            CompleteBackupSection.MEMORY,
             CompleteBackupSection.TOOLS,
             CompleteBackupSection.LOCAL_MODELS,
             CompleteBackupSection.ATTACHMENTS,

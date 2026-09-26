@@ -52,6 +52,9 @@ class GPTMobileApp :
     @Inject
     lateinit var gatewayNetworkRecoveryMonitor: GatewayNetworkRecoveryMonitor
 
+    @Inject
+    lateinit var durablePromptQueue: dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
+
     @Volatile
     var secretMigrationErrors: List<SecretMigrationError> = emptyList()
         private set
@@ -66,6 +69,10 @@ class GPTMobileApp :
             memInfo.totalMem >= 10L * 1024 * 1024 * 1024 // 10 GB+
         }.getOrDefault(false)
     }
+
+    @javax.inject.Inject lateinit var invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger
+
+    @javax.inject.Inject lateinit var toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
 
     override fun onCreate() {
         val startupStartTime = SystemClock.elapsedRealtime()
@@ -84,6 +91,8 @@ class GPTMobileApp :
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
             val startup = startupDependencies()
+            toolApprovals.recover()
+            invocationLedger.dao.recover()
             startup.pendingLocalPlatformActivator().start()
             secretMigrationErrors = runStartupMaintenance(
                 interruptPersistedWork = {
@@ -109,6 +118,7 @@ class GPTMobileApp :
             startup.localModelRepository().reconcile()
             startup.localModelRepository().awaitActiveDownloadScheduling()
             gatewayNetworkRecoveryMonitor.start()
+            durablePromptQueue.start()
             Log.i(TAG, "Startup maintenance completed in ${SystemClock.elapsedRealtime() - gateStartTime}ms")
         }
 

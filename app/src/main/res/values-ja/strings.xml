@@ -144,7 +144,7 @@
     <string name="ai_generated">AI生成(ベータ)</string>
     <string name="update">更新</string>
     <string name="untitled_chat">無題のチャット</string>
-    <string name="title_length_limit">タイトルの長さ制限: %1$s/50</string>
+    <string name="title_length_limit">タイトルの長さ制限: %1$d/50</string>
     <string name="apply_generated_title">生成済みタイトルを適用</string>
     <string name="retry_ai_title">AI生成タイトルを再試行</string>
     <string name="token_input_warning">注意: OpenAIとAnthropicはプリペイド課金を使用するので、使用する前に各アカウントでクレジットのチャージをしなければなりません。 それ以外の場合、応答はエラーを返します.</string>

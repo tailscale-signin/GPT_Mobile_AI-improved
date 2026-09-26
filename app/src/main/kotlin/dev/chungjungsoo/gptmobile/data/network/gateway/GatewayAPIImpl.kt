@@ -43,6 +43,8 @@ class GatewayAPIImpl @Inject constructor(
                 if (response.status.isSuccess()) response.body<String>() else null
             } ?: return null
             json.decodeFromString<GatewayCapabilities>(responseBody)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (_: Exception) {
             null
         }
@@ -54,6 +56,7 @@ class GatewayAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<GatewayProgress> = flow {
+        require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/events?after_sequence=$afterSequence")
         try {
             networkClient().prepareGet(endpoint) {
@@ -73,6 +76,8 @@ class GatewayAPIImpl @Inject constructor(
                     try {
                         val progress = json.decodeFromString<GatewayProgress>(data)
                         emit(progress)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
                     } catch (_: Exception) {
                         // Skip unparseable events
                     }
@@ -87,6 +92,7 @@ class GatewayAPIImpl @Inject constructor(
         jobId: String,
         config: ProviderRequestConfig
     ): GatewayJobResult? {
+        require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/result")
         return try {
             networkClient().prepareGet(endpoint) {
@@ -95,10 +101,6 @@ class GatewayAPIImpl @Inject constructor(
                 accept(ContentType.Application.Json)
             }.execute { response ->
                 when {
-                    response.status.isSuccess() -> {
-                        val body = response.body<String>()
-                        json.decodeFromString<GatewayJobResult>(body)
-                    }
                     response.status == HttpStatusCode.Accepted -> {
                         // HTTP 202: Job is still in progress
                         GatewayJobResult(
@@ -106,9 +108,15 @@ class GatewayAPIImpl @Inject constructor(
                             status = "RUNNING"
                         )
                     }
+                    response.status.isSuccess() -> {
+                        val body = response.body<String>()
+                        json.decodeFromString<GatewayJobResult>(body)
+                    }
                     else -> null
                 }
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (_: Exception) {
             null
         }
@@ -118,6 +126,7 @@ class GatewayAPIImpl @Inject constructor(
         jobId: String,
         config: ProviderRequestConfig
     ): GatewayCancelResult? {
+        require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/cancel")
         return try {
             val responseBody = networkClient().preparePost(endpoint) {
@@ -128,6 +137,8 @@ class GatewayAPIImpl @Inject constructor(
                 if (response.status.isSuccess()) response.body<String>() else null
             } ?: return null
             json.decodeFromString<GatewayCancelResult>(responseBody)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (_: Exception) {
             null
         }

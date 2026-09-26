@@ -5,7 +5,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceThermalState
-import dev.chungjungsoo.gptmobile.util.HIGH_REFRESH_FRAME_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 import kotlinx.coroutines.CoroutineStart
@@ -146,14 +145,14 @@ class AgentRunCoordinatorTest {
 
     @Test
     fun `resolvePublishInterval adapts dynamically to thermal and battery throttling`() {
-        // Normal high-memory device gets 8ms frame budget
+        // Chat publishing keeps the 33ms floor even on high-memory devices.
         val normalHighMem = DeviceHardwareState(
             thermalState = DeviceThermalState.NORMAL,
             batteryPct = 80,
             isCharging = true,
             isPowerSaveMode = false
         )
-        assertEquals(HIGH_REFRESH_FRAME_INTERVAL_MILLIS, resolvePublishInterval(normalHighMem, isHighMemoryDevice = true))
+        assertEquals(STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS, resolvePublishInterval(normalHighMem, isHighMemoryDevice = true))
 
         // Normal standard memory device gets 33ms standard interval
         assertEquals(STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS, resolvePublishInterval(normalHighMem, isHighMemoryDevice = false))

@@ -7,7 +7,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
-import dev.chungjungsoo.gptmobile.data.model.isLocalPlatform
+import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,7 +43,7 @@ class ModelDelegationTool(
         val target = profiles().firstOrNull { it.uid == config.targetProfileUid && it.enabled }
             ?: return error("Choose an enabled target AI profile in Settings → Tool connections → Model delegation.")
         if (target.uid == source.uid) return error("Choose a different target profile; self-delegation is disabled.")
-        if (config.localPlatformsOnly && !target.compatibleType.isLocalPlatform()) return error("This target is blocked by the local-platforms-only setting.")
+        if (config.localPlatformsOnly && !target.isPrivateDestination()) return error("This target is blocked by the private-destination-only setting.")
         if (source.compatibleType == ClientType.LITERT_LM && target.compatibleType == ClientType.LITERT_LM) {
             return error("The on-device engine is busy with this response. Select a llama/Ollama server or another provider as the delegate.")
         }

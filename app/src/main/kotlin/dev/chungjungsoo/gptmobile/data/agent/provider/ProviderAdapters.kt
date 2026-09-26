@@ -77,7 +77,7 @@ class OpenAIResponsesAdapter @Inject constructor(
     private val api: OpenAIAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
-    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
+    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
         val initialInput = attachmentEncoder.responsesInput(turns, platform.uid)
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
@@ -87,8 +87,10 @@ class OpenAIResponsesAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
+                require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val request = ResponsesRequest(
                     model = platform.model,
+                    maxOutputTokens = constraints.outputLimit(platform.maxTokens),
                     input = if (exchanges.isEmpty()) {
                         initialInput
                     } else {
@@ -100,7 +102,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     instructions = platform.systemPrompt?.takeIf { it.isNotBlank() },
                     temperature = if (platform.reasoning) null else platform.temperature,
                     topP = if (platform.reasoning) null else platform.topP,
-                    reasoning = if (platform.reasoning) ReasoningConfig(effort = "medium", summary = "auto") else null,
+                    reasoning = if (platform.reasoning && constraints.allowReasoning) ReasoningConfig(effort = "medium", summary = "auto") else null,
                     previousResponseId = previousResponseId,
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         ResponseFunctionTool(definition.name, definition.description, definition.inputSchema)
@@ -186,7 +188,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         coerceInputValues = true
     }
 
-    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
+    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
         val initialMessages = attachmentEncoder.openAIChatMessages(turns, platform.systemPrompt)
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
@@ -221,6 +223,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
+                require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val baseMessages = initialMessages + exchanges.flatMap { it.toChatMessages() }
                 val requestTools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                     ChatFunctionTool(definition.name, definition.description, definition.inputSchema)
@@ -289,7 +292,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 }
 
                 val maxAutoContinues = parsedOllamaOptions?.maxAutoContinues ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES
-                val isAutoContinueEnabled = parsedOllamaOptions?.autoContinue == true
+                val isAutoContinueEnabled = constraints.maxOutputTokens == null && parsedOllamaOptions?.autoContinue == true
                 var autoContinueCount = 0
 
                 for (attempt in 0 until attempts) {
@@ -305,7 +308,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     var canRotate = false
 
                     if (platform.compatibleType == ClientType.GROQ) {
-                        val request = createGroqChatCompletionRequest(baseMessages, platform).copy(tools = requestTools)
+                        val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = platform.reasoning && constraints.allowReasoning)).copy(tools = requestTools, maxCompletionTokens = constraints.outputLimit(platform.maxTokens))
                         val assembler = ChatCompletionsEventAssembler()
                         val reasoningParser = GroqReasoningParser()
 
@@ -442,7 +445,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             temperature = effectiveTemperature,
                             topP = effectiveTopP,
                             topK = effectiveTopK,
-                            maxTokens = effectiveMaxTokens,
+                            maxTokens = constraints.outputLimit(effectiveMaxTokens),
                             frequencyPenalty = effectiveFrequencyPenalty,
                             presencePenalty = effectivePresencePenalty,
                             repetitionPenalty = effectiveRepetitionPenalty,
@@ -451,7 +454,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             tools = requestTools,
                             toolChoice = if (platform.disableAllTools) "none" else null,
                             provider = parsedRouting,
-                            reasoning = if (isOpenRouter && platform.reasoning) OpenRouterReasoning(effort = "medium") else null,
+                            reasoning = if (isOpenRouter && platform.reasoning && constraints.allowReasoning) OpenRouterReasoning(effort = "medium") else null,
                             sessionId = openRouterSessionId,
                             options = parsedOllamaOptions
                         )
@@ -736,7 +739,7 @@ class AnthropicMessagesAdapter @Inject constructor(
     private val api: AnthropicAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
-    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
+    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
         val initialMessages = attachmentEncoder.anthropicMessages(turns, platform.uid)
         val assistantContentByRound = mutableMapOf<Int, List<MessageContent>>()
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
@@ -746,9 +749,10 @@ class AnthropicMessagesAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
+                require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val thinkingPolicy = anthropicThinkingPolicy(
                     model = platform.model,
-                    reasoningEnabled = platform.reasoning,
+                    reasoningEnabled = platform.reasoning && constraints.allowReasoning && (constraints.outputLimit(platform.maxTokens) ?: 16000) > 1024,
                     hasTools = tools.isNotEmpty()
                 )
                 val isThinkingActive = thinkingPolicy.config?.type?.let { it != "disabled" } == true
@@ -757,12 +761,14 @@ class AnthropicMessagesAdapter @Inject constructor(
                     messages = initialMessages + exchanges.flatMapIndexed { index, exchange ->
                         exchange.toAnthropicMessages(assistantContentByRound[index])
                     },
-                    maxTokens = if (isThinkingActive) 16000 else 4096,
+                    maxTokens = constraints.outputLimit(platform.maxTokens) ?: if (isThinkingActive) 16000 else 4096,
                     stream = platform.stream,
                     systemPrompt = platform.systemPrompt,
                     temperature = if (isThinkingActive) null else platform.temperature,
                     topP = if (isThinkingActive) null else platform.topP,
-                    thinking = thinkingPolicy.config,
+                    thinking = thinkingPolicy.config?.let { config ->
+                        if (config.budgetTokens != null) config.copy(budgetTokens = minOf(config.budgetTokens, (constraints.outputLimit(platform.maxTokens) ?: 16000) - 1)) else config
+                    },
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         AnthropicTool(definition.name, definition.description, definition.inputSchema)
                     }
@@ -931,7 +937,7 @@ class GeminiAdapter @Inject constructor(
     private val api: GoogleAPI,
     private val attachmentEncoder: ProviderAttachmentEncoder
 ) {
-    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2): AgentProviderSession {
+    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
         val initialContents = attachmentEncoder.googleContents(turns, platform.uid)
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
@@ -941,14 +947,16 @@ class GeminiAdapter @Inject constructor(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
+                require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val request = GenerateContentRequest(
                     contents = initialContents + exchanges.flatMapIndexed { index, exchange ->
                         exchange.toGeminiContents(modelPartsByRound[index])
                     },
                     generationConfig = GenerationConfig(
+                        maxOutputTokens = constraints.outputLimit(platform.maxTokens),
                         temperature = platform.temperature,
                         topP = platform.topP,
-                        thinkingConfig = if (platform.reasoning) GoogleThinkingConfig(includeThoughts = true) else null
+                        thinkingConfig = if (platform.reasoning && constraints.allowReasoning) GoogleThinkingConfig(includeThoughts = true) else null
                     ),
                     systemInstruction = platform.systemPrompt?.takeIf { it.isNotBlank() }?.let { prompt ->
                         Content(parts = listOf(Part.text(prompt)))

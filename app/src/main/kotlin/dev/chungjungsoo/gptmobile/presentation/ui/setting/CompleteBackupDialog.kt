@@ -18,8 +18,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -152,8 +152,11 @@ fun CompleteBackupDialog(
                         ) {
                             Text(
                                 stringResource(
-                                    if (showContents) R.string.complete_backup_hide_contents
-                                    else R.string.complete_backup_show_contents
+                                    if (showContents) {
+                                        R.string.complete_backup_hide_contents
+                                    } else {
+                                        R.string.complete_backup_show_contents
+                                    }
                                 )
                             )
                         }
@@ -199,6 +202,13 @@ fun CompleteBackupDialog(
                                     onCheckedChange = { onSectionChange(CompleteBackupSection.CREDENTIALS, it) }
                                 )
                                 BackupOptionRow(
+                                    checked = CompleteBackupSection.MEMORY in state.selection.sections,
+                                    title = stringResource(R.string.backup_memory_title),
+                                    subtitle = stringResource(R.string.backup_memory_description),
+                                    enabled = !state.isBusy,
+                                    onCheckedChange = { onSectionChange(CompleteBackupSection.MEMORY, it) }
+                                )
+                                BackupOptionRow(
                                     checked = CompleteBackupSection.LOCAL_MODELS in state.selection.sections,
                                     title = "Local AI models",
                                     subtitle = "Downloaded model records and model files",
@@ -241,7 +251,7 @@ fun CompleteBackupDialog(
                                             fontWeight = FontWeight.SemiBold
                                         )
                                         Text(
-                                            "Optional. Off by default. A password-encrypted backup can be restored on another installation.",
+                                            stringResource(R.string.backup_encryption_description),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

@@ -26,7 +26,7 @@ class McpOAuthCoordinator @Inject constructor(
     suspend fun begin(connectionUid: String, redirectUri: String): String {
         val connection = requireOAuthConnection(connectionUid)
         val discovery = oauthClient.discover(
-            resourceUrl = connection.endpointUrl ?: throw McpOAuthException("MCP endpoint is required."),
+            resourceUrl = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault),
             allowCleartext = connection.allowCleartext
         )
         val start = oauthClient.beginAuthorization(discovery, redirectUri, connection.oauthClientId)

@@ -61,7 +61,6 @@ class CompleteBackupViewModelTest {
 
     @Test
     fun backupAndPasswordlessRestoreUseSameManager() = runTest(dispatcher) {
-        viewModel.selectAllBackupSections()
         val uri = mockk<Uri>()
         coEvery { manager.backup(uri) } returns BackupRestoreResult(true, "Saved")
         coEvery { manager.requiresPassword(uri) } returns false
@@ -73,6 +72,7 @@ class CompleteBackupViewModelTest {
         coVerify(exactly = 1) { manager.backup(uri) }
         assertEquals("Saved", viewModel.backupUi.value.message)
 
+        viewModel.selectAllBackupSections()
         assertTrue(viewModel.prepareBackupPicker(restoring = true))
         viewModel.restoreSourceSelected(uri)
         advanceUntilIdle()

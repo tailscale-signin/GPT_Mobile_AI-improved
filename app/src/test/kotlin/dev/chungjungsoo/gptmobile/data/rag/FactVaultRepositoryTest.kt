@@ -10,6 +10,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FactVaultRepositoryTest {
+
+    @Test
+    fun `same fact has independent identity and forgetting in each project`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.prepareTurn("I prefer Kotlin", 1, 1, scope = "project:one")
+        repository.prepareTurn("I prefer Kotlin", 2, 2, scope = "project:two")
+        assertEquals(2, repository.state.value.facts.size)
+        repository.deleteFact(repository.state.value.facts.first { it.scope == "project:one" }.id)
+        repository.prepareTurn("I prefer Kotlin", 1, 3, scope = "project:one")
+        assertEquals(1, repository.state.value.facts.size)
+        assertTrue(repository.prepareTurn("Kotlin", 1, 4, capture = false, scope = "project:one").facts.isEmpty())
+        assertEquals(1, repository.prepareTurn("Kotlin", 2, 4, capture = false, scope = "project:two").facts.size)
+    }
+
     @Test
     fun `cloud and chat scope are enforced after settings reload`() = runBlocking {
         val storage = MemoryVault()
@@ -100,12 +114,23 @@ class FactVaultRepositoryTest {
     fun `questions negation and quoted statements are not learned as facts`() = runBlocking {
         val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
         repository.setEnabled(true)
-        for (text in listOf("Do I prefer Kotlin?", "I do not like Kotlin", "I don't like Kotlin", "Someone said I prefer Kotlin", "\"I prefer Kotlin\"")) {
+        for (text in listOf("Do I prefer Kotlin?", "I do not like Kotlin", "I don't like Kotlin", "Someone said I prefer Kotlin", "My friend claims I prefer Kotlin", "\"I prefer Kotlin\"")) {
             repository.prepareTurn(text, 1, 1)
         }
         assertTrue(repository.state.value.facts.isEmpty())
         repository.prepareTurn("I prefer Kotlin", 1, 2)
         assertEquals(1, repository.state.value.facts.size)
+    }
+
+    @Test
+    fun `multiword location correction deactivates the previous location`() = runBlocking {
+        val repository = FactVaultRepository(MemoryVault(), KnowledgeGraphEngine())
+        repository.setEnabled(true)
+        repository.prepareTurn("I live in New York", 1, 1)
+        assertTrue(repository.state.value.facts.any { it.fact.target.name == "New York" })
+        repository.prepareTurn("I live in San Francisco", 1, 2)
+        assertTrue(repository.state.value.facts.any { it.fact.target.name == "San Francisco" && it.enabled })
+        assertFalse(repository.state.value.facts.any { it.fact.target.name == "New York" && it.enabled })
     }
 
     private class MemoryVault : SecretVault {

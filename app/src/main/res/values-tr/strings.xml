@@ -184,7 +184,7 @@
     <string name="ai_generated">Yapay Zeka ile Oluşturulmuş (Beta)</string>
     <string name="update">Güncelle</string>
     <string name="untitled_chat">Başlıksız Sohbet</string>
-    <string name="title_length_limit">Başlık uzunluk sınırı: %1$s/50</string>
+    <string name="title_length_limit">Başlık uzunluk sınırı: %1$d/50</string>
     <string name="apply_generated_title">Oluşturulan başlığı uygula</string>
     <string name="retry_ai_title">Yapay zeka ile oluşturulan başlığı tekrar dene</string>
     <string name="token_input_warning">NOT: OpenAI ve Anthropic ön ödemeli faturalandırma kullanır, bu nedenle bunları kullanmadan önce her bir hesaba KREDİ YÜKLEMENİZ gerekir. Aksi takdirde yanıt bir hata döndürür.</string>

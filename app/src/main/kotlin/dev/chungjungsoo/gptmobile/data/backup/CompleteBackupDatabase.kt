@@ -12,7 +12,7 @@ internal object CompleteBackupDatabase {
             copy.execSQL("DROP TABLE IF EXISTS android_metadata")
             copy.beginTransaction()
             try {
-                source.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").use { cursor ->
+                source.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search_%'").use { cursor ->
                     while (cursor.moveToNext()) copy.execSQL(cursor.getString(0))
                 }
                 tables(source, includeMetadata = true).forEach { table ->
@@ -25,6 +25,7 @@ internal object CompleteBackupDatabase {
                 source.query("SELECT name, seq FROM sqlite_sequence").use { rows ->
                     copyRows("sqlite_sequence", rows) { sql, values -> copy.execSQL(sql, values) }
                 }
+                if (copy.rawQuery("SELECT name FROM sqlite_master WHERE name='messages_search'", null).use { it.moveToFirst() }) copy.execSQL("INSERT INTO messages_search(messages_search) VALUES('rebuild')")
                 copy.version = source.version
                 copy.setTransactionSuccessful()
             } finally {
@@ -62,6 +63,9 @@ internal object CompleteBackupDatabase {
 
     fun retainSections(database: SupportSQLiteDatabase, selection: CompleteBackupSelection) {
         val selectedTables = tablesFor(selection.normalized())
+        database.execSQL("UPDATE pending_prompts SET paused = 1 WHERE userMessageId IS NULL")
+        database.execSQL("UPDATE tool_approvals SET state = 'INTERRUPTED' WHERE state IN ('PENDING', 'APPROVED', 'EXECUTING')")
+        database.execSQL("UPDATE model_invocations SET status = 'INTERRUPTED' WHERE status = 'RUNNING'")
         val order = dependencyOrder(database)
         order.asReversed()
             .filterNot { it in selectedTables }
@@ -75,6 +79,7 @@ internal object CompleteBackupDatabase {
                     ")"
             )
         }
+        rebuildSearch(database)
     }
 
     fun restoreSections(
@@ -122,6 +127,11 @@ internal object CompleteBackupDatabase {
                     "WHERE status IN ('PENDING', 'RUNNING')"
             )
         }
+        rebuildSearch(destination)
+    }
+
+    private fun rebuildSearch(database: SupportSQLiteDatabase) {
+        if (database.query("SELECT name FROM sqlite_master WHERE name='messages_search'").use { it.moveToFirst() }) database.execSQL("INSERT INTO messages_search(messages_search) VALUES('rebuild')")
     }
 
     private fun tablesFor(selection: CompleteBackupSelection): Set<String> {
@@ -129,6 +139,8 @@ internal object CompleteBackupDatabase {
         return buildSet {
             if (CompleteBackupSection.CONVERSATIONS in sections) {
                 add("chats_v2")
+                add("pending_prompts")
+                addAll(listOf("knowledge_projects", "knowledge_project_chats", "knowledge_documents", "knowledge_chunks"))
                 add("messages_v2")
                 add("chat_platform_model_v2")
             }
@@ -146,6 +158,8 @@ internal object CompleteBackupDatabase {
             if (CompleteBackupSection.AGENT_HISTORY in sections) {
                 add("agent_runs")
                 add("tool_events")
+                add("tool_approvals")
+                add("model_invocations")
             }
             if (CompleteBackupSection.SETTINGS in sections) {
                 // The queue cache is optional operational state, but keeping it with app
@@ -156,7 +170,7 @@ internal object CompleteBackupDatabase {
     }
 
     private fun tables(db: SupportSQLiteDatabase, includeMetadata: Boolean = false): List<String> = db.query(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search%' ORDER BY name"
     ).use { cursor ->
         buildList {
             while (cursor.moveToNext()) {

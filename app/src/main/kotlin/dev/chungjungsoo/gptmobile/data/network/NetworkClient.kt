@@ -77,7 +77,11 @@ class NetworkClient @Inject constructor(
             }
 
             install(Logging) {
-                logger = Logger.DEFAULT
+                logger = object : Logger {
+                    override fun log(message: String) {
+                        if (diagnosticsEnabled) Logger.DEFAULT.log(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(message))
+                    }
+                }
                 level = resolveNetworkLogLevel()
                 sanitizeHeader { header -> isSensitiveHeader(header) }
             }
@@ -91,6 +95,8 @@ class NetworkClient @Inject constructor(
     operator fun invoke(): HttpClient = client
 
     companion object {
+        @Volatile var diagnosticsEnabled: Boolean = false
+
         // Default JSON config (used for most APIs)
         val json = Json {
             isLenient = true
@@ -112,7 +118,7 @@ class NetworkClient @Inject constructor(
             explicitNulls = false
         }
 
-        internal fun resolveNetworkLogLevel(): LogLevel = LogLevel.HEADERS
+        internal fun resolveNetworkLogLevel(): LogLevel = if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) LogLevel.HEADERS else LogLevel.NONE
 
         internal fun isSensitiveHeader(header: String): Boolean =
             header.equals(HttpHeaders.Authorization, ignoreCase = true) ||

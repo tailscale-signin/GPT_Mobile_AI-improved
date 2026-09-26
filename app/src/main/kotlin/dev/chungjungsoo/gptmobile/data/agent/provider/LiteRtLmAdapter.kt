@@ -61,6 +61,7 @@ class LiteRtLmAdapter(
         val sampler: LocalSamplerConfig,
         val systemPrompt: String?,
         val toolsKey: String,
+        val maxOutputTokens: Int?,
         val consumed: ConversationFingerprint
     )
 
@@ -73,8 +74,10 @@ class LiteRtLmAdapter(
     suspend fun openSession(
         turns: List<ConversationTurn>,
         platform: PlatformV2,
-        tools: List<AgentTool> = emptyList()
+        tools: List<AgentTool> = emptyList(),
+        constraints: RequestConstraints = RequestConstraints()
     ): AgentProviderSession {
+        require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
         val boundTools = tools
         return object : AgentProviderSession {
             override val handlesToolsInternally: Boolean = true
@@ -179,6 +182,7 @@ class LiteRtLmAdapter(
                                     snapshot != null &&
                                     snapshot.profileUid == platform.uid &&
                                     snapshot.engineSpec == loadedSpec &&
+                                    snapshot.maxOutputTokens == constraints.maxOutputTokens &&
                                     snapshot.sampler == sampler &&
                                     snapshot.systemPrompt == platform.systemPrompt &&
                                     snapshot.toolsKey == toolsKey &&
@@ -200,6 +204,7 @@ class LiteRtLmAdapter(
                                     createConversation(
                                         LocalConversationConfig(
                                             sampler = sampler,
+                                            maxOutputTokens = constraints.maxOutputTokens,
                                             systemPrompt = platform.systemPrompt,
                                             initialMessages = seedHistory,
                                             tools = descriptors,
@@ -221,6 +226,7 @@ class LiteRtLmAdapter(
                                     openConversation = OpenConversation(
                                         profileUid = platform.uid,
                                         engineSpec = loadedSpec,
+                                        maxOutputTokens = constraints.maxOutputTokens,
                                         sampler = sampler,
                                         systemPrompt = platform.systemPrompt,
                                         toolsKey = toolsKey,

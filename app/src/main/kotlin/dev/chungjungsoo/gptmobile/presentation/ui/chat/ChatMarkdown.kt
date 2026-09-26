@@ -270,22 +270,40 @@ fun ChatMarkdown(
             }
         )
     }
-    key(contentIdentity, highlightSentence, (highlightProgress * 100).toInt()) {
-        val markdownState = rememberMarkdownState(
-            content = combinedMarkdown,
-            retainState = true
-        )
-        val animations = markdownAnimations(animateTextSize = { this })
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val externalHandler = LocalUriHandler.current
+    val sourceHandler = remember(context, externalHandler) {
+        object : androidx.compose.ui.platform.UriHandler {
+            override fun openUri(uri: String) {
+                val parsedUri = android.net.Uri.parse(uri)
+                if (parsedUri.scheme == "gptmobile" && parsedUri.host == "knowledge") {
+                    context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.KnowledgeSourceActivity::class.java).setData(parsedUri))
+                } else if (parsedUri.scheme == "gptmobile" && parsedUri.host == "media") {
+                    context.startActivity(android.content.Intent(context, dev.chungjungsoo.gptmobile.presentation.ui.setting.McpMediaActivity::class.java).setData(parsedUri))
+                } else if (parsedUri.scheme in setOf("https", "http", "mailto")) {
+                    externalHandler.openUri(uri)
+                }
+            }
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalUriHandler provides sourceHandler) {
+        key(contentIdentity, highlightSentence, (highlightProgress * 100).toInt()) {
+            val markdownState = rememberMarkdownState(
+                content = combinedMarkdown,
+                retainState = true
+            )
+            val animations = markdownAnimations(animateTextSize = { this })
 
-        Markdown(
-            markdownState = markdownState,
-            inlineContent = markdownInlineContent(inlineContent),
-            annotator = annotator,
-            components = components,
-            typography = chatMarkdownTypography(),
-            animations = animations,
-            modifier = modifier
-        )
+            Markdown(
+                markdownState = markdownState,
+                inlineContent = markdownInlineContent(inlineContent),
+                annotator = annotator,
+                components = components,
+                typography = chatMarkdownTypography(),
+                animations = animations,
+                modifier = modifier
+            )
+        }
     }
 }
 

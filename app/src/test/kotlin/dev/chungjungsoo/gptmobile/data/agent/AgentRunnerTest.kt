@@ -23,6 +23,36 @@ import org.junit.Test
 class AgentRunnerTest {
 
     @Test
+    fun `approval latency is not charged to tool timeout by the runner`() = runBlocking {
+        val limits = AgentRunLimits(toolTimeoutMillis = 5)
+        val bound = ToolExecutionBudget(limits).bind(
+            tool("write") { callId, _ ->
+                AgentToolResult(callId, ToolResultContent.Text("saved"), isError = false)
+            }
+        ) { _, _ ->
+            delay(40)
+            true
+        }
+        val events = AgentRunner(limits).run(
+            session { _, exchanges ->
+                if (exchanges.isEmpty()) {
+                    flow {
+                        emit(toolCall("call", "write"))
+                        emit(ProviderEvent.Completed)
+                    }
+                } else {
+                    flow {
+                        emit(ProviderEvent.TextDelta("done"))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            },
+            listOf(bound)
+        ).toList()
+        assertFalse(events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result.isError)
+    }
+
+    @Test
     fun `no tool run calls provider once and preserves text completion`() = runBlocking {
         val calls = AtomicInteger()
         val session = session { tools, exchanges ->
@@ -193,11 +223,11 @@ class AgentRunnerTest {
             exposedToolCounts += tools.size
             when (providerCalls.getAndIncrement()) {
                 0 -> flow {
-                    repeat(11) { emit(toolCall("call_$it")) }
+                    repeat(12) { emit(toolCall("call_$it")) }
                     emit(ProviderEvent.Completed)
                 }
                 else -> flow {
-                    assertEquals(11, exchanges.single().results.size)
+                    assertEquals(12, exchanges.single().results.size)
                     emit(ProviderEvent.TextDelta("final"))
                     emit(ProviderEvent.Completed)
                 }
@@ -210,7 +240,7 @@ class AgentRunnerTest {
 
         val events = AgentRunner().run(session, listOf(tool)).toList()
 
-        assertEquals(11, executions.get())
+        assertEquals(12, executions.get())
         assertEquals(listOf(1, 0), exposedToolCounts)
         assertTrue(events.any { it is AgentRunEvent.Notice })
         assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })

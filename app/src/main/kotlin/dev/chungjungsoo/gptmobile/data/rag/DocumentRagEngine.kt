@@ -46,6 +46,7 @@ class DocumentRagEngine {
         chunkSize: Int = 500,
         chunkOverlap: Int = 100
     ): List<DocumentChunk> {
+        require(chunkSize > 0 && chunkOverlap in 0 until chunkSize)
         val result = mutableListOf<DocumentChunk>()
         if (content.isBlank()) return result
 
@@ -92,42 +93,45 @@ class DocumentRagEngine {
     }
 
     /**
-     * Lexical BM25 / token-overlap similarity search across indexed document chunks.
+     * Lexical BM25 relevance search across indexed document chunks.
      * Operates without requiring an on-device embedding model.
      */
     @Synchronized
     fun searchKeyword(query: String, topK: Int = 3): List<SearchResult> {
-        val queryTokens = query.lowercase().split(Regex("\\W+")).filter { it.length > 2 }.toSet()
-        if (queryTokens.isEmpty()) return emptyList()
-
-        return chunkStore.asSequence()
-            .map { chunk ->
-                val chunkTokens = chunk.text.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
-                val matches = chunkTokens.count { queryTokens.contains(it) }
-                val score = if (chunkTokens.isNotEmpty()) matches.toFloat() / (chunkTokens.size + 10) else 0f
-                SearchResult(chunk, score)
+        require(topK >= 0)
+        fun tokens(value: String) = value.lowercase(java.util.Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+"))
+            .filter { it.length > 1 }
+        val queryTokens = tokens(query).toSet()
+        if (queryTokens.isEmpty() || chunkStore.isEmpty()) return emptyList()
+        val documents = chunkStore.map { tokens(it.text) }
+        val averageLength = documents.map { it.size }.average().coerceAtLeast(1.0)
+        val frequencies = queryTokens.associateWith { token -> documents.count { token in it } }
+        return chunkStore.mapIndexed { index, chunk ->
+            val words = documents[index]
+            val counts = words.groupingBy { it }.eachCount()
+            val score = queryTokens.sumOf { token ->
+                val frequency = (counts[token] ?: 0).toDouble()
+                val df = frequencies.getValue(token)
+                val idf = kotlin.math.ln(1.0 + (documents.size - df + 0.5) / (df + 0.5))
+                idf * frequency * 2.2 / (frequency + 1.2 * (0.25 + 0.75 * words.size / averageLength))
             }
-            .filter { it.score > 0f }
-            .sortedByDescending { it.score }
-            .take(topK)
-            .toList()
+            SearchResult(chunk, score.toFloat())
+        }.filter { it.score > 0f }.sortedByDescending { it.score }.take(topK)
     }
 
     /**
      * Cosine similarity search using precomputed vector embeddings.
      */
     @Synchronized
-    fun searchVector(queryEmbedding: FloatArray, topK: Int = 3): List<SearchResult> {
-        return chunkStore.asSequence()
-            .filter { it.embedding != null && it.embedding.size == queryEmbedding.size }
-            .map { chunk ->
-                val score = cosineSimilarity(queryEmbedding, chunk.embedding!!)
-                SearchResult(chunk, score)
-            }
-            .sortedByDescending { it.score }
-            .take(topK)
-            .toList()
-    }
+    fun searchVector(queryEmbedding: FloatArray, topK: Int = 3): List<SearchResult> = chunkStore.asSequence()
+        .filter { it.embedding != null && it.embedding.size == queryEmbedding.size }
+        .map { chunk ->
+            val score = cosineSimilarity(queryEmbedding, chunk.embedding!!)
+            SearchResult(chunk, score)
+        }
+        .sortedByDescending { it.score }
+        .take(topK)
+        .toList()
 
     private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
         var dot = 0f

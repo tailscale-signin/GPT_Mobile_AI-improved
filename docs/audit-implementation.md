@@ -71,7 +71,14 @@ Set `HF_OAUTH_CLIENT_ID` and `HF_OAUTH_REDIRECT_URI` as Gradle properties or bui
 
 ## Validation and limitations
 
-Validation is in progress; replace this paragraph with the final command outcomes before publishing for review.
+Validated implementation commit: `95101015271f9963d17169dbdb29ac68158b27a9` (September 26, 2026).
+
+- `:app:testDebugUnitTest`: **1,012 tests passed**, zero failures, errors or skips, across 149 suites locally. GitHub independently reported all 1,012 passing and generated the JaCoCo report. Local execution preloaded the test instrumentation agent because this container cannot dynamically attach it; the normal CI command passed without that workaround.
+- GitHub `:app:lintDebug`, Kotlin formatting, APK compilation, CodeQL and remote diagnostics all passed. Local Android lint also passed with no errors, 1,572 warnings and seven hints. Lint remains error-blocking; existing warnings, including missing translations, remain visible. Release lint runs in the release workflow and was not executed for this feature-branch validation.
+- `:app:checkReleaseAarMetadata`, `python3 scripts/check_android_resources.py` (25 XML files) and `git diff --check` passed. Release publication scripts and workflow gates were reviewed; no signed build or release was published.
+- The pairing helper passed a real HTTP check: a wrong code was rejected, the authorized response excluded credentials, and the server exited after one successful fetch. The retired Node companion exited without opening a listener.
+
+The passing [PR validation run](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/36250073158) and [APK build](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/36250073176) refer to that implementation commit. Later documentation-only commits do not change the tested application sources. The draft review is [PR #503](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/503).
 
 The context/token budget is an estimate unless the provider reports usage. Remote servers can enforce different model limits. Benchmark setup time includes queue/loading/prefill, and client PSS does not measure a remote server's RAM. No hardware performance percentages or hands-free/full-duplex claims are made.
 

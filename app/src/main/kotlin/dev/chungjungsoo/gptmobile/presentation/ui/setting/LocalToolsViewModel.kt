@@ -18,6 +18,14 @@ import kotlinx.coroutines.launch
 class LocalToolsViewModel @Inject constructor(private val settings: SettingRepository) : ViewModel() {
     val delegation = settings.observeFeatureSettings().map { it.delegation.normalized() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ModelDelegationSettings())
+    val tokenBudget = settings.observeFeatureSettings().map { it.tokenBudget.normalized() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings())
+    fun updateBudget(transform: (dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) -> dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings) {
+        viewModelScope.launch {
+            val latest = settings.getFeatureSettings()
+            settings.updateFeatureSettings(latest.copy(tokenBudget = transform(latest.tokenBudget).normalized()))
+        }
+    }
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()

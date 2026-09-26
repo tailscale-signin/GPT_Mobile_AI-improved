@@ -80,6 +80,17 @@ class ToolConnectionsViewModel @Inject constructor(
         }
     }
 
+    fun savePolicy(connection: ToolConnection, policy: String, reads: String) {
+        viewModelScope.launch {
+            try {
+                toolConnectionRepository.upsertConnection(connection.copy(toolPolicy = policy, approvedReadTools = reads.take(16000)))
+                refresh()
+            } catch (e: Exception) {
+                showError(e)
+            }
+        }
+    }
+
     fun saveConnection(
         existing: ToolConnection?,
         provider: ToolConnectionProvider,

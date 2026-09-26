@@ -70,7 +70,10 @@ object ChatRepositoryModule {
         @DeviceSocModel deviceSocModel: String,
         titleSummarizer: ConversationTitleSummarizer,
         factVault: FactVaultRepository,
-        toolMetricsCollector: ToolMetricsCollector
+        toolMetricsCollector: ToolMetricsCollector,
+        knowledge: dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeWorkspaceRepository,
+        toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager,
+        invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -93,6 +96,9 @@ object ChatRepositoryModule {
         deviceSocModel = deviceSocModel,
         titleSummarizer = titleSummarizer,
         factVault = factVault,
-        toolMetricsCollector = toolMetricsCollector
+        toolMetricsCollector = toolMetricsCollector,
+        knowledge = knowledge,
+        toolApprovals = toolApprovals,
+        invocationLedger = invocationLedger
     )
 }

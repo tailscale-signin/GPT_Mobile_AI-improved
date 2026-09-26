@@ -15,7 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * Reconciles durable Gateway jobs when Android regains validated internet access.
+ * Reconciles durable Gateway jobs when Android regains internet or a local-network route.
  *
  * The Gateway already owns the durable remote job. This monitor only asks the
  * coordinator to reconcile local Room state with that remote job; it never
@@ -37,7 +37,10 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-            val validated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            val validated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
             if (validated && validatedNetwork != network) {
                 validatedNetwork = network
                 scope.launch {
@@ -61,7 +64,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
         val active = connectivityManager.activeNetwork
         val capabilities = active?.let(connectivityManager::getNetworkCapabilities)
         validatedNetwork = active?.takeIf {
-            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            capabilities != null
         }
 
         connectivityManager.registerDefaultNetworkCallback(callback)

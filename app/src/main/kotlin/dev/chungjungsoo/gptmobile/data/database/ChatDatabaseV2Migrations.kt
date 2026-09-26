@@ -188,6 +188,44 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_27_28 = object : Migration(27, 28) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS pending_prompts (id TEXT NOT NULL PRIMARY KEY, chatId INTEGER NOT NULL, text TEXT NOT NULL, payload TEXT NOT NULL, position INTEGER NOT NULL, paused INTEGER NOT NULL, userMessageId INTEGER, FOREIGN KEY(chatId) REFERENCES chats_v2(chat_id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_prompts_chatId ON pending_prompts(chatId)")
+        }
+    }
+
+    val MIGRATION_28_29 = object : Migration(28, 29) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS knowledge_projects (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, instructions TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS knowledge_project_chats (chatId INTEGER NOT NULL PRIMARY KEY, projectId TEXT NOT NULL, FOREIGN KEY(projectId) REFERENCES knowledge_projects(id) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(chatId) REFERENCES chats_v2(chat_id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX index_knowledge_project_chats_projectId ON knowledge_project_chats(projectId)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS knowledge_documents (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, hash TEXT NOT NULL, projectId TEXT, chatId INTEGER, updatedAt INTEGER NOT NULL, FOREIGN KEY(projectId) REFERENCES knowledge_projects(id) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(chatId) REFERENCES chats_v2(chat_id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX index_knowledge_documents_projectId ON knowledge_documents(projectId)")
+            db.execSQL("CREATE INDEX index_knowledge_documents_chatId ON knowledge_documents(chatId)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS knowledge_chunks (id TEXT NOT NULL PRIMARY KEY, documentId TEXT NOT NULL, chunkIndex INTEGER NOT NULL, startOffset INTEGER NOT NULL, endOffset INTEGER NOT NULL, text TEXT NOT NULL, FOREIGN KEY(documentId) REFERENCES knowledge_documents(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX index_knowledge_chunks_documentId ON knowledge_chunks(documentId)")
+        }
+    }
+
+    val MIGRATION_29_30 = object : Migration(29, 30) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `messages_search` USING FTS4(`content` TEXT NOT NULL, `revisions` TEXT NOT NULL, content=`messages_v2`)")
+            db.execSQL("INSERT INTO messages_search(messages_search) VALUES('rebuild')")
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_messages_search_BEFORE_UPDATE BEFORE UPDATE ON messages_v2 BEGIN DELETE FROM messages_search WHERE docid=OLD.rowid; END")
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_messages_search_BEFORE_DELETE BEFORE DELETE ON messages_v2 BEGIN DELETE FROM messages_search WHERE docid=OLD.rowid; END")
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_messages_search_AFTER_UPDATE AFTER UPDATE ON messages_v2 BEGIN INSERT INTO messages_search(docid, content, revisions) VALUES(NEW.rowid, NEW.content, NEW.revisions); END")
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_messages_search_AFTER_INSERT AFTER INSERT ON messages_v2 BEGIN INSERT INTO messages_search(docid, content, revisions) VALUES(NEW.rowid, NEW.content, NEW.revisions); END")
+            db.execSQL("CREATE TABLE IF NOT EXISTS model_invocations (id TEXT NOT NULL PRIMARY KEY, parentRunId TEXT NOT NULL, turnKey TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, inputTokens INTEGER NOT NULL, outputTokens INTEGER NOT NULL, estimated INTEGER NOT NULL, status TEXT NOT NULL, startedAt INTEGER NOT NULL, durationMs INTEGER NOT NULL, firstTokenMs INTEGER)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_model_invocations_turnKey ON model_invocations(turnKey)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_model_invocations_startedAt ON model_invocations(startedAt)")
+            db.execSQL("ALTER TABLE tool_connections ADD COLUMN tool_policy TEXT NOT NULL DEFAULT 'ASK_WRITES'")
+            db.execSQL("ALTER TABLE tool_connections ADD COLUMN approved_read_tools TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE knowledge_documents ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("CREATE TABLE IF NOT EXISTS tool_approvals (id TEXT NOT NULL PRIMARY KEY, runId TEXT NOT NULL, connection TEXT NOT NULL, tool TEXT NOT NULL, argumentHash TEXT NOT NULL, argumentPreview TEXT NOT NULL, state TEXT NOT NULL, createdAt INTEGER NOT NULL)")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -205,6 +243,9 @@ object ChatDatabaseV2Migrations {
         MIGRATION_23_24,
         MIGRATION_24_25,
         MIGRATION_25_26,
-        MIGRATION_26_27
+        MIGRATION_26_27,
+        MIGRATION_27_28,
+        MIGRATION_28_29,
+        MIGRATION_29_30
     )
 }

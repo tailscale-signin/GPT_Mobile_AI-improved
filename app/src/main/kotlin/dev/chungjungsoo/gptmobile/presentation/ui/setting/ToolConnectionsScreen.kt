@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -109,13 +111,39 @@ fun ToolConnectionsScreen(
     onEditConnectionClick: (String) -> Unit,
     onNavigationClick: () -> Unit
 ) {
+    var pairingLink by remember { mutableStateOf<String?>(null) }
+    val pairingContext = LocalContext.current
+    pairingLink?.let { entered ->
+        val valid = runCatching { dev.chungjungsoo.gptmobile.data.pairing.PairingLink.parse(entered) }.isSuccess
+        AlertDialog(
+            onDismissRequest = { pairingLink = null },
+            title = { Text(stringResource(R.string.pair_server_title)) },
+            text = { OutlinedTextField(entered, { pairingLink = it.take(4096) }, label = { Text(stringResource(R.string.pair_server_link)) }) },
+            confirmButton = {
+                TextButton(enabled = valid, onClick = {
+                    pairingContext.startActivity(Intent(pairingContext, ServerPairingActivity::class.java).setData(Uri.parse(entered)))
+                    pairingLink = null
+                }) { Text(stringResource(R.string.pair_server_review)) }
+            },
+            dismissButton = { TextButton(onClick = { pairingLink = null }) { Text(stringResource(R.string.cancel)) } }
+        )
+    }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
     )
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var browsingConnection by remember { mutableStateOf<ToolConnection?>(null) }
+    browsingConnection?.let { connection -> McpBrowserDialog(connection, onDismiss = { browsingConnection = null }) }
+    var permissionsConnection by remember { mutableStateOf<ToolConnection?>(null) }
     var deletingConnection by remember { mutableStateOf<ToolConnection?>(null) }
     var pendingOAuthConnection by remember { mutableStateOf<ToolConnection?>(null) }
+    permissionsConnection?.let { selected ->
+        ToolPolicyDialog(selected, onDismiss = { permissionsConnection = null }) { policy, reads ->
+            viewModel.savePolicy(selected, policy, reads)
+            permissionsConnection = null
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val localNetworkPermissionLauncher = rememberLauncherForActivityResult(
@@ -176,6 +204,7 @@ fun ToolConnectionsScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
             )
             IntegratedToolsCard()
+            TextButton(onClick = { pairingLink = "" }) { Text(stringResource(R.string.pair_server_title)) }
 
             Text(
                 text = "Installed connections",
@@ -230,6 +259,8 @@ fun ToolConnectionsScreen(
                 CollapsibleToolConnectionCard(
                     connection = connection,
                     onEditClick = { onEditConnectionClick(connection.connectionUid) },
+                    onPermissionsClick = { permissionsConnection = connection },
+                    onBrowseClick = { browsingConnection = connection },
                     onOAuthClick = {
                         val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
                         if (needsPermission &&
@@ -317,6 +348,8 @@ private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
 private fun CollapsibleToolConnectionCard(
     connection: ToolConnection,
     onEditClick: () -> Unit,
+    onPermissionsClick: () -> Unit,
+    onBrowseClick: () -> Unit,
     onOAuthClick: () -> Unit,
     onDeleteClick: () -> Unit,
     health: ToolConnectionHealth?,
@@ -409,6 +442,8 @@ private fun CollapsibleToolConnectionCard(
 
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    if (connection.type == ToolConnectionType.MCP) TextButton(onClick = onBrowseClick) { Text("Resources and prompts") }
+                    if (connection.type == ToolConnectionType.MCP) TextButton(onClick = onPermissionsClick) { Text(stringResource(R.string.tool_policy)) }
                     connection.endpointUrl?.let { url ->
                         if (url.isNotBlank()) {
                             Text(

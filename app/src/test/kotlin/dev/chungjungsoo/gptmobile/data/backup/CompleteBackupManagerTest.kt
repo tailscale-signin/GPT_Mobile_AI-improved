@@ -84,7 +84,7 @@ class CompleteBackupManagerTest {
         vault.put("provider", "provider-token".toByteArray())
         vault.put("tool", "tool-token".toByteArray())
         val archive = File(context.cacheDir, "complete.gptbackup")
-        val saved = manager.backup(Uri.fromFile(archive))
+        val saved = manager.backup(Uri.fromFile(archive), CompleteBackupSelection.ALL, password = "test-password")
         assertTrue(saved.message, saved.success)
         // Simulate changed data and a different attachment location/device.
         database.chatRoomDao().updateTitle(7, "changed", true)
@@ -98,7 +98,7 @@ class CompleteBackupManagerTest {
         vault.put("extra", "extra-token".toByteArray())
         attachment.delete()
         File(context.filesDir, "remove.txt").writeText("newer data")
-        val restored = manager.restore(Uri.fromFile(archive))
+        val restored = manager.restore(Uri.fromFile(archive), legacyPassword = "test-password")
         assertTrue(restored.message, restored.success)
         val chat = database.chatRoomDao().getChatRooms().single()
         assertEquals("saved", chat.title)
@@ -141,7 +141,7 @@ class CompleteBackupManagerTest {
         seed(File(context.cacheDir, "file").apply { writeText("old attachment") })
         vault.put("provider", "saved-token".toByteArray())
         val archive = File(context.cacheDir, "complete.gptbackup")
-        assertTrue(manager.backup(Uri.fromFile(archive)).success)
+        assertTrue(manager.backup(Uri.fromFile(archive), CompleteBackupSelection.ALL, password = "test-password").success)
         database.agentRunDao().updateStatus("run", "COMPLETED", null, null, null)
         database.chatRoomDao().updateTitle(7, "current", true)
         preferences.edit { it[intPreferencesKey("current")] = 7 }
@@ -153,14 +153,37 @@ class CompleteBackupManagerTest {
                 bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte()
             }
         )
-        assertFalse(manager.restore(Uri.fromFile(archive)).success)
+        assertFalse(manager.restore(Uri.fromFile(archive), legacyPassword = "test-password").success)
         archive.writeBytes(encryptedBytes)
         vault.failNextPut = true
-        assertFalse(manager.restore(Uri.fromFile(archive)).success)
+        assertFalse(manager.restore(Uri.fromFile(archive), legacyPassword = "test-password").success)
         assertEquals("current", database.chatRoomDao().getChatRooms().single().title)
         assertEquals(7, preferences.data.first()[intPreferencesKey("current")])
         assertEquals("current-token", vault.read("provider")!!.decodeToString())
         assertEquals("current file", File(context.filesDir, "current.txt").readText())
+    }
+
+    @Test
+    fun defaultsNeverExportCredentialsOrMemoryAndSensitiveSelectionsRequirePassword() = runBlocking {
+        seed(File(context.cacheDir, "default-file").apply { writeText("file") })
+        vault.put("provider", "sentinel-original-token".toByteArray())
+        vault.put(dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository.VAULT_REFERENCE, "sentinel-memory".toByteArray())
+        val archive = File(context.cacheDir, "default.gptbackup")
+        assertTrue(manager.backup(Uri.fromFile(archive)).success)
+        java.util.zip.ZipFile(archive).use { zip ->
+            val manifest = zip.entries().asSequence().first { it.name.endsWith("manifest.json") }
+            val contents = zip.getInputStream(manifest).bufferedReader().readText()
+            assertFalse(contents.contains("sentinel-original-token"))
+            assertFalse(contents.contains("sentinel-memory"))
+            assertFalse(contents.contains(java.util.Base64.getEncoder().encodeToString("sentinel-original-token".toByteArray())))
+        }
+        vault.put("provider", "new-token".toByteArray())
+        vault.put(dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository.VAULT_REFERENCE, "new-memory".toByteArray())
+        assertTrue(manager.restore(Uri.fromFile(archive)).success)
+        assertEquals("new-token", vault.read("provider")!!.decodeToString())
+        assertEquals("new-memory", vault.read(dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository.VAULT_REFERENCE)!!.decodeToString())
+        assertFalse(manager.backup(Uri.fromFile(archive), CompleteBackupSelection(setOf(CompleteBackupSection.MEMORY))).success)
+        assertFalse(manager.backup(Uri.fromFile(archive), CompleteBackupSelection(setOf(CompleteBackupSection.CREDENTIALS))).success)
     }
 
     private suspend fun seed(attachment: File) {

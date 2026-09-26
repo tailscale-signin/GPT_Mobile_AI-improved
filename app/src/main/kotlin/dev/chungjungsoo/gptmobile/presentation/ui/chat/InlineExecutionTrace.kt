@@ -128,7 +128,7 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
                             )
                         }
                         Text(summary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, modifier = Modifier.size(18.dp))
+                        Icon(if (expanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     }
                     AnimatedVisibility(
                         visible = expanded,
@@ -152,6 +152,8 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
+                            val mediaLinks = Regex("gptmobile://media/[a-f0-9-]{36}\\.(?:png|jpg|webp|mp3|wav|ogg)").findAll(event.result.orEmpty()).map { it.value }.distinct().take(8).toList()
+                            mediaLinks.forEach { link -> ChatMarkdown("[Open media result]($link)") }
                             ToolTraceBlock(events = listOf(event))
                         }
                     }

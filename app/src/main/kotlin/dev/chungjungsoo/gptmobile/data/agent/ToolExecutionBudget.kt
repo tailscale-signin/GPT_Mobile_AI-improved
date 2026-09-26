@@ -1,0 +1,96 @@
+package dev.chungjungsoo.gptmobile.data.agent
+
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
+
+/** One budget per user turn, shared by every bound tool, including the native engine bridge. */
+class ToolExecutionBudget(private val limits: AgentRunLimits) {
+    private val calls = AtomicInteger()
+    private val completed = AtomicInteger()
+    private val remainingBytes = AtomicInteger(limits.maxToolOutputBytes)
+    private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
+
+    fun bind(
+        tool: AgentTool,
+        onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
+        authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
+    ): AgentTool = object : AgentTool {
+        override val definition = tool.definition
+        override val managesExecutionBudget = true
+
+        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+            fun failure(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true)
+            if (limits.maxToolCalls != Int.MAX_VALUE && calls.getAndIncrement() >= limits.maxToolCalls.coerceAtLeast(0)) {
+                return bounded(failure(AgentRunner.FINAL_RESPONSE_INSTRUCTION))
+            }
+            if (remainingBytes.get() <= 0) return bounded(failure("Tool result budget exhausted. Answer using the results already available."))
+            if (!authorize(callId, arguments)) return bounded(failure("Tool permission was denied or this action was already dispatched."))
+            var success = false
+            try {
+                val result = permits.withPermit {
+                    withTimeoutOrNull(limits.toolTimeoutMillis) { tool.execute(callId, arguments) }
+                        ?: failure("Tool timed out. Its outcome may be unknown; check before repeating a write.")
+                }
+                success = !result.isError
+                return bounded(result)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                return bounded(failure("Tool execution failed. Check the connection diagnostics before repeating an action."))
+            } finally {
+                withContext(NonCancellable) { onFinished(callId, success) }
+            }
+        }
+    }
+
+    private fun bounded(result: AgentToolResult): AgentToolResult {
+        val text = when (val value = result.content) {
+            is ToolResultContent.Text -> value.text
+            is ToolResultContent.Json -> value.value.toString()
+            is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { it.uri }
+        }
+        val checkpoint = if (completed.incrementAndGet() % ToolProgressTracker.INTERVAL == 0) {
+            "\n\n" + ToolProgressTracker.SUMMARY_INSTRUCTION
+        } else {
+            ""
+        }
+        val size = (text + checkpoint).toByteArray(Charsets.UTF_8).size
+        val available = remainingBytes.getAndUpdate { (it.toLong() - size).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
+        val checkpointBytes = checkpoint.toByteArray(Charsets.UTF_8).size
+        val bounded = if (checkpointBytes <= available) {
+            truncateUtf8(text, available - checkpointBytes) + checkpoint
+        } else {
+            truncateUtf8(text, available)
+        }
+        val changed = size > available || checkpoint.isNotEmpty()
+        return result.copy(
+            content = if (changed) ToolResultContent.Text(bounded) else result.content,
+            traceContent = if (size > available) ToolResultContent.Text("Result truncated to the run's output budget.") else result.traceContent
+        )
+    }
+}
+
+internal fun truncateUtf8(text: String, maxBytes: Int): String {
+    if (maxBytes <= 0) return ""
+    var end = 0
+    var used = 0
+    while (end < text.length) {
+        val point = text.codePointAt(end)
+        val bytes = when {
+            point < 0x80 -> 1
+            point < 0x800 -> 2
+            point < 0x10000 -> 3
+            else -> 4
+        }
+        if (used + bytes > maxBytes) break
+        used += bytes
+        end += Character.charCount(point)
+    }
+    return text.substring(0, end)
+}

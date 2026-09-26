@@ -330,6 +330,7 @@ class ToolEventRecorderTest {
 }
 
 private class FakeAgentRunDao : AgentRunDao {
+    override fun observeActive(): Flow<List<AgentRun>> = MutableStateFlow(emptyList())
     override fun observeUnreportedOutputLengths(limit: Int): Flow<List<dev.chungjungsoo.gptmobile.data.database.dao.RunOutputLength>> = MutableStateFlow(emptyList())
 
     var advancedSequence: Pair<String, Int>? = null
@@ -366,6 +367,13 @@ private class FakeAgentRunDao : AgentRunDao {
 }
 
 private class FakeAgentPersistenceDao : AgentPersistenceDao {
+    override suspend fun recoveryRun(runId: String): AgentRun? = unused()
+    override suspend fun recoveryMessage(messageId: Int): MessageV2? = unused()
+    override suspend fun pendingPrompt(id: String): dev.chungjungsoo.gptmobile.data.queue.PendingPrompt? = unused()
+    override suspend fun consumePrompt(id: String, messageId: Int): Int = unused()
+    override suspend fun firstPendingId(chatId: Int): String? = unused()
+    override suspend fun activeRunCount(chatId: Int): Int = unused()
+
     val rows = mutableListOf<ToolEvent>()
     val observedToolEvents = MutableStateFlow(emptyList<ToolEvent>())
     val observedChatIds = mutableListOf<Int>()

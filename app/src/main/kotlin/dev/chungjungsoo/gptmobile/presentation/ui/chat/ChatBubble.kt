@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -14,7 +13,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -72,7 +70,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
@@ -123,13 +120,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
-import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.hasUnavailableAssistantOrder
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
-import dev.chungjungsoo.gptmobile.util.AnimationUtil
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -190,6 +185,11 @@ fun UserChatBubble(
                 }
             }
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            IconButton(onClick = onLongPress) {
+                Icon(Icons.Default.MoreHoriz, stringResource(R.string.message_actions))
+            }
+        }
         if (hasDetails) {
             Row(
                 modifier = Modifier
@@ -206,60 +206,6 @@ fun UserChatBubble(
             }
         }
         MessageFileThumbnailRow(files = files, modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-@Composable
-private fun GatewayActivityBar(
-    isLoading: Boolean,
-    toolEvents: List<ToolEvent>,
-    modifier: Modifier = Modifier
-) {
-    if (!isLoading) return
-
-    val gatewayEvents = remember(toolEvents) {
-        toolEvents.filter {
-            it.connectionUidSnapshot?.startsWith("gateway:", ignoreCase = true) == true
-        }
-    }
-    val latestRunning = gatewayEvents
-        .filter { it.status == ToolEventStatus.RUNNING }
-        .maxByOrNull { it.sequence }
-    val detail = latestRunning?.let { event ->
-        val server = event.connectionNameSnapshot ?: "Gateway"
-        val tool = event.toolName
-            .ifBlank { event.modelToolName }
-            .substringAfterLast("__")
-            .replace('_', ' ')
-        "$server — $tool"
-    } ?: if (gatewayEvents.isNotEmpty()) {
-        "Waiting for the next model/tool step…"
-    } else {
-        "Preparing model, memory, and tools…"
-    }
-
-    Row(
-        modifier = modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Icon(
-            imageVector = Icons.Default.AutoAwesome,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(24.dp)
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
     }
 }
 
@@ -318,13 +264,9 @@ fun OpponentChatBubble(
     val visibleThoughts = remember(showReasoning, thoughts, text) {
         if (showReasoning) thoughts.ifBlank { ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
     }
-    val processToolEvents = if (debugMode) toolEvents else emptyList()
-    val contentTimeline = remember(timeline, showReasoning, debugMode) {
-        timeline.filter {
-            it.type != AssistantTimelineItemType.NOTICE &&
-                (showReasoning || it.type != AssistantTimelineItemType.THINKING) &&
-                (debugMode || it.type != AssistantTimelineItemType.TOOL)
-        }
+    val processToolEvents = toolEvents
+    val contentTimeline = remember(timeline, showReasoning) {
+        timeline.filter { showReasoning || it.type != AssistantTimelineItemType.THINKING }
     }
     val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
         extractTelemetryNotice(noticeMessages)
@@ -413,10 +355,9 @@ fun OpponentChatBubble(
         attachments.isNotEmpty() ||
         locationToolEvents.isNotEmpty() ||
         (!isLoading && (canRetry || canEdit || isError))
-    val shouldShowBubble = hasVisibleText || hasVisibleProcess || hasVisibleExtras
+    val shouldShowBubble = isLoading || contentTimeline.isNotEmpty() || toolEvents.isNotEmpty() || hasVisibleText || hasVisibleProcess || hasVisibleExtras
 
     Column(modifier = modifier) {
-        InlineExecutionTrace(events = toolEvents, timeline = timeline, contentIdentity = contentIdentity, debugMode = debugMode)
         if (debugMode) {
             RunNoticeChips(notices = nonTelemetryNotices, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
             AgentRunStatusBlock(run = agentRun, modifier = Modifier.padding(top = 8.dp, start = 4.dp, end = 4.dp))
@@ -439,71 +380,16 @@ fun OpponentChatBubble(
                     hasUnavailableAssistantOrder(contentTimeline, text, visibleThoughts, processToolEvents.isNotEmpty())
                 }
 
-                // Response content (rendered first so details panel appears below during streaming)
-                if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
-                    AssistantAnswerContent(
-                        timeline = contentTimeline,
-                        isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity,
-                        highlightSentence = activeHighlightedSentence,
-                        highlightProgress = highlightProgress.value
-                    )
-                } else {
-                    LegacyAssistantAnswerContent(
-                        cardColor = cardColor,
-                        text = text,
-                        thoughts = visibleThoughts,
-                        isLoading = showAnswerStreamingIndicator,
-                        contentIdentity = contentIdentity,
-                        highlightSentence = activeHighlightedSentence,
-                        highlightProgress = highlightProgress.value
-                    )
-                }
-
-                // Details expandable content & toggle button placed below the response content
-                if (hasDetails) {
-                    AnimatedContent(
-                        targetState = areDetailsVisible && hasDetails,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(450)) togetherWith fadeOut(animationSpec = tween(250))
-                        },
-                        label = "assistantProcessDetails"
-                    ) { isVisible ->
-                        if (isVisible) {
-                            if (contentTimeline.isNotEmpty() && !hasUnavailableOrder) {
-                                AssistantProcessContent(
-                                    timeline = detailsTimeline,
-                                    toolEvents = processToolEvents,
-                                    isLoading = showProcessStreamingIndicator,
-                                    contentIdentity = contentIdentity
-                                )
-                            } else {
-                                LegacyAssistantProcessContent(
-                                    thoughts = visibleThoughts,
-                                    toolEvents = processToolEvents,
-                                    isLoading = showProcessStreamingIndicator,
-                                    contentIdentity = contentIdentity,
-                                    showOrderNotice = hasUnavailableOrder
-                                )
-                            }
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp, bottom = 4.dp, end = 12.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DetailsButton(
-                            isVisible = areDetailsVisible,
-                            isEnabled = true,
-                            onClick = { areDetailsVisible = !areDetailsVisible },
-                            label = if (debugMode) stringResource(R.string.details) else "Thinking"
-                        )
-                    }
-                }
+                AssistantChronologicalContent(
+                    timeline = contentTimeline,
+                    toolEvents = toolEvents,
+                    fallbackText = text,
+                    fallbackThoughts = visibleThoughts,
+                    contentIdentity = contentIdentity,
+                    isLoading = isLoading,
+                    debugMode = debugMode,
+                    showReasoning = showReasoning
+                )
 
                 LocationToolMapPreview(
                     toolEvents = locationToolEvents,
@@ -891,198 +777,6 @@ internal fun DetailsButton(
                 MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.19f)
             }
         )
-    }
-}
-
-@Composable
-private fun AssistantProcessContent(
-    timeline: List<AssistantTimelineItem>,
-    toolEvents: List<ToolEvent>,
-    isLoading: Boolean,
-    contentIdentity: Any
-) {
-    val events = remember(toolEvents) { toolEvents.associateBy(ToolEvent::sequence) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        timeline.forEachIndexed { index, item ->
-            when (item.type) {
-                AssistantTimelineItemType.THINKING -> Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-                ) {
-                    ThinkingBlock(
-                        modifier = Modifier.fillMaxWidth(),
-                        thoughts = item.content,
-                        contentIdentity = "$contentIdentity:thinking:$index",
-                        isLoading = isLoading && index == timeline.lastIndex
-                    )
-                }
-                AssistantTimelineItemType.TEXT -> {
-                    val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
-                    val thinking = parsed.thinking
-                    if (!thinking.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-                        ) {
-                            ThinkingBlock(
-                                modifier = Modifier.fillMaxWidth(),
-                                thoughts = thinking,
-                                contentIdentity = "$contentIdentity:parsed-thinking:$index",
-                                isLoading = isLoading && parsed.isThinking && index == timeline.lastIndex
-                            )
-                        }
-                    }
-                }
-                AssistantTimelineItemType.TOOL -> if (!isLoading) {
-                    item.toolSequence?.let(events::get)?.let { event ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-                        ) {
-                            ToolTraceBlock(
-                                events = listOf(event),
-                                modifier = Modifier.fillMaxWidth(),
-                                contentIdentity = "$contentIdentity:tool:${event.sequence}"
-                            )
-                        }
-                    }
-                }
-                AssistantTimelineItemType.NOTICE,
-                AssistantTimelineItemType.LEGACY_ORDER -> Unit
-            }
-        }
-    }
-}
-
-@Composable
-private fun AssistantAnswerContent(
-    timeline: List<AssistantTimelineItem>,
-    isLoading: Boolean,
-    contentIdentity: Any,
-    highlightSentence: String? = null,
-    highlightProgress: Float = 0f
-) {
-    val textItems = remember(timeline) {
-        timeline.mapIndexedNotNull { index, item ->
-            if (item.type == AssistantTimelineItemType.TEXT) {
-                index to item
-            } else {
-                null
-            }
-        }
-    }
-    val totalSegments = textItems.size
-    textItems.forEachIndexed { segmentIndex, (index, item) ->
-        val parsed = remember(item.content) { ThinkingParser.extractThinking(item.content) }
-        val isLastTextItem = index == textItems.lastOrNull()?.first
-        val display = parsed.response + if (isLoading && isLastTextItem) "●" else ""
-        if (display.isNotBlank() || (isLoading && isLastTextItem)) {
-            val staggeredModifier = AnimationUtil.StaggeredFadeInModifier(
-                index = segmentIndex,
-                totalSegments = totalSegments
-            )
-            ChatMarkdown(
-                content = display,
-                contentIdentity = "$contentIdentity:text:$index",
-                highlightSentence = highlightSentence,
-                highlightProgress = highlightProgress,
-                modifier = Modifier
-                    .then(staggeredModifier)
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun LegacyAssistantProcessContent(
-    thoughts: String,
-    toolEvents: List<ToolEvent>,
-    isLoading: Boolean,
-    contentIdentity: Any,
-    showOrderNotice: Boolean
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        if (showOrderNotice) {
-            Text(
-                text = stringResource(R.string.legacy_assistant_order_unavailable),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp, start = 16.dp, end = 16.dp, bottom = 4.dp)
-            )
-        }
-        if (thoughts.isNotBlank()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-            ) {
-                ThinkingBlock(
-                    modifier = Modifier.fillMaxWidth(),
-                    thoughts = thoughts,
-                    contentIdentity = contentIdentity,
-                    isLoading = isLoading
-                )
-            }
-        }
-        if (toolEvents.isNotEmpty() && !isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, start = 8.dp, end = 8.dp, bottom = 4.dp)
-            ) {
-                ToolTraceBlock(
-                    events = toolEvents,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentIdentity = contentIdentity
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LegacyAssistantAnswerContent(
-    cardColor: CardColors,
-    text: String,
-    thoughts: String,
-    isLoading: Boolean,
-    contentIdentity: Any,
-    highlightSentence: String? = null,
-    highlightProgress: Float = 0f
-) {
-    val parsed = remember(text) {
-        if (text.contains("<think", ignoreCase = true)) {
-            ThinkingParser.extractThinking(text)
-        } else {
-            null
-        }
-    }
-    val response = parsed?.response ?: text
-    val display = response + if (isLoading) "●" else ""
-    if (display.isNotBlank() || isLoading) {
-        Card(shape = RoundedCornerShape(32.dp), colors = cardColor) {
-            Column {
-                ChatMarkdown(
-                    content = display,
-                    contentIdentity = contentIdentity,
-                    highlightSentence = highlightSentence,
-                    highlightProgress = highlightProgress,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-        }
     }
 }
 

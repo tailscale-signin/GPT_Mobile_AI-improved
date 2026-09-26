@@ -1,0 +1,71 @@
+package dev.chungjungsoo.gptmobile.data.agent
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+
+class ToolProgressAndBudgetTest {
+    @Test fun `progress occurs at ten distinct completions and includes failures without payloads`() {
+        val tracker = ToolProgressTracker()
+        (1..9).forEach { assertNull(tracker.complete("$it", "search", false)) }
+        assertNull(tracker.complete("1", "duplicate", false))
+        val first = tracker.complete("10", "read_file", true)!!
+        assertTrue(first.startsWith("10 tool calls"))
+        assertTrue(first.contains("1 of the last 10 calls failed"))
+        (11..19).forEach { assertNull(tracker.complete("$it", "search", false)) }
+        assertTrue(tracker.complete("20", "search", false)!!.startsWith("20 tool calls"))
+    }
+
+    @Test fun `public progress tags survive every possible stream split`() {
+        val full = "Answer before.<progress_update>I checked sources. Next I will compare.</progress_update>Answer after."
+        for (split in 0..full.length) {
+            val parser = PublicProgressParser()
+            val pieces = parser.accept(full.take(split)) + parser.accept(full.drop(split)) + parser.accept("", flush = true)
+            assertEquals("Answer before.Answer after.", pieces.filterNot { it.first }.joinToString("") { it.second })
+            assertEquals("I checked sources. Next I will compare.", pieces.filter { it.first }.joinToString("") { it.second })
+        }
+    }
+
+    @Test fun `native and remote bindings share count and UTF8 output budget`() = runBlocking {
+        var executions = 0
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 2, maxToolOutputBytes = 7))
+        val tool = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("read", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("😀abc"), false)
+            }
+        })
+        assertEquals("😀abc", (tool.execute("1", buildJsonObject {}).content as ToolResultContent.Text).text)
+        assertTrue(tool.execute("2", buildJsonObject {}).isError)
+        assertEquals(1, executions)
+        assertEquals("😀", truncateUtf8("😀abc", 4))
+        assertEquals("", truncateUtf8("😀", 3))
+    }
+
+    @Test fun `approval waiting is outside tool execution timeout and cancellation propagates`() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 5))
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("write", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("ok"), false)
+        }
+        assertFalse(
+            budget.bind(tool) { _, _ ->
+                delay(20)
+                true
+            }.execute("1", buildJsonObject {}).isError
+        )
+        try {
+            budget.bind(tool) { _, _ -> throw CancellationException() }.execute("2", buildJsonObject {})
+            fail("Cancellation must propagate")
+        } catch (_: CancellationException) { }
+    }
+}

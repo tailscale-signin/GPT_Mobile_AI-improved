@@ -65,6 +65,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -87,8 +88,31 @@ class ChatViewModel @Inject constructor(
     private val agentRunCoordinator: AgentRunCoordinator,
     private val toolConnectionRepository: ToolConnectionRepository,
     private val localModelRepository: LocalModelRepository,
-    private val modelCatalogRepository: ModelCatalogRepository
+    private val modelCatalogRepository: ModelCatalogRepository,
+    private val durablePromptQueue: dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue? = null,
+    private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
+    private val mcpInteractions: dev.chungjungsoo.gptmobile.data.agent.tool.McpInteractions? = null
 ) : ViewModel() {
+    private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
+    private var windowStartId = 0
+    val olderHistoryAvailable = MutableStateFlow(false)
+    fun loadOlderMessages() {
+        visibleHistoryTurns.update { (it.toLong() + 40).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() }
+    }
+    private suspend fun completeWindowMessages(grouped: GroupedMessages): List<MessageV2> {
+        val older = if (windowStartId > 0) chatRepository.fetchMessagesV2(_chatRoom.value.id).filter { it.id < windowStartId } else emptyList()
+        return older + persistableMessages(grouped)
+    }
+
+    val pendingMcpInput get() = mcpInteractions?.pending ?: MutableStateFlow(emptyList())
+    fun respondMcpInput(id: String, value: kotlinx.serialization.json.JsonObject?) {
+        mcpInteractions?.respond(id, value)
+    }
+    val pendingToolApprovals get() = toolApprovals?.pending ?: flowOf(emptyList())
+    fun decideToolApproval(id: String, allow: Boolean) {
+        viewModelScope.launch { toolApprovals?.decide(id, allow) }
+    }
+
     sealed class LoadingState {
         data object Idle : LoadingState()
         data object Loading : LoadingState()
@@ -240,6 +264,9 @@ class ChatViewModel @Inject constructor(
 
     private data class QueuedPrompt(val text: String, val attachments: List<ChatAttachmentDraft>)
     private val queuedPrompts = ArrayDeque<QueuedPrompt>()
+    private val _pendingPrompts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.queue.PendingPrompt>>(emptyList())
+    val pendingPrompts = _pendingPrompts.asStateFlow()
+    private var queueSubmissionPending = false
     private val _queuedPromptCount = MutableStateFlow(0)
     val queuedPromptCount = _queuedPromptCount.asStateFlow()
     private val _disabledPlatformUids = MutableStateFlow<Set<String>>(emptySet())
@@ -251,6 +278,20 @@ class ChatViewModel @Inject constructor(
 
     init {
         fetchChatRoom()
+        durablePromptQueue?.let { queue ->
+            viewModelScope.launch {
+                _chatRoom.collectLatest { room ->
+                    if (room.id > 0) {
+                        _disabledPlatformUids.value = queue.pausedProfiles(room.id)
+                        queue.observe(room.id).collect { entries ->
+                            _pendingPrompts.value = entries
+                            _queuedPromptCount.value = entries.size
+                        }
+                    }
+                }
+            }
+            queue.start()
+        }
         viewModelScope.launch { fetchMessages() }
         fetchEnabledPlatformsInApp()
         observePersistedMessages()
@@ -295,7 +336,41 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
-        if (isGenerationBusy() || !hasUnpausedProfile()) {
+        if (isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
+            if (durablePromptQueue != null) {
+                if (queueSubmissionPending) return
+                val roomId = _chatRoom.value.id
+                if (roomId == 0) {
+                    _attachmentNotice.value = "The conversation is starting. Your draft is kept; send it again when ready."
+                    return
+                }
+                queueSubmissionPending = true
+                val snapshot = attachments.toList()
+                viewModelScope.launch {
+                    try {
+                        durablePromptQueue.enqueue(
+                            roomId,
+                            questionText,
+                            dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload(
+                                snapshot.mapNotNull { it.attachment },
+                                _activePlatformUids.value,
+                                _chatPlatformModels.value,
+                                _chatToolConfig.value
+                            )
+                        )
+                        if (question.text.toString() == questionText) question.clearText()
+                        _selectedAttachments.update { current -> current.filterNot { it in snapshot } }
+                        _attachmentNotice.value = "Saved to queue. You can edit, reorder, pause or remove it."
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Exception) {
+                        _attachmentNotice.value = "Could not save the queued prompt. Your draft is kept."
+                    } finally {
+                        queueSubmissionPending = false
+                    }
+                }
+                return
+            }
             queuedPrompts.addLast(QueuedPrompt(questionText, attachments.toList()))
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
@@ -316,10 +391,24 @@ class ChatViewModel @Inject constructor(
             agentRunCoordinator.activeRuns.value.values.any { it.chatId == _chatRoom.value.id }
 
     private fun drainPromptQueueIfIdle() {
+        if (durablePromptQueue != null) return
         if (isGenerationBusy() || queuedPrompts.isEmpty() || !hasUnpausedProfile()) return
         val next = queuedPrompts.removeFirst()
         _queuedPromptCount.value = queuedPrompts.size
         sendQuestion(next.text, next.attachments, clearComposer = false)
+    }
+
+    fun removeQueuedPrompt(id: String) {
+        viewModelScope.launch { durablePromptQueue?.remove(id) }
+    }
+    fun editQueuedPrompt(id: String, text: String) {
+        viewModelScope.launch { durablePromptQueue?.edit(id, text) }
+    }
+    fun pauseQueuedPrompt(id: String, paused: Boolean) {
+        viewModelScope.launch { durablePromptQueue?.pause(id, paused) }
+    }
+    fun moveQueuedPrompt(id: String, otherId: String) {
+        viewModelScope.launch { durablePromptQueue?.move(id, otherId) }
     }
 
     private fun hasUnpausedProfile(): Boolean = _activePlatformUids.value.any { it !in _disabledPlatformUids.value }
@@ -333,6 +422,7 @@ class ChatViewModel @Inject constructor(
                 disabled + platformUid
             }
         }
+        durablePromptQueue?.setPausedProfiles(_chatRoom.value.id, _disabledPlatformUids.value)
         advancePendingGeneration()
     }
 
@@ -877,10 +967,11 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun exportChat(
+    suspend fun exportChat(
         toolTraceLabels: ToolTraceLabels = ToolTraceLabels.Default,
         legacyOrderNotice: String = LEGACY_ORDER_NOTICE
     ): Pair<String, String> {
+        val exported = groupPersistedMessages(completeWindowMessages(_groupedMessages.value), enabledPlatformsInChat, _chatRoom.value.id)
         val platformNames = _platformsInApp.value.associate { it.uid to it.name }
         // Build the chat history in Markdown format
         val chatHistoryMarkdown = buildString {
@@ -892,12 +983,12 @@ class ChatViewModel @Inject constructor(
             appendLine()
             appendLine("## Chat History")
             appendLine()
-            _groupedMessages.value.userMessages.forEachIndexed { i, message ->
+            exported.userMessages.forEachIndexed { i, message ->
                 appendLine("**User:**")
                 appendLine(message.content)
                 appendLine()
 
-                _groupedMessages.value.assistantMessages[i].forEach { message ->
+                exported.assistantMessages[i].forEach { message ->
                     val platformName = message.platformType?.let { platformNames[it] } ?: "Unknown"
                     append(formatAssistantExport(platformName, message, _toolEventsByRun.value, toolTraceLabels, legacyOrderNotice))
                 }
@@ -905,7 +996,8 @@ class ChatViewModel @Inject constructor(
         }
 
         // Save the Markdown file
-        val fileName = "export_${chatRoom.value.title}_${System.currentTimeMillis()}.md"
+        val safeTitle = chatRoom.value.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
+        val fileName = "export_${safeTitle}_${System.currentTimeMillis()}.md"
         return Pair(fileName, chatHistoryMarkdown)
     }
 
@@ -960,7 +1052,7 @@ class ChatViewModel @Inject constructor(
                         if (persistSnapshotFirst && _chatRoom.value.id > 0) {
                             chatRepository.saveChat(
                                 chatRoom = _chatRoom.value,
-                                messages = persistableMessages(_groupedMessages.value),
+                                messages = completeWindowMessages(_groupedMessages.value),
                                 chatPlatformModels = _chatPlatformModels.value
                             )
                         }
@@ -1369,7 +1461,13 @@ class ChatViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .flatMapLatest { chatId ->
                     if (chatId > 0) {
-                        chatRepository.observeMessagesV2(chatId).map { messages -> chatId to messages }
+                        visibleHistoryTurns.flatMapLatest { turns ->
+                            combine(chatRepository.observeMessageWindow(chatId, if (targetMessageId > 0) Int.MAX_VALUE else turns), agentRunCoordinator.streamMessages, chatRepository.observeTurnCount(chatId)) { messages, live, total ->
+                                windowStartId = messages.minOfOrNull { it.id } ?: 0
+                                olderHistoryAvailable.value = total > messages.count { it.platformType == null }
+                                chatId to messages.map { message -> live[message.id]?.takeIf { it.currentRunId == message.currentRunId } ?: message }
+                            }
+                        }
                     } else {
                         flowOf(chatId to emptyList())
                     }
@@ -1733,7 +1831,7 @@ class ChatViewModel @Inject constructor(
             withContext(Dispatchers.IO) {
                 chatRepository.saveChat(
                     chatRoom = chatRoom,
-                    messages = persistableMessages(groupedMessages),
+                    messages = completeWindowMessages(groupedMessages),
                     chatPlatformModels = _chatPlatformModels.value
                 )
             }

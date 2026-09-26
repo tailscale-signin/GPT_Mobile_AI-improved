@@ -23,6 +23,36 @@ import org.junit.Test
 class AgentRunnerTest {
 
     @Test
+    fun `approval latency is not charged to tool timeout by the runner`() = runBlocking {
+        val limits = AgentRunLimits(toolTimeoutMillis = 5)
+        val bound = ToolExecutionBudget(limits).bind(
+            tool("write") { callId, _ ->
+                AgentToolResult(callId, ToolResultContent.Text("saved"), isError = false)
+            }
+        ) { _, _ ->
+            delay(40)
+            true
+        }
+        val events = AgentRunner(limits).run(
+            session { _, exchanges ->
+                if (exchanges.isEmpty()) {
+                    flow {
+                        emit(toolCall("call", "write"))
+                        emit(ProviderEvent.Completed)
+                    }
+                } else {
+                    flow {
+                        emit(ProviderEvent.TextDelta("done"))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            },
+            listOf(bound)
+        ).toList()
+        assertFalse(events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result.isError)
+    }
+
+    @Test
     fun `no tool run calls provider once and preserves text completion`() = runBlocking {
         val calls = AtomicInteger()
         val session = session { tools, exchanges ->

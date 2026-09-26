@@ -32,20 +32,14 @@ extensions.configure<ApplicationExtension> {
             useSupportLibrary = true
         }
 
-        // Hugging Face OAuth. Replace these after registering an HF OAuth app;
-        // the gallery credentials cannot be reused.
-        manifestPlaceholders["appAuthRedirectScheme"] =
-            "REPLACE_WITH_YOUR_REDIRECT_SCHEME_IN_HUGGINGFACE_APP"
-        buildConfigField(
-            "String",
-            "HF_OAUTH_CLIENT_ID",
-            "\"REPLACE_WITH_YOUR_CLIENT_ID_IN_HUGGINGFACE_APP\""
-        )
-        buildConfigField(
-            "String",
-            "HF_OAUTH_REDIRECT_URI",
-            "\"REPLACE_WITH_YOUR_REDIRECT_URI_IN_HUGGINGFACE_APP\""
-        )
+        // Public OAuth client configuration; never put client secrets in an APK.
+        val hfClientId = providers.gradleProperty("HF_OAUTH_CLIENT_ID").orElse(providers.environmentVariable("HF_OAUTH_CLIENT_ID")).getOrElse("")
+        val hfRedirect = providers.gradleProperty("HF_OAUTH_REDIRECT_URI").orElse(providers.environmentVariable("HF_OAUTH_REDIRECT_URI")).getOrElse("")
+        require(hfClientId.all { it.isLetterOrDigit() || it in "-_" }) { "Invalid HF OAuth client ID" }
+        require(hfRedirect.isEmpty() || Regex("[a-z][a-z0-9+.-]*://[A-Za-z0-9/_.-]+").matches(hfRedirect)) { "Invalid HF OAuth redirect URI" }
+        manifestPlaceholders["appAuthRedirectScheme"] = hfRedirect.substringBefore(":").ifEmpty { "gptmobile-hf-unconfigured" }
+        buildConfigField("String", "HF_OAUTH_CLIENT_ID", "\"$hfClientId\"")
+        buildConfigField("String", "HF_OAUTH_REDIRECT_URI", "\"$hfRedirect\"")
 
         ndk {
             // Target 64-bit modern high-performance ABIs (eliminates 32-bit legacy overhead)
@@ -67,9 +61,10 @@ extensions.configure<ApplicationExtension> {
     }
 
     lint {
-        disable += "MissingTranslation"
-        abortOnError = false
-        checkReleaseBuilds = false
+        abortOnError = true
+        checkReleaseBuilds = true
+        // Existing lint debt is recorded after review; new errors fail this gate.
+        warning += "MissingTranslation"
     }
 
     buildTypes {
@@ -142,11 +137,6 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
-}
-
-// Suppress compileSdk / targetSdk mismatch checks on checkAarMetadata tasks dynamically by name
-tasks.matching { it.name.startsWith("check") && it.name.endsWith("AarMetadata") }.configureEach {
-    enabled = false
 }
 
 tasks.register<JacocoReport>("jacocoTestReport") {

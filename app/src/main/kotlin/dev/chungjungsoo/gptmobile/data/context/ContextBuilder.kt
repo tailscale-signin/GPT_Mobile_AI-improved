@@ -81,7 +81,7 @@ class ContextBuilder @Inject constructor() {
         for (i in turns.indices.reversed()) {
             val turn = turns[i]
             val turnChars = turn.userMessage.content.length + (turn.assistantMessage?.content?.length ?: 0)
-            if (currentChars + turnChars > budget && startIndex < turns.size) {
+            if (currentChars + turnChars > budget) {
                 break
             }
             currentChars += turnChars

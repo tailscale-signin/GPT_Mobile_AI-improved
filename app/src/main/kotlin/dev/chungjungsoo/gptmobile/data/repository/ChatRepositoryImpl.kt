@@ -4,9 +4,9 @@ import android.content.Context
 import com.example.gptmobileai.debug.ToolMetricsCollector
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
-import dev.chungjungsoo.gptmobile.data.agent.AgentRunner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.agentRunnerForPlatform
@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAICompatibleAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesAdapter
 import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAttachmentEncoder
+import dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
@@ -48,6 +49,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
@@ -93,7 +95,10 @@ class ChatRepositoryImpl(
     private val deviceSocModel: String,
     private val titleSummarizer: ConversationTitleSummarizer? = null,
     private val factVault: FactVaultRepository? = null,
-    private val toolMetricsCollector: ToolMetricsCollector? = null
+    private val toolMetricsCollector: ToolMetricsCollector? = null,
+    private val knowledge: dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeWorkspaceRepository? = null,
+    private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
+    private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
@@ -143,25 +148,30 @@ class ChatRepositoryImpl(
             FileUtils.readImageBytesForLocalInference(context, filePath)
         }
     )
-    private val defaultAgentRunner = AgentRunner()
 
     /** A single isolated text round. No resolver, history, memory injection or nested tool execution. */
-    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int): String {
+    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String): String {
+        val constraints = RequestConstraints(maxOutputTokens = maxTokens, allowTools = false, allowReasoning = false)
         val bounded = target.copy(
-            maxTokens = minOf(target.maxTokens ?: maxTokens, maxTokens).coerceAtLeast(1),
+            reasoning = false,
             disableAllTools = true,
             systemPrompt = "Complete the supplied bounded task. Return a concise text answer. Do not call tools or delegate work."
         )
         val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
         val session = when (bounded.compatibleType) {
-            ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, bounded)
-            ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA -> openAICompatibleAdapter.openSession(turns, bounded)
-            ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded)
-            ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded)
-            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, emptyList())
+            ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, bounded, constraints)
+            ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA -> openAICompatibleAdapter.openSession(turns, bounded, constraints)
+            ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded, constraints)
+            ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded, constraints)
+            ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, emptyList(), constraints)
         }
         val text = StringBuilder()
-        session.streamRound(emptyList(), emptyList()).collect { event ->
+        val accounted = invocationLedger?.wrap(
+            session, parentRunId, turnKey, target.compatibleType.name, target.model, "delegate",
+            dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(task + bounded.systemPrompt), maxTokens,
+            settingRepository.getFeatureSettings().tokenBudget.normalized().totalRunTokens
+        ) ?: session
+        accounted.streamRound(emptyList(), emptyList()).collect { event ->
             when (event) {
                 is ProviderEvent.TextDelta -> {
                     check(text.length + event.text.length <= 16000) { "Delegated output exceeded the character limit." }
@@ -183,6 +193,7 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = flow {
         emit(ApiState.Loading)
+        emit(ApiState.ProgressCheckpoint("Preparing the response and checking the available context."))
         try {
             val contextTurns = withContext(Dispatchers.Default) {
                 buildContextTurns(userMessages, assistantMessages, platform).also { turns ->
@@ -192,6 +203,10 @@ class ChatRepositoryImpl(
             val diagnosticsEnabled = runCatching {
                 settingRepository.getFeatureSettings().diagnosticsCollection
             }.getOrDefault(false)
+            val customRunner = agentRunnerForPlatform(platform, chatToolConfig?.maxToolCalls)
+            val budgetSettings = settingRepository.getFeatureSettings().tokenBudget.normalized()
+            val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
+            val unavailableConnections = mutableListOf<String>()
             val resolvedTools = if (platform.disableAllTools) {
                 emptyList()
             } else {
@@ -199,7 +214,7 @@ class ChatRepositoryImpl(
                     settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
                 }.getOrDefault(true)
                 val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
-                agentToolResolver.resolve(platform.uid, chatToolConfig, contextTurns.lastOrNull()?.userMessage, ::delegateToProfile).map { resolved ->
+                agentToolResolver.resolve(platform.uid, chatToolConfig, userMessages.lastOrNull(), { target, task, cap -> delegateToProfile(target, task, cap, runId, turnKey) }, onConnectionError = { unavailableConnections += it }).map { resolved ->
                     resolved.copy(
                         tool = MeasuredAgentTool(
                             sharedToolCallBroker.wrap(
@@ -224,12 +239,13 @@ class ChatRepositoryImpl(
                     )
                 }
             }
-            val latestUser = contextTurns.lastOrNull()?.userMessage
+            unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
+            val latestUser = userMessages.lastOrNull()
             val recalled = try {
                 if (latestUser == null || platform.disableAllTools || platform.disableLocalTools) {
                     FactRecall()
                 } else {
-                    factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.OLLAMA, ClientType.LLAMA)) ?: FactRecall()
+                    factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.isPrivateDestination(), scope = knowledge?.dao?.projectForChat(latestUser.chatId)?.id?.let { "project:$it" } ?: "personal") ?: FactRecall()
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -238,27 +254,59 @@ class ChatRepositoryImpl(
                 FactRecall()
             }
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
-            val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName })
+            val baseSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, resolvedTools.map { it.modelToolName }).orEmpty() +
+                "\nBefore the first tool call and after every 10 completed tool calls, " + dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker.SUMMARY_INSTRUCTION
+            val documentContext = latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
             val requestPlatform = platform.copy(
-                systemPrompt = if (recalled.facts.isEmpty()) baseSystemPrompt else recalled.prefix() + baseSystemPrompt.orEmpty()
+                systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt
             )
-            val session = when (platform.compatibleType) {
-                ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextTurns, requestPlatform)
-
-                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA ->
-                    openAICompatibleAdapter.openSession(contextTurns, requestPlatform)
-
-                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextTurns, requestPlatform)
-
-                ClientType.GOOGLE -> geminiAdapter.openSession(contextTurns, requestPlatform)
-
-                ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                    contextTurns,
-                    requestPlatform,
-                    resolvedTools.map { it.tool }
+            val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
+            val limits = if (platform.compatibleType == ClientType.LITERT_LM) {
+                profileBudget.copy(
+                    contextTokens = minOf(profileBudget.contextTokens, platform.maxTokens ?: 4096)
+                )
+            } else {
+                profileBudget
+            }
+            val contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), resolvedTools.map { it.tool.definition }, limits)
+            emit(ApiState.Notice(contextPlan.notice, persistent = true))
+            val toolBudget = ToolExecutionBudget(customRunner.limits.copy(maxToolOutputBytes = contextPlan.toolResultBytes))
+            val boundedTools = resolvedTools.filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }.map { resolved ->
+                resolved.copy(
+                    tool = toolBudget.bind(resolved.tool, onFinished = { callId, success ->
+                        toolApprovals?.finish(runId, callId, success)
+                    }) { callId, arguments ->
+                        resolved.connectionUid?.let { uid ->
+                            toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments) ?: true
+                        } ?: true
+                    }
                 )
             }
-            val groundedSession = session.withDeviceLocation(
+            val requestConstraints = RequestConstraints(maxOutputTokens = contextPlan.outputTokens)
+            val session = when (platform.compatibleType) {
+                ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+
+                ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA ->
+                    openAICompatibleAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+
+                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+
+                ClientType.GOOGLE -> geminiAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+
+                ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
+                    contextPlan.turns,
+                    requestPlatform,
+                    boundedTools.map { it.tool },
+                    requestConstraints
+                )
+            }
+            val accountedSession = invocationLedger?.wrap(
+                session, runId, turnKey, platform.compatibleType.name, platform.model,
+                if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary",
+                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(requestPlatform.systemPrompt.orEmpty() + contextPlan.turns.joinToString { it.userMessage.content + it.assistantMessage?.content.orEmpty() }) + contextPlan.tools.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.inputSchema.toString()) },
+                contextPlan.outputTokens, budgetSettings.totalRunTokens
+            ) ?: session
+            val groundedSession = accountedSession.withDeviceLocation(
                 clientType = platform.compatibleType,
                 userPrompt = latestUser?.content,
                 nativeLocationToolName = resolvedTools.firstOrNull {
@@ -268,16 +316,12 @@ class ChatRepositoryImpl(
             val runnerTools = if (groundedSession.handlesToolsInternally) {
                 emptyList()
             } else {
-                resolvedTools.map { it.tool }
+                boundedTools.map { it.tool }
             }
             val trace = ToolTraceSession(runId, resolvedTools, toolEventRecorder)
 
-            val customRunner = if (chatToolConfig?.maxToolCalls != null || platform.maxToolCalls != Int.MAX_VALUE) {
-                agentRunnerForPlatform(platform, chatToolConfig?.maxToolCalls)
-            } else {
-                defaultAgentRunner
-            }
-
+            val progressTracker = dev.chungjungsoo.gptmobile.data.agent.ToolProgressTracker()
+            val progressParser = dev.chungjungsoo.gptmobile.data.agent.PublicProgressParser()
             var gatewayTelemetrySeen = false
             var providerToolCalls = 0
             var providerUsefulToolCalls = 0
@@ -361,7 +405,9 @@ class ChatRepositoryImpl(
                                     )
                                 )
                             }
-                            emit(ApiState.Success(providerEvent.text))
+                            progressParser.accept(providerEvent.text).forEach { (progress, text) ->
+                                if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
+                            }
                         }
 
                         is ProviderEvent.Failed -> emit(ApiState.Error(providerEvent.message))
@@ -371,6 +417,7 @@ class ChatRepositoryImpl(
                         is ProviderEvent.PhaseChanged -> emit(ApiState.PhaseChanged(providerEvent.phase))
 
                         is ProviderEvent.Usage -> {
+                            emit(ApiState.TokenUsage(providerEvent.inputTokens, providerEvent.outputTokens, providerEvent.totalTokens))
                             providerEvent.inputTokens?.let {
                                 accumulatedInputTokens = if (providerEvent.cumulative) {
                                     maxOf(accumulatedInputTokens, it.toLong())
@@ -418,6 +465,16 @@ class ChatRepositoryImpl(
                             val gatewayToolEvent = trace.gateway(providerEvent.progress)
                             if (gatewayToolEvent != null) {
                                 emit(gatewayToolEvent)
+                                val progress = providerEvent.progress
+                                if (progress.event in setOf("tool_completed", "tool_failed", "tool_finished")) {
+                                    progressTracker.complete(
+                                        progress.toolCallId ?: "gateway-${gatewayToolEvent.toolSequence}",
+                                        progress.toolName ?: "tool",
+                                        progress.event == "tool_failed"
+                                    )?.let {
+                                        emit(ApiState.ProgressCheckpoint(it))
+                                    }
+                                }
                             }
                         }
 
@@ -449,7 +506,9 @@ class ChatRepositoryImpl(
 
                         is ProviderEvent.ToolResult -> Unit
 
-                        ProviderEvent.Completed -> Unit
+                        ProviderEvent.Completed -> progressParser.accept("", flush = true).forEach { (progress, text) ->
+                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
+                        }
                     }
 
                     is AgentRunEvent.ToolStarted -> {
@@ -471,6 +530,9 @@ class ChatRepositoryImpl(
 
                     is AgentRunEvent.ToolFinished -> {
                         trace.finish(runEvent.call, runEvent.result)?.let { emit(it) }
+                        progressTracker.complete(runEvent.call.callId, runEvent.call.name, runEvent.result.isError)?.let {
+                            emit(ApiState.ProgressCheckpoint(it))
+                        }
                         if (!gatewayTelemetrySeen) {
                             if (runEvent.result.isError) {
                                 providerToolFailures += 1
@@ -528,7 +590,10 @@ class ChatRepositoryImpl(
         assistantMessages: List<List<MessageV2>>,
         platform: PlatformV2
     ): List<ConversationTurn> {
-        val policy = ProviderContextPolicy.forClientType(platform.compatibleType)
+        val policy = ProviderContextPolicy.forClientType(platform.compatibleType).copy(
+            recentTurnWindow = Int.MAX_VALUE,
+            maxHistoryCharBudget = Int.MAX_VALUE
+        )
         val preparedUsers = userMessages.map { withDocumentContext(it, platform) }
         val preparedAssistants = assistantMessages.map { row -> row.map { withDocumentContext(it, platform) } }
         val contextTurns = contextBuilder.build(preparedUsers, preparedAssistants, platform, policy)
@@ -549,7 +614,12 @@ class ChatRepositoryImpl(
             documents.map { document ->
                 val extracted = document.extractedText?.let { DocumentTextExtractor.Result(it, document.extractionNote) }
                     ?: DocumentTextExtractor.extract(context, java.io.File(document.filePathForDisplay), document.mimeType)
-                "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text}"
+                if (knowledge != null && message.chatId > 0 && extracted.text.isNotBlank()) {
+                    knowledge.index(document.resolvedDisplayName, extracted.text.take(1_000_000), chatId = message.chatId)
+                    "Indexed attachment: ${document.resolvedDisplayName}. Relevant excerpts appear in document context."
+                } else {
+                    "Attachment: ${document.resolvedDisplayName}\n${extracted.note.orEmpty()}\n${extracted.text.take(12000)}"
+                }
             }
         }
         return message.copy(
@@ -666,6 +736,9 @@ class ChatRepositoryImpl(
 
     override suspend fun fetchMessagesV2(chatId: Int): List<MessageV2> = messageV2Dao.loadMessages(chatId)
 
+    override fun observeMessageWindow(chatId: Int, turns: Int): Flow<List<MessageV2>> = messageV2Dao.observeWindow(chatId, (turns - 1).coerceAtLeast(0))
+    override fun observeTurnCount(chatId: Int): Flow<Int> = messageV2Dao.observeTurnCount(chatId)
+
     override fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>> = messageV2Dao.observeMessages(chatId)
 
     override fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>> = messageV2Dao.observeFavoriteAssistantMessages()
@@ -743,6 +816,9 @@ class ChatRepositoryImpl(
 
     override suspend fun advanceGatewaySequence(runId: String, sequence: Int): Boolean =
         agentRunDao.advanceGatewaySequence(runId, sequence) == 1
+
+    override suspend fun restoreGatewayAnswer(runId: String, jobId: String, content: String, completedAt: Long): Boolean =
+        agentPersistenceDao.restoreGatewayAnswer(runId, jobId, content, completedAt)
 
     override suspend fun getRecoverableGatewayRuns(): List<AgentRun> =
         agentRunDao.getRecoverableGatewayRuns()

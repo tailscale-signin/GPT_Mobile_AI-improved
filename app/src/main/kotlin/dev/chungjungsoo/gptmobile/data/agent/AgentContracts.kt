@@ -69,6 +69,9 @@ enum class AgentRunStatus {
 
 interface AgentTool {
     val definition: AgentToolDefinition
+
+    /** The shared budget times execution only; waiting for a user decision must not time out. */
+    val managesExecutionBudget: Boolean get() = false
     suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult
 }
 

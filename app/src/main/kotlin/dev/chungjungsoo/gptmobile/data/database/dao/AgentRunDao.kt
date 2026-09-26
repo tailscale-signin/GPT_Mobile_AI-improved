@@ -22,6 +22,9 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at, run_id")
     fun observeByChatId(chatId: Int): Flow<List<AgentRun>>
 
+    @Query("SELECT * FROM agent_runs WHERE status IN ('QUEUED', 'RUNNING')")
+    fun observeActive(): Flow<List<AgentRun>>
+
     @Query("SELECT * FROM agent_runs ORDER BY created_at DESC, run_id DESC LIMIT :limit")
     fun observeRecent(limit: Int = 100): Flow<List<AgentRun>>
 

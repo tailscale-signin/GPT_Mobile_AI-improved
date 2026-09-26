@@ -31,10 +31,12 @@ class McpConnectionConfig(
 
 @Singleton
 class McpClientManager internal constructor(
-    private val httpClient: HttpClient
+    private val httpClient: HttpClient,
+    private val mediaStore: McpMediaStore? = null,
+    private val interactions: McpInteractions? = null
 ) {
     @Inject
-    constructor(networkClient: NetworkClient) : this(networkClient())
+    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions) : this(networkClient(), mediaStore, interactions)
 
     private val mutex = Mutex()
 
@@ -65,7 +67,45 @@ class McpClientManager internal constructor(
         toolName: String,
         arguments: JsonObject
     ): CallToolResult = withSession(config) { client ->
-        client.callTool(toolName, arguments)
+        client.callTool(toolName, arguments).let { mediaStore?.materialize(it) ?: it }
+    }
+
+    suspend fun browse(config: McpConnectionConfig): McpBrowserData = withSession(config) { client ->
+        val resources = mutableListOf<io.modelcontextprotocol.kotlin.sdk.types.Resource>()
+        val prompts = mutableListOf<io.modelcontextprotocol.kotlin.sdk.types.Prompt>()
+        if (client.serverCapabilities?.resources != null) {
+            var cursor: String? = null
+            val seen = mutableSetOf<String>()
+            do {
+                val page = client.listResources(io.modelcontextprotocol.kotlin.sdk.types.ListResourcesRequest(PaginatedRequestParams(cursor)))
+                resources += page.resources
+                cursor = page.nextCursor
+                check(resources.size <= 500 && (cursor == null || seen.add(cursor)) && seen.size <= 20) { "Resource catalog is too large or repeats pages." }
+            } while (cursor != null)
+        }
+        if (client.serverCapabilities?.prompts != null) {
+            var cursor: String? = null
+            val seen = mutableSetOf<String>()
+            do {
+                val page = client.listPrompts(io.modelcontextprotocol.kotlin.sdk.types.ListPromptsRequest(PaginatedRequestParams(cursor)))
+                prompts += page.prompts
+                cursor = page.nextCursor
+                check(prompts.size <= 500 && (cursor == null || seen.add(cursor)) && seen.size <= 20) { "Prompt catalog is too large or repeats pages." }
+            } while (cursor != null)
+        }
+        McpBrowserData(resources, prompts, client.serverVersion?.name.orEmpty(), System.currentTimeMillis())
+    }
+
+    suspend fun readResource(config: McpConnectionConfig, uri: String): String = withSession(config) { client ->
+        val result = client.readResource(io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequest(io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequestParams(uri)))
+        result.contents.filterIsInstance<io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents>().joinToString("\n") { it.text.take(32000) }.take(64000)
+    }
+
+    suspend fun getPrompt(config: McpConnectionConfig, name: String, arguments: Map<String, String>): String = withSession(config) { client ->
+        val result = client.getPrompt(io.modelcontextprotocol.kotlin.sdk.types.GetPromptRequest(io.modelcontextprotocol.kotlin.sdk.types.GetPromptRequestParams(name, arguments)))
+        result.messages.joinToString("\n\n") { message ->
+            "${message.role}: ${(message.content as? io.modelcontextprotocol.kotlin.sdk.types.TextContent)?.text.orEmpty().take(32000)}"
+        }.take(64000)
     }
 
     suspend fun close(connectionUid: String) {
@@ -122,7 +162,15 @@ class McpClientManager internal constructor(
                 val transport = StreamableHttpClientTransport(httpClient, config.endpointUrl) {
                     config.authorizationHeader?.let { header(HttpHeaders.Authorization, it) }
                 }
-                val client = Client(Implementation(name = CLIENT_NAME, version = CLIENT_VERSION))
+                val client = Client(
+                    Implementation(name = CLIENT_NAME, version = CLIENT_VERSION),
+                    io.modelcontextprotocol.kotlin.sdk.client.ClientOptions(
+                        capabilities = io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities(
+                            elicitation = if (interactions == null) null else io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities.Elicitation(form = JsonObject(emptyMap()))
+                        )
+                    )
+                )
+                interactions?.let { handler -> client.setElicitationHandler { handler.request(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(config.endpointUrl), it) } }
                 try {
                     client.connect(transport)
                     Session(key, client)
@@ -207,3 +255,10 @@ class McpClientManager internal constructor(
 private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(toByteArray(Charsets.UTF_8))
     .joinToString("") { byte -> "%02x".format(byte) }
+
+data class McpBrowserData(
+    val resources: List<io.modelcontextprotocol.kotlin.sdk.types.Resource> = emptyList(),
+    val prompts: List<io.modelcontextprotocol.kotlin.sdk.types.Prompt> = emptyList(),
+    val serverName: String = "",
+    val verifiedAt: Long = 0
+)

@@ -41,6 +41,12 @@ data class ToolConnection(
     @ColumnInfo(name = "allow_cleartext")
     val allowCleartext: Boolean = false,
 
+    @ColumnInfo(name = "tool_policy", defaultValue = "'ASK_WRITES'")
+    val toolPolicy: String = "ASK_WRITES",
+
+    @ColumnInfo(name = "approved_read_tools", defaultValue = "''")
+    val approvedReadTools: String = "",
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis() / 1000,
 

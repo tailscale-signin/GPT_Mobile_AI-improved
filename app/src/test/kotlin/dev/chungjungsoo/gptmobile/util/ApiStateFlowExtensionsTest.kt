@@ -18,6 +18,28 @@ import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
     @Test
+    fun `progress bubble stays after tenth tool and before followup answer`() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flow {
+            emit(ApiState.Thinking("First check sources"))
+            emit(ApiState.Success("Beginning."))
+            repeat(10) { emit(ApiState.ToolCall(it)) }
+            emit(ApiState.ProgressCheckpoint("10 calls finished"))
+            emit(ApiState.ProgressCheckpoint("I checked sources. ", modelAuthored = true))
+            emit(ApiState.ProgressCheckpoint("Next I compare results.", modelAuthored = true))
+            emit(ApiState.Success("Answer."))
+            emit(ApiState.Thinking("Check followup"))
+            emit(ApiState.Success("Followup."))
+            emit(ApiState.Done)
+        }.collectApiStateUpdates(onUpdate = { _, _, value -> timeline = value })
+        val progress = timeline.single { it.progressCheckpoint }
+        assertTrue(progress.modelAuthored)
+        assertEquals("I checked sources. Next I compare results.", progress.content)
+        assertEquals(12, timeline.indexOf(progress))
+        assertEquals(listOf(AssistantTimelineItemType.TEXT, AssistantTimelineItemType.THINKING, AssistantTimelineItemType.TEXT), timeline.takeLast(3).map { it.type })
+    }
+
+    @Test
     fun `tool completion updates original timeline entry and recall stores references only`() = runBlocking {
         val metrics = dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics(durationMs = 120, resultBytes = 140)
         val reference = dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef("fact-id", "User preference")

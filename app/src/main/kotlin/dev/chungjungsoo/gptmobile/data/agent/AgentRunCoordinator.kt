@@ -2,8 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.SystemClock
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunTerminalError
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -20,8 +20,8 @@ import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
 import dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome
-import dev.chungjungsoo.gptmobile.util.HIGH_REFRESH_FRAME_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
+import dev.chungjungsoo.gptmobile.util.STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
 import dev.chungjungsoo.gptmobile.util.assistantErrorAppendedText
 import dev.chungjungsoo.gptmobile.util.buildAssistantErrorContent
 import dev.chungjungsoo.gptmobile.util.collectApiStateUpdates
@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 data class AgentRunRequest(
@@ -96,8 +97,11 @@ class AgentRunCoordinator @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
+    private val recoveryLock = Mutex()
     private val chatLocks = ConcurrentHashMap<Int, Mutex>()
     private val interruptingRunIds = ConcurrentHashMap.newKeySet<String>()
+    private val _streamMessages = MutableStateFlow<Map<Int, MessageV2>>(emptyMap())
+    val streamMessages = _streamMessages.asStateFlow()
     private val _activeRuns = MutableStateFlow<Map<String, ActiveAgentRun>>(emptyMap())
     private val _notices = MutableSharedFlow<AgentRunNotice>(extraBufferCapacity = 8)
 
@@ -117,9 +121,9 @@ class AgentRunCoordinator @Inject constructor(
             return try {
                 val hardwareState = DeviceHardwareGovernor.inspectHardwareState(context)
                 val policy = DeviceHardwareGovernor.computeThrottlingPolicy(hardwareState, isHighMemoryDevice)
-                policy.streamPublishIntervalMillis
+                policy.streamPublishIntervalMillis.coerceAtLeast(33L)
             } catch (_: Exception) {
-                if (isHighMemoryDevice) HIGH_REFRESH_FRAME_INTERVAL_MILLIS else LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
+                if (isHighMemoryDevice) STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS else LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS
             }
         }
 
@@ -143,6 +147,7 @@ class AgentRunCoordinator @Inject constructor(
                 job.invokeOnCompletionCleanup {
                     runCatching {
                         jobs.remove(request.runId)
+                        _streamMessages.update { it - request.assistantMessage.id }
                         interruptingRunIds.remove(request.runId)
                         _activeRuns.update { it - request.runId }
                     }
@@ -276,23 +281,31 @@ class AgentRunCoordinator @Inject constructor(
     /**
      * Attempts recovery of interrupted or uncompleted runs that have an associated gateway job.
      */
-    suspend fun recoverInterruptedGatewayRuns() {
-        val recoverableRuns = chatRepository.getRecoverableGatewayRuns()
-        for (run in recoverableRuns) {
+    suspend fun recoverInterruptedGatewayRuns() = recoveryLock.withLock {
+        val profiles = settingRepository.fetchPlatformV2s().associateBy { it.uid }
+        for (run in chatRepository.getRecoverableGatewayRuns()) {
+            // A live stream remains the owner of its answer. Recovery only adopts interrupted work.
+            if (run.status != AgentRunStatus.INTERRUPTED || jobs.containsKey(run.runId)) continue
             val jobId = run.gatewayJobId ?: continue
             val baseUrl = run.gatewayBaseUrl ?: continue
-            scope.launch {
-                val config = ProviderRequestConfig(apiUrl = baseUrl, token = null)
-                val result = gatewayAPI.getJobResult(jobId, config)
-                if (result != null && result.status.equals("COMPLETED", ignoreCase = true)) {
-                    val completedAt = result.completedAt ?: currentEpochSeconds()
-                    chatRepository.finishActiveAgentRun(
-                        runId = run.runId,
-                        status = AgentRunStatus.COMPLETED,
-                        completedAt = completedAt,
-                        terminalError = null
-                    )
-                }
+            val profile = profiles[run.profileUid] ?: continue
+            if (!sameGatewayEndpoint(profile.apiUrl, baseUrl)) continue
+            try {
+                val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+                    .keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
+                val result = gatewayAPI.getJobResult(jobId, ProviderRequestConfig(baseUrl, token)) ?: continue
+                if (result.jobId != jobId || !result.status.equals("COMPLETED", ignoreCase = true)) continue
+                val content = result.content ?: continue
+                chatRepository.restoreGatewayAnswer(
+                    run.runId,
+                    jobId,
+                    content,
+                    result.completedAt ?: currentEpochSeconds()
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Gateway recovery is unavailable. Try again after checking the connection."))
             }
         }
     }
@@ -307,6 +320,7 @@ class AgentRunCoordinator @Inject constructor(
     private suspend fun execute(request: AgentRunRequest) {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage
+        var lastCheckpointAt = 0L
         try {
             if (!withContext(NonCancellable) { chatRepository.markAgentRunRunning(request.runId, startedAt) }) return
             val outcome = chatRepository.completeChat(
@@ -322,7 +336,12 @@ class AgentRunCoordinator @Inject constructor(
                         thoughts = thoughts,
                         timeline = timeline
                     )
-                    chatRepository.updateAgentMessage(assistantMessage)
+                    _streamMessages.update { it + (assistantMessage.id to assistantMessage) }
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastCheckpointAt >= 500L) {
+                        chatRepository.updateAgentMessage(assistantMessage)
+                        lastCheckpointAt = now
+                    }
                 },
                 onNotice = { notice, persistent ->
                     _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, notice, persistent))
@@ -409,7 +428,7 @@ internal fun resolvePublishInterval(
     isHighMemoryDevice: Boolean
 ): Long {
     val policy = DeviceHardwareGovernor.computeThrottlingPolicy(hardwareState, isHighMemoryDevice)
-    return policy.streamPublishIntervalMillis
+    return policy.streamPublishIntervalMillis.coerceAtLeast(33L)
 }
 
 internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long): MessageV2 {
@@ -454,3 +473,10 @@ internal fun Job.invokeOnCompletionCleanup(cleanup: () -> Unit) {
 }
 
 private fun currentEpochSeconds(): Long = System.currentTimeMillis() / 1000
+
+/** Never forward a current profile's credentials to an endpoint saved by a different connection. */
+internal fun sameGatewayEndpoint(current: String, saved: String): Boolean = runCatching {
+    val a = java.net.URI(current.trim().trimEnd('/')).normalize()
+    val b = java.net.URI(saved.trim().trimEnd('/')).normalize()
+    a.scheme in setOf("http", "https") && a.host != null && a.userInfo == null && a == b
+}.getOrDefault(false)

@@ -170,6 +170,7 @@ class LocalRuntimeImpl(
                             }
                         },
                         tools = toolProviders,
+                        maxOutputToken = config.maxOutputTokens,
                         samplerConfig = if (LocalAccelerators.shouldApplySampler(loadedAccelerator)) {
                             SamplerConfig(
                                 topK = effectiveTopK,

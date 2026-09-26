@@ -119,8 +119,46 @@ interface AgentPersistenceDao {
     )
     suspend fun cancelInterruptedToolEvents(completedAt: Long)
 
+    @Query("SELECT * FROM agent_runs WHERE run_id = :runId")
+    suspend fun recoveryRun(runId: String): AgentRun?
+
+    @Query("SELECT * FROM messages_v2 WHERE message_id = :messageId")
+    suspend fun recoveryMessage(messageId: Int): MessageV2?
+
+    /** A canceled job or superseded assistant revision must never be resurrected. */
+    @Transaction
+    suspend fun restoreGatewayAnswer(runId: String, jobId: String, content: String, completedAt: Long): Boolean {
+        val run = recoveryRun(runId) ?: return false
+        if (run.gatewayJobId != jobId || run.status != "INTERRUPTED" || run.terminalError == "BACKUP_RESTORED") return false
+        val message = recoveryMessage(run.assistantMessageId) ?: return false
+        if (message.currentRunId != runId || message.chatId != run.chatId) return false
+        updateMessage(message.copy(content = content, thoughts = "", timeline = emptyList()))
+        updateRunStatus(runId, "COMPLETED", run.startedAt, completedAt, null)
+        cancelActiveToolEvents(runId, completedAt)
+        return true
+    }
+
+    @Query("SELECT * FROM pending_prompts WHERE id = :id AND userMessageId IS NULL")
+    suspend fun pendingPrompt(id: String): dev.chungjungsoo.gptmobile.data.queue.PendingPrompt?
+
+    @Query("UPDATE pending_prompts SET userMessageId = :messageId WHERE id = :id AND userMessageId IS NULL")
+    suspend fun consumePrompt(id: String, messageId: Int): Int
+
+    @Query("SELECT id FROM pending_prompts WHERE chatId = :chatId AND userMessageId IS NULL ORDER BY position, id LIMIT 1")
+    suspend fun firstPendingId(chatId: Int): String?
+
+    @Query("SELECT COUNT(*) FROM agent_runs WHERE chat_id = :chatId AND status IN ('QUEUED', 'RUNNING')")
+    suspend fun activeRunCount(chatId: Int): Int
+
     @Transaction
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult {
+        request.queuedPromptId?.let { id ->
+            val pending = requireNotNull(pendingPrompt(id)) { "Queued input has already been dispatched or removed." }
+            require(pending.chatId == request.chatRoom.id && !pending.paused)
+            require(firstPendingId(pending.chatId) == id) { "Queue order changed." }
+            require(activeRunCount(pending.chatId) == 0) { "Conversation is still running." }
+            require(pending.text == request.userMessage.content && pending.details().attachments == request.userMessage.attachments) { "Queued input was edited." }
+        }
         val chatRoom = if (request.chatRoom.id == 0) {
             request.chatRoom.copy(id = insertChatRoom(request.chatRoom).toInt())
         } else {
@@ -162,6 +200,7 @@ interface AgentPersistenceDao {
                 ChatPlatformModelV2(chatId = chatRoom.id, platformUid = profileUid, model = model)
             }
         )
+        request.queuedPromptId?.let { check(consumePrompt(it, userMessage.id) == 1) }
         return PersistAgentTurnResult(chatRoom, userMessage, assistantMessages, runs)
     }
 

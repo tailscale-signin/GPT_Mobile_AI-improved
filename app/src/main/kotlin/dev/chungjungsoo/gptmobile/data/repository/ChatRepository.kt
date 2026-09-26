@@ -23,6 +23,8 @@ interface ChatRepository {
         chatToolConfig: ChatMcpToolConfig? = null
     ): Flow<ApiState>
     fun observeMessagesV2(chatId: Int): Flow<List<MessageV2>>
+    fun observeMessageWindow(chatId: Int, turns: Int): Flow<List<MessageV2>> = observeMessagesV2(chatId)
+    fun observeTurnCount(chatId: Int): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     fun observeFavoriteAssistantMessages(): Flow<List<MessageV2>>
     fun searchFavoriteAssistantMessages(query: String): Flow<List<MessageV2>>
     suspend fun setMessageFavorite(messageId: Int, isFavorite: Boolean)
@@ -48,6 +50,7 @@ interface ChatRepository {
     suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Boolean
     suspend fun advanceGatewaySequence(runId: String, sequence: Int): Boolean
     suspend fun getRecoverableGatewayRuns(): List<AgentRun>
+    suspend fun restoreGatewayAnswer(runId: String, jobId: String, content: String, completedAt: Long): Boolean = false
     fun generateDefaultChatTitle(messages: List<MessageV2>): String?
     suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean = false)
     suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2

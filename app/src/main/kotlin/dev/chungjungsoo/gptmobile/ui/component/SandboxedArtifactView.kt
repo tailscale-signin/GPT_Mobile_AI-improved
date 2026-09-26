@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.ui.component
 
 import android.annotation.SuppressLint
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -21,6 +23,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,12 +33,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import dev.chungjungsoo.gptmobile.R
+import java.io.ByteArrayInputStream
 
 /**
  * Sandboxed live artifact preview pane for interactive HTML, CSS, SVG, and code outputs.
- * Strict network sandbox is enforced by disabling file access, content access, and external navigation.
+ * Network access is denied at both WebView and content-policy boundaries.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -46,6 +52,7 @@ fun SandboxedArtifactView(
     modifier: Modifier = Modifier
 ) {
     var showPreview by remember { mutableStateOf(isHtmlOrSvg) }
+    var scriptsEnabled by remember(content) { mutableStateOf(false) }
 
     Card(
         modifier = modifier
@@ -71,11 +78,11 @@ fun SandboxedArtifactView(
                     FilterChip(
                         selected = showPreview,
                         onClick = { showPreview = true },
-                        label = { Text("Preview") },
+                        label = { Text(stringResource(R.string.artifact_preview)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Visibility,
-                                contentDescription = "Preview",
+                                contentDescription = null,
                                 modifier = Modifier.padding(2.dp)
                             )
                         }
@@ -84,11 +91,11 @@ fun SandboxedArtifactView(
                     FilterChip(
                         selected = !showPreview,
                         onClick = { showPreview = false },
-                        label = { Text("Code") },
+                        label = { Text(stringResource(R.string.artifact_code)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Code,
-                                contentDescription = "Code",
+                                contentDescription = null,
                                 modifier = Modifier.padding(2.dp)
                             )
                         }
@@ -97,6 +104,12 @@ fun SandboxedArtifactView(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+            if (showPreview && isHtmlOrSvg) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.artifact_scripts), modifier = Modifier.weight(1f))
+                    Switch(checked = scriptsEnabled, onCheckedChange = { scriptsEnabled = it })
+                }
+            }
 
             Box(
                 modifier = Modifier
@@ -109,25 +122,54 @@ fun SandboxedArtifactView(
                         factory = { ctx ->
                             WebView(ctx).apply {
                                 settings.apply {
-                                    javaScriptEnabled = true
+                                    javaScriptEnabled = false
+                                    blockNetworkLoads = true
+                                    blockNetworkImage = true
+                                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                    javaScriptCanOpenWindowsAutomatically = false
+                                    setSupportMultipleWindows(false)
                                     allowFileAccess = false
                                     allowContentAccess = false
                                     domStorageEnabled = false
                                     cacheMode = WebSettings.LOAD_NO_CACHE
                                 }
                                 webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
+
                                     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                                         // Block all outward navigation from sandbox
                                         return true
                                     }
+
+                                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                        if (request?.url?.scheme in setOf("data", "blob", "about")) return null
+                                        return WebResourceResponse(
+                                            "text/plain",
+                                            "UTF-8",
+                                            403,
+                                            "Blocked",
+                                            emptyMap(),
+                                            ByteArrayInputStream(ByteArray(0))
+                                        )
+                                    }
                                 }
-                                loadDataWithBaseURL(
-                                    null,
-                                    wrapInSandboxHtml(content),
-                                    "text/html",
-                                    "UTF-8",
-                                    null
-                                )
+                            }
+                        },
+                        onReset = null,
+                        onRelease = { view ->
+                            view.stopLoading()
+                            view.loadUrl("about:blank")
+                            view.clearHistory()
+                            view.removeAllViews()
+                            view.destroy()
+                        },
+                        update = { view ->
+                            val document = wrapInSandboxHtml(content, scriptsEnabled)
+                            if (view.tag != document) {
+                                view.stopLoading()
+                                view.settings.javaScriptEnabled = scriptsEnabled
+                                view.tag = document
+                                view.loadDataWithBaseURL(null, document, "text/html", "UTF-8", null)
                             }
                         },
                         modifier = Modifier.fillMaxWidth().height(280.dp)
@@ -144,11 +186,13 @@ fun SandboxedArtifactView(
     }
 }
 
-private fun wrapInSandboxHtml(raw: String): String {
+internal fun wrapInSandboxHtml(raw: String, scriptsEnabled: Boolean = false): String {
+    val scriptPolicy = if (scriptsEnabled) "'unsafe-inline'" else "'none'"
     return """
         <!DOCTYPE html>
         <html>
         <head>
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src $scriptPolicy; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             body { margin: 0; padding: 12px; font-family: sans-serif; background-color: transparent; }

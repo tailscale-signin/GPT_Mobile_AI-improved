@@ -27,7 +27,8 @@ data class AppFeatureSettings(
     val localCpuThreads: Int = 0,
     val localModelCache: Boolean = true,
     val localIdleMinutes: Int = 10,
-    val delegation: ModelDelegationSettings = ModelDelegationSettings()
+    val delegation: ModelDelegationSettings = ModelDelegationSettings(),
+    val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()
 ) {
     fun withFeature(feature: AppFeature, enabled: Boolean): AppFeatureSettings = when (feature) {
         AppFeature.BACKGROUND_GENERATION -> copy(backgroundGeneration = enabled)

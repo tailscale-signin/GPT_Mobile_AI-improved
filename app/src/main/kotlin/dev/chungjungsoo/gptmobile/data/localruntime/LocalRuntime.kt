@@ -64,7 +64,8 @@ data class LocalConversationConfig(
     val initialMessages: List<LocalHistoryMessage>,
     val tools: List<LocalToolDescriptor> = emptyList(),
     val isConstrainedDecodingEnabled: Boolean = false,
-    val toolExecutor: LocalToolExecutor? = null
+    val toolExecutor: LocalToolExecutor? = null,
+    val maxOutputTokens: Int? = null
 )
 
 /** Execution phase of local on-device inference. */

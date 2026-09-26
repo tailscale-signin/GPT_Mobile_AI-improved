@@ -33,28 +33,35 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
+    val projects by viewModel.projects.collectAsStateWithLifecycle(emptyList())
+    var factScope by remember { mutableStateOf("personal") }
     val vault by viewModel.vault.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     var deletingId by remember { mutableStateOf<String?>(null) }
     var clearing by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<dev.chungjungsoo.gptmobile.data.rag.VaultFact?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    var factText by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var showOptions by remember { mutableStateOf(false) }
     val settings = vault.settings
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Fact Vault") },
+            title = { Text(stringResource(R.string.fact_vault_screen_label_1)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { TextButton(onClick = { clearing = true }, enabled = !busy && (vault.facts.isNotEmpty() || vault.suppressedIds.isNotEmpty() || vault.enabled || error != null)) { Text("Clear") } }
+            actions = { TextButton(onClick = { clearing = true }, enabled = !busy && (vault.facts.isNotEmpty() || vault.suppressedIds.isNotEmpty() || vault.enabled || error != null)) { Text(stringResource(R.string.fact_vault_screen_label_2)) } }
         )
     }) { padding ->
         LazyColumn(
@@ -66,11 +73,11 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                 Card {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Learn and recall local facts", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            Text(stringResource(R.string.fact_vault_screen_label_3), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                             Switch(modifier = Modifier.semantics { contentDescription = "Learn and recall local facts" }, checked = vault.enabled, onCheckedChange = viewModel::setEnabled, enabled = !busy)
                         }
-                        Text("Save simple preferences and relationships from your messages on this device. Matching enabled facts are included in future AI requests, including requests to cloud providers.")
-                        Text("Facts are encrypted at rest. Extraction uses simple patterns and can be imperfect. Review facts below; disabled facts stay saved but are never recalled.", style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.fact_vault_screen_label_4))
+                        Text(stringResource(R.string.fact_vault_screen_label_5), style = MaterialTheme.typography.bodySmall)
                         Text("${vault.facts.size} / ${settings.maxFacts} facts · ${vault.facts.count { it.enabled }} enabled", style = MaterialTheme.typography.labelMedium)
                     }
                 }
@@ -87,22 +94,27 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                             VaultToggle("Learn preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
                             VaultToggle("Learn relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
                             VaultToggle("Review new facts before recall", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
-                            Text("Facts awaiting review stay disabled until you enable them below.", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.fact_vault_screen_label_6), style = MaterialTheme.typography.bodySmall)
                             VaultLimit("Facts per response", settings.maxRecall, 1..10, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
                             VaultLimit("Storage limit", settings.maxFacts, 16..64, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
-                            Text("Lowering the limit keeps existing facts and pauses learning when full.", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.fact_vault_screen_label_7), style = MaterialTheme.typography.bodySmall)
                             VaultLimit("Retention days (0 = keep)", settings.retentionDays, 0..365, !busy) { viewModel.updateSettings(settings.copy(retentionDays = it)) }
-                            Text("Expiry is checked on your next message. Older facts without a saved date stay until deleted.", style = MaterialTheme.typography.bodySmall)
+                            Text(stringResource(R.string.fact_vault_screen_label_8), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
-                OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search saved facts") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                TextButton(onClick = {
+                    adding = true
+                    factText = ""
+                    factScope = "personal"
+                }, enabled = !busy) { Text(stringResource(R.string.fact_vault_screen_label_9)) }
+                OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text(stringResource(R.string.fact_vault_screen_label_10)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
             if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             error?.let { message ->
                 item {
                     Text(message, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = viewModel::refresh, enabled = !busy) { Text("Retry") }
+                    TextButton(onClick = viewModel::refresh, enabled = !busy) { Text(stringResource(R.string.fact_vault_screen_label_11)) }
                 }
             }
             if (vault.facts.isEmpty()) {
@@ -114,10 +126,15 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.titleMedium)
-                        Text("From your message · chat ${entry.sourceChatId}", style = MaterialTheme.typography.bodySmall)
+                        Text("${entry.source.replace('_', ' ')} · ${entry.scope} · chat ${entry.sourceChatId}", style = MaterialTheme.typography.bodySmall)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (entry.enabled) "Available for recall" else "Excluded from recall", Modifier.weight(1f))
                             Switch(modifier = Modifier.semantics { contentDescription = "Recall ${entry.fact.entity.name} ${entry.fact.target.name}" }, checked = entry.enabled, onCheckedChange = { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy)
+                            TextButton(onClick = {
+                                editing = entry
+                                factText = entry.fact.target.name
+                                factScope = entry.scope
+                            }, enabled = !busy) { Text(stringResource(R.string.fact_vault_screen_label_12)) }
                             IconButton(onClick = { deletingId = entry.id }, enabled = !busy) {
                                 Icon(Icons.Default.Delete, "Delete saved fact")
                             }
@@ -126,6 +143,36 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+    if (adding || editing != null) {
+        AlertDialog(
+            onDismissRequest = {
+                adding = false
+                editing = null
+            },
+            title = { Text(stringResource(R.string.fact_vault_screen_label_13)) },
+            text = {
+                Column {
+                    OutlinedTextField(value = factText, onValueChange = { factText = it.take(240) }, label = { Text(stringResource(R.string.fact_vault_screen_label_14)) })
+                    Text("Scope: ${projects.firstOrNull { "project:${it.id}" == factScope }?.name ?: "Personal"}")
+                    TextButton(onClick = { factScope = "personal" }) { Text(stringResource(R.string.fact_vault_screen_label_15)) }
+                    projects.forEach { project -> TextButton(onClick = { factScope = "project:${project.id}" }) { Text(project.name) } }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = factText.isNotBlank(), onClick = {
+                    viewModel.saveFact(factText, editing?.id, factScope)
+                    adding = false
+                    editing = null
+                }) { Text(stringResource(R.string.fact_vault_screen_label_16)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    adding = false
+                    editing = null
+                }) { Text(stringResource(R.string.fact_vault_screen_label_17)) }
+            }
+        )
     }
     if (deletingId != null || clearing) {
         AlertDialog(
@@ -140,13 +187,13 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                     if (clearing) viewModel.clear() else deletingId?.let(viewModel::delete)
                     deletingId = null
                     clearing = false
-                }) { Text("Delete") }
+                }) { Text(stringResource(R.string.fact_vault_screen_label_18)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     deletingId = null
                     clearing = false
-                }) { Text("Cancel") }
+                }) { Text(stringResource(R.string.fact_vault_screen_label_19)) }
             }
         )
     }

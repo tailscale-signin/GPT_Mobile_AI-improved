@@ -256,6 +256,13 @@ class SettingViewModelV2 @Inject constructor(
             _backupUi.update {
                 it.copy(
                     passwordProtectionEnabled = enabled,
+                    selection = if (enabled) {
+                        it.selection
+                    } else {
+                        CompleteBackupSelection(
+                            it.selection.sections - setOf(CompleteBackupSection.CREDENTIALS, CompleteBackupSection.MEMORY)
+                        )
+                    },
                     backupPassword = if (enabled) it.backupPassword else "",
                     message = null,
                     isError = false
@@ -275,6 +282,7 @@ class SettingViewModelV2 @Inject constructor(
             _backupUi.update {
                 it.copy(
                     selection = it.selection.toggled(section, enabled),
+                    passwordProtectionEnabled = it.passwordProtectionEnabled || it.selection.toggled(section, enabled).requiresEncryption,
                     message = null,
                     isError = false
                 )
@@ -284,7 +292,7 @@ class SettingViewModelV2 @Inject constructor(
 
     fun selectAllBackupSections() {
         if (!_backupUi.value.isWorking) {
-            _backupUi.update { it.copy(selection = CompleteBackupSelection.ALL, message = null, isError = false) }
+            _backupUi.update { it.copy(selection = CompleteBackupSelection.ALL, passwordProtectionEnabled = true, message = null, isError = false) }
         }
     }
 
@@ -447,6 +455,7 @@ class SettingViewModelV2 @Inject constructor(
             get() = !isBusy &&
                 !isWorking &&
                 selection.sections.isNotEmpty() &&
+                (!selection.requiresEncryption || passwordProtectionEnabled) &&
                 (!passwordProtectionEnabled || backupPassword.length >= 8)
     }
 

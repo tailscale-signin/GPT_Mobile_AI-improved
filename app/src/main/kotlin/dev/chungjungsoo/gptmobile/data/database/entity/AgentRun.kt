@@ -105,7 +105,8 @@ data class PersistAgentTurnRequest(
     val chatRoom: ChatRoomV2,
     val userMessage: MessageV2,
     val runs: List<AgentRunDraft>,
-    val chatPlatformModels: Map<String, String>
+    val chatPlatformModels: Map<String, String>,
+    val queuedPromptId: String? = null
 )
 
 data class PersistAgentTurnResult(

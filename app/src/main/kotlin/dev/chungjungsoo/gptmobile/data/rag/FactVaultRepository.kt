@@ -20,7 +20,10 @@ data class VaultFact(
     val enabled: Boolean = true,
     val sourceChatId: Int = 0,
     val sourceMessageId: Int = 0,
-    val savedAtMillis: Long = 0
+    val savedAtMillis: Long = 0,
+    val source: String = "user_message",
+    val confidence: Float = 0.75f,
+    val scope: String = "personal"
 )
 
 /** References only: fact text stays encrypted in the vault, not copied into message metadata. */
@@ -68,7 +71,8 @@ data class FactRecall(val facts: List<VaultFact> = emptyList()) {
 @Singleton
 class FactVaultRepository @Inject constructor(
     private val vault: SecretVault,
-    private val graph: KnowledgeGraphEngine
+    private val graph: KnowledgeGraphEngine,
+    private val preferences: FactVaultPreferenceStore? = null
 ) {
     private val mutex = Mutex()
     private var hasLoaded = false
@@ -106,7 +110,7 @@ class FactVaultRepository @Inject constructor(
         persist(FactVaultSnapshot(enabled = false))
     }
 
-    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true): FactRecall = mutex.withLock {
+    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String = "personal"): FactRecall = mutex.withLock {
         loadLocked()
         if (!_state.value.enabled) return@withLock FactRecall()
         var current = _state.value
@@ -127,11 +131,15 @@ class FactVaultRepository @Inject constructor(
         }
         val recall = FactRecall(
             current.facts.filter {
-                it.enabled &&
-                    it.id in selectedIds &&
+                settings.recallEnabled &&
+                    (isLocal || settings.allowCloudRecall) &&
+                    it.enabled &&
+                    (it.scope == "personal" || it.scope == scope) &&
+                    (factId(it.fact) in selectedIds || relevance(query, it) > 0) &&
                     (!settings.sameChatOnly || it.sourceChatId == chatId) &&
                     !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
-            }.take(settings.maxRecall)
+            }.sortedWith(compareByDescending<VaultFact> { relevance(query, it) }.thenByDescending { it.savedAtMillis })
+                .take(settings.maxRecall)
         )
         if (!capture || !settings.learningEnabled) return@withLock recall
         // Only extract user-provided text. Never learn from assistant output or tool responses.
@@ -142,10 +150,58 @@ class FactVaultRepository @Inject constructor(
                 if (it.relation.relationType == "PREFERS") settings.learnPreferences else settings.learnRelationships
             }
         val known = current.facts.map { it.id }.toSet() + current.suppressedIds
-        val additions = extracted.filter { factId(it) !in known }.take((settings.maxFacts - current.facts.size).coerceAtLeast(0))
-            .map { VaultFact(factId(it), it, enabled = !settings.reviewBeforeRecall, sourceChatId = chatId, sourceMessageId = messageId, savedAtMillis = now) }
-        if (additions.isNotEmpty()) persist(current.copy(facts = current.facts + additions))
-        recall
+        val additions = extracted.filter { scopedFactId(it, scope) !in known }.take(settings.maxFacts)
+            .map { VaultFact(scopedFactId(it, scope), it, enabled = !settings.reviewBeforeRecall, sourceChatId = chatId, sourceMessageId = messageId, savedAtMillis = now, scope = scope) }
+        if (additions.isNotEmpty()) {
+            val replaced = current.facts.map { existing ->
+                val superseded = additions.any { fresh ->
+                    fresh.fact.entity.id == existing.fact.entity.id &&
+                        fresh.fact.relation.relationType == "LOCATED_IN" &&
+                        existing.fact.relation.relationType == "LOCATED_IN" &&
+                        fresh.id != existing.id &&
+                        fresh.scope == existing.scope
+                }
+                if (superseded) existing.copy(enabled = false) else existing
+            }
+            val capacity = (settings.maxFacts - additions.size).coerceAtLeast(0)
+            val kept = replaced.sortedWith(compareByDescending<VaultFact> { it.enabled }.thenByDescending { it.savedAtMillis }).take(capacity)
+            persist(current.copy(facts = kept + additions))
+        }
+        // A correction in this very message must not recall the superseded fact.
+        val stillEnabled = _state.value.facts.filter { it.enabled }.map { it.id }.toSet()
+        FactRecall(recall.facts.filter { it.id in stillEnabled })
+    }
+
+    suspend fun saveManual(text: String, id: String? = null, scope: String = "personal") = mutex.withLock {
+        loadLocked()
+        require(text.isNotBlank() && text.length <= 240) { "Use 1–240 characters for a fact." }
+        require(scope == "personal" || scope.startsWith("project:"))
+        val old = _state.value.facts.firstOrNull { it.id == id }
+        val fact = KnowledgeFact(
+            KnowledgeEntity("user", "User", "PERSON"),
+            KnowledgeRelation("user", "REMEMBERS", text.trim().lowercase(Locale.ROOT), 1f, ""),
+            KnowledgeEntity(text.trim().lowercase(Locale.ROOT), text.trim(), "FACT")
+        )
+        val entry = VaultFact(
+            scopedFactId(fact, scope), fact, enabled = old?.enabled ?: true,
+            sourceChatId = old?.sourceChatId ?: 0, sourceMessageId = old?.sourceMessageId ?: 0,
+            savedAtMillis = System.currentTimeMillis(), source = "manual", confidence = 1f, scope = scope
+        )
+        val retained = _state.value.facts.filterNot { it.id == id || it.id == entry.id }
+        require(retained.size < _state.value.settings.maxFacts) { "Fact Vault is full." }
+        persist(
+            _state.value.copy(
+                facts = retained + entry,
+                suppressedIds = (_state.value.suppressedIds + listOfNotNull(id)) - entry.id
+            )
+        )
+    }
+
+    private fun relevance(query: String, entry: VaultFact): Int {
+        val tokens = query.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+"))
+            .filter { it.length > 2 && it !in setOf("the", "and", "what", "that", "have") }.toSet()
+        val target = (entry.fact.entity.name + " " + entry.fact.target.name).lowercase(Locale.ROOT)
+        return tokens.count { Regex("(?<![\\p{L}\\p{N}])" + Regex.escape(it) + "(?![\\p{L}\\p{N}])").containsMatchIn(target) }
     }
 
     private suspend fun loadLocked() {
@@ -153,7 +209,7 @@ class FactVaultRepository @Inject constructor(
         val snapshot = if (bytes == null) {
             // Existing payloads retain their old default (disabled), including omitted fields.
             // Only a genuinely new vault starts enabled.
-            FactVaultSnapshot(enabled = !hasLoaded)
+            FactVaultSnapshot(enabled = preferences?.enabled() ?: !hasLoaded)
         } else {
             try {
                 json.decodeFromString<FactVaultSnapshot>(bytes.decodeToString())
@@ -166,8 +222,10 @@ class FactVaultRepository @Inject constructor(
         if (bytes == null) {
             persist(snapshot)
         } else {
-            _state.value = snapshot
-            rebuildGraph(snapshot)
+            val effective = snapshot.copy(enabled = preferences?.enabled() ?: snapshot.enabled)
+            preferences?.save(effective.enabled)
+            _state.value = effective
+            rebuildGraph(effective)
         }
     }
 
@@ -179,6 +237,7 @@ class FactVaultRepository @Inject constructor(
         } finally {
             bytes.fill(0)
         }
+        preferences?.save(snapshot.enabled)
         _state.value = snapshot
         rebuildGraph(snapshot)
     }
@@ -194,7 +253,7 @@ class FactVaultRepository @Inject constructor(
     }
 
     private fun normalizeFact(fact: KnowledgeFact): KnowledgeFact {
-        val source = if (fact.entity.id.lowercase(Locale.ROOT) in setOf("i", "me", "my", "user")) {
+        val source = if (fact.entity.id.lowercase(Locale.ROOT) in setOf("i", "me", "my", "user", "eu", "yo", "je", "j’ai", "ich")) {
             KnowledgeEntity("user", "User", "PERSON")
         } else {
             fact.entity.copy(name = fact.entity.name.take(80), id = fact.entity.id.take(80))
@@ -213,5 +272,8 @@ class FactVaultRepository @Inject constructor(
             val key = "${fact.entity.id}|${fact.relation.relationType}|${fact.target.id}".lowercase(Locale.ROOT)
             return MessageDigest.getInstance("SHA-256").digest(key.encodeToByteArray()).joinToString("") { "%02x".format(it) }
         }
+
+        private fun scopedFactId(fact: KnowledgeFact, scope: String): String =
+            if (scope == "personal") factId(fact) else "$scope:${factId(fact)}"
     }
 }

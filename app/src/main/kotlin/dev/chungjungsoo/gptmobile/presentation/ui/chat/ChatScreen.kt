@@ -74,6 +74,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
@@ -148,6 +149,23 @@ fun ChatScreen(
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {}
 ) {
+    val inputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
+    inputRequests.firstOrNull()?.let { McpInputDialog(it, chatViewModel::respondMcpInput) }
+    val approvals by chatViewModel.pendingToolApprovals.collectAsStateWithLifecycle(emptyList())
+    approvals.firstOrNull()?.let { approval ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { chatViewModel.decideToolApproval(approval.id, false) },
+            title = { Text(stringResource(R.string.tool_approval_title)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.tool_approval_body, approval.tool, approval.connection))
+                    Text(approval.argumentPreview, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { chatViewModel.decideToolApproval(approval.id, true) }) { Text(stringResource(R.string.tool_approval_allow)) } },
+            dismissButton = { TextButton(onClick = { chatViewModel.decideToolApproval(approval.id, false) }) { Text(stringResource(R.string.tool_approval_deny)) } }
+        )
+    }
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp.dp
     val focusManager = LocalFocusManager.current
@@ -156,6 +174,7 @@ fun ChatScreen(
     val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
     val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    val hasOlderHistory by chatViewModel.olderHistoryAvailable.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
     val hasTargetMessage = chatViewModel.targetMessageId > 0
@@ -170,7 +189,7 @@ fun ChatScreen(
     }
     val hiddenTurnCount = firstVisibleTurn
     val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
-    val historyHeaderCount = if (hiddenTurnCount > 0) 1 else 0
+    val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0)
     val listState = rememberChatListState(
         messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
@@ -193,6 +212,7 @@ fun ChatScreen(
     val messageEditSession by chatViewModel.messageEditSession.collectAsStateWithLifecycle()
     val isSelectTextSheetOpen by chatViewModel.isSelectTextSheetOpen.collectAsStateWithLifecycle()
     val selectedAttachments by chatViewModel.selectedAttachments.collectAsStateWithLifecycle()
+    val pendingPrompts by chatViewModel.pendingPrompts.collectAsStateWithLifecycle()
     val queuedPromptCount by chatViewModel.queuedPromptCount.collectAsStateWithLifecycle()
     val attachmentNotice by chatViewModel.attachmentNotice.collectAsStateWithLifecycle()
     val needsLocalNetworkAccess by chatViewModel.needsLocalNetworkAccess.collectAsStateWithLifecycle()
@@ -331,7 +351,7 @@ fun ChatScreen(
                 scrollBehavior = scrollBehavior,
                 onChatTitleItemClick = chatViewModel::openChatTitleDialog,
                 onChatModelItemClick = chatViewModel::openChatModelDialog,
-                onExportChatItemClick = { exportChat(context, chatViewModel) },
+                onExportChatItemClick = { scope.launch { exportChat(context, chatViewModel) } },
                 onDisablePlatformClick = {
                     Toast.makeText(context, R.string.disable_platform, Toast.LENGTH_SHORT).show()
                 }
@@ -354,6 +374,7 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     state = listState
                 ) {
+                    if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier messages") } }
                     if (hiddenTurnCount > 0) {
                         item(key = "archived-history-header") {
                             ArchivedHistoryHeader(
@@ -442,6 +463,21 @@ fun ChatScreen(
                 }
             }
 
+            val voiceAnswer = groupedMessages.assistantMessages.lastOrNull()?.firstOrNull()
+            VoiceChatControls(
+                generating = !isIdle,
+                answer = voiceAnswer?.content.orEmpty(),
+                answerId = voiceAnswer?.id,
+                onSend = chatViewModel::sendPromptResponse,
+                onInterrupt = chatViewModel::cancelActiveRuns
+            )
+            PromptQueuePanel(
+                entries = pendingPrompts,
+                onEdit = chatViewModel::editQueuedPrompt,
+                onRemove = chatViewModel::removeQueuedPrompt,
+                onPause = chatViewModel::pauseQueuedPrompt,
+                onMove = chatViewModel::moveQueuedPrompt
+            )
             ChatInputBox(
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
@@ -821,25 +857,6 @@ private fun ChatMessagePair(
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
                         }
-                    }
-                }
-                if (isActiveMessage && isCurrentPlatformLoading) {
-                    if (debugMode && activeAgentRun != null) {
-                        AgentFlightRecorderCard(
-                            run = activeAgentRun,
-                            toolEvents = toolEvents,
-                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
-                        )
-                    } else if (!debugMode) {
-                        CompactAgentActivityBar(
-                            run = activeAgentRun,
-                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp),
-                            overrideText = if (isCombinedConversation && synthesisStarted) {
-                                stringResource(R.string.combined_synthesizing)
-                            } else {
-                                null
-                            }
-                        )
                     }
                 }
                 OpponentChatBubble(
@@ -1266,14 +1283,14 @@ fun ChatBubbleDropdownMenu(
     }
 }
 
-private fun exportChat(context: Context, chatViewModel: ChatViewModel) {
+private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel) {
     try {
         val (fileName, fileContent) = chatViewModel.exportChat(
             toolTraceLabels = context.toolTraceLabels(),
             legacyOrderNotice = context.getString(R.string.legacy_assistant_order_unavailable)
         )
         val file = File(context.getExternalFilesDir(null), fileName)
-        file.writeText(fileContent)
+        withContext(Dispatchers.IO) { file.writeText(fileContent) }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/markdown"

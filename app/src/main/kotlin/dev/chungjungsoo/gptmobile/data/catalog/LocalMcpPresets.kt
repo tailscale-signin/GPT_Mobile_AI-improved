@@ -88,28 +88,6 @@ object LocalMcpPresets {
             setupInstructions = "Run Graphiti with an MCP-compatible HTTP gateway on your own host, then paste the reachable Streamable HTTP endpoint here. Keep automatic recall opt-in per AI profile; Graphiti remains separate from the encrypted on-device Memory."
         ),
         McpPreset(
-            id = "mem0-memory", name = "Mem0 Memory", description = "External semantic memory with user-scoped capture and recall.",
-            category = McpCategory.MEMORY, commandOrUrl = "",
-            iconName = "memory", author = "Mem0",
-            pricing = McpPricingType.FREE_WITH_SIGNUP,
-            requiredFields = listOf("Your Mem0 MCP endpoint and credentials"),
-            toolCapabilities = listOf("Semantic memory search", "Add memories", "User-scoped recall"),
-            websiteUrl = "https://github.com/mem0ai/mem0",
-            documentationOnly = false,
-            setupInstructions = "Connect a Mem0 MCP deployment over Streamable HTTP and configure authentication in the connection. External recall is opt-in and should use a stable user scope; it does not replace the phone's encrypted Memory."
-        ),
-        McpPreset(
-            id = "supermemory", name = "Supermemory", description = "Hosted long-term memory and semantic retrieval for AI workflows.",
-            category = McpCategory.MEMORY, commandOrUrl = "",
-            iconName = "memory", author = "Supermemory",
-            pricing = McpPricingType.FREE_WITH_SIGNUP,
-            requiredFields = listOf("Your Supermemory MCP endpoint and credentials"),
-            toolCapabilities = listOf("Semantic recall", "Store memories", "Retrieve related context"),
-            websiteUrl = "https://github.com/supermemoryai/supermemory",
-            documentationOnly = false,
-            setupInstructions = "Use a Supermemory deployment that exposes Streamable HTTP MCP, then add its endpoint and credential. Enable its tools only for profiles where cloud memory is desired; the built-in local Memory remains available independently."
-        ),
-        McpPreset(
             id = "marm-memory", name = "MARM Memory", description = "Shared session history, code indexing and concept-graph memory.",
             category = McpCategory.MEMORY, commandOrUrl = "",
             iconName = "marm-memory", author = "Lyellr88",

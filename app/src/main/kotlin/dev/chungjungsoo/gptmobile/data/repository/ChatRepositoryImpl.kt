@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import android.content.Context
+import android.os.BatteryManager
 import com.example.gptmobileai.debug.ToolMetricsCollector
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
@@ -389,7 +390,12 @@ class ChatRepositoryImpl(
                 settings = { settingRepository.getFeatureSettings().delegation },
                 profiles = { settingRepository.fetchPlatformV2s() },
                 generate = { target, task, cap -> delegateToProfile(target, task, cap, runId, turnKey) },
-                inputBudget = ::delegationInputBudget
+                inputBudget = ::delegationInputBudget,
+                batteryPercent = {
+                    val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                    manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                        ?.takeIf { it in 0..100 }
+                }
             )
             val unavailableConnections = mutableListOf<String>()
             val supportsTools = when (platform.compatibleType) {
@@ -573,7 +579,12 @@ class ChatRepositoryImpl(
             val effectiveTools = aggregatedTools
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }
                 .map { if (resolvedTools.any { tool -> tool.realToolName == "delegate_to_model" }) localDelegation.processToolResults(it, latestUser?.content.orEmpty()) else it }
-            val requestConstraints = RequestConstraints(maxOutputTokens = contextPlan.outputTokens)
+            val delegationSettings = settingRepository.getFeatureSettings().delegation.normalized()
+            val requestedOutputTokens = contextPlan.outputTokens
+            val synthesisCap = if (localResearch) delegationSettings.remoteSynthesisOutputTokens else Int.MAX_VALUE
+            val requestConstraints = RequestConstraints(
+                maxOutputTokens = requestedOutputTokens?.let { minOf(it, synthesisCap) }
+            )
             val session = when (platform.compatibleType) {
                 ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
 

@@ -26,7 +26,7 @@ data class ModelDelegationSettings(
     val pageFetchConcurrency: Int = 8,
     val maxPageCharacters: Int = 48000,
     val handoffTokens: Int = 256,
-    val compactionThresholdCharacters: Int = 256
+    val compactionThresholdCharacters: Int = 256,
     /** Maximum local retry attempts after the initial delegation attempt. */
     val localRetryLimit: Int = 0
     /** Pause aggressive local research at or below this battery percentage. */

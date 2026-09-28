@@ -50,6 +50,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelPackages
 import dev.chungjungsoo.gptmobile.data.localmodel.resolveLocalModelSelection
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -187,6 +188,10 @@ class ChatRepositoryImpl(
         val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
         modelCatalogRepository.getCachedVisibleEntries()
             .firstOrNull { it.id == selected.modelId }
+            ?.let { entry ->
+                selected.record?.let { LocalModelPackages.forInstalledFile(entry, it.fileName) }
+                    ?: selected.path.let { LocalModelPackages.forInstalledFile(entry, it) }
+            }
             ?.capabilities
             ?.tools == true
     } catch (cancellation: CancellationException) {

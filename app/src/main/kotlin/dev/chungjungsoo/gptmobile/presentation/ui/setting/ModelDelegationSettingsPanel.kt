@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -78,29 +79,32 @@ fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel(
         }
         Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Local research", style = MaterialTheme.typography.titleMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Local research", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Button(enabled = !busy, onClick = viewModel::resetDelegationDefaults) { Text("Reset defaults") }
+                }
                 LocalToolToggle("Search and read pages locally", config.researchEnabled, !busy) { value -> viewModel.update { it.copy(researchEnabled = value) } }
                 LocalToolToggle("Prepare research before the remote model", config.automaticResearch, !busy) { value -> viewModel.update { it.copy(automaticResearch = value) } }
                 LocalToolToggle("Process large tool results locally", config.compactToolResults, !busy) { value -> viewModel.update { it.copy(compactToolResults = value) } }
                 Text("Uses the main profile's enabled tools and chat permissions. Search engines still receive search queries. Page text stays with the local helper; only the brief goes to the remote model.", style = MaterialTheme.typography.bodySmall)
-                DelegationSlider("Search queries", config.maxSearchQueries, 1..6, 1, !busy, "More queries broaden coverage and use more search requests.") { value -> viewModel.update { it.copy(maxSearchQueries = value) } }
-                DelegationSlider("Results per search engine", config.searchResultsPerEngine, 1..10, 1, !busy) { value -> viewModel.update { it.copy(searchResultsPerEngine = value) } }
-                DelegationSlider("Pages to read", config.maxPages, 0..12, 1, !busy, "Zero uses search snippets only.") { value -> viewModel.update { it.copy(maxPages = value) } }
-                DelegationSlider("Crawl depth", config.crawlDepth, 0..2, 1, !busy, "Zero reads selected pages. Higher values follow links on the same host within the page limit.") { value -> viewModel.update { it.copy(crawlDepth = value) } }
-                DelegationSlider("Parallel page requests", config.pageFetchConcurrency, 1..4, 1, !busy) { value -> viewModel.update { it.copy(pageFetchConcurrency = value) } }
-                DelegationSlider("Page characters to process", config.maxPageCharacters, 1000..48000, 1000, !busy, "Long pages contribute relevant passages and are marked as excerpts.") { value -> viewModel.update { it.copy(maxPageCharacters = value) } }
+                DelegationSlider("Search queries", config.maxSearchQueries, 1..20, 1, !busy, "More queries broaden coverage and use more search requests.") { value -> viewModel.update { it.copy(maxSearchQueries = value) } }
+                DelegationSlider("Results per search engine", config.searchResultsPerEngine, 1..28, 1, !busy) { value -> viewModel.update { it.copy(searchResultsPerEngine = value) } }
+                DelegationSlider("Pages to read", config.maxPages, 0..32, 1, !busy, "Zero uses search snippets only.") { value -> viewModel.update { it.copy(maxPages = value) } }
+                DelegationSlider("Crawl depth", config.crawlDepth, 0..8, 1, !busy, "Zero reads selected pages. Higher values follow links on the same host within the page limit.") { value -> viewModel.update { it.copy(crawlDepth = value) } }
+                DelegationSlider("Parallel page requests", config.pageFetchConcurrency, 1..16, 1, !busy) { value -> viewModel.update { it.copy(pageFetchConcurrency = value) } }
+                DelegationSlider("Page characters to process", config.maxPageCharacters, 1000..96000, 1000, !busy, "Long pages contribute relevant passages and are marked as excerpts.") { value -> viewModel.update { it.copy(maxPageCharacters = value) } }
             }
         }
         Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Handoff and local workload", style = MaterialTheme.typography.titleMedium)
-                DelegationSlider("Remote brief token budget", config.handoffTokens, 128..4096, 128, !busy, "A byte-based estimate. Lower values reduce remote context; sources and limitations remain attached.") { value -> viewModel.update { it.copy(handoffTokens = value) } }
-                DelegationSlider("Local input characters per step", config.maxInputCharacters, 1000..64000, 1000, !busy) { value -> viewModel.update { it.copy(maxInputCharacters = value) } }
-                DelegationSlider("Local output tokens per step", config.maxOutputTokens, 64..4096, 64, !busy) { value -> viewModel.update { it.copy(maxOutputTokens = value) } }
-                DelegationSlider("Local model calls per turn", config.maxLocalModelCalls, 1..24, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> viewModel.update { it.copy(maxLocalModelCalls = value) } }
-                DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..300, 5, !busy) { value -> viewModel.update { it.copy(timeoutSeconds = value) } }
-                DelegationSlider("Delegations per turn", config.maxCallsPerTurn, 1..8, 1, !busy) { value -> viewModel.update { it.copy(maxCallsPerTurn = value) } }
-                DelegationSlider("Process tool results above characters", config.compactionThresholdCharacters, 500..24000, 500, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> viewModel.update { it.copy(compactionThresholdCharacters = value) } }
+                DelegationSlider("Remote brief token budget", config.handoffTokens, 128..8192, 128, !busy, "A byte-based estimate. Lower values reduce remote context; sources and limitations remain attached.") { value -> viewModel.update { it.copy(handoffTokens = value) } }
+                DelegationSlider("Local input characters per step", config.maxInputCharacters, 1000..128000, 1000, !busy) { value -> viewModel.update { it.copy(maxInputCharacters = value) } }
+                DelegationSlider("Local output tokens per step", config.maxOutputTokens, 64..8192, 64, !busy) { value -> viewModel.update { it.copy(maxOutputTokens = value) } }
+                DelegationSlider("Local model calls per turn", config.maxLocalModelCalls, 1..48, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> viewModel.update { it.copy(maxLocalModelCalls = value) } }
+                DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..600, 5, !busy) { value -> viewModel.update { it.copy(timeoutSeconds = value) } }
+                DelegationSlider("Delegations per turn", config.maxCallsPerTurn, 1..16, 1, !busy) { value -> viewModel.update { it.copy(maxCallsPerTurn = value) } }
+                DelegationSlider("Process tool results above characters", config.compactionThresholdCharacters, 256..48000, 256, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> viewModel.update { it.copy(compactionThresholdCharacters = value) } }
                 Text("These controls apply to delegation. The main model's output limit is unchanged. When the local budget runs out, the brief identifies omitted evidence.", style = MaterialTheme.typography.bodySmall)
             }
         }

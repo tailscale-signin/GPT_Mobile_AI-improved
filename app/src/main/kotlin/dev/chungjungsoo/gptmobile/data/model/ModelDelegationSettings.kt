@@ -27,6 +27,12 @@ data class ModelDelegationSettings(
     val maxPageCharacters: Int = 48000,
     val handoffTokens: Int = 256,
     val compactionThresholdCharacters: Int = 256
+    /** Maximum local retry attempts after the initial delegation attempt. */
+    val localRetryLimit: Int = 0
+    /** Pause aggressive local research at or below this battery percentage. */
+    val lowBatteryThresholdPercent: Int = 20
+    /** Keep remote synthesis compact after local research has prepared evidence. */
+    val remoteSynthesisOutputTokens: Int = 3072
 ) {
     /** Apply the master slider to every delegation budget and breadth setting. */
     fun withStrategy(value: Int): ModelDelegationSettings {
@@ -71,7 +77,10 @@ data class ModelDelegationSettings(
         pageFetchConcurrency = pageFetchConcurrency.coerceIn(1, 16),
         maxPageCharacters = maxPageCharacters.coerceIn(1000, 96000),
         handoffTokens = handoffTokens.coerceIn(128, 8192),
-        compactionThresholdCharacters = compactionThresholdCharacters.coerceIn(256, 48000)
+        compactionThresholdCharacters = compactionThresholdCharacters.coerceIn(256, 48000),
+        localRetryLimit = localRetryLimit.coerceIn(0, 1),
+        lowBatteryThresholdPercent = lowBatteryThresholdPercent.coerceIn(0, 50),
+        remoteSynthesisOutputTokens = remoteSynthesisOutputTokens.coerceIn(256, 4096)
     )
 }
 

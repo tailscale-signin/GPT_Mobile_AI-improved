@@ -497,7 +497,16 @@ class ChatRepositoryImpl(
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             }
             if (settingRepository.getDebugMode()) emit(ApiState.Notice(contextPlan.notice, persistent = true))
-            val toolBudget = ToolExecutionBudget(customRunner.limits.copy(maxToolOutputBytes = if (localResearch) maxOf(contextPlan.toolResultBytes, 256 * 1024) else contextPlan.toolResultBytes))
+            // Reserve one run-scoped tool slot for final synthesis before local delegation
+            // starts. Local research must not consume the last tool allowance needed to
+            // produce a grounded response.
+            val reservedFinalToolCalls = if (localResearch) 1 else 0
+            val toolBudget = ToolExecutionBudget(
+                customRunner.limits.copy(
+                    maxToolOutputBytes = if (localResearch) maxOf(contextPlan.toolResultBytes, 256 * 1024) else contextPlan.toolResultBytes,
+                    finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls)
+                )
+            )
             val boundedTools = resolvedTools.filter { resolved ->
                 resolved in connectedMemoryTools ||
                     (localResearch && (resolved.isWebSearchEngine() || resolved.isResearchPageReader())) ||
@@ -627,7 +636,8 @@ class ChatRepositoryImpl(
                 customRunner.limits.copy(
                     contextTokens = limits.contextTokens,
                     initialContextTokens = contextPlan.promptTokens,
-                    finalResponseReserveTokens = minOf(contextPlan.outputTokens ?: 32768, limits.contextTokens / 4)
+                    finalResponseReserveTokens = minOf(contextPlan.outputTokens ?: 32768, limits.contextTokens / 4),
+                    finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls)
                 )
             ).run(groundedSession, runnerTools)
             emitAll(streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace))

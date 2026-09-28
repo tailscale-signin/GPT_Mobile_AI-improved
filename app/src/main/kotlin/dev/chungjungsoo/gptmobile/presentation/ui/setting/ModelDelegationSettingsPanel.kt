@@ -33,7 +33,7 @@ fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (!config.localPlatformsOnly || it.isPrivateDestination()) }
+    val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (!config.localPlatformsOnly || it.isPrivateDestination() || config.allowRemoteWorkers) }
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -57,7 +57,12 @@ fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel(
                 ) { value -> viewModel.update { it.withProcessingOwnership(value) } }
                 Text("Local-first prioritizes on-device research. Shared runs both sides when possible. Remote-first lets the remote model lead tool work.", style = MaterialTheme.typography.bodySmall)
                 LocalToolToggle("Only private destinations", config.localPlatformsOnly, !busy) { value -> viewModel.update { it.copy(localPlatformsOnly = value) } }
-                Text("Local research and result processing require an on-device model or private server. Other destinations support text delegation only.", style = MaterialTheme.typography.bodySmall)
+                Text("Local research and result processing require an on-device model or private server. Remote workers can handle analysis and verification when explicitly enabled.", style = MaterialTheme.typography.bodySmall)
+                LocalToolToggle("Allow remote AI profiles as workers", config.allowRemoteWorkers, !busy) { value -> viewModel.update { it.copy(allowRemoteWorkers = value) } }
+                if (config.allowRemoteWorkers) {
+                    Text("Remote-to-remote delegation is opt-in, budgeted by this router, and limited to a shallow worker chain to prevent loops.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    DelegationSlider("Maximum worker delegation depth", config.maxDelegationDepth, 1..2, 1, !busy, "Depth 1 keeps one router-to-worker hop. Depth 2 permits a controlled worker handoff.") { value -> viewModel.update { it.copy(maxDelegationDepth = value) } }
+                }
                 Text("Helper profile", style = MaterialTheme.typography.titleSmall)
                 if (eligible.none { it.uid == config.targetProfileUid }) Text("Select an enabled helper profile. Download a model and create its profile from the Library tab, or add your local server in AI profiles.", color = MaterialTheme.colorScheme.primary)
                 eligible.forEach { profile ->
@@ -99,10 +104,10 @@ fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Handoff and local workload", style = MaterialTheme.typography.titleMedium)
                 DelegationSlider("Remote brief token budget", config.handoffTokens, 128..8192, 128, !busy, "A byte-based estimate. Lower values reduce remote context; sources and limitations remain attached.") { value -> viewModel.update { it.copy(handoffTokens = value) } }
-                DelegationSlider("Local input characters per step", config.maxInputCharacters, 1000..128000, 1000, !busy) { value -> viewModel.update { it.copy(maxInputCharacters = value) } }
-                DelegationSlider("Local output tokens per step", config.maxOutputTokens, 64..8192, 64, !busy) { value -> viewModel.update { it.copy(maxOutputTokens = value) } }
-                DelegationSlider("Local model calls per turn", config.maxLocalModelCalls, 1..48, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> viewModel.update { it.copy(maxLocalModelCalls = value) } }
-                DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..600, 5, !busy) { value -> viewModel.update { it.copy(timeoutSeconds = value) } }
+                DelegationSlider("Local input characters per step", config.maxInputCharacters, 1000..16000, 500, !busy) { value -> viewModel.update { it.copy(maxInputCharacters = value) } }
+                DelegationSlider("Local output tokens per step", config.maxOutputTokens, 64..2048, 64, !busy) { value -> viewModel.update { it.copy(maxOutputTokens = value) } }
+                DelegationSlider("Local model calls per turn", config.maxLocalModelCalls, 1..24, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> viewModel.update { it.copy(maxLocalModelCalls = value) } }
+                DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..300, 5, !busy { value -> viewModel.update { it.copy(timeoutSeconds = value) } }
                 DelegationSlider("Delegations per turn", config.maxCallsPerTurn, 1..16, 1, !busy) { value -> viewModel.update { it.copy(maxCallsPerTurn = value) } }
                 DelegationSlider("Process tool results above characters", config.compactionThresholdCharacters, 256..48000, 256, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> viewModel.update { it.copy(compactionThresholdCharacters = value) } }
                 Text("These controls apply to delegation. The main model's output limit is unchanged. When the local budget runs out, the brief identifies omitted evidence.", style = MaterialTheme.typography.bodySmall)

@@ -43,11 +43,12 @@ internal class LocalDelegationCoordinator(
     }
 
     private suspend fun localTarget(config: ModelDelegationSettings): PlatformV2? {
-        if (!config.enabled || config.processingOwnership >= 85 || source.disableAllTools || source.disableLocalTools || source.isPrivateDestination() || source.excludesMemory()) return null
+        if (!config.enabled || config.processingOwnership >= 85 || source.disableAllTools || source.disableLocalTools || source.excludesMemory()) return null
+        if (!source.isPrivateDestination() && !config.allowRemoteWorkers) return null
         val battery = batteryPercent()
         if (battery != null && battery <= config.lowBatteryThresholdPercent && config.processingOwnership < 65) return null
         return profiles().firstOrNull {
-            it.uid == config.targetProfileUid && it.uid != source.uid && it.enabled && !it.excludesMemory() && it.isPrivateDestination()
+            it.uid == config.targetProfileUid && it.uid != source.uid && it.enabled && !it.excludesMemory() && (config.allowRemoteWorkers || it.isPrivateDestination())
         }
     }
 

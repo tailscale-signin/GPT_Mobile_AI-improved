@@ -22,7 +22,8 @@ internal class LocalDelegationCoordinator(
     private val settings: suspend () -> ModelDelegationSettings,
     private val profiles: suspend () -> List<PlatformV2>,
     private val generate: suspend (PlatformV2, String, Int) -> String,
-    private val inputBudget: suspend (PlatformV2, Int) -> Int = { _, _ -> Int.MAX_VALUE }
+    private val inputBudget: suspend (PlatformV2, Int) -> Int = { _, _ -> Int.MAX_VALUE },
+    private val batteryPercent: suspend () -> Int? = { null }
 ) {
     private val localCalls = AtomicInteger()
     private val requests = AtomicInteger()
@@ -43,6 +44,8 @@ internal class LocalDelegationCoordinator(
 
     private suspend fun localTarget(config: ModelDelegationSettings): PlatformV2? {
         if (!config.enabled || config.processingOwnership >= 85 || source.disableAllTools || source.disableLocalTools || source.isPrivateDestination() || source.excludesMemory()) return null
+        val battery = batteryPercent()
+        if (battery != null && battery <= config.lowBatteryThresholdPercent && config.processingOwnership < 65) return null
         return profiles().firstOrNull {
             it.uid == config.targetProfileUid && it.uid != source.uid && it.enabled && !it.excludesMemory() && it.isPrivateDestination()
         }
@@ -118,9 +121,9 @@ internal class LocalDelegationCoordinator(
     suspend fun delegate(target: PlatformV2, task: String, maxTokens: Int, tools: List<ResolvedAgentTool>, callId: String): String {
         if (researchAvailable()) {
             val result = prepare(task, tools, callId)
-            return result.handoff.ifBlank { "The local research allowance for this turn is exhausted. Use evidence already available." }
+            return result.handoff.ifBlank { "The local research allowance for this turn is exhausted. Use evidence already available; do not retry the delegated research." }
         }
-        return workerText(target, task, maxTokens, requirePrivate = false) ?: error("The delegated model was unavailable or its call budget was reached.")
+        return workerText(target, task, maxTokens, requirePrivate = false) ?: error("The delegated model was unavailable or its call budget was reached. Do not retry this delegation in the same turn.")
     }
 
     suspend fun memoryObservations(userText: String): JsonObject? {

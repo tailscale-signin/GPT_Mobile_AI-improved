@@ -44,12 +44,17 @@ internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
 }
 
 /** Qualcomm NPU execution through LiteRT-LM's dispatch API. No hidden CPU/GPU fallback. */
-class LocalRuntimeQnnImpl(
-    context: Context,
-    private val runtime: LocalRuntime = LocalRuntimeImpl(context),
-    private val loadGuard: QnnLoadGuard = QnnInitializationCrashGuard(context),
-    private val probeEnvironment: () -> QnnEnvironment.QnnProbeStatus = { QnnEnvironment.getProbeStatus(context) }
+internal class LocalRuntimeQnnImpl(
+    private val runtime: LocalRuntime,
+    private val loadGuard: QnnLoadGuard,
+    private val probeEnvironment: () -> QnnEnvironment.QnnProbeStatus
 ) : LocalRuntime {
+    constructor(context: Context) : this(
+        runtime = LocalRuntimeImpl(context),
+        loadGuard = QnnInitializationCrashGuard(context),
+        probeEnvironment = { QnnEnvironment.getProbeStatus(context) }
+    )
+
     private var requestedSpec: LocalEngineSpec? = null
     private var dispatchedSpec: LocalEngineSpec? = null
 

@@ -1,7 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
-import android.content.Context
-import io.mockk.mockk
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -23,7 +21,11 @@ class LocalRuntimeQnnImplTest {
     @Test
     fun transformedDispatchSpecStillReusesTheWarmEngine() = runTest {
         val native = FakeLocalRuntime()
-        val qnn = LocalRuntimeQnnImpl(mockk<Context>(), native, noOpGuard) { ready }
+        val qnn = LocalRuntimeQnnImpl(
+            runtime = native,
+            loadGuard = noOpGuard,
+            probeEnvironment = { ready }
+        )
         val holder = LocalEngineHolder(qnn) { 1_000L }
         holder.loadEngine(spec)
         holder.loadEngine(spec)
@@ -37,7 +39,11 @@ class LocalRuntimeQnnImplTest {
     @Test
     fun missingPrerequisitesDoNotAttemptNativeInitialization() = runTest {
         val native = FakeLocalRuntime()
-        val qnn = LocalRuntimeQnnImpl(mockk<Context>(), native, noOpGuard) { ready.copy(isReady = false, errorMessage = "missing HTP") }
+        val qnn = LocalRuntimeQnnImpl(
+            runtime = native,
+            loadGuard = noOpGuard,
+            probeEnvironment = { ready.copy(isReady = false, errorMessage = "missing HTP") }
+        )
         assertTrue(runCatching { qnn.loadEngine(spec) }.isFailure)
         assertTrue(native.loadEngineCalls.isEmpty())
     }
@@ -45,7 +51,11 @@ class LocalRuntimeQnnImplTest {
     @Test
     fun explicitGpuIsNeverSilentlyChangedToNpu() = runTest {
         val native = FakeLocalRuntime()
-        val qnn = LocalRuntimeQnnImpl(mockk<Context>(), native, noOpGuard) { ready }
+        val qnn = LocalRuntimeQnnImpl(
+            runtime = native,
+            loadGuard = noOpGuard,
+            probeEnvironment = { ready }
+        )
         assertTrue(runCatching { qnn.loadEngine(spec.copy(accelerator = "gpu")) }.isFailure)
         assertTrue(native.loadEngineCalls.isEmpty())
     }
@@ -53,7 +63,11 @@ class LocalRuntimeQnnImplTest {
     @Test
     fun conversationAndVisionPayloadAreForwardedToTheInitializedEngine() = runTest {
         val native = FakeLocalRuntime()
-        val qnn = LocalRuntimeQnnImpl(mockk<Context>(), native, noOpGuard) { ready }
+        val qnn = LocalRuntimeQnnImpl(
+            runtime = native,
+            loadGuard = noOpGuard,
+            probeEnvironment = { ready }
+        )
         qnn.loadEngine(spec)
         val config = LocalConversationConfig(LocalSamplerConfig(40, .95f, .8f), "system", emptyList())
         qnn.createConversation(config)
@@ -72,7 +86,11 @@ class LocalRuntimeQnnImplTest {
             override fun beforeLoad(spec: LocalEngineSpec) = error("previous QNN native crash")
             override fun loadFinished() = Unit
         }
-        val qnn = LocalRuntimeQnnImpl(mockk<Context>(), native, blockingGuard) { ready }
+        val qnn = LocalRuntimeQnnImpl(
+            runtime = native,
+            loadGuard = blockingGuard,
+            probeEnvironment = { ready }
+        )
 
         assertTrue(runCatching { qnn.loadEngine(spec) }.isFailure)
         assertTrue(native.loadEngineCalls.isEmpty())

@@ -79,7 +79,7 @@ internal class LocalResearchWorkflow(
             val search = tools.firstOrNull { it.realToolName == "web_search" }
             if (queries.isNotEmpty() && search == null) {
                 toolUnavailable = true
-                notes += "Web search is unavailable for this profile; no live research was completed."
+                notes += "Web search is not enabled for this profile; live research is unavailable and no research was completed."
             }
             for ((index, query) in queries.withIndex()) {
                 if (search == null || toolsExhausted) break

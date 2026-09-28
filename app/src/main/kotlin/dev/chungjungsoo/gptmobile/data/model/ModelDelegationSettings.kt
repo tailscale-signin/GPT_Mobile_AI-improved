@@ -11,28 +11,28 @@ data class ModelDelegationSettings(
     val processingOwnership: Int = 50,
     val targetProfileUid: String = "",
     val localPlatformsOnly: Boolean = true,
-    val maxInputCharacters: Int = 6000,
-    val maxOutputTokens: Int = 1024,
-    val timeoutSeconds: Int = 30,
-    val maxCallsPerTurn: Int = 4,
+    val maxInputCharacters: Int = 3500,
+    val maxOutputTokens: Int = 512,
+    val timeoutSeconds: Int = 75,
+    val maxCallsPerTurn: Int = 5,
     val researchEnabled: Boolean = true,
     val automaticResearch: Boolean = true,
     val compactToolResults: Boolean = true,
-    val maxLocalModelCalls: Int = 12,
-    val maxSearchQueries: Int = 10,
-    val searchResultsPerEngine: Int = 14,
-    val maxPages: Int = 16,
-    val crawlDepth: Int = 4,
-    val pageFetchConcurrency: Int = 8,
-    val maxPageCharacters: Int = 48000,
+    val maxLocalModelCalls: Int = 10,
+    val maxSearchQueries: Int = 6,
+    val searchResultsPerEngine: Int = 10,
+    val maxPages: Int = 10,
+    val crawlDepth: Int = 2,
+    val pageFetchConcurrency: Int = 4,
+    val maxPageCharacters: Int = 36000,
     val handoffTokens: Int = 256,
-    val compactionThresholdCharacters: Int = 256,
+    val compactionThresholdCharacters: Int = 500,
     /** Maximum local retry attempts after the initial delegation attempt. */
-    val localRetryLimit: Int = 0
+    val localRetryLimit: Int = 0,
     /** Pause aggressive local research at or below this battery percentage. */
-    val lowBatteryThresholdPercent: Int = 20
+    val lowBatteryThresholdPercent: Int = 15,
     /** Keep remote synthesis compact after local research has prepared evidence. */
-    val remoteSynthesisOutputTokens: Int = 3072
+    val remoteSynthesisOutputTokens: Int = 256
 ) {
     /** Apply the master slider to every delegation budget and breadth setting. */
     fun withStrategy(value: Int): ModelDelegationSettings {
@@ -65,9 +65,9 @@ data class ModelDelegationSettings(
     fun normalized() = copy(
         strategy = strategy.coerceIn(0, 100),
         processingOwnership = processingOwnership.coerceIn(0, 100),
-        maxInputCharacters = maxInputCharacters.coerceIn(1000, 128000),
-        maxOutputTokens = maxOutputTokens.coerceIn(64, 8192),
-        timeoutSeconds = timeoutSeconds.coerceIn(5, 600),
+        maxInputCharacters = maxInputCharacters.coerceIn(1000, 64000),
+        maxOutputTokens = maxOutputTokens.coerceIn(64, 4096),
+        timeoutSeconds = timeoutSeconds.coerceIn(5, 300),
         maxCallsPerTurn = maxCallsPerTurn.coerceIn(1, 16),
         maxLocalModelCalls = maxLocalModelCalls.coerceIn(1, 48),
         maxSearchQueries = maxSearchQueries.coerceIn(1, 20),

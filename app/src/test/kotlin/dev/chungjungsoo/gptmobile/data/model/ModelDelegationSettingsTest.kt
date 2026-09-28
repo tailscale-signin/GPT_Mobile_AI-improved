@@ -20,29 +20,29 @@ class ModelDelegationSettingsTest {
             compactionThresholdCharacters = 999999
         ).normalized()
 
-        assertEquals(300, normalized.timeoutSeconds)
-        assertEquals(8, normalized.maxCallsPerTurn)
-        assertEquals(24, normalized.maxLocalModelCalls)
-        assertEquals(6, normalized.maxSearchQueries)
-        assertEquals(10, normalized.searchResultsPerEngine)
-        assertEquals(12, normalized.maxPages)
-        assertEquals(2, normalized.crawlDepth)
-        assertEquals(4, normalized.pageFetchConcurrency)
-        assertEquals(48000, normalized.maxPageCharacters)
-        assertEquals(4096, normalized.handoffTokens)
-        assertEquals(24000, normalized.compactionThresholdCharacters)
+        assertEquals(600, normalized.timeoutSeconds)
+        assertEquals(16, normalized.maxCallsPerTurn)
+        assertEquals(48, normalized.maxLocalModelCalls)
+        assertEquals(20, normalized.maxSearchQueries)
+        assertEquals(28, normalized.searchResultsPerEngine)
+        assertEquals(32, normalized.maxPages)
+        assertEquals(8, normalized.crawlDepth)
+        assertEquals(16, normalized.pageFetchConcurrency)
+        assertEquals(96000, normalized.maxPageCharacters)
+        assertEquals(8192, normalized.handoffTokens)
+        assertEquals(48000, normalized.compactionThresholdCharacters)
     }
 
     @Test
     fun defaultsKeepResearchScopedAndHandoffCompact() {
         val defaults = ModelDelegationSettings()
-        assertEquals(2, defaults.maxSearchQueries)
-        assertEquals(4, defaults.searchResultsPerEngine)
-        assertEquals(4, defaults.maxPages)
-        assertEquals(0, defaults.crawlDepth)
-        assertEquals(2, defaults.pageFetchConcurrency)
-        assertEquals(12000, defaults.maxPageCharacters)
-        assertEquals(1024, defaults.handoffTokens)
-        assertEquals(3000, defaults.compactionThresholdCharacters)
+        assertEquals(10, defaults.maxSearchQueries)
+        assertEquals(14, defaults.searchResultsPerEngine)
+        assertEquals(16, defaults.maxPages)
+        assertEquals(4, defaults.crawlDepth)
+        assertEquals(8, defaults.pageFetchConcurrency)
+        assertEquals(48000, defaults.maxPageCharacters)
+        assertEquals(256, defaults.handoffTokens)
+        assertEquals(256, defaults.compactionThresholdCharacters)
     }
 }

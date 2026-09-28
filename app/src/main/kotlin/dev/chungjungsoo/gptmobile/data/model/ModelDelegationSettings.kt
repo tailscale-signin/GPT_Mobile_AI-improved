@@ -11,6 +11,10 @@ data class ModelDelegationSettings(
     val processingOwnership: Int = 50,
     val targetProfileUid: String = "",
     val localPlatformsOnly: Boolean = true,
+    /** Allow enabled remote profiles to receive delegated worker tasks. */
+    val allowRemoteWorkers: Boolean = false,
+    /** Maximum worker-to-worker delegation depth; 1 prevents delegation loops by default. */
+    val maxDelegationDepth: Int = 1,
     val maxInputCharacters: Int = 3500,
     val maxOutputTokens: Int = 512,
     val timeoutSeconds: Int = 75,

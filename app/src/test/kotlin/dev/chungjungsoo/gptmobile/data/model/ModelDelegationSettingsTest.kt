@@ -32,8 +32,8 @@ class ModelDelegationSettingsTest {
         assertEquals(8192, normalized.handoffTokens)
         assertEquals(48000, normalized.compactionThresholdCharacters)
         assertEquals(1, normalized.localRetryLimit)
-        assertEquals(50, normalized.lowBatteryThresholdPercent)
-        assertEquals(4096, normalized.remoteSynthesisOutputTokens)
+        assertEquals(15, normalized.lowBatteryThresholdPercent)
+        assertEquals(256, normalized.remoteSynthesisOutputTokens)
     }
 
     @Test
@@ -48,7 +48,7 @@ class ModelDelegationSettingsTest {
         assertEquals(256, defaults.handoffTokens)
         assertEquals(false, defaults.allowRemoteWorkers)
         assertEquals(1, defaults.maxDelegationDepth)
-        assertEquals(256, defaults.compactionThresholdCharacters)
+        assertEquals(500, defaults.compactionThresholdCharacters)
         assertEquals(0, defaults.localRetryLimit)
         assertEquals(15, defaults.lowBatteryThresholdPercent)
         assertEquals(256, defaults.remoteSynthesisOutputTokens)

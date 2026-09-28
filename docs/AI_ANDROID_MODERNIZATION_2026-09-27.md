@@ -34,7 +34,7 @@ Versions were checked against Google Maven or Maven Central, excluding alpha/bet
 | MapLibre | 11.11.0 | 13.6.1 OpenGL |
 | Apache POI / Gson | 5.4.1 / 2.11.0 | 5.5.1 / 2.14.0 |
 | Mockito / Robolectric | 5.23.0 / 4.16.1 | 5.24.0 / 4.17 |
-| Qualcomm QAIRT | 2.47.0 | 2.47.0 retained; 2.50.0 available |
+| Qualcomm QAIRT | 2.47.0 | 2.50.0 staged; matched LiteRT-LM dispatch replacement and regenerated native-library audit remain required before merge |
 
 AGP 9.4 requires Gradle 9.6 and supports API 37; Java 21 remains the project toolchain. Compile SDK upgrades enable dependency/API compatibility, while target SDK remains 36 pending an Android 17 behavior-change/device pass. [AGP compatibility](https://developer.android.com/build/releases/agp-9-4-0-release-notes), [Core releases](https://developer.android.com/jetpack/androidx/releases/core), [Hilt releases](https://github.com/google/dagger/releases).
 

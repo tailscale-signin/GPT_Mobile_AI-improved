@@ -1,12 +1,53 @@
 package dev.chungjungsoo.gptmobile.data.localruntime
 
 import android.content.Context
+import dev.chungjungsoo.gptmobile.BuildConfig
+import java.io.File
 import kotlinx.coroutines.flow.Flow
+
+internal interface QnnLoadGuard {
+    fun beforeLoad(spec: LocalEngineSpec)
+    fun loadFinished()
+}
+
+/**
+ * A native signal cannot be caught by Kotlin. Leave a marker only while QAIRT is
+ * initializing so the next process can quarantine the same crashing tuple.
+ */
+internal class QnnInitializationCrashGuard(context: Context) : QnnLoadGuard {
+    private val app = context.applicationContext
+    private val marker = File(app.noBackupFilesDir, "qnn_dispatch/native-init.marker")
+
+    override fun beforeLoad(spec: LocalEngineSpec) {
+        val model = File(spec.modelPath)
+        val install = app.packageManager.getPackageInfo(app.packageName, 0)
+        val signature = listOf(
+            install.longVersionCode,
+            install.lastUpdateTime,
+            BuildConfig.LITERT_LM_VERSION,
+            BuildConfig.QAIRT_VERSION,
+            model.canonicalPath,
+            model.length(),
+            model.lastModified()
+        ).joinToString("|")
+        check(marker.takeIf(File::isFile)?.readText() != signature) {
+            "QNN was disabled for this model after its previous native initialization crashed. " +
+                "Choose LiteRT-LM CPU/GPU or reinstall an NPU package compiled for QAIRT ${BuildConfig.QAIRT_VERSION}."
+        }
+        marker.parentFile?.mkdirs()
+        marker.writeText(signature)
+    }
+
+    override fun loadFinished() {
+        marker.delete()
+    }
+}
 
 /** Qualcomm NPU execution through LiteRT-LM's dispatch API. No hidden CPU/GPU fallback. */
 class LocalRuntimeQnnImpl(
     context: Context,
     private val runtime: LocalRuntime = LocalRuntimeImpl(context),
+    private val loadGuard: QnnLoadGuard = QnnInitializationCrashGuard(context),
     private val probeEnvironment: () -> QnnEnvironment.QnnProbeStatus = { QnnEnvironment.getProbeStatus(context) }
 ) : LocalRuntime {
     private var requestedSpec: LocalEngineSpec? = null
@@ -29,7 +70,14 @@ class LocalRuntimeQnnImpl(
         )
         requestedSpec = null
         dispatchedSpec = null
-        runtime.loadEngine(effectiveSpec)
+        loadGuard.beforeLoad(effectiveSpec)
+        try {
+            runtime.loadEngine(effectiveSpec)
+        } catch (error: Throwable) {
+            loadGuard.loadFinished()
+            throw error
+        }
+        loadGuard.loadFinished()
         requestedSpec = spec
         dispatchedSpec = effectiveSpec
     }

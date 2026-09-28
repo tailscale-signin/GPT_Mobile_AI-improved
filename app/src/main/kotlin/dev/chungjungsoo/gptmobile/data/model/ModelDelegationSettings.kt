@@ -69,6 +69,7 @@ data class ModelDelegationSettings(
     fun normalized() = copy(
         strategy = strategy.coerceIn(0, 100),
         processingOwnership = processingOwnership.coerceIn(0, 100),
+        maxDelegationDepth = maxDelegationDepth.coerceIn(1, 2),
         maxInputCharacters = maxInputCharacters.coerceIn(1000, 64000),
         maxOutputTokens = maxOutputTokens.coerceIn(64, 4096),
         timeoutSeconds = timeoutSeconds.coerceIn(5, 300),

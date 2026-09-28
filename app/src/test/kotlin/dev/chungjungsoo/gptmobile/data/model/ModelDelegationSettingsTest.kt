@@ -20,7 +20,7 @@ class ModelDelegationSettingsTest {
             compactionThresholdCharacters = 999999
         ).normalized()
 
-        assertEquals(600, normalized.timeoutSeconds)
+        assertEquals(300, normalized.timeoutSeconds)
         assertEquals(16, normalized.maxCallsPerTurn)
         assertEquals(48, normalized.maxLocalModelCalls)
         assertEquals(20, normalized.maxSearchQueries)
@@ -39,16 +39,16 @@ class ModelDelegationSettingsTest {
     @Test
     fun defaultsKeepResearchScopedAndHandoffCompact() {
         val defaults = ModelDelegationSettings()
-        assertEquals(10, defaults.maxSearchQueries)
-        assertEquals(14, defaults.searchResultsPerEngine)
-        assertEquals(16, defaults.maxPages)
-        assertEquals(4, defaults.crawlDepth)
-        assertEquals(8, defaults.pageFetchConcurrency)
-        assertEquals(48000, defaults.maxPageCharacters)
+        assertEquals(6, defaults.maxSearchQueries)
+        assertEquals(10, defaults.searchResultsPerEngine)
+        assertEquals(10, defaults.maxPages)
+        assertEquals(2, defaults.crawlDepth)
+        assertEquals(4, defaults.pageFetchConcurrency)
+        assertEquals(36000, defaults.maxPageCharacters)
         assertEquals(256, defaults.handoffTokens)
         assertEquals(256, defaults.compactionThresholdCharacters)
         assertEquals(0, defaults.localRetryLimit)
-        assertEquals(20, defaults.lowBatteryThresholdPercent)
-        assertEquals(3072, defaults.remoteSynthesisOutputTokens)
+        assertEquals(15, defaults.lowBatteryThresholdPercent)
+        assertEquals(256, defaults.remoteSynthesisOutputTokens)
     }
 }

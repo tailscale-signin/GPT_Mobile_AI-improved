@@ -46,6 +46,8 @@ class ModelDelegationSettingsTest {
         assertEquals(4, defaults.pageFetchConcurrency)
         assertEquals(36000, defaults.maxPageCharacters)
         assertEquals(256, defaults.handoffTokens)
+        assertEquals(false, defaults.allowRemoteWorkers)
+        assertEquals(1, defaults.maxDelegationDepth)
         assertEquals(256, defaults.compactionThresholdCharacters)
         assertEquals(0, defaults.localRetryLimit)
         assertEquals(15, defaults.lowBatteryThresholdPercent)

@@ -62,6 +62,19 @@ internal class LocalDelegationCoordinator(
         return config.copy(maxInputCharacters = minOf(config.maxInputCharacters, available).coerceAtLeast(600))
     }
 
+    private fun capPrompt(prompt: String, maxCharacters: Int): String {
+        val charLimit = maxCharacters.coerceAtLeast(600)
+        val tokenLimit = (charLimit / 4).coerceAtLeast(150)
+        val estimatedTokens = (prompt.length + 3) / 4
+        val limit = minOf(charLimit, tokenLimit * 4)
+        if (prompt.length <= limit && estimatedTokens <= tokenLimit) return prompt
+        val marker = "\n\n[Local delegation context truncated to the configured input budget.]\n\n"
+        val available = (limit - marker.length).coerceAtLeast(0)
+        val head = available * 3 / 4
+        val tail = available - head
+        return prompt.take(head) + marker + prompt.takeLast(tail)
+    }
+
     private suspend fun workerText(target: PlatformV2, prompt: String, tokens: Int, requirePrivate: Boolean = true): String? {
         val config = settings().normalized()
         if (!config.enabled) return null
@@ -82,8 +95,9 @@ internal class LocalDelegationCoordinator(
                     return@withPermit null
                 }
                 try {
-                    if (prompt.toByteArray().size > inputBudget(profile, tokens)) return@withPermit null
-                    generate(profile, prompt, minOf(tokens, latest.maxOutputTokens)).takeIf { it.isNotBlank() }
+                    val boundedPrompt = capPrompt(prompt, latest.maxInputCharacters)
+                    if (boundedPrompt.toByteArray().size > inputBudget(profile, tokens)) return@withPermit null
+                    generate(profile, boundedPrompt, minOf(tokens, latest.maxOutputTokens)).takeIf { it.isNotBlank() }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {

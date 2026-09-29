@@ -200,7 +200,7 @@ internal class LocalDelegationCoordinator(
             AppLogRecorder.record("Delegation", "Research workflow failed · call=$callId", "E")
             LocalResearchResult(delegationHandoff("", emptyList(), listOf("Local preparation was unavailable. No completed research is claimed."), config.handoffTokens), 0, 0, 0)
         }
-        AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · searches=${result.searches} · pages=${result.pagesRead} · rawBytes=${result.rawBytes} · handoffChars=${result.handoff.length}")
+        AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · taskKind=${result.taskKind} · outcome=${result.outcome} · searches=${result.searches} · pages=${result.pagesRead} · rawBytes=${result.rawBytes} · handoffChars=${result.handoff.length}")
         if (automatic && result.handoff.isEmpty()) requests.decrementAndGet()
         return result
     }
@@ -213,7 +213,20 @@ internal class LocalDelegationCoordinator(
         }
         if (researchAvailable()) {
             val result = prepare(task, tools, callId)
-            return result.handoff.ifBlank { "The local research allowance for this turn is exhausted. Use evidence already available; do not retry the delegated research." }
+            return when {
+                result.handoff.isNotBlank() -> result.handoff
+                result.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED ->
+                    workerText(target, task, delegationOutputBudget(result.taskKind, config), requirePrivate = false)
+                        ?: "The delegated model produced no usable result. Return control to the primary model; do not retry equivalent delegation in this turn."
+                result.outcome in setOf(
+                    LocalResearchOutcome.NO_RESEARCH_RESULTS,
+                    LocalResearchOutcome.TOOL_UNAVAILABLE,
+                    LocalResearchOutcome.TIMED_OUT
+                ) ->
+                    "NO_RESEARCH_RESULTS: Local preparation produced no verified evidence. Return control to the primary model and do not retry equivalent research in this turn."
+                else ->
+                    "The local research allowance for this turn is exhausted. Use evidence already available; do not retry the delegated research."
+            }
         }
         return workerText(target, task, maxTokens, requirePrivate = false) ?: error("The delegated model was unavailable or its call budget was reached. Do not retry this delegation in the same turn.")
     }

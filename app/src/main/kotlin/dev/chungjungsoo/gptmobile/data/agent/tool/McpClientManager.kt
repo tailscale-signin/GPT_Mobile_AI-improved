@@ -223,6 +223,7 @@ class McpClientManager internal constructor(
         3 -> 30_000L
         else -> 60_000L
     }
+
     suspend fun close(connectionUid: String) {
         val session = takeSession(connectionUid) ?: return
         runCatching { session.client.close() }

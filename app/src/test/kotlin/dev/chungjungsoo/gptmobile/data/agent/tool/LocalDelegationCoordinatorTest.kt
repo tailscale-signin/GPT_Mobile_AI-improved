@@ -170,10 +170,13 @@ class LocalDelegationCoordinatorTest {
             }
         )
 
-        coordinator.delegate(target, "first", 256, emptyList(), "first")
-        coordinator.delegate(target, "second", 256, emptyList(), "second")
-        coordinator.delegate(target, "third", 256, emptyList(), "third")
+        val first = runCatching { coordinator.delegate(target, "first", 256, emptyList(), "first") }.exceptionOrNull()
+        val second = runCatching { coordinator.delegate(target, "second", 256, emptyList(), "second") }.exceptionOrNull()
+        val third = runCatching { coordinator.delegate(target, "third", 256, emptyList(), "third") }.exceptionOrNull()
 
+        assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
+        assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
+        assertTrue(third?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertEquals(2, calls)
         assertFalse(coordinator.researchAvailable())
     }
@@ -190,9 +193,11 @@ class LocalDelegationCoordinatorTest {
             }
         )
 
-        coordinator.delegate(target, "first", 256, emptyList(), "first")
-        coordinator.delegate(target, "second", 256, emptyList(), "second")
+        val first = runCatching { coordinator.delegate(target, "first", 256, emptyList(), "first") }.exceptionOrNull()
+        val second = runCatching { coordinator.delegate(target, "second", 256, emptyList(), "second") }.exceptionOrNull()
 
+        assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
+        assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertEquals(1, calls)
     }
 

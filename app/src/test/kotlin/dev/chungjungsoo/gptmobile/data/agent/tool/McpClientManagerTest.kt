@@ -49,6 +49,57 @@ class McpClientManagerTest {
     }
 
     @Test
+    fun `connection failures back off open the circuit and recover after a successful probe`() = runBlocking {
+        var now = 1_000L
+        val starts = AtomicInteger()
+        val entered = CompletableDeferred<Unit>()
+        val client = testClient()
+        try {
+            SlowInitializeMcpFixtureServer(entered, starts).use { slow ->
+                val manager = McpClientManager(client, sessionConnectTimeoutMs = 50, nowMs = { now })
+                val config = McpConnectionConfig("recovering", slow.url, allowCleartext = true)
+
+                val first = runCatching { manager.listTools(config) }.exceptionOrNull()
+                assertTrue(first != null)
+                assertEquals(McpConnectionHealthState.DEGRADED, manager.healthSnapshot(config.connectionUid).state)
+                assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+                assertEquals(6_000L, manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
+
+                val blocked = runCatching { manager.listTools(config) }.exceptionOrNull()
+                assertTrue(blocked is McpBackoffException)
+                assertEquals(1, starts.get())
+
+                now = 6_000L
+                runCatching { manager.listTools(config) }
+                assertEquals(2, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+                assertEquals(McpConnectionHealthState.DEGRADED, manager.healthSnapshot(config.connectionUid).state)
+
+                now = 21_000L
+                runCatching { manager.listTools(config) }
+                val open = manager.healthSnapshot(config.connectionUid)
+                assertEquals(3, open.consecutiveFailures)
+                assertEquals(McpConnectionHealthState.UNREACHABLE, open.state)
+                assertEquals(51_000L, open.nextRetryAtMs)
+
+                McpFixtureServer().use { healthy ->
+                    val recovered = manager.listTools(
+                        McpConnectionConfig(config.connectionUid, healthy.url, allowCleartext = true),
+                        forceRefresh = true
+                    )
+                    assertEquals(listOf("echo"), recovered.map { it.name })
+                    val health = manager.healthSnapshot(config.connectionUid)
+                    assertEquals(McpConnectionHealthState.CONNECTED, health.state)
+                    assertEquals(0, health.consecutiveFailures)
+                    assertEquals(1, health.availableToolCount)
+                    assertEquals(null, health.nextRetryAtMs)
+                }
+                manager.closeAll()
+            }
+        } finally {
+            client.close()
+        }
+    }
+    @Test
     fun `reuses initialized session for discovery and SSE tool call`() = runBlocking {
         McpFixtureServer().use { server ->
             val client = testClient()

@@ -176,8 +176,10 @@ class McpClientManager internal constructor(
         availableToolCount: Int? = null
     ) {
         val now = nowMs()
+        var previousState = McpConnectionHealthState.RECOVERING
         _health.update { current ->
             val previous = current[connectionUid] ?: McpConnectionHealth()
+            previousState = previous.state
             current + (
                 connectionUid to previous.copy(
                     state = McpConnectionHealthState.CONNECTED,
@@ -190,24 +192,35 @@ class McpClientManager internal constructor(
                 )
             )
         }
+        if (previousState != McpConnectionHealthState.CONNECTED || availableToolCount != null) {
+            AppLogRecorder.record(
+                "MCP",
+                "Health · connection=$connectionUid · state=CONNECTED · latencyMs=${latencyMs ?: -1} · tools=${availableToolCount ?: -1}"
+            )
+        }
     }
 
     private fun recordFailure(connectionUid: String, error: Throwable) {
         val now = nowMs()
+        var updated = McpConnectionHealth()
         _health.update { current ->
             val previous = current[connectionUid] ?: McpConnectionHealth()
             val failures = previous.consecutiveFailures + 1
             val delay = retryDelayMs(failures)
-            current + (
-                connectionUid to previous.copy(
-                    state = if (failures >= CIRCUIT_BREAKER_FAILURES) McpConnectionHealthState.UNREACHABLE else McpConnectionHealthState.DEGRADED,
-                    lastFailureAtMs = now,
-                    consecutiveFailures = failures,
-                    nextRetryAtMs = now + delay,
-                    lastError = error.message ?: error.javaClass.simpleName
-                )
+            updated = previous.copy(
+                state = if (failures >= CIRCUIT_BREAKER_FAILURES) McpConnectionHealthState.UNREACHABLE else McpConnectionHealthState.DEGRADED,
+                lastFailureAtMs = now,
+                consecutiveFailures = failures,
+                nextRetryAtMs = now + delay,
+                lastError = error.message ?: error.javaClass.simpleName
             )
+            current + (connectionUid to updated)
         }
+        AppLogRecorder.record(
+            "MCP",
+            "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · error=${updated.lastError.orEmpty()}",
+            "W"
+        )
     }
 
     private fun markRecovering(connectionUid: String) {

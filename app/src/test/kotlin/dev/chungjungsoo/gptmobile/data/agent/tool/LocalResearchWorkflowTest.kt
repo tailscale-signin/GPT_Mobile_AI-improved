@@ -71,6 +71,55 @@ class LocalResearchWorkflowTest {
         assertTrue(denied.handoff.contains("not enabled"))
     }
 
+    @Test fun `automatic non web task bypasses planner and local generation`() = runTest {
+        var generations = 0
+        val result = LocalResearchWorkflow(config, emptyList(), { _, _ ->
+            generations++
+            "unexpected"
+        }).run("Summarize the paragraph I provided.", "skip", automatic = true)
+
+        assertEquals(0, generations)
+        assertEquals(0, result.searches)
+        assertEquals(0, result.pagesRead)
+        assertEquals("", result.handoff)
+        assertEquals(DelegationTaskKind.SUMMARIZATION, result.taskKind)
+        assertEquals(LocalResearchOutcome.NO_RESEARCH_NEEDED, result.outcome)
+    }
+
+    @Test fun `automatic web research with no evidence returns explicit zero result`() = runTest {
+        val search = tool("web_search") { id, _ -> response(id, """{"results":[]}""") }
+        val result = LocalResearchWorkflow(config, listOf(search), { prompt, _ -> worker(prompt) })
+            .run("Research the latest local model latency", "empty", automatic = true)
+
+        assertEquals(1, result.searches)
+        assertEquals(0, result.pagesRead)
+        assertEquals("", result.handoff)
+        assertEquals(DelegationTaskKind.WEB_RESEARCH, result.taskKind)
+        assertEquals(LocalResearchOutcome.NO_RESEARCH_RESULTS, result.outcome)
+    }
+
+    @Test fun `missing search tool returns tool unavailable without fake handoff`() = runTest {
+        val result = LocalResearchWorkflow(config, emptyList(), { prompt, _ -> worker(prompt) })
+            .run("Search the web for the latest benchmark", "unavailable", automatic = true)
+
+        assertEquals(0, result.searches)
+        assertEquals(0, result.pagesRead)
+        assertEquals("", result.handoff)
+        assertEquals(LocalResearchOutcome.TOOL_UNAVAILABLE, result.outcome)
+    }
+
+    @Test fun `task classification chooses bounded adaptive output budgets`() {
+        val generous = config.copy(maxOutputTokens = 4096)
+        assertEquals(DelegationTaskKind.PAGE_EXTRACTION, classifyDelegationTask("Read https://example.com/report"))
+        assertEquals(DelegationTaskKind.WEB_RESEARCH, classifyDelegationTask("Find the latest release notes online"))
+        assertEquals(DelegationTaskKind.CODE_ANALYSIS, classifyDelegationTask("Review this Kotlin code for a bug"))
+        assertEquals(DelegationTaskKind.TOOL_SELECTION, classifyDelegationTask("Which tool should handle this?"))
+        assertEquals(128, delegationOutputBudget(DelegationTaskKind.TOOL_SELECTION, generous))
+        assertEquals(256, delegationOutputBudget(DelegationTaskKind.SEARCH_RESULT_PROCESSING, generous))
+        assertEquals(512, delegationOutputBudget(DelegationTaskKind.WEB_RESEARCH, generous))
+        assertEquals(1024, delegationOutputBudget(DelegationTaskKind.CODE_ANALYSIS, generous))
+        assertEquals(200, delegationOutputBudget(DelegationTaskKind.CODE_ANALYSIS, generous.copy(maxOutputTokens = 200)))
+    }
     @Test fun `shared tool allowance prevents page fetching and parent cancellation propagates`() = runTest {
         var pageCalls = 0
         val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1))

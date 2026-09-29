@@ -22,6 +22,9 @@ import dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.ConnectedMemoryRecall
 import dev.chungjungsoo.gptmobile.data.agent.tool.LocalDelegationCoordinator
+import dev.chungjungsoo.gptmobile.data.agent.tool.DelegationTaskKind
+import dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome
+import dev.chungjungsoo.gptmobile.data.agent.tool.classifyDelegationTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
@@ -572,10 +575,19 @@ class ChatRepositoryImpl(
                 FactRecall()
             }
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
-            val processingOwnership = settingRepository.getFeatureSettings().delegation.normalized().processingOwnership
+            val delegationConfig = settingRepository.getFeatureSettings().delegation.normalized()
+            val processingOwnership = delegationConfig.processingOwnership
+            val currentTaskKind = latestUser?.content?.let(::classifyDelegationTask) ?: DelegationTaskKind.GENERAL_REASONING
             var localResearch = resolvedTools.any { it.realToolName == "delegate_to_model" } &&
                 processingOwnership < 85 &&
                 localDelegation.researchAvailable()
+            if (localResearch &&
+                delegationConfig.automaticResearch &&
+                currentTaskKind !in setOf(DelegationTaskKind.WEB_RESEARCH, DelegationTaskKind.PAGE_EXTRACTION)
+            ) {
+                localResearch = false
+                AppLogRecorder.record("Delegation", "Automatic research bypassed · taskKind=$currentTaskKind · reason=no_external_research_needed")
+            }
             var exposedTools = compactRemotePrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(resolvedTools))
                 // Local-first hides duplicate remote search tools. Shared and remote-balanced
                 // keep them available so remote reasoning can proceed while local research runs.
@@ -670,18 +682,44 @@ class ChatRepositoryImpl(
                 }
                 if (brief.isNotBlank()) appendPreparedEvidence(brief)
             }
-            val delegationConfig = settingRepository.getFeatureSettings().delegation.normalized()
             if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && contextPlan.tools.any { it.name == "delegate_to_model" }) {
                 emit(ApiState.Notice("Local model is planning research and preparing evidence…", persistent = false))
                 val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })
                 val event = trace.start(call)
                 emit(ApiState.ToolCall(event.sequence))
                 val research = localDelegation.prepare(latestUser.content, delegatedTools, call.callId, automatic = true)
-                val content = ToolResultContent.Text(research.handoff.ifBlank { "No external research was needed for this task." })
-                trace.finish(call, AgentToolResult(call.callId, content, false))?.let { emit(it) }
+                val unproductive = research.outcome in setOf(
+                    LocalResearchOutcome.NO_RESEARCH_RESULTS,
+                    LocalResearchOutcome.TOOL_UNAVAILABLE,
+                    LocalResearchOutcome.TIMED_OUT
+                )
+                val content = ToolResultContent.Text(
+                    when {
+                        research.handoff.isNotBlank() -> research.handoff
+                        research.outcome == LocalResearchOutcome.NO_RESEARCH_NEEDED -> "No external research was needed for this task."
+                        else -> "NO_RESEARCH_RESULTS: Local preparation produced no verified evidence; primary tools will handle any remaining research."
+                    }
+                )
+                trace.finish(call, AgentToolResult(call.callId, content, unproductive))?.let { emit(it) }
                 if (research.handoff.isNotBlank()) {
                     appendPreparedEvidence(research.handoff)
                     emit(ApiState.Notice("Local research: ${research.searches} searches, ${research.pagesRead} pages; approximately ${research.rawBytes / 3} evidence tokens reduced to ${research.handoff.toByteArray().size / 3} brief tokens.", persistent = false))
+                } else if (unproductive) {
+                    localResearch = false
+                    exposedTools = compactRemotePrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(resolvedTools))
+                        .sortedBy { it.realToolName != "delegate_to_model" }
+                    requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt())
+                    contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(
+                        preparedTurns,
+                        requestPlatform.systemPrompt.orEmpty(),
+                        exposedTools.map { it.tool.definition },
+                        limits
+                    )
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Primary fallback restored · outcome=${research.outcome} · taskKind=${research.taskKind} · searches=${research.searches} · pages=${research.pagesRead}"
+                    )
+                    emit(ApiState.Notice("Local research returned no verified evidence. Continuing with the primary model and its normal tools.", persistent = false))
                 }
             }
             if (preparedTurns != contextTurns) {

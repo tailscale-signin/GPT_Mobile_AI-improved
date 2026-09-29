@@ -47,6 +47,7 @@ internal class LocalDelegationCoordinator(
         private const val MAX_DELEGATION_INPUT_TOKENS = 12_000
         private const val APPROX_CHARS_PER_TOKEN = 4
         private const val WATCHDOG_POLL_MS = 250L
+        private const val MAX_CONSECUTIVE_EMPTY_RESPONSES = 2
     }
 
     private val localCalls = AtomicInteger()
@@ -56,6 +57,9 @@ internal class LocalDelegationCoordinator(
     private val failedLocalTokens = AtomicLong()
     private val canceledLocalTokens = AtomicLong()
     private val wastedLocalMs = AtomicLong()
+    private val consecutiveEmptyResponses = AtomicInteger()
+    private val workerCircuitOpen = AtomicInteger()
+    private val observedRequestOverheadTokens = AtomicLong()
     private val worker = Semaphore(4)
 
     suspend fun researchAvailable(): Boolean {
@@ -68,6 +72,10 @@ internal class LocalDelegationCoordinator(
             if (!config.researchEnabled || config.processingOwnership >= 100) return false
             if (localCalls.get() >= config.maxLocalModelCalls) {
                 AppLogRecorder.record("Delegation", "Research unavailable · worker budget exhausted · calls=${localCalls.get()}/${config.maxLocalModelCalls}", "W")
+                return false
+            }
+            if (workerCircuitOpen.get() != 0) {
+                AppLogRecorder.record("Delegation", "Research unavailable · worker circuit open · target=${target.uid}", "W")
                 return false
             }
             val available = inputBudget(target, config.maxOutputTokens)
@@ -237,6 +245,10 @@ internal class LocalDelegationCoordinator(
                     AppLogRecorder.record("Delegation", "Worker rejected by gate · target=${target.uid}", "W")
                     return@withPermit null
                 }
+                if (workerCircuitOpen.get() != 0) {
+                    AppLogRecorder.record("Delegation", "Worker rejected · circuit open · target=${profile.uid} · emptyResponses=${consecutiveEmptyResponses.get()}", "W")
+                    return@withPermit null
+                }
                 val budget = inputBudget(profile, tokens).coerceAtLeast(0)
                 if (budget < 600) {
                     AppLogRecorder.record("Delegation", "Worker rejected · input budget too small · target=${profile.uid} · inputBudget=$budget", "W")
@@ -252,13 +264,25 @@ internal class LocalDelegationCoordinator(
                     return@withPermit null
                 }
                 val hardInputTokenCap = minOf(latest.maxInputTokensPerDelegate, MAX_DELEGATION_INPUT_TOKENS)
-                // maxInputCharacters bounds research/evidence preparation; the hard token cap bounds the actual provider request.
-                val charCap = minOf(hardInputTokenCap * APPROX_CHARS_PER_TOKEN, budget).coerceAtLeast(600)
+                val knownRequestOverhead = observedRequestOverheadTokens.get().coerceAtLeast(0L)
+                val promptTokenBudget = (hardInputTokenCap.toLong() - knownRequestOverhead).coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                if (promptTokenBudget < 150) {
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Worker rejected · provider request overhead exhausted input cap · target=${profile.uid} · observedRequestOverheadTokens=$knownRequestOverhead · maxInputTokens=$hardInputTokenCap",
+                        "W"
+                    )
+                    workerCircuitOpen.set(1)
+                    return@withPermit null
+                }
+                // Reserve observed provider/system/tool overhead before sizing the user/task prompt.
+                val charCap = minOf(promptTokenBudget * APPROX_CHARS_PER_TOKEN, budget).coerceAtLeast(600)
                 val boundedPrompt = capPrompt(prompt, charCap)
                 val estimatedInput = estimatedDelegateTokens(boundedPrompt)
-                if (estimatedInput > hardInputTokenCap) {
-                    AppLogRecorder.record("Delegation", "DELEGATE_OVERSIZED · input=$estimatedInput exceeds configured cap=$hardInputTokenCap · rejected before inference", "E")
-                    failedLocalTokens.addAndGet(estimatedInput.toLong())
+                val estimatedEffectiveInput = estimatedInput.toLong() + knownRequestOverhead
+                if (estimatedEffectiveInput > hardInputTokenCap) {
+                    AppLogRecorder.record("Delegation", "DELEGATE_OVERSIZED · prompt=$estimatedInput · overhead=$knownRequestOverhead · effective=$estimatedEffectiveInput exceeds configured cap=$hardInputTokenCap · rejected before inference", "E")
+                    failedLocalTokens.addAndGet(estimatedEffectiveInput)
                     logComputeTotals()
                     return@withPermit null
                 }
@@ -270,7 +294,7 @@ internal class LocalDelegationCoordinator(
                 var observedInputTokens = 0L
                 AppLogRecorder.record(
                     "Delegation",
-                    "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedInputTokens=$estimatedInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/${latest.maxLocalModelCalls} · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
+                    "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/${latest.maxLocalModelCalls} · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
                 )
                 val response = invokeWorkerWithWatchdog(
                     profile,
@@ -282,7 +306,11 @@ internal class LocalDelegationCoordinator(
                     idleSeconds
                 ) { usage -> observedInputTokens = maxOf(observedInputTokens, usage) }
                 val elapsedMs = System.currentTimeMillis() - startedAtMs
-                val chargedInput = maxOf(estimatedInput.toLong(), observedInputTokens)
+                if (observedInputTokens > estimatedInput) {
+                    val observedOverhead = observedInputTokens - estimatedInput
+                    observedRequestOverheadTokens.accumulateAndGet(observedOverhead) { current, observed -> maxOf(current, observed) }
+                }
+                val chargedInput = maxOf(estimatedEffectiveInput, observedInputTokens)
                 if (response == null) {
                     canceledLocalTokens.addAndGet(chargedInput)
                     wastedLocalMs.addAndGet(elapsedMs)
@@ -291,13 +319,20 @@ internal class LocalDelegationCoordinator(
                     return@withPermit null
                 }
                 return@withPermit response.takeIf { it.isNotBlank() }?.also {
+                    consecutiveEmptyResponses.set(0)
                     successfulLocalTokens.addAndGet(chargedInput + estimatedDelegateTokens(it))
                     AppLogRecorder.record("Delegation", "Worker completed · target=${profile.uid} · call=$callNumber/${latest.maxLocalModelCalls} · elapsedMs=$elapsedMs · outputChars=${it.length} · requestedOutputCap=$requestedOutputCap · approxOutputTokens=${estimatedDelegateTokens(it)}")
                     logComputeTotals()
                 } ?: run {
                     failedLocalTokens.addAndGet(chargedInput)
                     wastedLocalMs.addAndGet(elapsedMs)
-                    AppLogRecorder.record("Delegation", "Worker completed empty · target=${profile.uid} · call=$callNumber/${latest.maxLocalModelCalls} · elapsedMs=$elapsedMs · requestedOutputCap=$requestedOutputCap", "W")
+                    val emptyCount = consecutiveEmptyResponses.incrementAndGet()
+                    if (emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES) workerCircuitOpen.set(1)
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Worker completed empty · target=${profile.uid} · call=$callNumber/${latest.maxLocalModelCalls} · elapsedMs=$elapsedMs · requestedOutputCap=$requestedOutputCap · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · circuitOpen=${workerCircuitOpen.get() != 0}",
+                        "W"
+                    )
                     logComputeTotals()
                     null
                 }
@@ -307,7 +342,18 @@ internal class LocalDelegationCoordinator(
             } catch (failure: Exception) {
                 val estimated = estimatedDelegateTokens(prompt).toLong()
                 failedLocalTokens.addAndGet(estimated)
-                AppLogRecorder.record("Delegation", "Worker failed · target=${target.uid} · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}", "E")
+                val message = failure.message.orEmpty()
+                val authBlocked = message.contains("HTTP 401", ignoreCase = true) ||
+                    message.contains("HTTP 403", ignoreCase = true) ||
+                    message.contains("unauthorized", ignoreCase = true) ||
+                    message.contains("forbidden", ignoreCase = true) ||
+                    message.contains("denied access", ignoreCase = true)
+                if (authBlocked) workerCircuitOpen.set(1)
+                AppLogRecorder.record(
+                    "Delegation",
+                    "Worker failed · target=${target.uid} · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · authBlocked=$authBlocked · circuitOpen=${workerCircuitOpen.get() != 0}",
+                    "E"
+                )
                 logComputeTotals()
                 null
             } finally {

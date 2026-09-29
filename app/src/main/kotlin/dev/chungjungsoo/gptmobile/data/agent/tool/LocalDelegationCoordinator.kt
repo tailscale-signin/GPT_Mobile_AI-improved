@@ -228,6 +228,7 @@ internal class LocalDelegationCoordinator(
     private suspend fun workerText(target: PlatformV2, prompt: String, tokens: Int, requirePrivate: Boolean = true): String? {
         val config = settings().normalized()
         if (!config.enabled) return null
+        var observedForFailure = 0L
         return worker.withPermit {
             val latest = settings().normalized()
             awaitWorkerSlot(latest.maxConcurrentDelegates)
@@ -296,15 +297,26 @@ internal class LocalDelegationCoordinator(
                     "Delegation",
                     "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/${latest.maxLocalModelCalls} · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
                 )
-                val response = invokeWorkerWithWatchdog(
-                    profile,
-                    boundedPrompt,
-                    requestedOutputCap,
-                    hardInputTokenCap,
-                    runtimeSeconds,
-                    firstProgressSeconds,
-                    idleSeconds
-                ) { usage -> observedInputTokens = maxOf(observedInputTokens, usage) }
+                val response = try {
+                    invokeWorkerWithWatchdog(
+                        profile,
+                        boundedPrompt,
+                        requestedOutputCap,
+                        hardInputTokenCap,
+                        runtimeSeconds,
+                        firstProgressSeconds,
+                        idleSeconds
+                    ) { usage ->
+                        observedInputTokens = maxOf(observedInputTokens, usage)
+                        observedForFailure = maxOf(observedForFailure, usage)
+                    }
+                } catch (failure: Exception) {
+                    if (observedInputTokens > estimatedInput) {
+                        val observedOverhead = observedInputTokens - estimatedInput
+                        observedRequestOverheadTokens.accumulateAndGet(observedOverhead) { current, observed -> maxOf(current, observed) }
+                    }
+                    throw failure
+                }
                 val elapsedMs = System.currentTimeMillis() - startedAtMs
                 if (observedInputTokens > estimatedInput) {
                     val observedOverhead = observedInputTokens - estimatedInput
@@ -340,7 +352,7 @@ internal class LocalDelegationCoordinator(
                 AppLogRecorder.record("Delegation", "Worker cancelled by parent · target=${target.uid} · calls=${localCalls.get()} · reason=${cancelled.message.orEmpty()}", "W")
                 throw cancelled
             } catch (failure: Exception) {
-                val estimated = estimatedDelegateTokens(prompt).toLong()
+                val estimated = maxOf(estimatedDelegateTokens(prompt).toLong(), observedForFailure)
                 failedLocalTokens.addAndGet(estimated)
                 val message = failure.message.orEmpty()
                 val authBlocked = message.contains("HTTP 401", ignoreCase = true) ||
@@ -348,10 +360,15 @@ internal class LocalDelegationCoordinator(
                     message.contains("unauthorized", ignoreCase = true) ||
                     message.contains("forbidden", ignoreCase = true) ||
                     message.contains("denied access", ignoreCase = true)
-                if (authBlocked) workerCircuitOpen.set(1)
+                val emptyResponse = message.contains("EMPTY_RESPONSE", ignoreCase = true)
+                val reasoningOnly = message.contains("REASONING_ONLY_RESPONSE", ignoreCase = true)
+                val emptyCount = if (emptyResponse) consecutiveEmptyResponses.incrementAndGet() else consecutiveEmptyResponses.get()
+                if (authBlocked || reasoningOnly || (emptyResponse && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES)) {
+                    workerCircuitOpen.set(1)
+                }
                 AppLogRecorder.record(
                     "Delegation",
-                    "Worker failed · target=${target.uid} · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · authBlocked=$authBlocked · circuitOpen=${workerCircuitOpen.get() != 0}",
+                    "Worker failed · target=${target.uid} · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · observedInputTokens=$observedForFailure · emptyResponse=$emptyResponse · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · reasoningOnly=$reasoningOnly · authBlocked=$authBlocked · circuitOpen=${workerCircuitOpen.get() != 0}",
                     "E"
                 )
                 logComputeTotals()

@@ -180,8 +180,9 @@ class McpClientManager internal constructor(
         _health.update { current ->
             val previous = current[connectionUid] ?: McpConnectionHealth()
             previousState = previous.state
-            current + (
-                connectionUid to previous.copy(
+            current + Pair(
+                connectionUid,
+                previous.copy(
                     state = McpConnectionHealthState.CONNECTED,
                     lastSuccessAtMs = now,
                     latencyMs = latencyMs ?: previous.latencyMs,

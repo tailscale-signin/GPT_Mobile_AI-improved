@@ -264,10 +264,44 @@ internal class LocalResearchWorkflow(
         }
         if (completed == null) notes += "Local research timed out; completed evidence is retained."
         if (!stillEnabled()) notes += "Delegation was disabled before research completed."
-        if (automatic && noResearchNeeded) return LocalResearchResult("", rawBytes, 0, searches)
+        if (automatic && noResearchNeeded) {
+            return LocalResearchResult(
+                handoff = "",
+                rawBytes = rawBytes,
+                pagesRead = 0,
+                searches = searches,
+                outcome = LocalResearchOutcome.NO_RESEARCH_NEEDED,
+                taskKind = taskKind
+            )
+        }
         if (brief.isBlank()) brief = sources.values.joinToString("\n") { "[${it.id}] ${relevantEvidence(it.text.ifBlank { it.snippet }, task, 600)}" }
-        if (sources.isEmpty() && brief.isBlank()) notes += "No verified evidence was retrieved."
-        return LocalResearchResult(delegationHandoff(brief, sources.values.toList(), notes, config.handoffTokens), rawBytes, sources.values.count { it.pageRead }, searches)
+        val pagesRead = sources.values.count { it.pageRead }
+        val outcome = when {
+            completed == null && sources.isNotEmpty() -> LocalResearchOutcome.PARTIAL
+            completed == null -> LocalResearchOutcome.TIMED_OUT
+            toolUnavailable && sources.isEmpty() -> LocalResearchOutcome.TOOL_UNAVAILABLE
+            sources.isEmpty() && brief.isBlank() -> LocalResearchOutcome.NO_RESEARCH_RESULTS
+            else -> LocalResearchOutcome.RESEARCHED
+        }
+        if (sources.isEmpty() && brief.isBlank()) notes += "NO_RESEARCH_RESULTS: No verified evidence was retrieved."
+        if (automatic && outcome in setOf(LocalResearchOutcome.NO_RESEARCH_RESULTS, LocalResearchOutcome.TOOL_UNAVAILABLE, LocalResearchOutcome.TIMED_OUT)) {
+            return LocalResearchResult(
+                handoff = "",
+                rawBytes = rawBytes,
+                pagesRead = pagesRead,
+                searches = searches,
+                outcome = outcome,
+                taskKind = taskKind
+            )
+        }
+        return LocalResearchResult(
+            handoff = delegationHandoff(brief, sources.values.toList(), notes, config.handoffTokens),
+            rawBytes = rawBytes,
+            pagesRead = pagesRead,
+            searches = searches,
+            outcome = outcome,
+            taskKind = taskKind
+        )
     }
 }
 

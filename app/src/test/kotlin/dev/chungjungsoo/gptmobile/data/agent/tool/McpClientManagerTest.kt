@@ -30,17 +30,29 @@ import org.junit.Test
 class McpClientManagerTest {
     @Test
     fun `stalled initialization has a bounded timeout and releases its in flight slot`() = runBlocking {
+        var now = 1_000L
         val entered = CompletableDeferred<Unit>()
-        SlowInitializeMcpFixtureServer(entered, AtomicInteger()).use { server ->
+        val starts = AtomicInteger()
+        SlowInitializeMcpFixtureServer(entered, starts).use { server ->
             val client = testClient()
             try {
-                val manager = McpClientManager(client, sessionConnectTimeoutMs = 50)
+                val manager = McpClientManager(client, sessionConnectTimeoutMs = 50, nowMs = { now })
                 val config = McpConnectionConfig("slow", server.url, allowCleartext = true)
-                repeat(2) {
-                    val error = withTimeout(3000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
-                    assertTrue(error is IllegalStateException)
-                    assertTrue(error?.message.orEmpty().contains("timed out"))
-                }
+
+                val first = withTimeout(3000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
+                assertTrue(first is IllegalStateException)
+                assertTrue(first?.message.orEmpty().contains("timed out"))
+                assertEquals(1, starts.get())
+
+                val backedOff = runCatching { manager.listTools(config) }.exceptionOrNull()
+                assertTrue(backedOff is McpBackoffException)
+                assertEquals(1, starts.get())
+
+                now = 6_000L
+                val retried = withTimeout(3000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
+                assertTrue(retried is IllegalStateException)
+                assertTrue(retried?.message.orEmpty().contains("timed out"))
+                assertEquals(2, starts.get())
                 manager.closeAll()
             } finally {
                 client.close()

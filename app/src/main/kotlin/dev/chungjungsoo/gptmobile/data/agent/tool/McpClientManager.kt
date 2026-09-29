@@ -65,6 +65,7 @@ class McpClientManager internal constructor(
     private val httpClient: HttpClient,
     private val mediaStore: McpMediaStore? = null,
     private val interactions: McpInteractions? = null,
+    private val transportConnectTimeoutMs: Long = 5_000,
     private val sessionConnectTimeoutMs: Long = 15_000,
     private val nowMs: () -> Long = System::currentTimeMillis
 ) {
@@ -293,11 +294,11 @@ class McpClientManager internal constructor(
 
             val connectStartedAtMs = nowMs()
             val endpointHost = runCatching { URI(config.endpointUrl).host }.getOrNull().orEmpty()
-            AppLogRecorder.record("MCP", "Connect started · connection=${config.connectionUid} · host=$endpointHost · sessionTimeoutMs=$sessionConnectTimeoutMs")
+            AppLogRecorder.record("MCP", "Connect started · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$sessionConnectTimeoutMs")
             val result = runCatching {
                 val transport = StreamableHttpClientTransport(httpClient, config.endpointUrl) {
                     timeout {
-                        connectTimeoutMillis = sessionConnectTimeoutMs
+                        connectTimeoutMillis = transportConnectTimeoutMs
                         requestTimeoutMillis = sessionConnectTimeoutMs + 2_000
                         socketTimeoutMillis = sessionConnectTimeoutMs + 2_000
                     }
@@ -321,7 +322,7 @@ class McpClientManager internal constructor(
                     AppLogRecorder.record("MCP", "Connect completed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs}")
                     Session(key, client)
                 } catch (error: Exception) {
-                    AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs} · timeoutMs=$sessionConnectTimeoutMs · ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
+                    AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$sessionConnectTimeoutMs · ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
                     withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
                     throw error
                 }

@@ -20,6 +20,9 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -32,6 +35,29 @@ class McpConnectionConfig(
     val allowCleartext: Boolean,
     val authorizationHeader: String? = null
 )
+
+enum class McpConnectionHealthState {
+    CONNECTED,
+    DEGRADED,
+    UNREACHABLE,
+    RECOVERING
+}
+
+data class McpConnectionHealth(
+    val state: McpConnectionHealthState = McpConnectionHealthState.RECOVERING,
+    val lastSuccessAtMs: Long? = null,
+    val lastFailureAtMs: Long? = null,
+    val latencyMs: Long? = null,
+    val consecutiveFailures: Int = 0,
+    val nextRetryAtMs: Long? = null,
+    val lastError: String? = null,
+    val availableToolCount: Int? = null
+)
+
+class McpBackoffException(
+    val connectionUid: String,
+    val retryAtMs: Long
+) : IllegalStateException("MCP connection is backing off until $retryAtMs.")
 
 @Singleton
 class McpClientManager internal constructor(
@@ -49,6 +75,8 @@ class McpClientManager internal constructor(
     // ponytail: one global lock serializes session setup only; use per-connection locks if startup contention becomes measurable.
     private val sessions = mutableMapOf<String, Session>()
     private val inFlight = mutableMapOf<String, InFlight>()
+    private val _health = MutableStateFlow<Map<String, McpConnectionHealth>>(emptyMap())
+    val health = _health.asStateFlow()
 
     suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> = withSession(config) { session ->
         session.toolCatalogMutex.withLock {

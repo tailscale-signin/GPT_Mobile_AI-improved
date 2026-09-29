@@ -8,6 +8,7 @@ import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
+import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ListToolsRequest
@@ -236,20 +237,28 @@ class McpClientManager internal constructor(
         active.forEach { session -> runCatching { session.client.close() } }
     }
 
-    private suspend fun <T> withSession(config: McpConnectionConfig, block: suspend (Session) -> T): T {
-        val session = session(config)
+    private suspend fun <T> withSession(
+        config: McpConnectionConfig,
+        bypassBackoff: Boolean = false,
+        block: suspend (Session) -> T
+    ): T {
+        val session = session(config, bypassBackoff)
+        val startedAtMs = nowMs()
         return try {
-            block(session)
+            block(session).also {
+                recordSuccess(config.connectionUid, latencyMs = nowMs() - startedAtMs)
+            }
         } catch (error: CancellationException) {
             withContext(NonCancellable) { invalidate(config.connectionUid, session) }
             throw error
         } catch (error: Exception) {
+            if (!error.isMcpUnauthorized()) recordFailure(config.connectionUid, error)
             invalidate(config.connectionUid, session)
             throw error
         }
     }
 
-    private suspend fun session(config: McpConnectionConfig): Session {
+    private suspend fun session(config: McpConnectionConfig, bypassBackoff: Boolean = false): Session {
         val key = config.validatedKey()
         while (true) {
             val created = CompletableDeferred<Session>()
@@ -261,6 +270,17 @@ class McpClientManager internal constructor(
                 inFlight[config.connectionUid]?.let { existing ->
                     awaiting = existing.deferred
                 } ?: run {
+                    val health = _health.value[config.connectionUid]
+                    val retryAt = health?.nextRetryAtMs
+                    if (!bypassBackoff && retryAt != null && retryAt > nowMs()) {
+                        AppLogRecorder.record(
+                            "MCP",
+                            "Circuit open · connection=${config.connectionUid} · state=${health.state} · failures=${health.consecutiveFailures} · retryAtMs=$retryAt",
+                            "W"
+                        )
+                        throw McpBackoffException(config.connectionUid, retryAt)
+                    }
+                    if ((health?.consecutiveFailures ?: 0) > 0) markRecovering(config.connectionUid)
                     stale = sessions.remove(config.connectionUid)
                     inFlight[config.connectionUid] = InFlight(key, created)
                 }
@@ -318,6 +338,10 @@ class McpClientManager internal constructor(
                 }
                 result.fold(created::complete, created::completeExceptionally)
             }
+            result.fold(
+                onSuccess = { recordSuccess(config.connectionUid, latencyMs = nowMs() - connectStartedAtMs) },
+                onFailure = { error -> if (!error.isMcpUnauthorized()) recordFailure(config.connectionUid, error) }
+            )
             return result.getOrThrow()
         }
     }
@@ -381,8 +405,12 @@ class McpClientManager internal constructor(
         const val MAX_ENDPOINT_LENGTH = 32 * 1024
         const val MAX_AUTHORIZATION_HEADER_LENGTH = 128 * 1024
         const val TOOL_CATALOG_TTL_MS = 5 * 60 * 1000L
+        const val CIRCUIT_BREAKER_FAILURES = 3
     }
 }
+
+private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause }
+    .any { error -> error is StreamableHttpError && error.code == 401 }
 
 private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(toByteArray(Charsets.UTF_8))

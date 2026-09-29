@@ -166,7 +166,7 @@ class LocalDelegationCoordinatorTest {
             generateWithProgress = { _, _, _, _, progress ->
                 calls++
                 progress(DelegateProgress(DelegateProgressKind.USAGE, inputTokens = 4_800, outputTokens = 256, totalTokens = 5_056))
-                ""
+                error("EMPTY_RESPONSE: delegated provider completed without usable content.")
             }
         )
 

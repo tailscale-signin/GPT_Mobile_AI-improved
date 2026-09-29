@@ -78,27 +78,31 @@ class McpClientManager internal constructor(
     private val _health = MutableStateFlow<Map<String, McpConnectionHealth>>(emptyMap())
     val health = _health.asStateFlow()
 
-    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> = withSession(config) { session ->
-        session.toolCatalogMutex.withLock {
-            val now = nowMs()
-            session.toolCatalog?.takeIf { !forceRefresh && now - it.loadedAtMs < TOOL_CATALOG_TTL_MS }?.tools ?: run {
-                val tools = mutableListOf<Tool>()
-                val seenCursors = mutableSetOf<String>()
-                var pageCount = 0
-                var cursor: String? = null
-                do {
-                    check(++pageCount <= MAX_TOOL_PAGES) { "MCP server returned too many tool pages." }
-                    val page = session.client.listTools(
-                        request = if (cursor == null) ListToolsRequest() else ListToolsRequest(PaginatedRequestParams(cursor))
-                    )
-                    tools += page.tools
-                    check(tools.size <= MAX_DISCOVERED_TOOLS) { "MCP server returned too many tools." }
-                    cursor = page.nextCursor
-                    check(cursor == null || seenCursors.add(cursor)) { "MCP server returned a repeated tools cursor." }
-                } while (cursor != null)
-                tools.toList().also { session.toolCatalog = ToolCatalog(it, nowMs()) }
+    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
+        val result = withSession(config, bypassBackoff = forceRefresh) { session ->
+            session.toolCatalogMutex.withLock {
+                val now = nowMs()
+                session.toolCatalog?.takeIf { !forceRefresh && now - it.loadedAtMs < TOOL_CATALOG_TTL_MS }?.tools ?: run {
+                    val tools = mutableListOf<Tool>()
+                    val seenCursors = mutableSetOf<String>()
+                    var pageCount = 0
+                    var cursor: String? = null
+                    do {
+                        check(++pageCount <= MAX_TOOL_PAGES) { "MCP server returned too many tool pages." }
+                        val page = session.client.listTools(
+                            request = if (cursor == null) ListToolsRequest() else ListToolsRequest(PaginatedRequestParams(cursor))
+                        )
+                        tools += page.tools
+                        check(tools.size <= MAX_DISCOVERED_TOOLS) { "MCP server returned too many tools." }
+                        cursor = page.nextCursor
+                        check(cursor == null || seenCursors.add(cursor)) { "MCP server returned a repeated tools cursor." }
+                    } while (cursor != null)
+                    tools.toList().also { session.toolCatalog = ToolCatalog(it, nowMs()) }
+                }
             }
         }
+        recordSuccess(config.connectionUid, availableToolCount = result.size)
+        return result
     }
 
     suspend fun callTool(
@@ -148,6 +152,75 @@ class McpClientManager internal constructor(
         }.take(64000)
     }
 
+    fun healthSnapshot(connectionUid: String): McpConnectionHealth =
+        _health.value[connectionUid] ?: McpConnectionHealth()
+
+    fun resetHealth(connectionUid: String) {
+        _health.update { current -> current - connectionUid }
+    }
+
+    suspend fun probe(config: McpConnectionConfig): Boolean = try {
+        listTools(config, forceRefresh = true)
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun recordSuccess(
+        connectionUid: String,
+        latencyMs: Long? = null,
+        availableToolCount: Int? = null
+    ) {
+        val now = nowMs()
+        _health.update { current ->
+            val previous = current[connectionUid] ?: McpConnectionHealth()
+            current + (
+                connectionUid to previous.copy(
+                    state = McpConnectionHealthState.CONNECTED,
+                    lastSuccessAtMs = now,
+                    latencyMs = latencyMs ?: previous.latencyMs,
+                    consecutiveFailures = 0,
+                    nextRetryAtMs = null,
+                    lastError = null,
+                    availableToolCount = availableToolCount ?: previous.availableToolCount
+                )
+            )
+        }
+    }
+
+    private fun recordFailure(connectionUid: String, error: Throwable) {
+        val now = nowMs()
+        _health.update { current ->
+            val previous = current[connectionUid] ?: McpConnectionHealth()
+            val failures = previous.consecutiveFailures + 1
+            val delay = retryDelayMs(failures)
+            current + (
+                connectionUid to previous.copy(
+                    state = if (failures >= CIRCUIT_BREAKER_FAILURES) McpConnectionHealthState.UNREACHABLE else McpConnectionHealthState.DEGRADED,
+                    lastFailureAtMs = now,
+                    consecutiveFailures = failures,
+                    nextRetryAtMs = now + delay,
+                    lastError = error.message ?: error.javaClass.simpleName
+                )
+            )
+        }
+    }
+
+    private fun markRecovering(connectionUid: String) {
+        _health.update { current ->
+            val previous = current[connectionUid] ?: McpConnectionHealth()
+            current + (connectionUid to previous.copy(state = McpConnectionHealthState.RECOVERING))
+        }
+    }
+
+    private fun retryDelayMs(failures: Int): Long = when (failures) {
+        1 -> 5_000L
+        2 -> 15_000L
+        3 -> 30_000L
+        else -> 60_000L
+    }
     suspend fun close(connectionUid: String) {
         val session = takeSession(connectionUid) ?: return
         runCatching { session.client.close() }

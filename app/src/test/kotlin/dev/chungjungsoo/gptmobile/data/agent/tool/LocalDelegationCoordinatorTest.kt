@@ -156,6 +156,46 @@ class LocalDelegationCoordinatorTest {
         assertFalse(coordinator.researchAvailable())
     }
 
+    @Test fun `two consecutive empty delegated responses open the worker circuit`() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
+            { listOf(target) },
+            { _, _, _ -> error("progressive path expected") },
+            generateWithProgress = { _, _, _, _, progress ->
+                calls++
+                progress(DelegateProgress(DelegateProgressKind.USAGE, inputTokens = 4_800, outputTokens = 256, totalTokens = 5_056))
+                ""
+            }
+        )
+
+        coordinator.delegate(target, "first", 256, emptyList(), "first")
+        coordinator.delegate(target, "second", 256, emptyList(), "second")
+        coordinator.delegate(target, "third", 256, emptyList(), "third")
+
+        assertEquals(2, calls)
+        assertFalse(coordinator.researchAvailable())
+    }
+
+    @Test fun `authorization failure quarantines delegated worker for the rest of the turn`() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
+            { listOf(target) },
+            { _, _, _ ->
+                calls++
+                error("OpenRouter denied access (HTTP 403)")
+            }
+        )
+
+        coordinator.delegate(target, "first", 256, emptyList(), "first")
+        coordinator.delegate(target, "second", 256, emptyList(), "second")
+
+        assertEquals(1, calls)
+    }
+
     @Test fun `settings failure after completed action returns original success without reexecution`() = runTest {
         var actions = 0
         val coordinator = LocalDelegationCoordinator(source, { error("Settings unavailable") }, { listOf(target) }, { _, _, _ -> error("Unused") })

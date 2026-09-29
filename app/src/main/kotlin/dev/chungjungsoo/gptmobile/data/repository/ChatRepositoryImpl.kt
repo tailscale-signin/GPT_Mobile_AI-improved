@@ -466,15 +466,16 @@ class ChatRepositoryImpl(
             val diagnosticsEnabled = runCatching {
                 settingRepository.getFeatureSettings().diagnosticsCollection
             }.getOrDefault(false)
-            // A remote provider can otherwise keep replaying the growing conversation indefinitely.
-            // Tie the round ceiling to the delegation strategy, with a deliberately small hard cap.
-            // This protects token spend even when the accuracy slider is at its maximum.
+            // Keep a finite remote-round ceiling for runaway-loop protection, but allow
+            // enough tool/model turns for real research and delegation workflows.
+            // AgentRunner reserves one additional no-tools synthesis round when this
+            // work-round budget is reached.
             val delegationStrategy = settingRepository.getFeatureSettings().delegation.normalized().strategy
             val maxRemoteRounds = when {
-                delegationStrategy < 25 -> 3
-                delegationStrategy < 50 -> 4
-                delegationStrategy < 75 -> 5
-                else -> 6
+                delegationStrategy < 25 -> 6
+                delegationStrategy < 50 -> 10
+                delegationStrategy < 75 -> 16
+                else -> 24
             }
             val customRunner = agentRunnerForPlatform(
                 platform = platform,

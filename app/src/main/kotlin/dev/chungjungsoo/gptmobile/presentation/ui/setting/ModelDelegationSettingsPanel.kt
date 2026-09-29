@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -127,18 +126,18 @@ fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel(
                         color = if (config.targetProfileUid == profile.uid) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = config.targetProfileUid == profile.uid,
-                            enabled = !busy,
-                            onClick = { viewModel.update { it.copy(targetProfileUid = profile.uid) } },
-                            modifier = Modifier.semantics { contentDescription = "Delegate to ${profile.name}" }
-                        )
-                        Column {
-                            Text(profile.name)
-                            Text(profile.model, style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = config.targetProfileUid == profile.uid,
+                                enabled = !busy,
+                                onClick = { viewModel.update { it.copy(targetProfileUid = profile.uid) } },
+                                modifier = Modifier.semantics { contentDescription = "Delegate to ${profile.name}" }
+                            )
+                            Column {
+                                Text(profile.name)
+                                Text(profile.model, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
-                    }
                     }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -169,19 +168,19 @@ fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel(
                     Text("Using the recommended bounded defaults. Expand for detailed controls.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (showAdvanced) {
-                Text("Handoff and local workload", style = MaterialTheme.typography.titleMedium)
-                DelegationSlider("Remote brief token budget", config.handoffTokens, 128..8192, 128, !busy, "A byte-based estimate. Lower values reduce remote context; sources and limitations remain attached.") { value -> viewModel.update { it.copy(handoffTokens = value) } }
-                DelegationSlider("Local input characters per step", config.maxInputCharacters, 1000..16000, 500, !busy) { value -> viewModel.update { it.copy(maxInputCharacters = value) } }
-                DelegationSlider("Local output tokens per step", config.maxOutputTokens, 64..2048, 64, !busy) { value -> viewModel.update { it.copy(maxOutputTokens = value) } }
-                DelegationSlider("Local model calls per turn", config.maxLocalModelCalls, 1..24, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> viewModel.update { it.copy(maxLocalModelCalls = value) } }
-                DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..300, 5, !busy) { value -> viewModel.update { it.copy(timeoutSeconds = value) } }
-                DelegationSlider("Delegations per turn", config.maxCallsPerTurn, 1..16, 1, !busy) { value -> viewModel.update { it.copy(maxCallsPerTurn = value) } }
-                DelegationSlider("Process tool results above characters", config.compactionThresholdCharacters, 256..48000, 256, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> viewModel.update { it.copy(compactionThresholdCharacters = value) } }
-                Text("These controls apply to delegation. The main model's output limit is unchanged. When the local budget runs out, the brief identifies omitted evidence.", style = MaterialTheme.typography.bodySmall)
-                Text("Safety policy: local retries stop after one failed attempt, live-tool failures are reported explicitly, one tool slot is reserved for final synthesis, and aggressive local research pauses below 20% battery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    FilterChip(selected = false, onClick = { viewModel.resetDelegationDefaults() }, label = { Text("Reset recommended defaults") }, leadingIcon = { Icon(Icons.Default.RestartAlt, null) }, enabled = !busy)
-                }
+                    Text("Handoff and local workload", style = MaterialTheme.typography.titleMedium)
+                    DelegationSlider("Remote brief token budget", config.handoffTokens, 128..8192, 128, !busy, "A byte-based estimate. Lower values reduce remote context; sources and limitations remain attached.") { value -> viewModel.update { it.copy(handoffTokens = value) } }
+                    DelegationSlider("Local input characters per step", config.maxInputCharacters, 1000..16000, 500, !busy) { value -> viewModel.update { it.copy(maxInputCharacters = value) } }
+                    DelegationSlider("Local output tokens per step", config.maxOutputTokens, 64..2048, 64, !busy) { value -> viewModel.update { it.copy(maxOutputTokens = value) } }
+                    DelegationSlider("Local model calls per turn", config.maxLocalModelCalls, 1..24, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> viewModel.update { it.copy(maxLocalModelCalls = value) } }
+                    DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..300, 5, !busy) { value -> viewModel.update { it.copy(timeoutSeconds = value) } }
+                    DelegationSlider("Delegations per turn", config.maxCallsPerTurn, 1..16, 1, !busy) { value -> viewModel.update { it.copy(maxCallsPerTurn = value) } }
+                    DelegationSlider("Process tool results above characters", config.compactionThresholdCharacters, 256..48000, 256, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> viewModel.update { it.copy(compactionThresholdCharacters = value) } }
+                    Text("These controls apply to delegation. The main model's output limit is unchanged. When the local budget runs out, the brief identifies omitted evidence.", style = MaterialTheme.typography.bodySmall)
+                    Text("Safety policy: local retries stop after one failed attempt, live-tool failures are reported explicitly, one tool slot is reserved for final synthesis, and aggressive local research pauses below 20% battery.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        FilterChip(selected = false, onClick = { viewModel.resetDelegationDefaults() }, label = { Text("Reset recommended defaults") }, leadingIcon = { Icon(Icons.Default.RestartAlt, null) }, enabled = !busy)
+                    }
                 }
             }
         }

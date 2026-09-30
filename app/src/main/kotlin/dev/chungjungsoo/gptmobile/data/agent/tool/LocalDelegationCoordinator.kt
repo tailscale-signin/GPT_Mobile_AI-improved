@@ -463,17 +463,17 @@ internal class LocalDelegationCoordinator(
         val config = settings().normalized()
         if (!config.researchEnabled || (automatic && !config.automaticResearch)) {
             AppLogRecorder.record("Delegation", "Research skipped · automatic=$automatic · enabled=${config.researchEnabled} · target=null")
-            return LocalResearchResult("", 0, 0, 0)
+            return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_RESEARCH_NEEDED)
         }
         val target = localTarget(config) ?: run {
             AppLogRecorder.record("Delegation", "Research skipped · automatic=$automatic · enabled=${config.researchEnabled} · target=null")
-            return LocalResearchResult("", 0, 0, 0)
+            return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
         }
         val effectiveResearchLimit = config.effectiveResearchCalls()
         val requestIndex = requests.getAndIncrement()
         if (requestIndex >= effectiveResearchLimit) {
             AppLogRecorder.record("Delegation", "Research skipped · request budget exhausted · request=$requestIndex max=$effectiveResearchLimit · configured=${config.maxCallsPerTurn} · ownership=${config.processingOwnership}", "W")
-            return LocalResearchResult("", 0, 0, 0)
+            return LocalResearchResult("", 0, 0, 0, LocalResearchOutcome.NO_USEFUL_OUTPUT)
         }
         val result = try {
             LocalResearchWorkflow(
@@ -482,7 +482,7 @@ internal class LocalDelegationCoordinator(
                 generate = { prompt, tokens -> workerText(target, prompt, tokens) },
                 stillEnabled = {
                     val latest = settings().normalized()
-                    latest.researchEnabled && localTarget(latest)?.uid == target.uid
+                    latest.researchEnabled && localTarget(latest) != null
                 }
             ).run(task, "$callId:$requestIndex", automatic)
         } catch (cancelled: CancellationException) {

@@ -489,10 +489,16 @@ internal class LocalDelegationCoordinator(
             throw cancelled
         } catch (_: Exception) {
             AppLogRecorder.record("Delegation", "Research workflow failed · call=$callId", "E")
-            LocalResearchResult(delegationHandoff("", emptyList(), listOf("Local preparation was unavailable. No completed research is claimed."), config.handoffTokens), 0, 0, 0)
+            LocalResearchResult(
+                delegationHandoff("", emptyList(), listOf("Local preparation was unavailable. No completed research is claimed."), config.handoffTokens),
+                0,
+                0,
+                0,
+                LocalResearchOutcome.FAILED
+            )
         }
-        AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · searches=${result.searches} · pages=${result.pagesRead} · rawBytes=${result.rawBytes} · handoffChars=${result.handoff.length}")
-        if (automatic && result.handoff.isEmpty()) requests.decrementAndGet()
+        AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · outcome=${result.outcome} · searches=${result.searches} · pages=${result.pagesRead} · rawBytes=${result.rawBytes} · handoffChars=${result.handoff.length}")
+        if (automatic && result.outcome != LocalResearchOutcome.SUCCESS) requests.decrementAndGet()
         return result
     }
 
@@ -505,7 +511,7 @@ internal class LocalDelegationCoordinator(
         }
         if (researchAvailable()) {
             val result = prepare(task, tools, callId)
-            if (result.handoff.isNotBlank()) return result.handoff
+            if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) return result.handoff
             AppLogRecorder.record(
                 "Delegation",
                 "Research produced no handoff; falling back to direct delegate inference · call=$callId · target=${target.uid}",

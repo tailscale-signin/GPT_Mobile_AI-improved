@@ -118,6 +118,14 @@ class GitHubToolTest {
         assertTrue(properties?.containsKey("repo") == true)
         assertTrue(properties?.containsKey("path") == true)
         assertTrue(properties?.containsKey("issue_number") == true)
+        assertTrue(properties?.containsKey("tag_name") == true)
+        assertTrue(properties?.containsKey("release_strategy") == true)
+        assertTrue(properties?.containsKey("release_id") == true)
+        val actions = properties?.get("action")?.jsonObject?.get("enum")?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
+        assertTrue("release_status" in actions)
+        assertTrue("publish_release" in actions)
+        assertTrue("create_release" in actions)
+        assertTrue(tool.definition.description.contains("do not tell the user to use local gh", ignoreCase = true))
     }
 
     @Test

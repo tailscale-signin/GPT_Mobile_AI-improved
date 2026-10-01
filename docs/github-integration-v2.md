@@ -46,7 +46,7 @@ Release operations are first-class GitHub actions rather than a model-generated 
 - `create_tag`, `create_release` and `update_release` provide explicit write actions.
 - `release_status` checks the requested tag, published/draft state, release assets, the detected release workflow and its latest run.
 - `publish_release` is the preferred high-level action. In `auto` mode it detects an active workflow whose name/path indicates release publication, preferring signed-release workflows, and dispatches that workflow on the requested ref. If no release workflow applies, it falls back to the GitHub Releases API.
-- `release_strategy=workflow` requires a release workflow; `release_strategy=direct` intentionally bypasses workflow discovery.
+- `release_strategy=workflow` requires a release workflow; `release_strategy=direct` intentionally bypasses workflow discovery. `auto` falls back to direct publication only after workflow discovery succeeds and finds no applicable workflow; discovery/auth/rate-limit failures fail closed instead of bypassing the repository release pipeline.
 - Existing releases are idempotent: published releases return `already_published`, while an existing draft can be promoted instead of creating a duplicate. Duplicate detection scans paginated release history before any write.
 - When `app/build.gradle.kts` is present, workflow publication preflights `versionName` against the requested `v...` tag and refuses a mismatch before dispatch. This prevents a request for a future tag from accidentally running a workflow that would publish the repository's current older version.
 

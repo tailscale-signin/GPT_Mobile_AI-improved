@@ -304,6 +304,7 @@ class GitHubIntegrationV2Test {
                 when {
                     request.url.encodedPath == "/repos/owner/repo/releases" -> {
                         assertEquals("100", request.url.parameters["per_page"])
+                        assertEquals("1", request.url.parameters["page"])
                         respond("[]")
                     }
                     request.url.encodedPath == "/repos/owner/repo/actions/workflows" -> {
@@ -327,7 +328,9 @@ class GitHubIntegrationV2Test {
                     }
                     request.url.encodedPath == "/repos/owner/repo/contents/app/build.gradle.kts" -> {
                         assertEquals("main", request.url.parameters["ref"])
-                        respond("", HttpStatusCode.NotFound)
+                        val gradle = """android { defaultConfig { versionName = \"1.2.3\" } }"""
+                        val encoded = java.util.Base64.getEncoder().encodeToString(gradle.toByteArray())
+                        respond("""{"type":"file","encoding":"base64","content":"$encoded"}""")
                     }
                     request.url.encodedPath == "/repos/owner/repo/actions/workflows/42/dispatches" -> {
                         assertEquals("POST", request.method.value)
@@ -351,6 +354,7 @@ class GitHubIntegrationV2Test {
             assertEquals("workflow_dispatched", result["status"]!!.jsonPrimitive.content)
             assertEquals("workflow", result["strategy"]!!.jsonPrimitive.content)
             assertEquals("release_status", result["verification_action"]!!.jsonPrimitive.content)
+            assertEquals("v1.2.3", result["version_preflight"]!!.jsonObject["expected_tag"]!!.jsonPrimitive.content)
             assertEquals(4, requests)
         } finally {
             http.close()
@@ -372,7 +376,10 @@ class GitHubIntegrationV2Test {
         val http = HttpClient(
             MockEngine { request ->
                 when {
-                    request.url.encodedPath == "/repos/owner/repo/releases" -> respond("[]")
+                    request.url.encodedPath == "/repos/owner/repo/releases" -> {
+                        assertEquals("1", request.url.parameters["page"])
+                        respond("[]")
+                    }
                     request.url.encodedPath == "/repos/owner/repo/actions/workflows" -> respond(
                         """
                         {
@@ -425,7 +432,10 @@ class GitHubIntegrationV2Test {
             MockEngine { request ->
                 requests++
                 when {
-                    request.url.encodedPath == "/repos/owner/repo/releases" && request.method.value == "GET" -> respond("[]")
+                    request.url.encodedPath == "/repos/owner/repo/releases" && request.method.value == "GET" -> {
+                        assertEquals("1", request.url.parameters["page"])
+                        respond("[]")
+                    }
                     request.url.encodedPath == "/repos/owner/repo/releases" && request.method.value == "POST" -> respond(
                         """
                         {

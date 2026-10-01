@@ -258,6 +258,42 @@ class GitHubIntegrationV2Test {
     }
 
     @Test
+    fun create_tag_resolves_target_commit_before_creating_ref() = runTest {
+        var requests = 0
+        val targetSha = "0123456789abcdef0123456789abcdef01234567"
+        val http = HttpClient(
+            MockEngine { request ->
+                requests++
+                when {
+                    request.url.encodedPath == "/repos/owner/repo/commits/main" -> respond("""{"sha":"$targetSha"}""")
+                    request.url.encodedPath == "/repos/owner/repo/git/refs" -> {
+                        assertEquals("POST", request.method.value)
+                        respond("""{"ref":"refs/tags/v1.2.3","url":"https://api.github.com/repos/owner/repo/git/refs/tags/v1.2.3"}""", HttpStatusCode.Created)
+                    }
+                    else -> error("Unexpected request: ${request.method.value} ${request.url}")
+                }
+            }
+        )
+        try {
+            val result = GitHubWorkspaceClient("token", http).execute(
+                "create_tag",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("tag_name", "v1.2.3")
+                    put("target_commitish", "main")
+                }
+            ).jsonObject
+
+            assertEquals(targetSha, result["sha"]!!.jsonPrimitive.content)
+            assertEquals("v1.2.3", result["tag_name"]!!.jsonPrimitive.content)
+            assertEquals(2, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
     fun create_release_uses_native_releases_api_and_returns_compact_release() = runTest {
         val http = HttpClient(
             MockEngine { request ->
@@ -423,6 +459,41 @@ class GitHubIntegrationV2Test {
 
             assertTrue(failure?.message?.contains("does not match app versionName") == true)
             assertFalse(dispatched)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun publish_release_auto_fails_closed_when_workflow_discovery_fails() = runTest {
+        var releaseCreated = false
+        val http = HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath == "/repos/owner/repo/releases" && request.method.value == "GET" -> respond("[]")
+                    request.url.encodedPath == "/repos/owner/repo/actions/workflows" -> respond("forbidden", HttpStatusCode.Forbidden)
+                    request.url.encodedPath == "/repos/owner/repo/releases" && request.method.value == "POST" -> {
+                        releaseCreated = true
+                        respond("""{"id":1,"tag_name":"v1.0.0","assets":[]}""", HttpStatusCode.Created)
+                    }
+                    else -> error("Unexpected request: ${request.method.value} ${request.url}")
+                }
+            }
+        )
+        try {
+            val failure = runCatching {
+                GitHubWorkspaceClient("token", http).execute(
+                    "publish_release",
+                    buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                        put("tag_name", "v1.0.0")
+                    }
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure?.message?.contains("GitHub HTTP 403") == true)
+            assertFalse(releaseCreated)
         } finally {
             http.close()
         }

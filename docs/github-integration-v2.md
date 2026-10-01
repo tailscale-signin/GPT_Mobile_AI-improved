@@ -38,6 +38,19 @@ Prefer the compact actions before lower-level REST-style actions:
 
 Existing actions remain accepted for compatibility.
 
+## Native release management
+
+Release operations are first-class GitHub actions rather than a model-generated fallback to local `gh` or the GitHub Web UI.
+
+- `list_releases`, `get_release`, `get_release_by_tag` and `list_tags` provide compact release/tag reads.
+- `create_tag`, `create_release` and `update_release` provide explicit write actions.
+- `release_status` checks the requested tag, published/draft state, release assets, the detected release workflow and its latest run.
+- `publish_release` is the preferred high-level action. In `auto` mode it detects an active workflow whose name/path indicates release publication, preferring signed-release workflows, and dispatches that workflow on the requested ref. If no release workflow applies, it falls back to the GitHub Releases API.
+- `release_strategy=workflow` requires a release workflow; `release_strategy=direct` intentionally bypasses workflow discovery.
+- Existing releases are idempotent: published releases return `already_published`, while an existing draft can be promoted instead of creating a duplicate.
+
+The operation planner now emits `release_status -> publish_release -> release_verify` for release goals so the model has executable actions at every step. Release mutation actions remain separated from read actions for approval/policy handling.
+
 ## Caching and quota handling
 
 GET responses with an ETag are cached in memory. Later calls send `If-None-Match`; a `304 Not Modified` reuses the parsed cached value. Decoded text file contents are cached by immutable blob SHA.

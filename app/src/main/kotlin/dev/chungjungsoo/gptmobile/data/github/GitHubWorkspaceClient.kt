@@ -622,14 +622,8 @@ class GitHubWorkspaceClient(
                 put("release", compactRelease(existing))
             }
         }
-        var workflowDiscoveryError: String? = null
         if (strategy != "direct") {
-            val workflowLookup = runCatching {
-                findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
-            }
-            if (strategy == "workflow") workflowLookup.exceptionOrNull()?.let { throw it }
-            workflowDiscoveryError = workflowLookup.exceptionOrNull()?.message
-            val workflow = workflowLookup.getOrNull()
+            val workflow = findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
             if (workflow != null) {
                 val workflowId = workflow["id"]?.jsonPrimitive?.content ?: error("Release workflow has no id.")
                 val ref = args["ref"]?.jsonPrimitive?.content.orEmpty()
@@ -667,7 +661,6 @@ class GitHubWorkspaceClient(
             put("status", "created")
             put("strategy", "release_api")
             put("release", created)
-            workflowDiscoveryError?.let { put("workflow_discovery_error", it) }
         }
     }
 

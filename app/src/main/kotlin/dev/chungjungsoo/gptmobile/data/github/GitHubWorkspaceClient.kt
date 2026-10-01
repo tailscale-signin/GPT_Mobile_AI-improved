@@ -705,7 +705,7 @@ class GitHubWorkspaceClient(
         val encoded = file["content"]?.jsonPrimitive?.content?.replace("\n", "").orEmpty()
         if (encoded.isBlank()) return null
         val text = runCatching { Base64.getDecoder().decode(encoded).decodeToString() }.getOrNull() ?: return null
-        val version = Regex("""versionName\s*=\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1) ?: return null
+        val version = Regex("""versionName\s*=\s*"([^"]+)""").find(text)?.groupValues?.getOrNull(1) ?: return null
         val expectedTag = "v$version"
         require(tagName == expectedTag) {
             "Requested release tag $tagName does not match app versionName $version ($expectedTag). Update versionName/versionCode before dispatching the release workflow."

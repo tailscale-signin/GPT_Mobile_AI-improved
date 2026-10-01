@@ -69,7 +69,11 @@ class GitHubWorkspaceClient(
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status"
         )
         val writeActions = setOf(
-            "commit_files", "create_tag", "create_release", "update_release", "publish_release"
+            "commit_files",
+            "create_tag",
+            "create_release",
+            "update_release",
+            "publish_release"
         )
         val actions = readActions + writeActions
 
@@ -758,11 +762,14 @@ class GitHubWorkspaceClient(
         listOf("id", "tag_name", "target_commitish", "name", "draft", "prerelease", "created_at", "published_at", "html_url").forEach { key -> value[key]?.let { put(key, it) } }
         val assets = value["assets"]?.jsonArray ?: JsonArray(emptyList())
         put("asset_count", assets.size)
-        put("assets", buildJsonArray {
-            assets.take(30).forEach { asset ->
-                add(project(asset.jsonObject, "id", "name", "content_type", "state", "size", "digest", "download_count", "created_at", "updated_at", "browser_download_url"))
+        put(
+            "assets",
+            buildJsonArray {
+                assets.take(30).forEach { asset ->
+                    add(project(asset.jsonObject, "id", "name", "content_type", "state", "size", "digest", "download_count", "created_at", "updated_at", "browser_download_url"))
+                }
             }
-        })
+        )
     }
 
     private fun project(value: JsonObject, vararg keys: String): JsonObject = buildJsonObject {

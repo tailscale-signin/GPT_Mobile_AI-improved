@@ -325,6 +325,10 @@ class GitHubIntegrationV2Test {
                             """.trimIndent()
                         )
                     }
+                    request.url.encodedPath == "/repos/owner/repo/contents/app/build.gradle.kts" -> {
+                        assertEquals("main", request.url.parameters["ref"])
+                        respond("", HttpStatusCode.NotFound)
+                    }
                     request.url.encodedPath == "/repos/owner/repo/actions/workflows/42/dispatches" -> {
                         assertEquals("POST", request.method.value)
                         respond("", HttpStatusCode.NoContent)
@@ -347,7 +351,68 @@ class GitHubIntegrationV2Test {
             assertEquals("workflow_dispatched", result["status"]!!.jsonPrimitive.content)
             assertEquals("workflow", result["strategy"]!!.jsonPrimitive.content)
             assertEquals("release_status", result["verification_action"]!!.jsonPrimitive.content)
-            assertEquals(3, requests)
+            assertEquals(4, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun publish_release_rejects_workflow_when_android_version_does_not_match_tag() = runTest {
+        val gradle = """
+            android {
+                defaultConfig {
+                    versionCode = 91
+                    versionName = "0.9.22.0"
+                }
+            }
+        """.trimIndent()
+        val encodedGradle = java.util.Base64.getEncoder().encodeToString(gradle.toByteArray())
+        var dispatched = false
+        val http = HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath == "/repos/owner/repo/releases" -> respond("[]")
+                    request.url.encodedPath == "/repos/owner/repo/actions/workflows" -> respond(
+                        """
+                        {
+                          "workflows": [
+                            {
+                              "id": 42,
+                              "name": "Publish Signed Release",
+                              "path": ".github/workflows/release-build.yml",
+                              "state": "active"
+                            }
+                          ]
+                        }
+                        """.trimIndent()
+                    )
+                    request.url.encodedPath == "/repos/owner/repo/contents/app/build.gradle.kts" -> respond(
+                        """{"type":"file","encoding":"base64","content":"$encodedGradle"}"""
+                    )
+                    request.url.encodedPath.endsWith("/dispatches") -> {
+                        dispatched = true
+                        respond("", HttpStatusCode.NoContent)
+                    }
+                    else -> error("Unexpected request: ${request.url}")
+                }
+            }
+        )
+        try {
+            val failure = runCatching {
+                GitHubWorkspaceClient("token", http).execute(
+                    "publish_release",
+                    buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                        put("tag_name", "v0.9.30.0")
+                        put("ref", "main")
+                    }
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure?.message?.contains("does not match app versionName") == true)
+            assertFalse(dispatched)
         } finally {
             http.close()
         }

@@ -33,6 +33,9 @@ class GitHubIntegrationV2Test {
         assertTrue("release_status" in steps)
         assertTrue("publish_release" in steps)
         assertTrue("release_verify" in steps)
+        assertTrue("release_status" in GitHubWorkspaceClient.readActions)
+        assertFalse("publish_release" in GitHubWorkspaceClient.readActions)
+        assertTrue("publish_release" in GitHubWorkspaceClient.writeActions)
     }
 
     @Test
@@ -328,7 +331,7 @@ class GitHubIntegrationV2Test {
                     }
                     request.url.encodedPath == "/repos/owner/repo/contents/app/build.gradle.kts" -> {
                         assertEquals("main", request.url.parameters["ref"])
-                        val gradle = """android { defaultConfig { versionName = \"1.2.3\" } }"""
+                        val gradle = """android { defaultConfig { versionName = "1.2.3" } }"""
                         val encoded = java.util.Base64.getEncoder().encodeToString(gradle.toByteArray())
                         respond("""{"type":"file","encoding":"base64","content":"$encoded"}""")
                     }

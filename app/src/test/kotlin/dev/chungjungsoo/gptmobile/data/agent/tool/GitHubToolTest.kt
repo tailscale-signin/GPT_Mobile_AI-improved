@@ -127,6 +127,8 @@ class GitHubToolTest {
         assertTrue("release_status" in actions)
         assertTrue("publish_release" in actions)
         assertTrue("create_release" in actions)
+        assertTrue("create_tag" in actions)
+        assertTrue("update_release" in actions)
         assertTrue(tool.definition.description.contains("do not tell the user to use local gh", ignoreCase = true))
     }
 

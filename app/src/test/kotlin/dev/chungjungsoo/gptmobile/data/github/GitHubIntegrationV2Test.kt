@@ -30,7 +30,9 @@ class GitHubIntegrationV2Test {
         assertTrue("checks" in steps)
         assertTrue("draft_pr" in steps)
         assertTrue("merge_gate" in steps)
-        assertTrue("release_gate" in steps)
+        assertTrue("release_status" in steps)
+        assertTrue("publish_release" in steps)
+        assertTrue("release_verify" in steps)
     }
 
     @Test
@@ -247,6 +249,149 @@ class GitHubIntegrationV2Test {
             ).jsonObject
             val file = result["items"]!!.jsonArray.single().jsonObject
             assertEquals("@@ -1 +1 @@", file["patch"]!!.jsonPrimitive.content)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun create_release_uses_native_releases_api_and_returns_compact_release() = runTest {
+        val http = HttpClient(
+            MockEngine { request ->
+                assertEquals("/repos/owner/repo/releases", request.url.encodedPath)
+                assertEquals("POST", request.method.value)
+                respond(
+                    """
+                    {
+                      "id": 321,
+                      "tag_name": "v1.2.3",
+                      "target_commitish": "main",
+                      "name": "v1.2.3",
+                      "draft": false,
+                      "prerelease": false,
+                      "html_url": "https://github.com/owner/repo/releases/tag/v1.2.3",
+                      "assets": []
+                    }
+                    """.trimIndent(),
+                    HttpStatusCode.Created
+                )
+            }
+        )
+        try {
+            val result = GitHubWorkspaceClient("token", http).execute(
+                "create_release",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("tag_name", "v1.2.3")
+                    put("target_commitish", "main")
+                }
+            ).jsonObject
+
+            assertEquals("v1.2.3", result["tag_name"]!!.jsonPrimitive.content)
+            assertEquals("0", result["asset_count"]!!.jsonPrimitive.content)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun publish_release_prefers_active_release_workflow() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                requests++
+                when {
+                    request.url.encodedPath == "/repos/owner/repo/releases" -> {
+                        assertEquals("100", request.url.parameters["per_page"])
+                        respond("[]")
+                    }
+                    request.url.encodedPath == "/repos/owner/repo/actions/workflows" -> {
+                        assertEquals("100", request.url.parameters["per_page"])
+                        respond(
+                            """
+                            {
+                              "total_count": 1,
+                              "workflows": [
+                                {
+                                  "id": 42,
+                                  "name": "Publish Signed Release",
+                                  "path": ".github/workflows/release-build.yml",
+                                  "state": "active",
+                                  "html_url": "https://github.com/owner/repo/actions/workflows/release-build.yml"
+                                }
+                              ]
+                            }
+                            """.trimIndent()
+                        )
+                    }
+                    request.url.encodedPath == "/repos/owner/repo/actions/workflows/42/dispatches" -> {
+                        assertEquals("POST", request.method.value)
+                        respond("", HttpStatusCode.NoContent)
+                    }
+                    else -> error("Unexpected request: ${request.url}")
+                }
+            }
+        )
+        try {
+            val result = GitHubWorkspaceClient("token", http).execute(
+                "publish_release",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("tag_name", "v1.2.3")
+                    put("ref", "main")
+                }
+            ).jsonObject
+
+            assertEquals("workflow_dispatched", result["status"]!!.jsonPrimitive.content)
+            assertEquals("workflow", result["strategy"]!!.jsonPrimitive.content)
+            assertEquals("release_status", result["verification_action"]!!.jsonPrimitive.content)
+            assertEquals(3, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun publish_release_direct_strategy_skips_workflow_discovery() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                requests++
+                when {
+                    request.url.encodedPath == "/repos/owner/repo/releases" && request.method.value == "GET" -> respond("[]")
+                    request.url.encodedPath == "/repos/owner/repo/releases" && request.method.value == "POST" -> respond(
+                        """
+                        {
+                          "id": 322,
+                          "tag_name": "v2.0.0",
+                          "name": "v2.0.0",
+                          "draft": false,
+                          "prerelease": false,
+                          "assets": []
+                        }
+                        """.trimIndent(),
+                        HttpStatusCode.Created
+                    )
+                    else -> error("Unexpected request: ${request.method.value} ${request.url}")
+                }
+            }
+        )
+        try {
+            val result = GitHubWorkspaceClient("token", http).execute(
+                "publish_release",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("tag_name", "v2.0.0")
+                    put("release_strategy", "direct")
+                }
+            ).jsonObject
+
+            assertEquals("created", result["status"]!!.jsonPrimitive.content)
+            assertEquals("release_api", result["strategy"]!!.jsonPrimitive.content)
+            assertEquals(2, requests)
         } finally {
             http.close()
         }

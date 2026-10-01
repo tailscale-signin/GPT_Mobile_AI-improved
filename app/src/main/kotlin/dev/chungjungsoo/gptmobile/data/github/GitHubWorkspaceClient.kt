@@ -602,8 +602,7 @@ class GitHubWorkspaceClient(
         require(strategy in setOf("auto", "workflow", "direct")) {
             "release_strategy must be auto, workflow, or direct."
         }
-        val releases = request("$root/releases?per_page=100").jsonArray
-        val existing = releases.firstOrNull { it.jsonObject["tag_name"]?.jsonPrimitive?.content == tagName }?.jsonObject
+        val existing = findReleaseByTag(root, tagName)
         if (existing != null) {
             val isDraft = existing["draft"]?.jsonPrimitive?.booleanOrNull == true
             val wantsDraft = args["draft"]?.jsonPrimitive?.booleanOrNull ?: false
@@ -675,8 +674,7 @@ class GitHubWorkspaceClient(
     private suspend fun releaseStatus(root: String, args: JsonObject): JsonObject {
         val tagName = args["tag_name"]?.jsonPrimitive?.content.orEmpty()
         require(tagName.isNotBlank()) { "tag_name is required for release_status." }
-        val releases = request("$root/releases?per_page=100").jsonArray
-        val release = releases.firstOrNull { it.jsonObject["tag_name"]?.jsonPrimitive?.content == tagName }?.jsonObject
+        val release = findReleaseByTag(root, tagName)
         val workflowLookup = runCatching {
             findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
         }
@@ -695,6 +693,17 @@ class GitHubWorkspaceClient(
             workflowLookup.exceptionOrNull()?.message?.let { put("workflow_discovery_error", it) }
             put("latest_workflow_run", latestRun?.let { project(it, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "created_at", "updated_at", "html_url") } ?: JsonNull)
         }
+    }
+
+    private suspend fun findReleaseByTag(root: String, tagName: String): JsonObject? {
+        for (page in 1..10) {
+            val releases = request("$root/releases?per_page=100&page=$page").jsonArray
+            releases.firstOrNull {
+                it.jsonObject["tag_name"]?.jsonPrimitive?.content == tagName
+            }?.jsonObject?.let { return it }
+            if (releases.size < 100) return null
+        }
+        error("Release history exceeds the safe lookup limit. Narrow the repository release history before publishing this tag.")
     }
 
     private suspend fun validateReleaseVersionHint(root: String, ref: String, tagName: String): JsonObject? {

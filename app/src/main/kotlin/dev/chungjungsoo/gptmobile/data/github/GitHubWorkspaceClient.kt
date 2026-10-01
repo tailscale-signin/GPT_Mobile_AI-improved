@@ -623,14 +623,21 @@ class GitHubWorkspaceClient(
                 put("release", compactRelease(existing))
             }
         }
+        var workflowDiscoveryError: String? = null
         if (strategy != "direct") {
-            val workflow = findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
+            val workflowLookup = runCatching {
+                findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
+            }
+            if (strategy == "workflow") workflowLookup.exceptionOrNull()?.let { throw it }
+            workflowDiscoveryError = workflowLookup.exceptionOrNull()?.message
+            val workflow = workflowLookup.getOrNull()
             if (workflow != null) {
                 val workflowId = workflow["id"]?.jsonPrimitive?.content ?: error("Release workflow has no id.")
                 val ref = args["ref"]?.jsonPrimitive?.content.orEmpty()
                     .ifBlank { args["target_commitish"]?.jsonPrimitive?.content.orEmpty() }
                     .ifBlank { request(root).jsonObject["default_branch"]?.jsonPrimitive?.content.orEmpty() }
                 require(ref.isNotBlank()) { "Could not resolve a ref for the release workflow." }
+                val versionPreflight = validateReleaseVersionHint(root, ref, tagName)
                 request(
                     "$root/actions/workflows/${segment(workflowId)}/dispatches",
                     HttpMethod.Post,
@@ -649,6 +656,7 @@ class GitHubWorkspaceClient(
                     put("tag_name", tagName)
                     put("ref", ref)
                     put("workflow", workflow)
+                    put("version_preflight", versionPreflight ?: JsonNull)
                     put("verification_action", "release_status")
                     put("message", "Release workflow accepted. Use release_status to verify publication and assets.")
                 }
@@ -660,6 +668,7 @@ class GitHubWorkspaceClient(
             put("status", "created")
             put("strategy", "release_api")
             put("release", created)
+            workflowDiscoveryError?.let { put("workflow_discovery_error", it) }
         }
     }
 
@@ -668,7 +677,10 @@ class GitHubWorkspaceClient(
         require(tagName.isNotBlank()) { "tag_name is required for release_status." }
         val releases = request("$root/releases?per_page=100").jsonArray
         val release = releases.firstOrNull { it.jsonObject["tag_name"]?.jsonPrimitive?.content == tagName }?.jsonObject
-        val workflow = findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
+        val workflowLookup = runCatching {
+            findReleaseWorkflow(root, args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
+        }
+        val workflow = workflowLookup.getOrNull()
         val latestRun = workflow?.get("id")?.jsonPrimitive?.content?.let { workflowId ->
             val runs = request("$root/actions/workflows/${segment(workflowId)}/runs?per_page=10").jsonObject["workflow_runs"]?.jsonArray ?: JsonArray(emptyList())
             val requestedRef = args["ref"]?.jsonPrimitive?.content.orEmpty()
@@ -680,7 +692,29 @@ class GitHubWorkspaceClient(
             put("published", release != null && release["draft"]?.jsonPrimitive?.booleanOrNull != true)
             put("release", release?.let(::compactRelease) ?: JsonNull)
             put("workflow", workflow ?: JsonNull)
+            workflowLookup.exceptionOrNull()?.message?.let { put("workflow_discovery_error", it) }
             put("latest_workflow_run", latestRun?.let { project(it, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "created_at", "updated_at", "html_url") } ?: JsonNull)
+        }
+    }
+
+    private suspend fun validateReleaseVersionHint(root: String, ref: String, tagName: String): JsonObject? {
+        val file = runCatching {
+            request("$root/contents/app/build.gradle.kts?ref=${segment(ref)}").jsonObject
+        }.getOrNull() ?: return null
+        if (file["encoding"]?.jsonPrimitive?.content != "base64") return null
+        val encoded = file["content"]?.jsonPrimitive?.content?.replace("\n", "").orEmpty()
+        if (encoded.isBlank()) return null
+        val text = runCatching { Base64.getDecoder().decode(encoded).decodeToString() }.getOrNull() ?: return null
+        val version = Regex("""versionName\s*=\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1) ?: return null
+        val expectedTag = "v$version"
+        require(tagName == expectedTag) {
+            "Requested release tag $tagName does not match app versionName $version ($expectedTag). Update versionName/versionCode before dispatching the release workflow."
+        }
+        return buildJsonObject {
+            put("source", "app/build.gradle.kts")
+            put("version_name", version)
+            put("expected_tag", expectedTag)
+            put("matched", true)
         }
     }
 

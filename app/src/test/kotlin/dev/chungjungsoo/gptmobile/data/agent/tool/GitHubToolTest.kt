@@ -56,6 +56,66 @@ class GitHubToolTest {
     }
 
     @Test
+    fun `403 write with push permission is not misreported as read only token and never suggests shell fallback`() = runTest {
+        var requestIndex = 0
+        val client = HttpClient(
+            MockEngine { request ->
+                when (requestIndex++) {
+                    0 -> {
+                        assertEquals("/repos/owner/repo/git/ref/heads/main", request.url.encodedPath)
+                        respond("""{"object":{"sha":"abc123"}}""", HttpStatusCode.OK)
+                    }
+                    1 -> {
+                        assertEquals("/repos/owner/repo/git/refs", request.url.encodedPath)
+                        respond(
+                            """{"message":"Resource not accessible by personal access token"}""",
+                            HttpStatusCode.Forbidden,
+                            headersOf(
+                                "X-RateLimit-Remaining",
+                                "4999",
+                                "X-Accepted-GitHub-Permissions",
+                                "contents=write"
+                            )
+                        )
+                    }
+                    2 -> {
+                        assertEquals("/repos/owner/repo", request.url.encodedPath)
+                        respond(
+                            """{"full_name":"owner/repo","default_branch":"main","visibility":"public","permissions":{"push":true,"maintain":false,"admin":false}}""",
+                            HttpStatusCode.OK
+                        )
+                    }
+                    else -> error("Unexpected request: ${request.method.value} ${request.url}")
+                }
+            }
+        )
+        try {
+            val result = GitHubTool("user-token", client).execute(
+                "branch",
+                buildJsonObject {
+                    put("action", "create_branch")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("branch", "fix/test")
+                    put("base", "main")
+                }
+            )
+
+            assertTrue(result.isError)
+            val text = (result.content as ToolResultContent.Text).text
+            assertTrue(text.contains("GITHUB_WRITE_BLOCKED"))
+            assertTrue(text.contains("write_capability=allowed"))
+            assertTrue(text.contains("can_push=true"))
+            assertTrue(text.contains("not generally read-only"))
+            assertTrue(text.contains("do not fall back to shell", ignoreCase = true))
+            assertFalse(text.contains("token is configured for Read-Only", ignoreCase = true))
+            assertEquals(3, requestIndex)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
     fun `workflow writes cannot run without credentials and run IDs must be positive`() = runTest {
         val client = HttpClient(MockEngine { error("Invalid requests must not reach GitHub") })
         try {

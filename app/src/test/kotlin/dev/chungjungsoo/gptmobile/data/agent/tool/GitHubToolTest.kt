@@ -70,12 +70,7 @@ class GitHubToolTest {
                         respond(
                             """{"message":"Resource not accessible by personal access token"}""",
                             HttpStatusCode.Forbidden,
-                            headersOf(
-                                "X-RateLimit-Remaining",
-                                "4999",
-                                "X-Accepted-GitHub-Permissions",
-                                "contents=write"
-                            )
+                            headersOf("X-RateLimit-Remaining", "4999")
                         )
                     }
                     2 -> {

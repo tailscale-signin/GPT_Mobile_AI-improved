@@ -742,6 +742,7 @@ class LocalDelegationCoordinatorTest {
         assertEquals(1, recoveryPrompts)
         assertFalse(coordinator.researchAvailable())
     }
+
     @Test fun `same delegate gets five one second retries before fallback`() = runTest {
         val fallback = target.copy(uid = "retry-fallback", model = "fallback-model")
         val targetAttemptTimes = mutableListOf<Long>()
@@ -833,5 +834,4 @@ class LocalDelegationCoordinatorTest {
         assertEquals(0, reviewerCalls)
         assertEquals(listOf(0), coordinator.reviewerScoresSnapshot())
     }
-
 }

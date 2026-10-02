@@ -24,7 +24,7 @@ internal object ToolExchangeCompactor {
     ): List<AgentToolExchange> {
         if (exchanges.isEmpty() || maxReplayTokens == Int.MAX_VALUE) return exchanges
 
-        val hardBudget = maxReplayTokens.coerceAtLeast(512)
+        val hardBudget = maxReplayTokens.coerceAtLeast(1)
         val perResultBudget = maxResultTokens.coerceAtLeast(MIN_RESULT_TOKENS)
         val fingerprints = exchanges.flatMap { it.results }.map { fingerprint(render(it.content)) }
         val lastOccurrence = fingerprints.withIndex().associate { (index, value) -> value to index }

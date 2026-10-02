@@ -965,7 +965,12 @@ internal class LocalDelegationCoordinator(
         val fallback = failoverTarget?.takeIf { it.uid !in attemptedProfiles }
             ?: if (failoverTarget != null) recoveryCandidates(latest, failedUid).firstOrNull { it.uid !in attemptedProfiles } else null
         if (fallback != null && fallback.uid != target.uid) {
-            AppLogRecorder.record("Delegation", "Worker failover · failed=$failedUid · fallback=${fallback.uid} · type=${fallback.compatibleType}", "W")
+            userSelectedRecoveryProfile.set(fallback)
+            AppLogRecorder.record(
+                "Delegation",
+                "Worker failover · failed=$failedUid · fallback=${fallback.uid} · type=${fallback.compatibleType} · stickyForTurn=true",
+                "W"
+            )
             return workerText(fallback, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid, sameTargetRetryAttempt = 0)
         }
         return null
@@ -1174,7 +1179,7 @@ internal class LocalDelegationCoordinator(
                 researchConfig,
                 tools,
                 generate = { prompt, tokens ->
-                    workerText(target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true)
+                    workerText(userSelectedRecoveryProfile.get() ?: target, prompt, tokens, pinnedConfig = researchConfig, interactiveRecovery = true)
                 },
                 // Authorization is pinned above; live settings only apply to the next research run.
                 stillEnabled = { true }

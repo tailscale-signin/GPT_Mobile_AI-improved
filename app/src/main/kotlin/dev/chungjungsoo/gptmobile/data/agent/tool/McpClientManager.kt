@@ -258,19 +258,32 @@ class McpClientManager internal constructor(
         bypassBackoff: Boolean = false,
         block: suspend (Session) -> T
     ): T {
-        val session = session(config, bypassBackoff)
-        val startedAtMs = nowMs()
-        return try {
-            block(session).also {
-                recordSuccess(config.connectionUid, latencyMs = nowMs() - startedAtMs)
+        var staleSessionRetries = 0
+        while (true) {
+            val session = session(config, bypassBackoff || staleSessionRetries > 0)
+            val startedAtMs = nowMs()
+            try {
+                return block(session).also {
+                    recordSuccess(config.connectionUid, latencyMs = nowMs() - startedAtMs)
+                }
+            } catch (error: CancellationException) {
+                withContext(NonCancellable) { invalidate(config.connectionUid, session) }
+                throw error
+            } catch (error: Exception) {
+                val staleSession = error.isMcpStaleSession()
+                invalidate(config.connectionUid, session)
+                if (staleSession && staleSessionRetries++ < MAX_STALE_SESSION_RETRIES) {
+                    markRecovering(config.connectionUid)
+                    AppLogRecorder.record(
+                        "MCP",
+                        "Stale session detected · connection=${config.connectionUid} · retry=$staleSessionRetries/$MAX_STALE_SESSION_RETRIES · reconnecting without provider backoff",
+                        "W"
+                    )
+                    continue
+                }
+                if (!error.isMcpUnauthorized()) recordFailure(config.connectionUid, error)
+                throw error
             }
-        } catch (error: CancellationException) {
-            withContext(NonCancellable) { invalidate(config.connectionUid, session) }
-            throw error
-        } catch (error: Exception) {
-            if (!error.isMcpUnauthorized()) recordFailure(config.connectionUid, error)
-            invalidate(config.connectionUid, session)
-            throw error
         }
     }
 
@@ -422,11 +435,20 @@ class McpClientManager internal constructor(
         const val MAX_AUTHORIZATION_HEADER_LENGTH = 128 * 1024
         const val TOOL_CATALOG_TTL_MS = 5 * 60 * 1000L
         const val CIRCUIT_BREAKER_FAILURES = 3
+        const val MAX_STALE_SESSION_RETRIES = 1
     }
 }
 
 private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause }
     .any { error -> error is StreamableHttpError && error.code == 401 }
+
+private fun Throwable.isMcpStaleSession(): Boolean = generateSequence(this) { it.cause }
+    .any { error ->
+        val message = error.message.orEmpty().lowercase()
+        (error is StreamableHttpError && error.code == 404) ||
+            message.contains("session not found") ||
+            message.contains("-32001") && message.contains("session")
+    }
 
 private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(toByteArray(Charsets.UTF_8))

@@ -1211,14 +1211,14 @@ internal class LocalDelegationCoordinator(
         val config = settings().normalized()
         val target = localTarget(config) ?: return null
         val delegateOutput = workerText(target, task, maxTokens)?.let { preserveDelegationFacts(task, it, maxTokens * 4) } ?: return null
-        return reviewForPrimary(target, task, delegateOutput, config)
+        return reviewForPrimary(userSelectedRecoveryProfile.get() ?: target, task, delegateOutput, config)
     }
 
     suspend fun executeTask(target: PlatformV2, task: String, maxTokens: Int): String? {
         val config = settings().normalized()
         val turnTarget = userSelectedRecoveryProfile.get() ?: target
         val delegateOutput = workerText(turnTarget, task, maxTokens, requirePrivate = false, allowTools = true, interactiveRecovery = true) ?: return null
-        return reviewForPrimary(turnTarget, task, delegateOutput, config)
+        return reviewForPrimary(userSelectedRecoveryProfile.get() ?: turnTarget, task, delegateOutput, config)
     }
 
     suspend fun delegate(target: PlatformV2, task: String, maxTokens: Int, tools: List<ResolvedAgentTool>, callId: String): String {
@@ -1248,7 +1248,7 @@ internal class LocalDelegationCoordinator(
         val estimated = estimatedDelegateTokens(task)
         if (estimated <= hardCap) {
             val result = workerText(turnTarget, task, maxTokens, requirePrivate = false, allowTools = true, interactiveRecovery = true)
-            if (result != null) return reviewForPrimary(turnTarget, task, result, config)
+            if (result != null) return reviewForPrimary(userSelectedRecoveryProfile.get() ?: turnTarget, task, result, config)
             if (delegationCanceledByUser.get()) return primaryOnlyHandoff()
             error("CANCELED_NO_RESULT: delegated model was unavailable, stalled, or its compute budget was reached. Retry only the missing subtask with a smaller payload.")
         }
@@ -1288,7 +1288,7 @@ internal class LocalDelegationCoordinator(
         if (summaries.isEmpty()) {
             error("CANCELED_NO_RESULT: oversized delegation produced no usable chunk results. Do not replay the original payload.")
         }
-        if (summaries.size == 1) return reviewForPrimary(turnTarget, task, summaries.single(), config)
+        if (summaries.size == 1) return reviewForPrimary(userSelectedRecoveryProfile.get() ?: turnTarget, task, summaries.single(), config)
         val synthesis = workerText(
             turnTarget,
             "Synthesize the chunk summaries into one concise answer to the delegated task. Keep exact facts and note missing chunks. Do not invent details.\n\n" + summaries.joinToString("\n\n"),
@@ -1297,7 +1297,7 @@ internal class LocalDelegationCoordinator(
             interactiveRecovery = true
         )
         val delegateOutput = synthesis ?: summaries.joinToString("\n\n")
-        return reviewForPrimary(turnTarget, task, delegateOutput, config)
+        return reviewForPrimary(userSelectedRecoveryProfile.get() ?: turnTarget, task, delegateOutput, config)
     }
     suspend fun memoryObservations(userText: String): JsonObject? {
         val config = settings().normalized()
@@ -1359,7 +1359,7 @@ internal class LocalDelegationCoordinator(
         if (raw.toByteArray().size > bounded.maxInputCharacters) notes += "The original result exceeded the local input allowance; only relevant passages were processed."
         val guarded = summary?.let { preserveDelegationFacts(compactEvidence, it, config.handoffTokens * 2) }
         if (guarded == compactEvidence && guarded.length > config.handoffTokens * 2) return result
-        val reviewed = guarded?.let { reviewForPrimary(target, task, it, config) }
+        val reviewed = guarded?.let { reviewForPrimary(userSelectedRecoveryProfile.get() ?: target, task, it, config) }
         val compact = ToolResultContent.Text(delegationHandoff(reviewed ?: relevantEvidence(raw, task, config.handoffTokens * 2), urls, notes, config.handoffTokens))
         return result.copy(
             content = compact,

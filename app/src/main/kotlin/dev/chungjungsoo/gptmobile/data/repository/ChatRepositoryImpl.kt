@@ -600,16 +600,31 @@ class ChatRepositoryImpl(
             }
     }
 
-    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null): String {
+    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool> = emptyList()): String {
         // Delegated runs are real child agent runs: they receive the target profile's
         // authorized tools, but never receive delegate_to_model itself. This enables
         // local -> remote tool use and remote -> local tool use without recursion.
+        val inheritedTools = authorizedTools
+            .filterNot { it.realToolName == "delegate_to_model" }
+            .distinctBy { it.modelToolName }
         val childTools: MutableList<AgentTool> = if (!allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled) {
             mutableListOf()
         } else if (fixtureTools != null) {
             fixtureTools.toMutableList()
+        } else if (inheritedTools.isNotEmpty()) {
+            // Delegated agents are children of the current run. Reuse the parent's
+            // already-authorized and already-budgeted tool snapshot instead of resolving
+            // a second catalog from the helper profile. This preserves chat-level
+            // permissions, native GitHub/MCP access, shared budgets and approval state.
+            inheritedTools.map { it.tool }.toMutableList()
         } else {
             resolveDelegatedTools(target, parentRunId, chatToolConfig, task).toMutableList()
+        }
+        val childToolSource = when {
+            !allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled -> "disabled"
+            fixtureTools != null -> "fixture"
+            inheritedTools.isNotEmpty() -> "parent-authorized"
+            else -> "target-fallback"
         }
         val discoveredChildToolCount = childTools.size
         val boundedSystemPrompt =
@@ -629,7 +644,7 @@ class ChatRepositoryImpl(
         }
         AppLogRecorder.record(
             "Delegation",
-            "Child tool catalog · target=${target.uid} · discovered=$discoveredChildToolCount · kept=${childTools.size} · names=${childTools.joinToString { it.definition.name }} · maxInputTokens=$maxInputTokens"
+            "Child tool catalog · target=${target.uid} · source=$childToolSource · discovered=$discoveredChildToolCount · kept=${childTools.size} · names=${childTools.joinToString { it.definition.name }} · maxInputTokens=$maxInputTokens"
         )
         val estimatedRequestInputTokens = baseInputTokens + estimatedToolTokens()
         if (estimatedRequestInputTokens > maxInputTokens) {
@@ -644,10 +659,9 @@ class ChatRepositoryImpl(
         // Keep fixtures/text transforms isolated and never override chat exclusions.
         val allowGatewayLocalTools = allowTools &&
             fixtureTools == null &&
-            isGitHubTask(task) &&
             target.compatibleType == ClientType.LLAMA &&
             !target.disableAllTools &&
-            !target.disableRemoteTools &&
+            !target.disableLocalTools &&
             !chatToolConfig.allToolsDisabled &&
             chatToolConfig.allowAllByDefault &&
             chatToolConfig.disabledToolIds.isEmpty()
@@ -854,6 +868,7 @@ class ChatRepositoryImpl(
         suspend fun emit(state: ApiState) = send(state)
         val activity = AtomicReference("Preparing response")
         val traceSequences = java.util.concurrent.atomic.AtomicInteger()
+        var delegatedTools = emptyList<ResolvedAgentTool>()
         suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
             when (state) {
                 is ApiState.Success -> activity.set("Writing response")
@@ -915,7 +930,7 @@ class ChatRepositoryImpl(
                         delegateText.append(it)
                         trySend(ApiState.DelegationText(invocation, target.name, delegateText.toString(), !target.isPrivateDestination()))
                     }
-                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) })
+                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools else emptyList())
             } finally {
                 // A final suspending snapshot recovers any intermediate UI update
                 // skipped while the channel was busy. It is never the primary answer.
@@ -971,7 +986,6 @@ class ChatRepositoryImpl(
                 profileBudget
             }
             val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
-            var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
                 val defaults = settingRepository.getFeatureSettings().delegation
                 return chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()

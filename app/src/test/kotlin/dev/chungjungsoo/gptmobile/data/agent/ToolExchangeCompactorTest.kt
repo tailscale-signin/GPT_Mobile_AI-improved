@@ -88,6 +88,7 @@ class ToolExchangeCompactorTest {
 
         assertTrue(ToolExchangeCompactor.estimateTokens(compacted) <= 128)
     }
+
     @Test
     fun compact_hard_bounds_call_metadata_and_keeps_newest_pairs() {
         val exchanges = (0 until 100).map { index ->

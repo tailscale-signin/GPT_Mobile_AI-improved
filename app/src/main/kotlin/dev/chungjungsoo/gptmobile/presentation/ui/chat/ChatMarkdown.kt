@@ -81,6 +81,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.intellij.markdown.IElementType
 import org.intellij.markdown.MarkdownTokenTypes
 
 private const val CLIPBOARD_LABEL_CODE = "code"
@@ -162,19 +163,7 @@ fun ChatMarkdown(
                 highlightProgress > 0.01f &&
                 text.contains(highlightSentence, ignoreCase = true)
 
-            val streamVisibleText = when (child.type) {
-                MarkdownTokenTypes.TEXT -> text
-                MarkdownTokenTypes.SINGLE_QUOTE -> "'"
-                MarkdownTokenTypes.DOUBLE_QUOTE -> "\""
-                MarkdownTokenTypes.LPAREN -> "("
-                MarkdownTokenTypes.RPAREN -> ")"
-                MarkdownTokenTypes.LBRACKET -> "["
-                MarkdownTokenTypes.RBRACKET -> "]"
-                MarkdownTokenTypes.COLON -> ":"
-                MarkdownTokenTypes.EXCLAMATION_MARK -> "!"
-                MarkdownTokenTypes.BACKTICK -> "`"
-                else -> null
-            }
+            val streamVisibleText = streamVisibleMarkdownTokenText(child.type, text)
 
             if (!hasMath && !hasSentenceHighlight && hasStreamed && streamVisibleText != null) {
                 appendStreamFadedText(
@@ -420,6 +409,23 @@ fun ChatMarkdown(
             )
         }
     }
+}
+
+internal fun streamVisibleMarkdownTokenText(
+    type: IElementType,
+    rawText: String
+): String? = when (type) {
+    MarkdownTokenTypes.TEXT -> rawText
+    MarkdownTokenTypes.SINGLE_QUOTE -> "'"
+    MarkdownTokenTypes.DOUBLE_QUOTE -> "\""
+    MarkdownTokenTypes.LPAREN -> "("
+    MarkdownTokenTypes.RPAREN -> ")"
+    MarkdownTokenTypes.LBRACKET -> "["
+    MarkdownTokenTypes.RBRACKET -> "]"
+    MarkdownTokenTypes.COLON -> ":"
+    MarkdownTokenTypes.EXCLAMATION_MARK -> "!"
+    MarkdownTokenTypes.BACKTICK -> "`"
+    else -> null
 }
 
 private fun AnnotatedString.Builder.appendStreamFadedText(

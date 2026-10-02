@@ -48,7 +48,7 @@ data class FactVaultSettings(
     val learnRelationships: Boolean = true,
     val reviewBeforeRecall: Boolean = false,
     val maxFacts: Int = 256,
-    val maxRecall: Int = 8,
+    val maxRecall: Int = 5,
     val retentionDays: Int = 0,
     val captureSensitivity: Int = 65,
     val localModelLearning: Boolean = true,

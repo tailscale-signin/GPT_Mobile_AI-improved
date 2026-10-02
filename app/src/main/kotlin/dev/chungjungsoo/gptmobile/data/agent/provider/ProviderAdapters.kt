@@ -287,6 +287,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
 
+                // Gateway job affinity changes as metadata arrives, so this remains round-scoped.
+                val llamaGatewayHeaders = if (isLlama) {
+                    gatewayPerformanceHeaders + capturedGatewayJobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty()
+                } else emptyMap()
+
                 val maxAutoContinues = parsedOllamaOptions?.maxAutoContinues ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES
                 val isAutoContinueEnabled = constraints.maxOutputTokens == null && parsedOllamaOptions?.autoContinue == true
                 var autoContinueCount = 0

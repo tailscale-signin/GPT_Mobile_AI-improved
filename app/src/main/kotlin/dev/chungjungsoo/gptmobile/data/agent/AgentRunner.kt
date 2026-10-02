@@ -31,8 +31,6 @@ data class AgentRunLimits(
     val maxReplayResultTokens: Int = 512
 ) {
     companion object {
-        private const val MAX_SAME_TOOL_CALLS_PER_RUN = 24
-        private const val MAX_CONSECUTIVE_TOOL_FAILURES = 3
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
 
         fun defaultMaxConcurrentTools(): Int = 32
@@ -453,6 +451,8 @@ class AgentRunner(
     private fun failed(message: String) = AgentRunEvent.Provider(ProviderEvent.Failed(message))
 
     companion object {
+        private const val MAX_SAME_TOOL_CALLS_PER_RUN = 24
+        private const val MAX_CONSECUTIVE_TOOL_FAILURES = 3
         const val TOOLS_UNAVAILABLE_MESSAGE = "Tools unavailable for this model."
         const val FINAL_RESPONSE_NOTICE = "Tool-call limit is approaching; generating a final response."
         const val ROUND_LIMIT_FINAL_RESPONSE_NOTICE =

@@ -174,7 +174,7 @@ internal class LocalDelegationCoordinator(
                     !candidate.excludesMemory() &&
                     !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                     candidate.uid !in quarantinedWorkerUids &&
-                    (config.allowRemoteWorkers || candidate.isPrivateDestination())
+                    (config.remoteWorkersAllowed() || candidate.isPrivateDestination())
             if (!metadataEligible) continue
 
             // Preflight installation/runtime readiness once, then suppress repeated
@@ -198,7 +198,7 @@ internal class LocalDelegationCoordinator(
         } else {
             AppLogRecorder.record(
                 "Delegation",
-                "No eligible target · configured=${config.targetProfileUid.ifBlank { "<none>" }} · profiles=${availableProfiles.size} · remoteWorkers=${config.allowRemoteWorkers} · localOnly=${config.localPlatformsOnly}",
+                "No eligible target · configured=${config.targetProfileUid.ifBlank { "<none>" }} · profiles=${availableProfiles.size} · remoteWorkers=${config.remoteWorkersAllowed()} · localOnly=${config.localPlatformsOnly}",
                 "W"
             )
         }
@@ -218,7 +218,7 @@ internal class LocalDelegationCoordinator(
                 !candidate.excludesMemory() &&
                 !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                 candidate.uid !in quarantinedWorkerUids &&
-                (config.allowRemoteWorkers || candidate.isPrivateDestination())
+                (config.remoteWorkersAllowed() || candidate.isPrivateDestination())
         }.filter { candidate ->
             candidateInputBudget(candidate, config.maxOutputTokens, logFailure = false) != null
         }
@@ -594,7 +594,7 @@ internal class LocalDelegationCoordinator(
                 !candidate.excludesMemory() &&
                 candidate.uid != source.uid &&
                 candidate.uid !in quarantinedWorkerUids &&
-                (latest.allowRemoteWorkers || candidate.isPrivateDestination())
+                (latest.remoteWorkersAllowed() || candidate.isPrivateDestination())
         } ?: return recovery(target.uid, "The selected delegate is unavailable or no longer eligible.").also {
             AppLogRecorder.record("Delegation", "Worker requires recovery · requested=${target.uid} · reason=TARGET_UNAVAILABLE · fallback=${it.failoverTarget?.uid}", "W")
         }
@@ -608,8 +608,8 @@ internal class LocalDelegationCoordinator(
         val rejectedByRules =
             profile.excludesMemory() ||
                 profile.uid == source.uid ||
-                (latest.localPlatformsOnly && !profile.isPrivateDestination() && !latest.allowRemoteWorkers) ||
-                (requirePrivate && !profile.isPrivateDestination() && !latest.allowRemoteWorkers) ||
+                (latest.localPlatformsOnly && !profile.isPrivateDestination() && !latest.remoteWorkersAllowed()) ||
+                (requirePrivate && !profile.isPrivateDestination() && !latest.remoteWorkersAllowed()) ||
                 (source.compatibleType == ClientType.LITERT_LM && profile.compatibleType == ClientType.LITERT_LM)
         if (rejectedByRules) {
             return recovery(profile.uid, "The selected delegate was rejected by the active delegation rules.").also {

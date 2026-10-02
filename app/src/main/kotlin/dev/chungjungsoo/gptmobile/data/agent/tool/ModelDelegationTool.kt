@@ -46,7 +46,7 @@ class ModelDelegationTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         fun error(text: String) = AgentToolResult(callId, ToolResultContent.Text(text), true)
         val config = settings().normalized()
-        AppLogRecorder.record("Delegation", "Tool requested · call=$callId · source=${source.uid} · enabled=${config.enabled} · localOnly=${config.localPlatformsOnly} · remoteWorkers=${config.allowRemoteWorkers}")
+        AppLogRecorder.record("Delegation", "Tool requested · call=$callId · source=${source.uid} · enabled=${config.enabled} · localOnly=${config.localPlatformsOnly} · remoteWorkers=${config.remoteWorkersAllowed()}")
         if (!config.enabled) return error("Model delegation is disabled in Settings → Model Delegation.")
         if (unavailableForTurn.get()) {
             return error("Delegation is unavailable for the remainder of this turn. Continue with the evidence already available; do not retry delegation until the next turn.").also {
@@ -60,7 +60,7 @@ class ModelDelegationTool(
             it.enabled &&
                 it.uid != source.uid &&
                 !it.excludesMemory() &&
-                (config.allowRemoteWorkers || it.isPrivateDestination())
+                (config.remoteWorkersAllowed() || it.isPrivateDestination())
         }
         val target = eligibleTargets.firstOrNull { it.uid == config.targetProfileUid }
             ?: eligibleTargets.firstOrNull()?.takeIf { config.targetProfileUid.isBlank() || config.fallbackToAnotherProfile }?.also { fallback ->
@@ -73,7 +73,7 @@ class ModelDelegationTool(
             ?: return error("No eligible helper profile is available. Enable a local/private helper or allow a remote worker in Delegation settings.").also {
                 AppLogRecorder.record(
                     "Delegation",
-                    "Rejected · no eligible target · configured=${config.targetProfileUid.ifBlank { "<none>" }} · profiles=${availableProfiles.size} · remoteWorkers=${config.allowRemoteWorkers}",
+                    "Rejected · no eligible target · configured=${config.targetProfileUid.ifBlank { "<none>" }} · profiles=${availableProfiles.size} · remoteWorkers=${config.remoteWorkersAllowed()}",
                     "W"
                 )
             }
@@ -84,7 +84,7 @@ class ModelDelegationTool(
         // remote-worker opt-in is the documented override used for remote→remote
         // delegation; previously this check ignored the opt-in and rejected every
         // external target before dispatch.
-        if (config.localPlatformsOnly && !target.isPrivateDestination() && !config.allowRemoteWorkers) {
+        if (config.localPlatformsOnly && !target.isPrivateDestination() && !config.remoteWorkersAllowed()) {
             return error("This target is blocked by the private-destination-only setting.").also { AppLogRecorder.record("Delegation", "Rejected privacy policy · target=${target.uid}", "W") }
         }
         if (source.compatibleType == ClientType.LITERT_LM && target.compatibleType == ClientType.LITERT_LM) {

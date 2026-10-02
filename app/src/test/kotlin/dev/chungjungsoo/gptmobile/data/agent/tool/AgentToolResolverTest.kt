@@ -17,6 +17,7 @@ import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.SecretMigrationError
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
@@ -135,6 +136,36 @@ class AgentToolResolverTest {
         assertEquals(null, resolved[5].connectionUid)
         assertEquals(null, resolved[5].connectionName)
         assertEquals(WebSearchProvider.AUTO, resolved[5].tool.webSearchConfig().provider)
+    }
+
+    @Test
+    fun `integrated plugin states remove disabled built in tools from the model catalog`() = runBlocking {
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            toolPluginStates = mapOf(
+                ToolPluginId.CALCULATOR to false,
+                ToolPluginId.GITHUB to false,
+                ToolPluginId.READ_URL to false
+            )
+        )
+        val resolved = resolver(settings = ResolverFakeSettingRepository(features = features)).resolve("profile-1")
+
+        assertEquals(
+            listOf("current_date", "read_file_slice", "web_search"),
+            resolved.map { it.modelToolName }
+        )
+    }
+
+    @Test
+    fun `configured native plugin can be disabled without anonymous fallback bypass`() = runBlocking {
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("work", ToolConnectionType.GITHUB, endpointUrl = "https://api.github.com"))
+        val features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            toolPluginStates = mapOf(ToolPluginId.connection("work") to false)
+        )
+
+        val resolved = resolver(dao = dao, settings = ResolverFakeSettingRepository(features = features)).resolve("profile-1")
+
+        assertFalse(resolved.any { it.realToolName == BuiltInAgentTool.GITHUB })
     }
 
     @Test

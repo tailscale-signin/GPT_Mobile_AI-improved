@@ -12,6 +12,8 @@ import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.AppFeature
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.util.Locale
@@ -47,6 +49,7 @@ class ToolConnectionsViewModel @Inject constructor(
     secretVault: SecretVault,
     private val oauthCoordinator: McpOAuthCoordinator,
     private val mcpClientManager: McpClientManager,
+    private val settingRepository: SettingRepository,
     private val agentToolResolver: AgentToolResolver? = null,
     private val toolTrust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null
 ) : ViewModel() {
@@ -68,20 +71,55 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            runCatching { toolConnectionRepository.listConnections() }
-                .onSuccess { connections ->
-                    _uiState.update { state ->
-                        state.copy(
-                            connections = connections,
-                            connectionHealth = state.connectionHealth.filterKeys { uid ->
-                                connections.any { it.connectionUid == uid }
-                            },
-                            errorMessage = null
-                        )
-                    }
+            runCatching {
+                val connections = toolConnectionRepository.listConnections()
+                val features = settingRepository.getFeatureSettings()
+                connections to features
+            }.onSuccess { (connections, features) ->
+                _uiState.update { state ->
+                    state.copy(
+                        connections = connections,
+                        pluginStates = features.toolPluginStates,
+                        remoteMcpEnabled = features.remoteMcpConnections,
+                        connectionHealth = state.connectionHealth.filterKeys { uid ->
+                            connections.any { it.connectionUid == uid }
+                        },
+                        errorMessage = null
+                    )
+                }
+                if (features.remoteMcpConnections) {
                     probeConnections(connections)
                 }
-                .onFailure(::showError)
+            }.onFailure(::showError)
+        }
+    }
+
+    fun setPluginEnabled(pluginId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                val latest = settingRepository.getFeatureSettings()
+                settingRepository.updateFeatureSettings(latest.withToolPluginEnabled(pluginId, enabled))
+            }.onSuccess {
+                _uiState.update { state ->
+                    state.copy(pluginStates = state.pluginStates + (pluginId to enabled))
+                }
+            }.onFailure(::showError)
+        }
+    }
+
+    fun setRemoteMcpEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                val latest = settingRepository.getFeatureSettings()
+                settingRepository.updateFeatureSettings(latest.withFeature(AppFeature.REMOTE_MCP, enabled))
+            }.onSuccess {
+                _uiState.update { it.copy(remoteMcpEnabled = enabled) }
+                if (enabled) {
+                    probeConnections(force = true)
+                } else {
+                    _uiState.update { it.copy(connectionHealth = emptyMap()) }
+                }
+            }.onFailure(::showError)
         }
     }
 
@@ -298,6 +336,8 @@ class ToolConnectionsViewModel @Inject constructor(
 
     data class ToolConnectionsUiState(
         val connections: List<ToolConnection> = emptyList(),
+        val pluginStates: Map<String, Boolean> = emptyMap(),
+        val remoteMcpEnabled: Boolean = true,
         val connectionHealth: Map<String, ToolConnectionHealth> = emptyMap(),
         val isOAuthBusy: Boolean = false,
         val errorMessage: String? = null

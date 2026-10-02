@@ -33,6 +33,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.isResearchPageReader
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
+import dev.chungjungsoo.gptmobile.data.agent.tool.preferNativeGitHubForTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
@@ -1038,12 +1039,23 @@ class ChatRepositoryImpl(
             }
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = userMessages.lastOrNull()
+            val taskRoutedTools = preferNativeGitHubForTask(
+                resolvedTools,
+                latestUser?.content.orEmpty()
+            )
+            if (taskRoutedTools.size != resolvedTools.size) {
+                AppLogRecorder.record(
+                    "GitHub",
+                    "Native GitHub task routing suppressed ${resolvedTools.size - taskRoutedTools.size} shell/terminal fallback tools · task=${latestUser?.content?.take(120).orEmpty()}",
+                    "W"
+                )
+            }
             val recalled = try {
                 if (latestUser == null || platform.excludesMemory() || platform.disableAllTools || platform.disableLocalTools) {
                     FactRecall()
                 } else {
                     val recall = factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.isPrivateDestination(), previousContext = userMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }) ?: FactRecall()
-                    if (resolvedTools.any { it.realToolName == "delegate_to_model" }) {
+                    if (taskRoutedTools.any { it.realToolName == "delegate_to_model" }) {
                         try {
                             factVault?.enrichTurn(latestUser, localDelegation::memoryObservations)
                         } catch (cancelled: CancellationException) {
@@ -1068,10 +1080,10 @@ class ChatRepositoryImpl(
             }
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
             val processingOwnership = effectiveDelegationSettings().processingOwnership
-            var localResearch = resolvedTools.any { it.realToolName == "delegate_to_model" } &&
+            var localResearch = taskRoutedTools.any { it.realToolName == "delegate_to_model" } &&
                 processingOwnership < 100 &&
                 localDelegation.researchAvailable()
-            var exposedTools = orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(resolvedTools))
+            var exposedTools = orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools))
                 .let { primaryDelegationTools(it, localResearch, processingOwnership) }
                 .sortedBy { it.realToolName != "delegate_to_model" }
             fun baseSystemPrompt(): String {
@@ -1103,7 +1115,7 @@ class ChatRepositoryImpl(
                 (platform.isPrivateDestination() || memorySettings.settings.allowCloudRecall) &&
                 !platform.disableAllTools &&
                 !platform.disableLocalTools
-            val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(resolvedTools, memorySettings.settings) else emptyList()
+            val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
             val documentContext = if (platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
             var requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt()
@@ -1122,7 +1134,7 @@ class ChatRepositoryImpl(
             }
             if (localResearch && contextPlan.tools.none { it.name == "delegate_to_model" }) {
                 localResearch = false
-                exposedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(resolvedTools)
+                exposedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools)
                 requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt())
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
                 AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}")
@@ -1138,7 +1150,7 @@ class ChatRepositoryImpl(
                     finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls)
                 )
             )
-            val boundedTools = resolvedTools.filter { resolved ->
+            val boundedTools = taskRoutedTools.filter { resolved ->
                 resolved in connectedMemoryTools ||
                     (localResearch && (processingOwnership < 35 || resolved.isWebSearchEngine() || resolved.isResearchPageReader())) ||
                     contextPlan.tools.any { it.name == resolved.modelToolName || (it.name == "web_search" && resolved.isWebSearchEngine()) }
@@ -1184,7 +1196,7 @@ class ChatRepositoryImpl(
                     val event = trace.start(call)
                     emit(ApiState.ToolCall(event.sequence))
                     try {
-                        val processed = if (resolvedTools.any { it.realToolName == "delegate_to_model" }) localDelegation.processToolResults(tool, latestUser.content) else tool
+                        val processed = if (taskRoutedTools.any { it.realToolName == "delegate_to_model" }) localDelegation.processToolResults(tool, latestUser.content) else tool
                         val result = processed.tool.execute(id, arguments)
                         trace.finish(call, result.copy(traceContent = ToolResultContent.Text("Connected memory recall ${if (result.isError) "failed" else "completed"}. Memory content is omitted from this trace.")))?.let { emit(it) }
                         result
@@ -1232,7 +1244,7 @@ class ChatRepositoryImpl(
             }
             val effectiveTools = aggregatedTools
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }
-                .map { if (resolvedTools.any { tool -> tool.realToolName == "delegate_to_model" }) localDelegation.processToolResults(it, latestUser?.content.orEmpty()) else it }
+                .map { if (taskRoutedTools.any { tool -> tool.realToolName == "delegate_to_model" }) localDelegation.processToolResults(it, latestUser?.content.orEmpty()) else it }
             val delegationSettings = effectiveDelegationSettings()
             val requestedOutputTokens = contextPlan.outputTokens
             // Delegation saves input/replay tokens. Its brief budget must never cap the

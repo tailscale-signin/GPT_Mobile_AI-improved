@@ -10,6 +10,30 @@ internal fun ResolvedAgentTool.isGitHubTool(): Boolean =
         modelToolName.contains("github", ignoreCase = true) ||
         connectionName.orEmpty().contains("github", ignoreCase = true)
 
+internal fun ResolvedAgentTool.isShellExecutionTool(): Boolean {
+    val identity = listOf(realToolName, modelToolName, connectionName.orEmpty())
+        .joinToString(" ")
+        .lowercase()
+    return listOf(
+        "posix",
+        "shell",
+        "terminal",
+        "run_command",
+        "run command",
+        "execute_command",
+        "execute command",
+        "api:run"
+    ).any(identity::contains)
+}
+
+internal fun preferNativeGitHubForTask(
+    tools: List<ResolvedAgentTool>,
+    task: String
+): List<ResolvedAgentTool> {
+    if (!isGitHubTask(task) || tools.none { it.isGitHubTool() }) return tools
+    return tools.filterNot { it.isShellExecutionTool() }
+}
+
 /** Keep repository actions callable even when the primary delegates its research. */
 internal fun primaryDelegationTools(
     tools: List<ResolvedAgentTool>,

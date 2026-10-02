@@ -68,7 +68,7 @@ internal fun ModelDelegationSettingsContent(
     onReset: () -> Unit
 ) {
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
-    val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (it.isPrivateDestination() || config.allowRemoteWorkers) }
+    val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (it.isPrivateDestination() || config.remoteWorkersAllowed()) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
             shape = RoundedCornerShape(24.dp),
@@ -101,14 +101,14 @@ internal fun ModelDelegationSettingsContent(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     StatusPill(Icons.Default.Memory, "Up to ${config.effectiveLocalModelCalls()} helper calls")
                     StatusPill(Icons.Default.Bolt, "Compact evidence brief")
-                    if (config.allowRemoteWorkers) StatusPill(Icons.Default.Cloud, "Remote workers on")
+                    if (config.remoteWorkersAllowed()) StatusPill(Icons.Default.Cloud, "Remote workers on")
                 }
             }
         }
         Card(shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SectionHeading("Helper model", "Choose an AI profile to handle delegated work.")
-                LocalToolToggle("Allow cloud helpers", config.allowRemoteWorkers, !busy) { value -> onChange { it.copy(allowRemoteWorkers = value) } }
+                LocalToolToggle("Allow cloud helpers", config.remoteWorkersAllowed(), !busy) { value -> onChange { it.withRemoteWorkersAllowed(value) } }
                 Text("Cloud helpers receive delegated content and use their provider's tokens. Leave off to use only this device or a private server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val selected = eligible.firstOrNull { it.uid == config.targetProfileUid }
                 DelegateModelDropdown(

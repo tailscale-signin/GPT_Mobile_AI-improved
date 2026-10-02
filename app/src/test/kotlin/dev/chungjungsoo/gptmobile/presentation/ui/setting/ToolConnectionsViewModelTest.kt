@@ -9,9 +9,13 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCredential
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import io.ktor.client.engine.cio.CIO
+import io.mockk.coEvery
+import io.mockk.mockk
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -247,7 +251,7 @@ class ToolConnectionsViewModelTest {
         val manager = McpClientManager(networkClient())
         val repository = ToolConnectionRepository(dao, vault)
         val coordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
-        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager)
+        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
         var completed = false
 
         viewModel.saveConnection(
@@ -278,7 +282,7 @@ class ToolConnectionsViewModelTest {
         val manager = McpClientManager(networkClient())
         val repository = ToolConnectionRepository(dao, vault)
         val coordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
-        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager)
+        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
 
         viewModel.failOAuthLaunch()
 
@@ -308,7 +312,7 @@ class ToolConnectionsViewModelTest {
         )
         dao.upsertConnection(existing)
         vault.put("connection_search-1", "old-key".encodeToByteArray())
-        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager)
+        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
 
         viewModel.saveConnection(
             existing = existing,
@@ -349,7 +353,7 @@ class ToolConnectionsViewModelTest {
         )
         dao.upsertConnection(existing)
         vault.put("connection_search-clear", "saved-secret".encodeToByteArray())
-        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager)
+        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
 
         viewModel.saveConnection(
             existing = existing,
@@ -390,7 +394,7 @@ class ToolConnectionsViewModelTest {
         )
         dao.upsertConnection(existing)
         vault.put("connection_mcp-clear", "saved-token".encodeToByteArray())
-        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager)
+        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
 
         viewModel.saveConnection(
             existing = existing,
@@ -433,7 +437,7 @@ class ToolConnectionsViewModelTest {
                     allowCleartext = true
                 )
             )
-            val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager)
+            val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
             val launch = async(start = CoroutineStart.UNDISPATCHED) { viewModel.oauthLaunches.first() }
 
             viewModel.startOAuth("connection-1")
@@ -487,7 +491,7 @@ class ToolConnectionsViewModelTest {
                     allowCleartext = true
                 )
             )
-            val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager)
+            val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
             val launch = async(start = CoroutineStart.UNDISPATCHED) { viewModel.oauthLaunches.first() }
 
             viewModel.startOAuth("connection-1")
@@ -500,6 +504,10 @@ class ToolConnectionsViewModelTest {
             networkClient().close()
         }
     }
+}
+
+private fun fakeSettingRepository(): SettingRepository = mockk(relaxed = true) {
+    coEvery { getFeatureSettings() } returns AppFeatureSettings()
 }
 
 private fun String.formValues(): Map<String, String> = split('&')

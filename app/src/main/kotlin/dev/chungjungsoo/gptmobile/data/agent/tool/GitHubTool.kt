@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import io.ktor.client.HttpClient
@@ -380,12 +381,14 @@ class GitHubTool(
         val effectiveArguments = buildJsonObject {
             arguments.forEach { (key, value) -> put(key, value) }
             repositoryContext?.let { selected ->
-                if (arguments["owner"] == null && arguments["repo"] == null) {
-                    put("owner", selected.owner)
-                    put("repo", selected.repo)
-                }
-                val sameRepo = (arguments["owner"]?.jsonPrimitive?.content ?: selected.owner) == selected.owner &&
-                    (arguments["repo"]?.jsonPrimitive?.content ?: selected.repo) == selected.repo
+                // Fill repository context field-by-field. A model may provide only owner or only repo;
+                // requiring both to be absent left the complementary field missing and caused fast
+                // validation failures even though a selected repository was available.
+                if (arguments["owner"] == null) put("owner", selected.owner)
+                if (arguments["repo"] == null) put("repo", selected.repo)
+                val effectiveOwner = arguments["owner"]?.jsonPrimitive?.content ?: selected.owner
+                val effectiveRepo = arguments["repo"]?.jsonPrimitive?.content ?: selected.repo
+                val sameRepo = effectiveOwner == selected.owner && effectiveRepo == selected.repo
                 if (sameRepo && arguments["ref"] == null) put("ref", selected.ref)
             }
         }
@@ -958,10 +961,16 @@ class GitHubTool(
             isError = false
         )
 
-    private fun errorResult(callId: String, errorMessage: String): AgentToolResult =
-        AgentToolResult(
+    private fun errorResult(callId: String, errorMessage: String): AgentToolResult {
+        AppLogRecorder.record(
+            "GitHubTool",
+            "Request failed · call=$callId · ${truncate(errorMessage.replace("\n", " "), 600)}",
+            "E"
+        )
+        return AgentToolResult(
             callId = callId,
             content = ToolResultContent.Text(errorMessage),
             isError = true
         )
+    }
 }

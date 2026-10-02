@@ -284,11 +284,20 @@ class AgentRunner(
             toolCallCount += executableCalls.size
 
             val newlyBlockedTools = mutableSetOf<String>()
-            executableCalls.zip(executedResults).forEach { (call, result) ->
-                val failures = if (result.isError) (consecutiveToolFailures[call.name] ?: 0) + 1 else 0
-                consecutiveToolFailures[call.name] = failures
-                if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) newlyBlockedTools += call.name
-            }
+            // Count reliability once per tool per model round, not once per parallel
+            // invocation. A single burst of four searches must not consume four
+            // "consecutive failure" slots and instantly poison the tool for the turn.
+            executableCalls.zip(executedResults)
+                .groupBy(keySelector = { it.first.name }, valueTransform = { it.second })
+                .forEach { (toolName, roundResults) ->
+                    val failures = if (roundResults.any { !it.isError }) {
+                        0
+                    } else {
+                        (consecutiveToolFailures[toolName] ?: 0) + 1
+                    }
+                    consecutiveToolFailures[toolName] = failures
+                    if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) newlyBlockedTools += toolName
+                }
             if (newlyBlockedTools.isNotEmpty()) {
                 executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
                 exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools }

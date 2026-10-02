@@ -62,6 +62,15 @@ data class ModelDelegationSettings(
     /** Maximum tokens retained from one already-consumed tool result on later rounds. */
     val primaryReplayResultTokens: Int = 512
 ) {
+    /**
+     * Effective cloud-worker consent. localPlatformsOnly predates allowRemoteWorkers;
+     * a saved false value is an explicit legacy opt-in to non-local helpers.
+     */
+    fun remoteWorkersAllowed(): Boolean = allowRemoteWorkers || !localPlatformsOnly
+
+    fun withRemoteWorkersAllowed(enabled: Boolean): ModelDelegationSettings =
+        copy(allowRemoteWorkers = enabled, localPlatformsOnly = !enabled)
+
     /** Research depth changes breadth without disabling compaction or rewriting worker limits. */
     fun withStrategy(value: Int): ModelDelegationSettings {
         val level = value.coerceIn(0, 100)
@@ -158,6 +167,10 @@ data class ModelDelegationSettings(
         val normalizedChunk = chunkSizeTokens.coerceIn(1000, normalizedInputCap)
         val normalizedRetryChunk = retryChunkSizeTokens.coerceIn(500, normalizedChunk)
         return copy(
+            // Canonicalize the legacy local-only switch so old backups that explicitly
+            // allowed cloud helpers keep working with the newer consent flag.
+            allowRemoteWorkers = remoteWorkersAllowed(),
+            localPlatformsOnly = !remoteWorkersAllowed(),
             strategy = strategy.coerceIn(0, 100),
             processingOwnership = processingOwnership.coerceIn(0, 100),
             maxDelegationDepth = maxDelegationDepth.coerceIn(1, 2),

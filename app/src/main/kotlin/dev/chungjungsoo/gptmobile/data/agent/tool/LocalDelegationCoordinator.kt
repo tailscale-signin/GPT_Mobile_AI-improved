@@ -62,6 +62,8 @@ internal class LocalDelegationCoordinator(
         private const val APPROX_CHARS_PER_TOKEN = 4
         private const val WATCHDOG_POLL_MS = 250L
         private const val MAX_CONSECUTIVE_EMPTY_RESPONSES = 2
+        private const val RUNTIME_NOT_READY_COOLDOWN_MS = 60_000L
+        private val runtimeNotReadyUntilMs = ConcurrentHashMap<String, Long>()
     }
 
     private val localCalls = AtomicInteger()
@@ -120,6 +122,45 @@ internal class LocalDelegationCoordinator(
         }
     }
 
+    private suspend fun candidateInputBudget(candidate: PlatformV2, outputTokens: Int, logFailure: Boolean): Int? {
+        val now = System.nanoTime() / 1_000_000
+        val cachedUntil = runtimeNotReadyUntilMs[candidate.uid]
+        if (cachedUntil != null && cachedUntil > now) {
+            quarantinedWorkerUids += candidate.uid
+            return null
+        }
+        return try {
+            val available = inputBudget(candidate, outputTokens)
+            if (available < 600) {
+                runtimeNotReadyUntilMs[candidate.uid] = now + RUNTIME_NOT_READY_COOLDOWN_MS
+                quarantinedWorkerUids += candidate.uid
+                if (logFailure) {
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Worker candidate skipped · target=${candidate.uid} · type=${candidate.compatibleType} · reason=RUNTIME_NOT_READY · inputBudget=$available · cooldownMs=$RUNTIME_NOT_READY_COOLDOWN_MS",
+                        "W"
+                    )
+                }
+                null
+            } else {
+                runtimeNotReadyUntilMs.remove(candidate.uid)
+                available
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            runtimeNotReadyUntilMs[candidate.uid] = now + RUNTIME_NOT_READY_COOLDOWN_MS
+            quarantinedWorkerUids += candidate.uid
+            if (logFailure) {
+                AppLogRecorder.record(
+                    "Delegation",
+                    "Worker candidate skipped · target=${candidate.uid} · type=${candidate.compatibleType} · reason=RUNTIME_NOT_READY · cooldownMs=$RUNTIME_NOT_READY_COOLDOWN_MS · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
+                    "W"
+                )
+            }
+            null
+        }
+    }
     private suspend fun localTarget(config: ModelDelegationSettings): PlatformV2? {
         if (!config.enabled || config.processingOwnership >= 100 || source.disableAllTools || source.disableLocalTools || source.excludesMemory()) return null
         val battery = batteryPercent()
@@ -136,30 +177,11 @@ internal class LocalDelegationCoordinator(
                     (config.allowRemoteWorkers || candidate.isPrivateDestination())
             if (!metadataEligible) continue
 
-            // Preflight on-device installation and every helper's input capacity
-            // before any inference is dispatched; this does not probe network APIs.
-            val available = try {
-                inputBudget(candidate, config.maxOutputTokens)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                quarantinedWorkerUids += candidate.uid
-                AppLogRecorder.record(
-                    "Delegation",
-                    "Worker candidate skipped · target=${candidate.uid} · type=${candidate.compatibleType} · reason=RUNTIME_NOT_READY · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
-                    "W"
-                )
-                continue
-            }
-            if (available < 600) {
-                quarantinedWorkerUids += candidate.uid
-                AppLogRecorder.record(
-                    "Delegation",
-                    "Worker candidate skipped · target=${candidate.uid} · type=${candidate.compatibleType} · reason=RUNTIME_NOT_READY · inputBudget=$available",
-                    "W"
-                )
-                continue
-            }
+            // Preflight installation/runtime readiness once, then suppress repeated
+            // RUNTIME_NOT_READY probes briefly across coordinator instances.
+            val available = candidateInputBudget(candidate, config.maxOutputTokens, logFailure = true)
+                ?: continue
+            if (available < 600) continue
             eligible += candidate
         }
         val selected = eligible.firstOrNull { it.uid == config.targetProfileUid }
@@ -198,13 +220,7 @@ internal class LocalDelegationCoordinator(
                 candidate.uid !in quarantinedWorkerUids &&
                 (config.allowRemoteWorkers || candidate.isPrivateDestination())
         }.filter { candidate ->
-            try {
-                inputBudget(candidate, config.maxOutputTokens) >= 600
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                false
-            }
+            candidateInputBudget(candidate, config.maxOutputTokens, logFailure = false) != null
         }
     }
     private suspend fun boundedConfig(target: PlatformV2, config: ModelDelegationSettings): ModelDelegationSettings {

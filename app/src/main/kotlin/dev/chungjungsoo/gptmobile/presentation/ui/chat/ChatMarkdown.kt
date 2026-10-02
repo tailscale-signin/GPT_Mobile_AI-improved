@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.ClipEntry
@@ -83,7 +84,8 @@ import kotlinx.coroutines.withContext
 import org.intellij.markdown.MarkdownTokenTypes
 
 private const val CLIPBOARD_LABEL_CODE = "code"
-private val STREAM_WORD_REGEX = Regex("\\S+")
+private const val STREAM_FADE_DURATION_MS = 1_000L
+private const val STREAM_FADE_TICK_MS = 33L
 private const val DISPLAY_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_DISPLAY_"
 private const val DISPLAY_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"
 private const val DISPLAY_MATH_PLACEHOLDER_TEST_NONCE = "test"
@@ -144,9 +146,9 @@ fun ChatMarkdown(
             if (hasStreamed) arrivalSegments.add(arrivalLength to now)
             arrivalLength = combinedMarkdown.length
         }
-        while (streaming || (hasStreamed && arrivalSegments.lastOrNull()?.let { fadeClock - it.second < 1500L } == true)) {
+        while (streaming || (hasStreamed && arrivalSegments.lastOrNull()?.let { fadeClock - it.second < STREAM_FADE_DURATION_MS } == true)) {
             fadeClock = android.os.SystemClock.uptimeMillis()
-            delay(50)
+            delay(STREAM_FADE_TICK_MS)
         }
     }
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
@@ -161,20 +163,13 @@ fun ChatMarkdown(
                 text.contains(highlightSentence, ignoreCase = true)
 
             if (!hasMath && !hasSentenceHighlight && hasStreamed && child.type == MarkdownTokenTypes.TEXT) {
-                val segmentStart = length
-                append(text)
-                STREAM_WORD_REGEX.findAll(text).forEach { match ->
-                    val absoluteOffset = child.startOffset + match.range.first
-                    val found = arrivalSegments.binarySearch { it.first.compareTo(absoluteOffset) }
-                    val segment = if (found >= 0) found else -found - 2
-                    val arrivedAt = arrivalSegments.getOrNull(segment)?.second ?: (fadeClock - 1500L)
-                    val alpha = ((fadeClock - arrivedAt).coerceAtLeast(0L) / 1500f).coerceIn(0f, 1f)
-                    addStyle(
-                        SpanStyle(color = normalTextColor.copy(alpha = alpha)),
-                        segmentStart + match.range.first,
-                        segmentStart + match.range.last + 1
-                    )
-                }
+                appendStreamFadedText(
+                    text = text,
+                    sourceStartOffset = child.startOffset,
+                    arrivalSegments = arrivalSegments,
+                    nowMs = fadeClock,
+                    color = normalTextColor
+                )
                 true
             } else if (!hasMath && !hasSentenceHighlight) {
                 false
@@ -237,7 +232,18 @@ fun ChatMarkdown(
             }
         }
     }
-    val components = remember(highlightsBuilder, copyCodeToClipboard, displayMathByPlaceholder, annotator) {
+    val components = remember(
+        highlightsBuilder,
+        copyCodeToClipboard,
+        displayMathByPlaceholder,
+        annotator,
+        hasStreamed,
+        fadeClock,
+        arrivalSegments.size
+    ) {
+        fun structureAlpha(offset: Int): Float =
+            if (hasStreamed) streamAlphaAtOffset(offset, arrivalSegments, fadeClock) else 1f
+
         markdownComponents(
             table = { model ->
                 val settings = annotatorSettings(
@@ -248,37 +254,40 @@ fun ChatMarkdown(
                     LocalUriHandler.current,
                     null
                 )
-                MarkdownTable(
-                    content = model.content,
-                    node = model.node,
-                    style = model.typography.table,
-                    annotatorSettings = settings,
-                    headerBlock = { tableContent, header, tableWidth, style ->
-                        MarkdownTableHeader(
-                            tableContent,
-                            header,
-                            tableWidth,
-                            style,
-                            maxLines = Int.MAX_VALUE,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                            annotatorSettings = settings
-                        )
-                    },
-                    rowBlock = { tableContent, row, tableWidth, style ->
-                        MarkdownTableRow(
-                            tableContent,
-                            row,
-                            tableWidth,
-                            style,
-                            maxLines = Int.MAX_VALUE,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                            annotatorSettings = settings
-                        )
-                    }
-                )
+                Box(modifier = Modifier.alpha(structureAlpha(model.node.startOffset))) {
+                    MarkdownTable(
+                        content = model.content,
+                        node = model.node,
+                        style = model.typography.table,
+                        annotatorSettings = settings,
+                        headerBlock = { tableContent, header, tableWidth, style ->
+                            MarkdownTableHeader(
+                                tableContent,
+                                header,
+                                tableWidth,
+                                style,
+                                maxLines = Int.MAX_VALUE,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+                                annotatorSettings = settings
+                            )
+                        },
+                        rowBlock = { tableContent, row, tableWidth, style ->
+                            MarkdownTableRow(
+                                tableContent,
+                                row,
+                                tableWidth,
+                                style,
+                                maxLines = Int.MAX_VALUE,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+                                annotatorSettings = settings
+                            )
+                        }
+                    )
+                }
             },
             codeBlock = {
-                MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, language, style ->
+                Box(modifier = Modifier.alpha(structureAlpha(it.node.startOffset))) {
+                    MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, language, style ->
                     val cleanLang = language?.trim()?.lowercase()
                     val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
                     if (isHtmlOrSvg) {
@@ -303,9 +312,11 @@ fun ChatMarkdown(
                         }
                     }
                 }
+                }
             },
             codeFence = {
-                MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
+                Box(modifier = Modifier.alpha(structureAlpha(it.node.startOffset))) {
+                    MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
                     val cleanLang = language?.trim()?.lowercase()
                     val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
                     if (isHtmlOrSvg) {
@@ -329,6 +340,7 @@ fun ChatMarkdown(
                             )
                         }
                     }
+                }
                 }
             },
             paragraph = { model ->
@@ -342,6 +354,7 @@ fun ChatMarkdown(
                         modifier = Modifier
                             .fillMaxWidth()
                             .wrapContentHeight()
+                            .alpha(structureAlpha(model.node.startOffset))
                     ) {
                         displayMathBlocks.forEach { displayMath ->
                             DisplayMathView(
@@ -394,6 +407,49 @@ fun ChatMarkdown(
         }
     }
 }
+
+private fun AnnotatedString.Builder.appendStreamFadedText(
+    text: String,
+    sourceStartOffset: Int,
+    arrivalSegments: List<Pair<Int, Long>>,
+    nowMs: Long,
+    color: Color
+) {
+    val outputStart = length
+    append(text)
+    if (text.isEmpty() || arrivalSegments.isEmpty()) return
+
+    val sourceEndOffset = sourceStartOffset + text.length
+    arrivalSegments.forEachIndexed { index, (segmentOffset, arrivedAt) ->
+        val nextOffset = arrivalSegments.getOrNull(index + 1)?.first ?: Int.MAX_VALUE
+        val overlapStart = maxOf(sourceStartOffset, segmentOffset)
+        val overlapEnd = minOf(sourceEndOffset, nextOffset)
+        if (overlapStart >= overlapEnd) return@forEachIndexed
+
+        val alpha = streamAlpha(arrivedAt, nowMs)
+        if (alpha >= 0.999f) return@forEachIndexed
+
+        addStyle(
+            SpanStyle(color = color.copy(alpha = alpha)),
+            outputStart + (overlapStart - sourceStartOffset),
+            outputStart + (overlapEnd - sourceStartOffset)
+        )
+    }
+}
+
+private fun streamAlphaAtOffset(
+    sourceOffset: Int,
+    arrivalSegments: List<Pair<Int, Long>>,
+    nowMs: Long
+): Float {
+    val segmentIndex = arrivalSegments.indexOfLast { (offset, _) -> offset <= sourceOffset }
+    if (segmentIndex < 0) return 1f
+    return streamAlpha(arrivalSegments[segmentIndex].second, nowMs)
+}
+
+private fun streamAlpha(arrivedAtMs: Long, nowMs: Long): Float =
+    ((nowMs - arrivedAtMs).coerceAtLeast(0L) / STREAM_FADE_DURATION_MS.toFloat())
+        .coerceIn(0f, 1f)
 
 @Composable
 private fun CodeBlockWithCopy(

@@ -29,6 +29,8 @@ data class AppFeatureSettings(
     val localSpeculativeDecoding: SpeculativeDecodingMode = SpeculativeDecodingMode.AUTO,
     val localNativeMetrics: Boolean = false,
     val localIdleMinutes: Int = 10,
+    /** Global enable state for integrated, in-app tool plugins. Missing entries default to enabled. */
+    val toolPluginStates: Map<String, Boolean> = emptyMap(),
     val delegation: ModelDelegationSettings = ModelDelegationSettings(),
     val conversationDelegation: Map<Int, ConversationDelegationSettings> = emptyMap(),
     val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()
@@ -48,6 +50,11 @@ data class AppFeatureSettings(
         AppFeature.OPENROUTER_BATCH -> copy(openRouterBatchProcessing = enabled)
         AppFeature.QNN_AUTO_FALLBACK -> copy(qnnAutomaticFallback = enabled)
     }
+
+    fun isToolPluginEnabled(pluginId: String): Boolean = toolPluginStates[pluginId] ?: true
+
+    fun withToolPluginEnabled(pluginId: String, enabled: Boolean): AppFeatureSettings =
+        copy(toolPluginStates = toolPluginStates + (pluginId to enabled))
 
     fun withDebugMetric(metric: DebugMetric, enabled: Boolean): AppFeatureSettings = when (metric) {
         DebugMetric.TOOL_CALLS -> copy(debugShowToolCalls = enabled)
@@ -130,4 +137,19 @@ enum class AppFeature(
         "QNN automatic fallback",
         "Automatically switch to LiteRT when Qualcomm QNN cannot load the selected model."
     )
+}
+
+
+object ToolPluginId {
+    const val MODEL_DELEGATION = "model_delegation"
+    const val LOCAL_MEMORY = "local_memory"
+    const val CURRENT_DATE = "current_date"
+    const val CALCULATOR = "calculator"
+    const val READ_FILES = "read_files"
+    const val READ_URL = "read_url"
+    const val GITHUB = "github"
+    const val WEB_SEARCH = "web_search"
+    const val DEVICE_LOCATION = "device_location"
+
+    fun connection(connectionUid: String): String = "connection:$connectionUid"
 }

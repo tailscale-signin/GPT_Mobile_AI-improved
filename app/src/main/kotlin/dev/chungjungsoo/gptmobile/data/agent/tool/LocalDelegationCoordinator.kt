@@ -622,10 +622,8 @@ internal class LocalDelegationCoordinator(
                 val runtimeSeconds = adaptiveRuntimeSeconds(estimatedInput, latest)
                 // Tool-active workers may legitimately spend most of the short adaptive window
                 // inside repository/search calls. First-progress + idle deadlines detect stalls;
-                // keep healthy tool work alive up to the configured absolute delegate ceiling.
+                // healthy tool work may continue up to the configured absolute delegate ceiling.
                 val hardRuntimeSeconds = if (allowTools) latest.maxDelegateRuntimeSeconds else runtimeSeconds
-                // The user's first-response deadline applies to every provider, including
-                // buffered gateway responses. Heartbeats do not prove model progress.
                 val firstProgressSeconds = minOf(latest.timeToFirstTokenTimeoutSeconds, hardRuntimeSeconds)
                 val idleSeconds = minOf(latest.idleTokenTimeoutSeconds, hardRuntimeSeconds)
                 val startedAtMs = nowMs()
@@ -651,7 +649,40 @@ internal class LocalDelegationCoordinator(
                         observedForFailure = maxOf(observedForFailure, usage)
                     }
                 } catch (failure: Exception) {
-                val latest = (pinnedConfig ?: settings()).normalized()
+                    if (observedInputTokens > estimatedInput) {
+                        val observedOverhead = observedInputTokens - estimatedInput
+                        profileOverhead.accumulateAndGet(observedOverhead) { current, observed -> maxOf(current, observed) }
+                    }
+                    throw failure
+                }
+                val elapsedMs = nowMs() - startedAtMs
+                if (observedInputTokens > estimatedInput) {
+                    val observedOverhead = observedInputTokens - estimatedInput
+                    profileOverhead.accumulateAndGet(observedOverhead) { current, observed -> maxOf(current, observed) }
+                }
+                val chargedInput = maxOf(estimatedEffectiveInput, observedInputTokens)
+
+                val resolution = handleWorkerResponse(
+                    profile = profile,
+                    response = response,
+                    chargedInput = chargedInput,
+                    elapsedMs = elapsedMs,
+                    callNumber = callNumber,
+                    effectiveCallLimit = effectiveCallLimit,
+                    estimatedInput = estimatedInput,
+                    observedInputTokens = observedInputTokens,
+                    requestedOutputCap = requestedOutputCap,
+                    latest = latest,
+                    interactiveRecovery = interactiveRecovery
+                )
+                recoveryReason = resolution.recoveryReason
+                failoverTarget = resolution.failoverTarget
+                return@withPermit resolution.text
+            } catch (cancelled: CancellationException) {
+                AppLogRecorder.record("Delegation", "Worker cancelled by parent · target=${target.uid} · calls=${localCalls.get()} · reason=${cancelled.message.orEmpty()}", "W")
+                throw cancelled
+            } catch (failure: Exception) {
+                val latestAfterFailure = (pinnedConfig ?: settings()).normalized()
                 val resolution = handleWorkerFailure(
                     failure = failure,
                     target = target,
@@ -659,7 +690,7 @@ internal class LocalDelegationCoordinator(
                     prompt = prompt,
                     observedForFailure = observedForFailure,
                     dispatchedAtMs = dispatchedAtMs,
-                    latest = latest,
+                    latest = latestAfterFailure,
                     interactiveRecovery = interactiveRecovery
                 )
                 recoveryReason = resolution.recoveryReason

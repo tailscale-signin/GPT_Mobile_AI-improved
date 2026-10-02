@@ -754,7 +754,7 @@ internal class LocalDelegationCoordinator(
             AppLogRecorder.record("Delegation", "Delegation skipped · worker budget exhausted · call=$callId · calls=${localCalls.get()}/$effectiveCallLimit · configured=${config.maxLocalModelCalls} · ownership=${config.processingOwnership}", "W")
             return "The local delegation allowance for this turn is exhausted. Use evidence already available; do not retry this delegation in the same turn."
         }
-        if (researchAvailable()) {
+        if (researchAvailable() && !isGitHubTask(task)) {
             val result = prepare(task, tools, callId, targetOverride = turnTarget)
             if (delegationCanceledByUser.get()) return primaryOnlyHandoff()
             if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) return result.handoff

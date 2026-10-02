@@ -12,7 +12,7 @@ SOURCE = Path(__file__).resolve().parents[1] / 'gateway_v12.py'
 NAMES = {'v12_positive_int', 'v12_enforce_request_budget', 'v12_enrich_progress',
          'gateway_result_quality', 'extract_openai_completion_content',
          'completion_contains_tool_calls', 'process_chat_payload',
-         'v12_delegate_model_round', 'completion_to_sse'}
+         'v12_delegate_model_round', 'completion_to_sse', 'v12_isolated_delegate'}
 tree = ast.parse(SOURCE.read_text())
 scope = {'copy': copy, 'math': math, 'json': json, 'time': time, 'GATEWAY_PROGRESS_PROTOCOL': 'gpt-mobile-gateway-progress/2',
          'gateway_tool_display_name': lambda name: name.replace('_', ' '),
@@ -22,6 +22,9 @@ exec(compile(ast.Module(body=[node for node in tree.body if isinstance(node, ast
 
 
 class GatewayV12Tests(unittest.TestCase):
+    def test_versioned_gateway_matches_canonical_implementation(self):
+        self.assertEqual(SOURCE.read_bytes(), SOURCE.with_name('gateway_v12.1.py').read_bytes())
+
     def test_delegate_preserves_isolated_client_tools_and_skips_domain_routing(self):
         tool = {'type': 'function', 'function': {'name': 'benchmark_lookup',
                 'parameters': {'type': 'object'}}}
@@ -50,6 +53,21 @@ class GatewayV12Tests(unittest.TestCase):
         self.assertEqual(dispatch.call_args.kwargs['job_mode'], 'delegate')
         self.assertNotIn('_gateway_performance', forwarded)
         self.assertEqual(payload, original)
+
+    def test_repository_worker_opt_in_enters_gateway_tool_routing(self):
+        isolated = scope['v12_isolated_delegate']
+        self.assertTrue(isolated({'delegated_worker': True}))
+        self.assertTrue(isolated({'delegated_worker': True, 'allow_gateway_local_tools': False}))
+        self.assertFalse(isolated({'delegated_worker': True, 'allow_gateway_local_tools': True}))
+        self.assertFalse(isolated({}))
+        self.assertTrue(isolated({'delegated_worker': True, 'allow_gateway_local_tools': True, 'client_tool_choice': 'none'}))
+        payload = {'model': 'llama', 'messages': [],
+                   '_gateway_performance': {'delegated_worker': True, 'allow_gateway_local_tools': True}}
+        entered_routing = RuntimeError('entered gateway routing')
+        with patch.dict(scope, {'emit_progress': Mock(side_effect=entered_routing),
+                               'v12_delegate_model_round': Mock(side_effect=AssertionError('isolated path'))}):
+            with self.assertRaisesRegex(RuntimeError, 'entered gateway routing'):
+                scope['process_chat_payload'](payload)
 
     def test_delegate_no_tools_and_plaintext_recovery_respect_supplied_names(self):
         for requested, recovered_name in [('none', 'benchmark_lookup'), ('auto', 'unknown'), ('auto', 'benchmark_lookup')]:
@@ -136,7 +154,7 @@ class GatewayV12Tests(unittest.TestCase):
         self.assertIn('client_tools = [] if strict_no_tool_request else early_client_tools', source)
         self.assertIn('"explicit tool_choice=none"', source)
 
-    def test_delegated_worker_skips_gateway_memory_and_local_mcp(self):
+    def test_delegated_worker_keeps_isolation_unless_local_tools_are_requested(self):
         source = SOURCE.read_text()
         self.assertIn('headers.get("x-gateway-delegated-worker")', source)
         self.assertIn('or bool(runtime_perf.get("delegated_worker", False))', source)

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network.error
 
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -57,6 +58,7 @@ class CircuitBreaker(
     private val consecutiveFailures = AtomicInteger(0)
     private val halfOpenSuccesses = AtomicInteger(0)
     private val lastOpenedTimestamp = AtomicLong(0L)
+    private val halfOpenProbeInFlight = AtomicBoolean(false)
 
     val state: State
         get() = currentState()
@@ -75,6 +77,7 @@ class CircuitBreaker(
             if (elapsed >= cooldownMs) {
                 if (stateRef.compareAndSet(State.OPEN, State.HALF_OPEN)) {
                     halfOpenSuccesses.set(0)
+                    halfOpenProbeInFlight.set(false)
                 }
             }
         }
@@ -85,13 +88,7 @@ class CircuitBreaker(
      * Throws [CircuitBreakerOpenException] immediately if OPEN.
      */
     fun <T> execute(block: () -> T): T {
-        checkCooldownTransition()
-
-        val current = stateRef.get()
-        if (current == State.OPEN) {
-            val remaining = (cooldownMs - (timeProvider() - lastOpenedTimestamp.get())).coerceAtLeast(0L)
-            throw CircuitBreakerOpenException(remaining, name)
-        }
+        acquirePermission()
 
         return try {
             val result = block()
@@ -107,13 +104,7 @@ class CircuitBreaker(
      * Suspending version of [execute].
      */
     suspend fun <T> executeSuspend(block: suspend () -> T): T {
-        checkCooldownTransition()
-
-        val current = stateRef.get()
-        if (current == State.OPEN) {
-            val remaining = (cooldownMs - (timeProvider() - lastOpenedTimestamp.get())).coerceAtLeast(0L)
-            throw CircuitBreakerOpenException(remaining, name)
-        }
+        acquirePermission()
 
         return try {
             val result = block()
@@ -128,6 +119,7 @@ class CircuitBreaker(
     fun onSuccess() {
         when (stateRef.get()) {
             State.HALF_OPEN -> {
+                halfOpenProbeInFlight.set(false)
                 if (halfOpenSuccesses.incrementAndGet() >= halfOpenSuccessThreshold) {
                     stateRef.set(State.CLOSED)
                     consecutiveFailures.set(0)
@@ -144,11 +136,16 @@ class CircuitBreaker(
     }
 
     fun onFailure(throwable: Throwable) {
-        // Do not count client cancellations towards breaker failures
-        if (throwable is kotlinx.coroutines.CancellationException) return
+        // Do not count client cancellations towards breaker failures.
+        // A cancelled half-open probe must still release its single-flight permit.
+        if (throwable is kotlinx.coroutines.CancellationException) {
+            halfOpenProbeInFlight.set(false)
+            return
+        }
 
         when (stateRef.get()) {
             State.HALF_OPEN -> {
+                halfOpenProbeInFlight.set(false)
                 tripToOpen()
             }
             State.CLOSED -> {
@@ -157,8 +154,26 @@ class CircuitBreaker(
                 }
             }
             State.OPEN -> {
-                lastOpenedTimestamp.set(timeProvider())
+                // Ignore late failures from requests that were already in flight when
+                // another request opened the breaker. Extending the cooldown here makes
+                // parallel failure bursts keep a circuit open indefinitely.
             }
+        }
+    }
+
+    private fun acquirePermission() {
+        checkCooldownTransition()
+        when (stateRef.get()) {
+            State.OPEN -> {
+                val remaining = (cooldownMs - (timeProvider() - lastOpenedTimestamp.get())).coerceAtLeast(0L)
+                throw CircuitBreakerOpenException(remaining, name)
+            }
+            State.HALF_OPEN -> {
+                if (!halfOpenProbeInFlight.compareAndSet(false, true)) {
+                    throw CircuitBreakerOpenException(0L, name, "Circuit breaker '$name' is HALF_OPEN and a recovery probe is already running.")
+                }
+            }
+            State.CLOSED -> Unit
         }
     }
 
@@ -166,12 +181,14 @@ class CircuitBreaker(
         stateRef.set(State.OPEN)
         lastOpenedTimestamp.set(timeProvider())
         halfOpenSuccesses.set(0)
+        halfOpenProbeInFlight.set(false)
     }
 
     fun reset() {
         stateRef.set(State.CLOSED)
         consecutiveFailures.set(0)
         halfOpenSuccesses.set(0)
+        halfOpenProbeInFlight.set(false)
         lastOpenedTimestamp.set(0L)
     }
 }

@@ -321,7 +321,6 @@ class ProfileBenchmarkViewModel @Inject constructor(
         }
     }
 
-
     fun startStandardBatch(mode: BenchmarkMode) {
         require(mode != BenchmarkMode.DELEGATION)
         val targets = selectedBenchmarks.value

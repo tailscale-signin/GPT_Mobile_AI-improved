@@ -192,7 +192,8 @@ class GitHubWorkspaceClientTest {
         val http = HttpClient(MockEngine { respond("sensitive response details", HttpStatusCode.Forbidden) })
         try {
             val error = runCatching { GitHubWorkspaceClient("token", http).execute("get_account", buildJsonObject {}) }.exceptionOrNull()
-            assertTrue(error?.message?.contains("permissions") == true)
+            assertTrue(error?.message?.contains("GitHub HTTP 403") == true)
+            assertTrue(error?.message?.contains("HTTP 403 alone", ignoreCase = true) == true)
             assertFalse(error?.message?.contains("sensitive") == true)
         } finally {
             http.close()

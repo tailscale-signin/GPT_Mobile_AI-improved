@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -49,6 +50,11 @@ class ToolExecutionBudget(
                 success = !result.isError
                 return bounded(result)
             } catch (cancellation: CancellationException) {
+                AppLogRecorder.record(
+                    "Tool",
+                    "Canceled by parent run · tool=${tool.definition.name} · call=$callId",
+                    "W"
+                )
                 throw cancellation
             } catch (error: Exception) {
                 return bounded(failure(failureMessage(error)))

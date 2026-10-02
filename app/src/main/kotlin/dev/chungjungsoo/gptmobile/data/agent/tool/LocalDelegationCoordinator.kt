@@ -280,6 +280,7 @@ internal class LocalDelegationCoordinator(
         outputTokens: Int,
         inputTokenCap: Int,
         runtimeSeconds: Int,
+        hardRuntimeSeconds: Int,
         firstProgressSeconds: Int,
         idleSeconds: Int,
         allowTools: Boolean,
@@ -314,7 +315,7 @@ internal class LocalDelegationCoordinator(
                 val elapsed = now - startedAt
                 val first = firstProgressAt.get()
                 val reason = when {
-                    elapsed >= runtimeSeconds * 1000L -> "MAX_RUNTIME"
+                    elapsed >= hardRuntimeSeconds * 1000L -> "MAX_RUNTIME"
                     first < 0L && elapsed >= firstProgressSeconds * 1000L -> "NO_FIRST_PROGRESS"
                     first >= 0L && now - lastProgressAt.get() >= idleSeconds * 1000L -> "IDLE_PROGRESS"
                     else -> null
@@ -460,16 +461,20 @@ internal class LocalDelegationCoordinator(
                     }
                 }
                 val runtimeSeconds = adaptiveRuntimeSeconds(estimatedInput, latest)
+                // Tool-active workers may legitimately spend most of the short adaptive window
+                // inside repository/search calls. First-progress + idle deadlines detect stalls;
+                // keep healthy tool work alive up to the configured absolute delegate ceiling.
+                val hardRuntimeSeconds = if (allowTools) latest.maxDelegateRuntimeSeconds else runtimeSeconds
                 // The user's first-response deadline applies to every provider, including
                 // buffered gateway responses. Heartbeats do not prove model progress.
-                val firstProgressSeconds = minOf(latest.timeToFirstTokenTimeoutSeconds, runtimeSeconds)
-                val idleSeconds = minOf(latest.idleTokenTimeoutSeconds, runtimeSeconds)
+                val firstProgressSeconds = minOf(latest.timeToFirstTokenTimeoutSeconds, hardRuntimeSeconds)
+                val idleSeconds = minOf(latest.idleTokenTimeoutSeconds, hardRuntimeSeconds)
                 val startedAtMs = nowMs()
                 dispatchedAtMs = startedAtMs
                 var observedInputTokens = 0L
                 AppLogRecorder.record(
                     "Delegation",
-                    "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/$effectiveCallLimit · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
+                    "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/$effectiveCallLimit · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · hardRuntimeMs=${hardRuntimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
                 )
                 val response = try {
                     invokeWorkerWithWatchdog(
@@ -478,6 +483,7 @@ internal class LocalDelegationCoordinator(
                         requestedOutputCap,
                         hardInputTokenCap,
                         runtimeSeconds,
+                        hardRuntimeSeconds,
                         firstProgressSeconds,
                         idleSeconds,
                         allowTools

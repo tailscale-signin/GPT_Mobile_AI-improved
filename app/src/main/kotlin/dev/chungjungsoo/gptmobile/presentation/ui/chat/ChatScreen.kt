@@ -579,6 +579,7 @@ fun ChatScreen(
                     focusManager.clearFocus()
                 }
             }
+        }
 
         if (isChatTitleDialogOpen) {
             ChatTitleDialog(

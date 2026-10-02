@@ -69,6 +69,11 @@ internal fun ModelDelegationSettingsContent(
 ) {
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (it.isPrivateDestination() || config.remoteWorkersAllowed()) }
+    val selectedDelegate = eligible.firstOrNull { it.uid == config.targetProfileUid }
+    val reviewerEligible = eligible.filter { candidate ->
+        candidate.uid != config.targetProfileUid &&
+            (selectedDelegate == null || !candidate.model.trim().equals(selectedDelegate.model.trim(), ignoreCase = true))
+    }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
             shape = RoundedCornerShape(24.dp),
@@ -102,6 +107,7 @@ internal fun ModelDelegationSettingsContent(
                     StatusPill(Icons.Default.Memory, "Up to ${config.effectiveLocalModelCalls()} helper calls")
                     StatusPill(Icons.Default.Bolt, "Compact evidence brief")
                     if (config.remoteWorkersAllowed()) StatusPill(Icons.Default.Cloud, "Remote workers on")
+                    if (config.reviewerEnabled) StatusPill(Icons.Default.AutoAwesome, "Reviewer on")
                 }
             }
         }
@@ -110,17 +116,50 @@ internal fun ModelDelegationSettingsContent(
                 SectionHeading("Helper model", "Choose an AI profile to handle delegated work.")
                 LocalToolToggle("Allow cloud helpers", config.remoteWorkersAllowed(), !busy) { value -> onChange { it.withRemoteWorkersAllowed(value) } }
                 Text("Cloud helpers receive delegated content and use their provider's tokens. Leave off to use only this device or a private server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                val selected = eligible.firstOrNull { it.uid == config.targetProfileUid }
                 DelegateModelDropdown(
                     profiles = eligible,
                     selectedProfileUid = config.targetProfileUid,
                     enabled = !busy,
                     onSelected = { profile -> onChange { it.copy(targetProfileUid = profile?.uid.orEmpty()) } }
                 )
-                if (selected == null) {
+                if (selectedDelegate == null) {
                     Text("Select an enabled profile with a working model and connection in AI profiles. If it becomes unavailable, another eligible helper may be used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }
+        Card(shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SectionHeading("Reviewer", "Use a second, different model to fact-check the delegate before the handoff reaches the primary model.")
+                LocalToolToggle("Enable reviewer", config.reviewerEnabled, !busy) { value ->
+                    onChange {
+                        it.copy(
+                            reviewerEnabled = value,
+                            reviewerProfileUid = if (value) it.reviewerProfileUid else ""
+                        )
+                    }
+                }
+                Text(
+                    "The reviewer receives the original delegated task and the delegate's final context, returns a 0–100 Reviewer Score, and can correct unsupported or contradictory details. It cannot be the delegate, the primary model, or another profile using the same model.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (config.reviewerEnabled) {
+                    DelegateModelDropdown(
+                        profiles = reviewerEligible,
+                        selectedProfileUid = config.reviewerProfileUid,
+                        enabled = !busy,
+                        onSelected = { profile -> onChange { it.copy(reviewerProfileUid = profile?.uid.orEmpty()) } }
+                    )
+                    val selectedReviewer = reviewerEligible.firstOrNull { it.uid == config.reviewerProfileUid }
+                    if (selectedReviewer == null) {
+                        Text(
+                            "Choose a reviewer profile that uses a different model from the delegate. If no reviewer is available, the delegate context is marked unverified and receives a Reviewer Score of 0.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
         }
         Card(shape = RoundedCornerShape(20.dp)) {
@@ -183,6 +222,7 @@ internal fun ModelDelegationSettingsContent(
                     DelegationSlider("Chunk size", config.chunkSizeTokens, 1000..12000, 500, !busy, "Large delegated payloads are split near this token size instead of truncating one giant request.") { value -> onChange { it.copy(chunkSizeTokens = value) } }
                     DelegationSlider("Retry chunk size", config.retryChunkSizeTokens, 500..6000, 250, !busy, "A failed chunk is retried only as smaller pieces; the original oversized payload is never replayed.") { value -> onChange { it.copy(retryChunkSizeTokens = value) } }
                     DelegationSlider("Helper output tokens per step", config.maxOutputTokens, 64..4096, 64, !busy) { value -> onChange { it.copy(maxOutputTokens = value) } }
+                    DelegationSlider("Reviewer output tokens", config.reviewerOutputTokens, 128..1024, 64, !busy, "Budget for the independent review verdict, score, findings, and corrected context.") { value -> onChange { it.copy(reviewerOutputTokens = value) } }
                     DelegationSlider("Helper model calls per turn", config.maxLocalModelCalls, 1..48, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> onChange { it.copy(maxLocalModelCalls = value) } }
                     DelegationSlider("Maximum concurrent delegates", config.maxConcurrentDelegates, 1..4, 1, !busy, "One is safest for on-device inference. Increase only when the selected backend can run independent workers safely.") { value -> onChange { it.copy(maxConcurrentDelegates = value) } }
                     DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..300, 5, !busy, "Legacy ceiling. Per-worker adaptive deadlines are also limited by the maximum delegate runtime below.") { value -> onChange { it.copy(timeoutSeconds = value) } }
@@ -194,7 +234,7 @@ internal fun ModelDelegationSettingsContent(
                     DelegationSlider("Stop when evidence sufficient", config.evidenceSufficiencyPercent, 50..100, 5, !busy, "Higher values gather more evidence before stopping; lower values reduce marginal delegate work.") { value -> onChange { it.copy(evidenceSufficiencyPercent = value) } }
                     DelegationSlider("Process tool results above characters", config.compactionThresholdCharacters, 256..48000, 256, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> onChange { it.copy(compactionThresholdCharacters = value) } }
                     Text("These controls apply to delegation. The main model's output limit is unchanged. When the local budget runs out, the brief identifies omitted evidence.", style = MaterialTheme.typography.bodySmall)
-                    DelegationSlider("Retry limit", config.localRetryLimit, 0..1, 1, !busy) { value -> onChange { it.copy(localRetryLimit = value) } }
+                    DelegationSlider("Same-delegate retries before failover", config.localRetryLimit, 5..10, 1, !busy, "At least five retries are always attempted. Retries are spaced one second apart before another delegate can be selected.") { value -> onChange { it.copy(localRetryLimit = value) } }
                     DelegationSlider("Pause threshold for low battery", config.lowBatteryThresholdPercent, 0..50, 1, !busy) { value -> onChange { it.copy(lowBatteryThresholdPercent = value) } }
                     Text("Requests for missing or unauthorized models stop immediately. Final answers use the main profile's output limit.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

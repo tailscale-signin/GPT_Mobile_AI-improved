@@ -1338,6 +1338,14 @@ private fun ConnectionDetailsStep(
             onCredentialChange = onCredentialChange,
             onClearCredentialChange = onClearCredentialChange
         )
+        if (provider?.type == ToolConnectionType.GITHUB) {
+            Text(
+                text = "For repository writes, use a credential with Contents: read/write. Creating pull requests also needs Pull requests: read/write. Dispatching or rerunning workflows needs Actions: read/write. A 403 can also come from branch protection, SSO, installation policy, or repository rules.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
         if (provider?.type == ToolConnectionType.BRAVE) {
             val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             Text(

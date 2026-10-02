@@ -274,25 +274,25 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                     if (advancedControls) {
                         item {
                             Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("Connected memory · advanced", style = MaterialTheme.typography.titleMedium)
-                                VaultToggle("Automatically recall from selected MCPs", settings.externalRecallEnabled, !busy) { viewModel.updateSettings(settings.copy(externalRecallEnabled = it)) }
-                                Text("Add Mem0, Supermemory or your Graphiti server from the marketplace and enable its memory search tool in the AI profile. Selected servers receive up to 500 characters from the current question. Local saved memories and chat history are not uploaded. Remote saving uses the provider's ordinary tools and permissions.", style = MaterialTheme.typography.bodySmall)
-                                if (!settings.allowCloudRecall || settings.sameChatOnly || settings.reviewBeforeRecall) Text("Automatic connected recall is paused by cloud recall, original-chat-only or review-before-use controls.", style = MaterialTheme.typography.bodySmall)
-                                if (connections.isEmpty()) Text("No MCP connections configured yet.")
-                                connections.forEach { connection ->
-                                    val selected = connection.connectionUid in settings.externalMemoryConnections
-                                    VaultToggle(connection.name, selected, !busy) { enabled ->
-                                        val ids = if (enabled) settings.externalMemoryConnections + connection.connectionUid else settings.externalMemoryConnections - connection.connectionUid
-                                        viewModel.updateSettings(settings.copy(externalMemoryConnections = ids))
-                                    }
-                                    if (selected) {
-                                        var memoryScope by remember(connection.connectionUid, settings.externalMemoryScopes) { mutableStateOf(settings.externalMemoryScopes[connection.connectionUid].orEmpty()) }
-                                        OutlinedTextField(memoryScope, { memoryScope = it.take(200) }, label = { Text("User ID / group ID / space key") }, supportingText = { Text("Blank uses the server's authorized default scope.") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
-                                        TextButton(onClick = { viewModel.updateSettings(settings.copy(externalMemoryScopes = settings.externalMemoryScopes + (connection.connectionUid to memoryScope.trim()))) }, enabled = !busy) { Text("Save scope") }
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Connected memory · advanced", style = MaterialTheme.typography.titleMedium)
+                                    VaultToggle("Automatically recall from selected MCPs", settings.externalRecallEnabled, !busy) { viewModel.updateSettings(settings.copy(externalRecallEnabled = it)) }
+                                    Text("Add Mem0, Supermemory or your Graphiti server from the marketplace and enable its memory search tool in the AI profile. Selected servers receive up to 500 characters from the current question. Local saved memories and chat history are not uploaded. Remote saving uses the provider's ordinary tools and permissions.", style = MaterialTheme.typography.bodySmall)
+                                    if (!settings.allowCloudRecall || settings.sameChatOnly || settings.reviewBeforeRecall) Text("Automatic connected recall is paused by cloud recall, original-chat-only or review-before-use controls.", style = MaterialTheme.typography.bodySmall)
+                                    if (connections.isEmpty()) Text("No MCP connections configured yet.")
+                                    connections.forEach { connection ->
+                                        val selected = connection.connectionUid in settings.externalMemoryConnections
+                                        VaultToggle(connection.name, selected, !busy) { enabled ->
+                                            val ids = if (enabled) settings.externalMemoryConnections + connection.connectionUid else settings.externalMemoryConnections - connection.connectionUid
+                                            viewModel.updateSettings(settings.copy(externalMemoryConnections = ids))
+                                        }
+                                        if (selected) {
+                                            var memoryScope by remember(connection.connectionUid, settings.externalMemoryScopes) { mutableStateOf(settings.externalMemoryScopes[connection.connectionUid].orEmpty()) }
+                                            OutlinedTextField(memoryScope, { memoryScope = it.take(200) }, label = { Text("User ID / group ID / space key") }, supportingText = { Text("Blank uses the server's authorized default scope.") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                                            TextButton(onClick = { viewModel.updateSettings(settings.copy(externalMemoryScopes = settings.externalMemoryScopes + (connection.connectionUid to memoryScope.trim()))) }, enabled = !busy) { Text("Save scope") }
+                                        }
                                     }
                                 }
-                            }
                             }
                         }
                     }

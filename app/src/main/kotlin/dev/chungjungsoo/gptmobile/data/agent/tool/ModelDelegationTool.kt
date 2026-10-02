@@ -36,7 +36,7 @@ class ModelDelegationTool(
 
     private companion object {
         const val OUTER_TIMEOUT_GRACE_SECONDS = 20
-        const val MAX_OUTER_ORCHESTRATION_SECONDS = 900L
+        const val MAX_OUTER_ORCHESTRATION_SECONDS = 1_800L
     }
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
@@ -62,10 +62,12 @@ class ModelDelegationTool(
         val task = (arguments["task"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
         if (task.isBlank() || task.length > config.maxInputCharacters) return error("Task must contain 1–${config.maxInputCharacters} characters.")
         val availableProfiles = profiles()
+        val reviewerModel = availableProfiles.firstOrNull { it.uid == config.reviewerProfileUid }?.model?.trim().orEmpty()
         val eligibleTargets = availableProfiles.filter {
             it.enabled &&
                 it.uid != source.uid &&
                 (!config.reviewerEnabled || it.uid != config.reviewerProfileUid) &&
+                (!config.reviewerEnabled || reviewerModel.isBlank() || !it.model.trim().equals(reviewerModel, ignoreCase = true)) &&
                 !it.excludesMemory() &&
                 (!isGitHubTask(task) || targetKey(it) !in githubUnavailableTargets) &&
                 (config.remoteWorkersAllowed() || it.isPrivateDestination())
@@ -118,9 +120,11 @@ class ModelDelegationTool(
         // protected by their adaptive runtime/watchdog limits in the coordinator.
         val calculatedOrchestrationSeconds =
             config.timeoutSeconds.toLong() * config.effectiveLocalModelCalls().coerceIn(1, 8) + 30L
-        val minimumRetryWindowSeconds =
+        val stageRetryWindowSeconds =
             (config.localRetryLimit.toLong() + 1L) * config.maxDelegateRuntimeSeconds.toLong() +
                 config.localRetryLimit.toLong()
+        val minimumRetryWindowSeconds =
+            stageRetryWindowSeconds * if (config.reviewerEnabled) 2L else 1L
         val orchestrationTimeoutSeconds = minOf(
             maxOf(calculatedOrchestrationSeconds, minimumRetryWindowSeconds),
             MAX_OUTER_ORCHESTRATION_SECONDS

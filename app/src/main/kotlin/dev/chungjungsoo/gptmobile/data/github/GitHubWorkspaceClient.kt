@@ -888,7 +888,7 @@ class GitHubWorkspaceClient(
             }.joinToString(" · ")
             error(
                 "GitHub HTTP ${response.status.value}" +
-                    if (details.isBlank()) "." else " · $details. " +
+                    (if (details.isBlank()) ". " else " · $details. ") +
                     requestHint(
                         response.status.value,
                         response.headers["Retry-After"],

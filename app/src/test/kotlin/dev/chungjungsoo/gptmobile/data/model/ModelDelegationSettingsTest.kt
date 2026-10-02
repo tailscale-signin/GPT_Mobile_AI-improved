@@ -115,6 +115,41 @@ class ModelDelegationSettingsTest {
     }
 
     @Test
+    fun legacyNonLocalOptInMigratesToRemoteWorkers() {
+        val migrated = ModelDelegationSettings(
+            localPlatformsOnly = false,
+            allowRemoteWorkers = false
+        ).normalized()
+
+        assertEquals(true, migrated.remoteWorkersAllowed())
+        assertEquals(true, migrated.allowRemoteWorkers)
+        assertEquals(false, migrated.localPlatformsOnly)
+    }
+
+    @Test
+    fun explicitLocalOnlyConfigurationStaysPrivate() {
+        val localOnly = ModelDelegationSettings(
+            localPlatformsOnly = true,
+            allowRemoteWorkers = false
+        ).normalized()
+
+        assertEquals(false, localOnly.remoteWorkersAllowed())
+        assertEquals(false, localOnly.allowRemoteWorkers)
+        assertEquals(true, localOnly.localPlatformsOnly)
+    }
+
+    @Test
+    fun cloudWorkerToggleUpdatesBothLegacyAndCurrentFlags() {
+        val enabled = ModelDelegationSettings().withRemoteWorkersAllowed(true)
+        assertEquals(true, enabled.allowRemoteWorkers)
+        assertEquals(false, enabled.localPlatformsOnly)
+
+        val disabled = enabled.withRemoteWorkersAllowed(false)
+        assertEquals(false, disabled.allowRemoteWorkers)
+        assertEquals(true, disabled.localPlatformsOnly)
+    }
+
+    @Test
     fun defaultsKeepResearchScopedAndHandoffCompact() {
         val defaults = ModelDelegationSettings()
         assertEquals(9, defaults.maxSearchQueries)

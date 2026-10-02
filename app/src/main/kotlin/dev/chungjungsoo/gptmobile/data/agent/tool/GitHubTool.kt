@@ -945,6 +945,9 @@ class GitHubTool(
         if (action in MUTATING_ACTIONS && detail.contains("HTTP 403", ignoreCase = true)) {
             return errorResult(callId, writeDeniedMessage(action, arguments, detail))
         }
+        if (detail.contains("HTTP 404", ignoreCase = true) || detail.contains("Not Found", ignoreCase = true)) {
+            return errorResult(callId, notFoundMessage(action, arguments, detail))
+        }
         return errorResult(callId, "GitHub request failed: $detail")
     }
 
@@ -978,11 +981,49 @@ class GitHubTool(
                 append(it)
             }
         }
-        return if (action in MUTATING_ACTIONS && response.status.value == 403) {
-            errorResult(callId, writeDeniedMessage(action, arguments, detail))
-        } else {
-            errorResult(callId, "$detail: ${truncate(body, 500)}")
+        return when {
+            action in MUTATING_ACTIONS && response.status.value == 403 ->
+                errorResult(callId, writeDeniedMessage(action, arguments, detail))
+            response.status.value == 404 ->
+                errorResult(callId, notFoundMessage(action, arguments, detail))
+            else ->
+                errorResult(callId, "$detail: ${truncate(body, 500)}")
         }
+    }
+
+    private suspend fun notFoundMessage(
+        action: String,
+        arguments: JsonObject,
+        githubDetail: String
+    ): String {
+        val owner = arguments["owner"]?.jsonPrimitive?.content.orEmpty()
+        val repo = arguments["repo"]?.jsonPrimitive?.content.orEmpty()
+        val ref = arguments["ref"]?.jsonPrimitive?.content
+            ?: arguments["branch"]?.jsonPrimitive?.content
+            ?: arguments["head"]?.jsonPrimitive?.content
+        val path = arguments["path"]?.jsonPrimitive?.content
+        val target = buildString {
+            if (owner.isNotBlank() && repo.isNotBlank()) append("$owner/$repo")
+            ref?.takeIf { it.isNotBlank() }?.let { append(" ref=").append(it.take(160)) }
+            path?.takeIf { it.isNotBlank() }?.let { append(" path=").append(it.take(240)) }
+        }.ifBlank { "requested GitHub resource" }
+
+        val capability = if (action in MUTATING_ACTIONS) {
+            runCatching { workspaceClient.execute("write_capabilities", arguments).jsonObject }.getOrNull()
+        } else {
+            null
+        }
+        val writeCapability = capability?.get("write_capability")?.jsonPrimitive?.content ?: "unknown"
+        val canPush = capability?.get("can_push")?.jsonPrimitive?.content ?: "unknown"
+        val permissionHint = if (action in MUTATING_ACTIONS) {
+            " required_permission=${requiredGitHubPermission(action)} · write_capability=$writeCapability · can_push=$canPush."
+        } else {
+            ""
+        }
+        return "GITHUB_NOT_FOUND_OR_HIDDEN · action=$action · target=$target.$permissionHint " +
+            "GitHub can return HTTP 404 both when a repository/ref/path does not exist and when the authenticated credential cannot see that resource or endpoint. " +
+            "Verify the repository, ref and path once; for writes also verify the plugin's repository access and required permission. " +
+            "Do not blindly retry the same request. GitHub detail: $githubDetail"
     }
 
     private suspend fun writeDeniedMessage(

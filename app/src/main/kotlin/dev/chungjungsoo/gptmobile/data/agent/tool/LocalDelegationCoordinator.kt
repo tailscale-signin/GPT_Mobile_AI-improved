@@ -352,6 +352,7 @@ internal class LocalDelegationCoordinator(
             outputCapViolation = containsAny("OUTPUT_CAP_EXCEEDED", "DELEGATION_OUTPUT_CAP_NOT_ENFORCED")
         )
     }
+
     private data class WorkerResolution(
         val text: String? = null,
         val recoveryReason: String? = null,
@@ -377,8 +378,8 @@ internal class LocalDelegationCoordinator(
             val timeouts = timeoutsByWorker.getOrPut(profile.uid, ::AtomicInteger).incrementAndGet()
             val quarantined = timeouts >= 2
             if (quarantined) {
-            quarantinedWorkerUids += profile.uid
-        }
+                quarantinedWorkerUids += profile.uid
+            }
             val reason = "The delegate stopped or timed out before returning a usable result."
             val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
                 recoveryCandidates(latest, profile.uid).firstOrNull()
@@ -402,11 +403,15 @@ internal class LocalDelegationCoordinator(
         wastedLocalMs.addAndGet(elapsedMs)
         val emptyCount = emptyResponsesByWorker.getOrPut(profile.uid, ::AtomicInteger).incrementAndGet()
         val quarantined = emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES
-        if (quarantined) quarantinedWorkerUids += profile.uid
+        if (quarantined) {
+            quarantinedWorkerUids += profile.uid
+        }
         val reason = "The delegate completed without returning usable content."
         val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
             recoveryCandidates(latest, profile.uid).firstOrNull()
-        } else null
+        } else {
+            null
+        }
         AppLogRecorder.record(
             "Delegation",
             "Worker completed empty · target=${profile.uid} · call=$callNumber/$effectiveCallLimit · elapsedMs=$elapsedMs · requestedOutputCap=$requestedOutputCap · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · quarantined=$quarantined · fallback=${fallback?.uid}",
@@ -428,7 +433,11 @@ internal class LocalDelegationCoordinator(
     ): WorkerResolution {
         dispatchedAtMs?.let { wastedLocalMs.addAndGet((nowMs() - it).coerceAtLeast(0L)) }
         val estimated = maxOf(estimatedDelegateTokens(prompt).toLong(), observedForFailure)
-        val chargedFailureTokens = if (dispatchedAtMs != null || observedForFailure > 0L) estimated else 0L
+        val chargedFailureTokens = if (dispatchedAtMs != null || observedForFailure > 0L) {
+            estimated
+        } else {
+            0L
+        }
         if (chargedFailureTokens > 0L) failedLocalTokens.addAndGet(chargedFailureTokens)
         val classified = classifyWorkerFailure(failure)
         val message = classified.message
@@ -574,12 +583,17 @@ internal class LocalDelegationCoordinator(
         suspend fun recovery(uid: String, reason: String): WorkerPreparation {
             val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
                 recoveryCandidates(latest, uid).firstOrNull()
-            } else null
+            } else {
+                null
+            }
             return WorkerPreparation(resolvedProfileUid = uid, recoveryReason = reason, failoverTarget = fallback)
         }
         val profile = profiles().firstOrNull { candidate ->
-            candidate.uid == target.uid && candidate.enabled && !candidate.excludesMemory() &&
-                candidate.uid != source.uid && candidate.uid !in quarantinedWorkerUids &&
+            candidate.uid == target.uid &&
+                candidate.enabled &&
+                !candidate.excludesMemory() &&
+                candidate.uid != source.uid &&
+                candidate.uid !in quarantinedWorkerUids &&
                 (latest.allowRemoteWorkers || candidate.isPrivateDestination())
         } ?: return recovery(target.uid, "The selected delegate is unavailable or no longer eligible.").also {
             AppLogRecorder.record("Delegation", "Worker requires recovery · requested=${target.uid} · reason=TARGET_UNAVAILABLE · fallback=${it.failoverTarget?.uid}", "W")
@@ -588,11 +602,15 @@ internal class LocalDelegationCoordinator(
         val effectiveCallLimit = latest.effectiveLocalModelCalls()
         val effectiveWasteLimit = latest.effectiveWastedLocalTokens()
         AppLogRecorder.record("Delegation", "Worker gate · requested=${target.uid} · resolved=${profile.uid} · private=${profile.isPrivateDestination()} · calls=${localCalls.get()}/$effectiveCallLimit · configuredCalls=${latest.maxLocalModelCalls} · ownership=${latest.processingOwnership}")
-        if (!latest.enabled) return WorkerPreparation(resolvedProfileUid = profile.uid)
-        val rejectedByRules = profile.excludesMemory() || profile.uid == source.uid ||
-            (latest.localPlatformsOnly && !profile.isPrivateDestination() && !latest.allowRemoteWorkers) ||
-            (requirePrivate && !profile.isPrivateDestination() && !latest.allowRemoteWorkers) ||
-            (source.compatibleType == ClientType.LITERT_LM && profile.compatibleType == ClientType.LITERT_LM)
+        if (!latest.enabled) {
+            return WorkerPreparation(resolvedProfileUid = profile.uid)
+        }
+        val rejectedByRules =
+            profile.excludesMemory() ||
+                profile.uid == source.uid ||
+                (latest.localPlatformsOnly && !profile.isPrivateDestination() && !latest.allowRemoteWorkers) ||
+                (requirePrivate && !profile.isPrivateDestination() && !latest.allowRemoteWorkers) ||
+                (source.compatibleType == ClientType.LITERT_LM && profile.compatibleType == ClientType.LITERT_LM)
         if (rejectedByRules) {
             return recovery(profile.uid, "The selected delegate was rejected by the active delegation rules.").also {
                 AppLogRecorder.record("Delegation", "Worker rejected by gate · target=${target.uid} · fallback=${it.failoverTarget?.uid}", "W")
@@ -634,22 +652,39 @@ internal class LocalDelegationCoordinator(
         }
         val priorSoftFailures = emptyResponsesByWorker[profile.uid]?.get() ?: 0
         val requestedOutputCap = minOf(tokens, latest.maxOutputTokens).let { requested ->
-            if (estimatedEffectiveInput >= 3_000 || priorSoftFailures > 0) maxOf(requested, minOf(768, latest.maxOutputTokens)) else requested
+            if (estimatedEffectiveInput >= 3_000 || priorSoftFailures > 0) {
+                maxOf(requested, minOf(768, latest.maxOutputTokens))
+            } else {
+                requested
+            }
         }
         val runtimeSeconds = adaptiveRuntimeSeconds(estimatedInput, latest)
-        val hardRuntimeSeconds = if (allowTools) latest.maxDelegateRuntimeSeconds else runtimeSeconds
+        val hardRuntimeSeconds = if (allowTools) {
+            latest.maxDelegateRuntimeSeconds
+        } else {
+            runtimeSeconds
+        }
         return WorkerPreparation(
             plan = WorkerDispatchPlan(
-                profile = profile, effectiveCallLimit = effectiveCallLimit, callNumber = callNumber,
-                hardInputTokenCap = hardInputTokenCap, profileOverhead = profileOverhead, knownRequestOverhead = knownRequestOverhead,
-                boundedPrompt = boundedPrompt, estimatedInput = estimatedInput, estimatedEffectiveInput = estimatedEffectiveInput,
-                requestedOutputCap = requestedOutputCap, runtimeSeconds = runtimeSeconds, hardRuntimeSeconds = hardRuntimeSeconds,
+                profile = profile,
+                effectiveCallLimit = effectiveCallLimit,
+                callNumber = callNumber,
+                hardInputTokenCap = hardInputTokenCap,
+                profileOverhead = profileOverhead,
+                knownRequestOverhead = knownRequestOverhead,
+                boundedPrompt = boundedPrompt,
+                estimatedInput = estimatedInput,
+                estimatedEffectiveInput = estimatedEffectiveInput,
+                requestedOutputCap = requestedOutputCap,
+                runtimeSeconds = runtimeSeconds,
+                hardRuntimeSeconds = hardRuntimeSeconds,
                 firstProgressSeconds = minOf(latest.timeToFirstTokenTimeoutSeconds, hardRuntimeSeconds),
                 idleSeconds = minOf(latest.idleTokenTimeoutSeconds, hardRuntimeSeconds)
             ),
             resolvedProfileUid = profile.uid
         )
     }
+
     private suspend fun recoverWorkerText(
         target: PlatformV2,
         prompt: String,
@@ -668,12 +703,19 @@ internal class LocalDelegationCoordinator(
         if (interactiveRecovery && onRecoveryRequired != null && recoveryReason != null) {
             val failedProfile = profiles().firstOrNull { it.uid == failedUid } ?: target
             val candidates = recoveryCandidates(latest, failedUid).filter { it.uid !in attemptedProfiles }
-            val decision = if (candidates.isEmpty()) DelegationRecoveryDecision.PrimaryOnly
-                else onRecoveryRequired.invoke(failedProfile, candidates, recoveryReason)
+            val decision = if (candidates.isEmpty()) {
+                DelegationRecoveryDecision.PrimaryOnly
+            } else {
+                onRecoveryRequired.invoke(failedProfile, candidates, recoveryReason)
+            }
             when (decision) {
                 DelegationRecoveryDecision.PrimaryOnly -> {
                     delegationCanceledByUser.set(true)
-                    val detail = if (candidates.isEmpty()) "no eligible fallback delegate" else "primary-only selected"
+                    val detail = if (candidates.isEmpty()) {
+                        "no eligible fallback delegate"
+                    } else {
+                        "primary-only selected"
+                    }
                     AppLogRecorder.record(
                         "Delegation",
                         "Delegation primary-only handoff · failed=$failedUid · primary=${source.uid} · reason=$detail",

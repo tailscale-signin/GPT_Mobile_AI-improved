@@ -94,6 +94,7 @@ class ChatViewModel @Inject constructor(
     private val modelCatalogRepository: ModelCatalogRepository,
     private val freeModelToolConsentStore: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore,
     private val conversationReadStateStore: dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore,
+    private val generationCompletionStore: dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore,
     private val durablePromptQueue: dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val mcpInteractions: dev.chungjungsoo.gptmobile.data.agent.tool.McpInteractions? = null,
@@ -644,7 +645,9 @@ class ChatViewModel @Inject constructor(
     }
 
     fun markCurrentChatViewed() {
-        conversationReadStateStore.markViewed(chatRoom.value.id)
+        val chatId = chatRoom.value.id
+        conversationReadStateStore.markViewed(chatId)
+        generationCompletionStore.clearChat(chatId)
     }
 
     private val conversationDelegationMutex = Mutex()

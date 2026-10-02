@@ -6,9 +6,14 @@ import androidx.room.Upsert
 
 @Dao
 interface MemoryGraphDao {
-    @Upsert suspend fun upsertEntities(entities: List<MemoryGraphEntityRecord>)
-    @Upsert suspend fun upsertObservations(observations: List<MemoryGraphObservationRecord>)
-    @Upsert suspend fun upsertRelations(relations: List<MemoryGraphRelationRecord>)
+    @Upsert
+    suspend fun upsertEntities(entities: List<MemoryGraphEntityRecord>)
+
+    @Upsert
+    suspend fun upsertObservations(observations: List<MemoryGraphObservationRecord>)
+
+    @Upsert
+    suspend fun upsertRelations(relations: List<MemoryGraphRelationRecord>)
 
     @Query("SELECT * FROM memory_graph_entities WHERE id = :id")
     suspend fun entityById(id: String): MemoryGraphEntityRecord?

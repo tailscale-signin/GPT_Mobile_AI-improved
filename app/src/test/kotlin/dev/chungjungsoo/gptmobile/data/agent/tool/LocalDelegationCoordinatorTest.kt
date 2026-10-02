@@ -77,7 +77,10 @@ class LocalDelegationCoordinatorTest {
             }
         )
         assertEquals("recovered", coordinator.executeTask(target, "Read evidence", 128))
-        assertEquals(listOf(target.uid, second.uid, third.uid), dispatched)
+        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(6, dispatched.count { it == second.uid })
+        assertEquals(1, dispatched.count { it == third.uid })
+        assertEquals(third.uid, dispatched.last())
     }
 
     @Test fun `fallback preflight excludes helpers without input capacity`() = runTest {
@@ -96,7 +99,10 @@ class LocalDelegationCoordinatorTest {
             inputBudget = { profile, _ -> if (profile.uid == unavailable.uid) 100 else 4000 }
         )
         assertEquals("recovered", coordinator.executeTask(target, "Read evidence", 128))
-        assertEquals(listOf(target.uid, available.uid), dispatched)
+        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(0, dispatched.count { it == unavailable.uid })
+        assertEquals(1, dispatched.count { it == available.uid })
+        assertEquals(available.uid, dispatched.last())
     }
 
     @Test fun `benchmark runtime honors configured allowance while chat keeps workload limit`() = runTest {
@@ -315,7 +321,7 @@ class LocalDelegationCoordinatorTest {
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(third?.message.orEmpty().contains("CANCELED_NO_RESULT"))
-        assertEquals(2, calls)
+        assertEquals(16, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -357,7 +363,9 @@ class LocalDelegationCoordinatorTest {
         assertEquals("recovered", coordinator.delegate(target, "first", 128, emptyList(), "first"))
         assertEquals("recovered", coordinator.delegate(target, "second", 128, emptyList(), "second"))
         assertEquals("recovered", coordinator.delegate(target, "third", 128, emptyList(), "third"))
-        assertEquals(listOf("local", "fallback", "local", "fallback", "fallback"), dispatched)
+        assertEquals(16, dispatched.count { it == target.uid })
+        assertEquals(3, dispatched.count { it == fallback.uid })
+        assertEquals(fallback.uid, dispatched.last())
     }
 
     @Test fun `successful response resets consecutive timeout circuit`() = runTest {
@@ -395,7 +403,7 @@ class LocalDelegationCoordinatorTest {
         repeat(2) {
             assertTrue(runCatching { coordinator.delegate(target, "task", 128, emptyList(), "abort-$it") }.isFailure)
         }
-        assertEquals(1, calls)
+        assertEquals(11, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -415,7 +423,9 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.executeTask(target, "first", 128))
         assertEquals("recovered", coordinator.executeTask(target, "second", 128))
-        assertEquals(listOf("local", "fallback", "fallback"), dispatched)
+        assertEquals(11, dispatched.count { it == target.uid })
+        assertEquals(2, dispatched.count { it == fallback.uid })
+        assertEquals(fallback.uid, dispatched.last())
     }
 
     @Test fun `stale configured target falls back to an eligible helper`() = runTest {
@@ -445,12 +455,12 @@ class LocalDelegationCoordinatorTest {
             }
         )
 
-        val first = runCatching { coordinator.delegate(target, "first", 256, emptyList(), "first") }.exceptionOrNull()
+        val first = coordinator.delegate(target, "first", 256, emptyList(), "first")
         val second = coordinator.delegate(target, "second", 256, emptyList(), "second")
 
-        assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
+        assertEquals("recovered", first)
         assertEquals("recovered", second)
-        assertEquals(2, calls)
+        assertEquals(3, calls)
     }
 
     @Test fun `authorization failure quarantines delegated worker for the rest of the turn`() = runTest {
@@ -470,7 +480,7 @@ class LocalDelegationCoordinatorTest {
 
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
-        assertEquals(1, calls)
+        assertEquals(11, calls)
     }
 
     @Test fun `retired model is quarantined and delegation immediately fails over`() = runTest {
@@ -496,7 +506,9 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.delegate(target, "first", 256, emptyList(), "first"))
         assertEquals("recovered", coordinator.delegate(target, "second", 256, emptyList(), "second"))
-        assertEquals(listOf("local", "fallback", "fallback"), dispatched)
+        assertEquals(11, dispatched.count { it == target.uid })
+        assertEquals(2, dispatched.count { it == fallback.uid })
+        assertEquals(fallback.uid, dispatched.last())
     }
 
     @Test fun `llama prompt evaluation honors the configured first response deadline`() = runTest {
@@ -570,7 +582,9 @@ class LocalDelegationCoordinatorTest {
         )
 
         assertEquals("bounded recovery", coordinator.executeTask(target, "task", 256))
-        assertEquals(listOf(target.uid, fallback.uid), dispatched)
+        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == fallback.uid })
+        assertEquals(fallback.uid, dispatched.last())
     }
 
     @Test fun `settings failure after completed action returns original success without reexecution`() = runTest {
@@ -593,7 +607,7 @@ class LocalDelegationCoordinatorTest {
             "usable fallback answer"
         })
         assertEquals("usable fallback answer", coordinator.executeTask(target, "Read a page", 256))
-        assertEquals(1, failedCalls)
+        assertEquals(6, failedCalls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -658,7 +672,7 @@ class LocalDelegationCoordinatorTest {
         })
         coordinator.executeTask(target, "first", 256)
         coordinator.executeTask(target, "second", 256)
-        assertEquals(1, calls)
+        assertEquals(11, calls)
     }
 
     @Test fun `pinned unavailable worker never substitutes another provider`() = runTest {
@@ -696,7 +710,9 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.delegate(target, "task", 256, emptyList(), "interactive"))
         assertEquals("recovered", coordinator.delegate(target, "follow-up", 256, emptyList(), "interactive-follow-up"))
-        assertEquals(listOf(target.uid, fallback.uid, fallback.uid), dispatched)
+        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(2, dispatched.count { it == fallback.uid })
+        assertEquals(listOf(fallback.uid, fallback.uid), dispatched.takeLast(2))
         assertEquals(1, recoveryPrompts)
     }
 
@@ -723,8 +739,100 @@ class LocalDelegationCoordinatorTest {
 
         assertTrue(first.contains("primary model only"))
         assertTrue(second.contains("primary model only"))
-        assertEquals(1, generations)
+        assertEquals(6, generations)
         assertEquals(1, recoveryPrompts)
         assertFalse(coordinator.researchAvailable())
     }
+    @Test fun `same delegate gets five one second retries before fallback`() = runTest {
+        val fallback = target.copy(uid = "retry-fallback", model = "fallback-model")
+        val targetAttemptTimes = mutableListOf<Long>()
+        val dispatched = mutableListOf<String>()
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 4, localRetryLimit = 5) },
+            { listOf(target, fallback) },
+            { profile, _, _ ->
+                dispatched += profile.uid
+                if (profile.uid == target.uid) {
+                    targetAttemptTimes += testScheduler.currentTime
+                    error("temporary delegate failure")
+                }
+                "recovered after retries"
+            },
+            nowMs = { testScheduler.currentTime }
+        )
+
+        assertEquals("recovered after retries", coordinator.executeTask(target, "retry spacing", 128))
+        assertEquals(listOf(0L, 1000L, 2000L, 3000L, 4000L, 5000L), targetAttemptTimes)
+        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == fallback.uid })
+        assertEquals(fallback.uid, dispatched.last())
+    }
+
+    @Test fun `reviewer uses a different model and can correct delegate context with a score`() = runTest {
+        val reviewer = target.copy(uid = "reviewer", name = "Reviewer", model = "reviewer-model", apiUrl = "http://192.168.1.4:8080")
+        val dispatched = mutableListOf<String>()
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            {
+                config.copy(
+                    researchEnabled = false,
+                    reviewerEnabled = true,
+                    reviewerProfileUid = reviewer.uid,
+                    reviewerOutputTokens = 384
+                )
+            },
+            { listOf(target, reviewer) },
+            { profile, _, _ ->
+                dispatched += profile.uid
+                if (profile.uid == target.uid) {
+                    "The parcel code is PKG-wrong."
+                } else {
+                    """
+                    REVIEW_SCORE: 92
+                    VERDICT: CORRECTED
+                    FINDINGS: The delegate context contained an unsupported parcel code.
+                    CORRECTED_CONTEXT:
+                    The verified parcel code is PKG-correct.
+                    """.trimIndent()
+                }
+            }
+        )
+
+        val result = coordinator.executeTask(target, "Report the verified parcel code.", 256).orEmpty()
+
+        assertTrue(result.contains("Reviewer Score: 92/100"))
+        assertTrue(result.contains("PKG-correct"))
+        assertFalse(result.contains("PKG-wrong"))
+        assertEquals(listOf(target.uid, reviewer.uid), dispatched)
+        assertEquals(listOf(92), coordinator.reviewerScoresSnapshot())
+    }
+
+    @Test fun `reviewer refuses the delegate model even when another profile has the same model`() = runTest {
+        val sameModelReviewer = target.copy(uid = "same-model-reviewer", name = "Same model reviewer")
+        var reviewerCalls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            {
+                config.copy(
+                    researchEnabled = false,
+                    reviewerEnabled = true,
+                    reviewerProfileUid = sameModelReviewer.uid
+                )
+            },
+            { listOf(target, sameModelReviewer) },
+            { profile, _, _ ->
+                if (profile.uid == sameModelReviewer.uid) reviewerCalls++
+                "delegate answer"
+            }
+        )
+
+        val result = coordinator.executeTask(target, "Check this answer.", 128).orEmpty()
+
+        assertTrue(result.contains("Reviewer Score: 0/100"))
+        assertTrue(result.contains("REVIEWER_UNAVAILABLE"))
+        assertEquals(0, reviewerCalls)
+        assertEquals(listOf(0), coordinator.reviewerScoresSnapshot())
+    }
+
 }

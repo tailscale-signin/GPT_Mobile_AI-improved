@@ -31,6 +31,8 @@ data class AgentRunLimits(
     val maxReplayResultTokens: Int = 512
 ) {
     companion object {
+        private const val MAX_SAME_TOOL_CALLS_PER_RUN = 24
+        private const val MAX_CONSECUTIVE_TOOL_FAILURES = 3
         const val DEFAULT_MAX_TOOL_CALLS: Int = 50
 
         fun defaultMaxConcurrentTools(): Int = 32
@@ -88,6 +90,8 @@ class AgentRunner(
         var wrapUpNoticeEmitted = false
         var replayTokens = 0L
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
+        val toolCallsByName = mutableMapOf<String, Int>()
+        val consecutiveToolFailures = mutableMapOf<String, Int>()
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit) {
@@ -249,8 +253,23 @@ class AgentRunner(
             } else {
                 (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
             }
-            val executableCalls = calls.take(remainingCalls)
-            val deferredCalls = calls.drop(executableCalls.size)
+            val executableCalls = mutableListOf<ProviderEvent.ToolCall>()
+            val deferredCalls = mutableListOf<ProviderEvent.ToolCall>()
+            val perToolSuppressedIds = mutableSetOf<String>()
+            calls.take(remainingCalls).forEach { call ->
+                val used = toolCallsByName[call.name] ?: 0
+                if (used >= MAX_SAME_TOOL_CALLS_PER_RUN) {
+                    deferredCalls += call
+                    perToolSuppressedIds += call.callId
+                    executableToolByName = executableToolByName - call.name
+                    exposedDefinitions = exposedDefinitions.filterNot { it.name == call.name }
+                    AppLogRecorder.record("Agent", "TOOL_CALL_STORM_BLOCKED · tool=${call.name} · calls=$used · max=$MAX_SAME_TOOL_CALLS_PER_RUN", "W")
+                } else {
+                    executableCalls += call
+                    toolCallsByName[call.name] = used + 1
+                }
+            }
+            deferredCalls += calls.drop(remainingCalls)
 
             executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
@@ -266,10 +285,29 @@ class AgentRunner(
             }
             toolCallCount += executableCalls.size
 
+            val newlyBlockedTools = mutableSetOf<String>()
+            executableCalls.zip(executedResults).forEach { (call, result) ->
+                val failures = if (result.isError) (consecutiveToolFailures[call.name] ?: 0) + 1 else 0
+                consecutiveToolFailures[call.name] = failures
+                if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) newlyBlockedTools += call.name
+            }
+            if (newlyBlockedTools.isNotEmpty()) {
+                executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
+                exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools }
+                newlyBlockedTools.forEach { toolName ->
+                    AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · tool=$toolName · failures=${consecutiveToolFailures[toolName]}", "W")
+                }
+            }
+
             val deferredResults = deferredCalls.map { call ->
+                val message = if (call.callId in perToolSuppressedIds) {
+                    "Tool '${call.name}' reached the per-response repeat limit and is disabled for the remainder of this response. Use results already collected; do not retry it until a new response."
+                } else {
+                    FINAL_RESPONSE_INSTRUCTION
+                }
                 AgentToolResult(
                     callId = call.callId,
-                    content = ToolResultContent.Text(FINAL_RESPONSE_INSTRUCTION),
+                    content = ToolResultContent.Text(message),
                     isError = true
                 )
             }

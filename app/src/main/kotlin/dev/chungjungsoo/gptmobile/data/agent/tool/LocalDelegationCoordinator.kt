@@ -1312,17 +1312,40 @@ internal class LocalDelegationCoordinator(
     }
     suspend fun memoryObservations(userText: String): JsonObject? {
         val config = settings().normalized()
-        val target = localTarget(config) ?: return null
-        val bounded = boundedConfig(target, config)
+        // Memory enrichment is a private local-memory capability, not a requirement to
+        // expose the delegate tool to the primary model. This lets automatic memory
+        // learning keep working when a profile's regular tool calls are disabled.
+        val candidates = profiles().filter { candidate ->
+            candidate.enabled &&
+                candidate.uid != source.uid &&
+                candidate.isPrivateDestination() &&
+                !candidate.excludesMemory() &&
+                candidate.model.isNotBlank() &&
+                !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM)
+        }
+        val ordered = candidates.sortedBy { if (it.uid == config.targetProfileUid) 0 else 1 }
+        val target = ordered.firstOrNull { candidate ->
+            candidateInputBudget(candidate, minOf(config.maxOutputTokens, 512), logFailure = false) != null
+        } ?: return null
+        val memoryConfig = config.copy(
+            enabled = true,
+            processingOwnership = minOf(config.processingOwnership, 99),
+            targetProfileUid = target.uid,
+            localPlatformsOnly = true,
+            allowRemoteWorkers = false,
+            fallbackToAnotherProfile = false
+        ).normalized()
+        val bounded = boundedConfig(target, memoryConfig)
         return workerText(
             target,
             delegationPrompt(
-                "Select up to 4 durable facts explicitly stated by the user: preferences, profile facts, ongoing projects or goals. Return JSON {\"observations\":[{\"quote\":\"one exact complete user statement\",\"kind\":\"preference|profile|project|goal\"}]}. Preserve negation and qualifiers. Omit questions, hypothetical situations, third-party quotations, secrets and temporary requests. Never infer or rewrite facts. Return an empty array when there is nothing to remember.",
+                "Select up to 6 durable facts explicitly stated by the user: preferences, profile facts, tools they use, owned devices, locations, ongoing projects or goals. Return JSON {\"observations\":[{\"quote\":\"one exact complete user statement\",\"kind\":\"preference|profile|project|goal\"}]}. Preserve negation and qualifiers. Omit questions, hypothetical situations, third-party quotations, secrets and temporary requests. Never infer or rewrite facts. Return an empty array when there is nothing to remember.",
                 "Identify useful long-term memory from user statements.",
                 userText,
                 bounded.maxInputCharacters
             ),
-            minOf(config.maxOutputTokens, 512)
+            minOf(memoryConfig.maxOutputTokens, 512),
+            pinnedConfig = memoryConfig
         )?.let(::parseDelegationObject)
     }
 

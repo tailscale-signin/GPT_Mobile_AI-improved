@@ -302,59 +302,59 @@ fun ChatMarkdown(
             codeBlock = {
                 Box(modifier = Modifier.alpha(structureAlpha(it.node.startOffset))) {
                     MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, language, style ->
-                    val cleanLang = language?.trim()?.lowercase()
-                    val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
-                    if (isHtmlOrSvg) {
-                        SandboxedArtifactView(
-                            title = cleanLang.uppercase(),
-                            content = code,
-                            isHtmlOrSvg = true
-                        )
-                    } else {
-                        CodeBlockWithCopy(
-                            code = code,
-                            language = language,
-                            onCopyCode = copyCodeToClipboard
-                        ) {
-                            HighlightedCodeContent(
+                        val cleanLang = language?.trim()?.lowercase()
+                        val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
+                        if (isHtmlOrSvg) {
+                            SandboxedArtifactView(
+                                title = cleanLang.uppercase(),
+                                content = code,
+                                isHtmlOrSvg = true
+                            )
+                        } else {
+                            CodeBlockWithCopy(
                                 code = code,
                                 language = language,
-                                style = style,
-                                highlightsBuilder = highlightsBuilder,
-                                isDarkTheme = isDarkTheme
-                            )
+                                onCopyCode = copyCodeToClipboard
+                            ) {
+                                HighlightedCodeContent(
+                                    code = code,
+                                    language = language,
+                                    style = style,
+                                    highlightsBuilder = highlightsBuilder,
+                                    isDarkTheme = isDarkTheme
+                                )
+                            }
                         }
                     }
-                }
                 }
             },
             codeFence = {
                 Box(modifier = Modifier.alpha(structureAlpha(it.node.startOffset))) {
                     MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style ->
-                    val cleanLang = language?.trim()?.lowercase()
-                    val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
-                    if (isHtmlOrSvg) {
-                        SandboxedArtifactView(
-                            title = cleanLang.uppercase(),
-                            content = code,
-                            isHtmlOrSvg = true
-                        )
-                    } else {
-                        CodeBlockWithCopy(
-                            code = code,
-                            language = language,
-                            onCopyCode = copyCodeToClipboard
-                        ) {
-                            HighlightedCodeContent(
+                        val cleanLang = language?.trim()?.lowercase()
+                        val isHtmlOrSvg = cleanLang == "html" || cleanLang == "htm" || cleanLang == "svg"
+                        if (isHtmlOrSvg) {
+                            SandboxedArtifactView(
+                                title = cleanLang.uppercase(),
+                                content = code,
+                                isHtmlOrSvg = true
+                            )
+                        } else {
+                            CodeBlockWithCopy(
                                 code = code,
                                 language = language,
-                                style = style,
-                                highlightsBuilder = highlightsBuilder,
-                                isDarkTheme = isDarkTheme
-                            )
+                                onCopyCode = copyCodeToClipboard
+                            ) {
+                                HighlightedCodeContent(
+                                    code = code,
+                                    language = language,
+                                    style = style,
+                                    highlightsBuilder = highlightsBuilder,
+                                    isDarkTheme = isDarkTheme
+                                )
+                            }
                         }
                     }
-                }
                 }
             },
             paragraph = { model ->

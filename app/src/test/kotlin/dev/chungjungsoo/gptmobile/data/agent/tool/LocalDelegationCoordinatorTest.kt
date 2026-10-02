@@ -343,7 +343,7 @@ class LocalDelegationCoordinatorTest {
             val failure = runCatching { coordinator.delegate(target, "task", 128, emptyList(), "timeout-$it") }.exceptionOrNull()
             assertTrue(failure?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         }
-        assertEquals(16, calls)
+        assertEquals(21, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -404,7 +404,7 @@ class LocalDelegationCoordinatorTest {
         repeat(2) {
             assertTrue(runCatching { coordinator.delegate(target, "task", 128, emptyList(), "abort-$it") }.isFailure)
         }
-        assertEquals(11, calls)
+        assertEquals(16, calls)
         assertFalse(coordinator.researchAvailable())
     }
 

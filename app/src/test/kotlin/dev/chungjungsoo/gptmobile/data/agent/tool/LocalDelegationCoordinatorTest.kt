@@ -20,6 +20,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun `readiness cooldown persists across turns but model change retries immediately`() = runTest {
+        val helper = target.copy(uid = "readiness-model-change", model = "missing-model")
+        var active = helper
+        var probes = 0
+        fun coordinator() = LocalDelegationCoordinator(
+            source,
+            { config.copy(targetProfileUid = helper.uid, researchEnabled = true) },
+            { listOf(active) },
+            { _, _, _ -> "unused" },
+            inputBudget = { profile, _ ->
+                probes++
+                if (profile.model == "missing-model") error("model not downloaded")
+                4000
+            }
+        )
+        assertFalse(coordinator().researchAvailable())
+        assertFalse(coordinator().researchAvailable())
+        assertEquals(1, probes)
+        active = helper.copy(model = "installed-model")
+        assertTrue(coordinator().researchAvailable())
+        assertEquals(3, probes)
+    }
+
     @Test fun `GitHub task uses tool capable worker without spending budget on public web planner`() = runTest {
         var calls = 0
         val task = "Create a draft PR in the repository"
@@ -549,6 +572,7 @@ class LocalDelegationCoordinatorTest {
         assertEquals("bounded recovery", coordinator.executeTask(target, "task", 256))
         assertEquals(listOf(target.uid, fallback.uid), dispatched)
     }
+
     @Test fun `settings failure after completed action returns original success without reexecution`() = runTest {
         var actions = 0
         val coordinator = LocalDelegationCoordinator(source, { error("Settings unavailable") }, { listOf(target) }, { _, _, _ -> error("Unused") })

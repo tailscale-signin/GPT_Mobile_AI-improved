@@ -59,6 +59,8 @@ class CircuitBreaker(
     private val halfOpenSuccesses = AtomicInteger(0)
     private val lastOpenedTimestamp = AtomicLong(0L)
     private val halfOpenProbeInFlight = AtomicBoolean(false)
+    private var generation = 0L
+    private data class Permission(val generation: Long, val probe: Boolean)
 
     val state: State
         get() = currentState()
@@ -66,6 +68,7 @@ class CircuitBreaker(
     val failureCount: Int
         get() = consecutiveFailures.get()
 
+    @Synchronized
     fun currentState(): State {
         checkCooldownTransition()
         return stateRef.get()
@@ -76,6 +79,7 @@ class CircuitBreaker(
             val elapsed = timeProvider() - lastOpenedTimestamp.get()
             if (elapsed >= cooldownMs) {
                 if (stateRef.compareAndSet(State.OPEN, State.HALF_OPEN)) {
+                    generation++
                     halfOpenSuccesses.set(0)
                     halfOpenProbeInFlight.set(false)
                 }
@@ -88,14 +92,14 @@ class CircuitBreaker(
      * Throws [CircuitBreakerOpenException] immediately if OPEN.
      */
     fun <T> execute(block: () -> T): T {
-        acquirePermission()
+        val permission = acquirePermission()
 
         return try {
             val result = block()
-            onSuccess()
+            completeSuccess(permission)
             result
         } catch (t: Throwable) {
-            onFailure(t)
+            completeFailure(permission, t)
             throw t
         }
     }
@@ -104,24 +108,40 @@ class CircuitBreaker(
      * Suspending version of [execute].
      */
     suspend fun <T> executeSuspend(block: suspend () -> T): T {
-        acquirePermission()
+        val permission = acquirePermission()
 
         return try {
             val result = block()
-            onSuccess()
+            completeSuccess(permission)
             result
         } catch (t: Throwable) {
-            onFailure(t)
+            completeFailure(permission, t)
             throw t
         }
     }
 
+    @Synchronized
+    private fun completeSuccess(permission: Permission) {
+        if (permission.generation != generation) return
+        if (permission.probe != (stateRef.get() == State.HALF_OPEN)) return
+        onSuccess()
+    }
+
+    @Synchronized
+    private fun completeFailure(permission: Permission, throwable: Throwable) {
+        if (permission.generation != generation) return
+        if (permission.probe != (stateRef.get() == State.HALF_OPEN)) return
+        onFailure(throwable)
+    }
+
+    @Synchronized
     fun onSuccess() {
         when (stateRef.get()) {
             State.HALF_OPEN -> {
                 halfOpenProbeInFlight.set(false)
                 if (halfOpenSuccesses.incrementAndGet() >= halfOpenSuccessThreshold) {
                     stateRef.set(State.CLOSED)
+                    generation++
                     consecutiveFailures.set(0)
                     halfOpenSuccesses.set(0)
                 }
@@ -135,6 +155,7 @@ class CircuitBreaker(
         }
     }
 
+    @Synchronized
     fun onFailure(throwable: Throwable) {
         // Do not count client cancellations towards breaker failures.
         // A cancelled half-open probe must still release its single-flight permit.
@@ -161,7 +182,8 @@ class CircuitBreaker(
         }
     }
 
-    private fun acquirePermission() {
+    @Synchronized
+    private fun acquirePermission(): Permission {
         checkCooldownTransition()
         when (stateRef.get()) {
             State.OPEN -> {
@@ -175,16 +197,20 @@ class CircuitBreaker(
             }
             State.CLOSED -> Unit
         }
+        return Permission(generation, stateRef.get() == State.HALF_OPEN)
     }
 
     private fun tripToOpen() {
-        stateRef.set(State.OPEN)
         lastOpenedTimestamp.set(timeProvider())
         halfOpenSuccesses.set(0)
         halfOpenProbeInFlight.set(false)
+        generation++
+        stateRef.set(State.OPEN)
     }
 
+    @Synchronized
     fun reset() {
+        generation++
         stateRef.set(State.CLOSED)
         consecutiveFailures.set(0)
         halfOpenSuccesses.set(0)

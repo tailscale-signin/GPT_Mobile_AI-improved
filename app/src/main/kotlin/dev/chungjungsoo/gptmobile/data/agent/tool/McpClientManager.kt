@@ -447,7 +447,8 @@ private fun Throwable.isMcpStaleSession(): Boolean = generateSequence(this) { it
         val message = error.message.orEmpty().lowercase()
         (error is StreamableHttpError && error.code == 404) ||
             message.contains("session not found") ||
-            message.contains("-32001") && message.contains("session")
+            message.contains("-32001") &&
+            message.contains("session")
     }
 
 private fun String.sha256(): String = MessageDigest.getInstance("SHA-256")

@@ -95,7 +95,7 @@ internal class LocalDelegationCoordinator(
         config.targetProfileUid.isBlank() || config.fallbackToAnotherProfile
 
     private fun availabilityKey(profile: PlatformV2): String =
-        "${profile.uid}|${profile.compatibleType}|${profile.model.trim()}"
+        "${profile.uid}|${profile.compatibleType}|${profile.model.trim()}|${profile.apiUrl}"
 
     private fun isPermanentlyUnavailable(profile: PlatformV2): Boolean =
         availabilityKey(profile) in permanentlyUnavailableWorkers
@@ -136,14 +136,15 @@ internal class LocalDelegationCoordinator(
 
     private suspend fun candidateInputBudget(candidate: PlatformV2, outputTokens: Int, logFailure: Boolean): Int? {
         val now = nowMs()
-        val cachedUntil = runtimeNotReadyUntilMs[candidate.uid]
+        val readinessKey = "${availabilityKey(candidate)}|$outputTokens"
+        val cachedUntil = runtimeNotReadyUntilMs[readinessKey]
         if (cachedUntil != null && cachedUntil > now) return null
-        if (cachedUntil != null) runtimeNotReadyUntilMs.remove(candidate.uid, cachedUntil)
+        if (cachedUntil != null) runtimeNotReadyUntilMs.remove(readinessKey, cachedUntil)
 
         return try {
             val available = inputBudget(candidate, outputTokens)
             if (available < 600) {
-                runtimeNotReadyUntilMs[candidate.uid] = now + RUNTIME_NOT_READY_COOLDOWN_MS
+                runtimeNotReadyUntilMs[readinessKey] = now + RUNTIME_NOT_READY_COOLDOWN_MS
                 if (logFailure) {
                     AppLogRecorder.record(
                         "Delegation",
@@ -153,21 +154,23 @@ internal class LocalDelegationCoordinator(
                 }
                 null
             } else {
-                runtimeNotReadyUntilMs.remove(candidate.uid)
+                runtimeNotReadyUntilMs.remove(readinessKey)
                 available
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             val message = failure.message.orEmpty()
-            val cooldownMs = if (message.contains("not downloaded", ignoreCase = true) ||
-                message.contains("package", ignoreCase = true) && message.contains("missing", ignoreCase = true)
+            val cooldownMs = if (
+                message.contains("not downloaded", ignoreCase = true) ||
+                message.contains("package", ignoreCase = true) &&
+                message.contains("missing", ignoreCase = true)
             ) {
                 NOT_DOWNLOADED_COOLDOWN_MS
             } else {
                 RUNTIME_NOT_READY_COOLDOWN_MS
             }
-            runtimeNotReadyUntilMs[candidate.uid] = now + cooldownMs
+            runtimeNotReadyUntilMs[readinessKey] = now + cooldownMs
             if (logFailure) {
                 AppLogRecorder.record(
                     "Delegation",

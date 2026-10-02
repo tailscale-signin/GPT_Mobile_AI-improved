@@ -1,14 +1,77 @@
 package dev.chungjungsoo.gptmobile.data.network.error
 
+import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-import java.io.IOException
 
 class CircuitBreakerTest {
+
+    @Test
+    fun lateClosedRequestCannotReleaseOrCompleteRecoveryProbe() = runBlocking {
+        var now = 0L
+        val breaker = CircuitBreaker(failureThreshold = 1, cooldownMs = 10, halfOpenSuccessThreshold = 1, timeProvider = { now })
+        val oldStarted = CompletableDeferred<Unit>()
+        val releaseOld = CompletableDeferred<Unit>()
+        val oldRequest = async {
+            breaker.executeSuspend {
+                oldStarted.complete(Unit)
+                releaseOld.await()
+                "old result"
+            }
+        }
+        oldStarted.await()
+        breaker.onFailure(IOException("outage"))
+        now = 10
+        val probeStarted = CompletableDeferred<Unit>()
+        val releaseProbe = CompletableDeferred<Unit>()
+        val probe = async {
+            breaker.executeSuspend {
+                probeStarted.complete(Unit)
+                releaseProbe.await()
+                "recovered"
+            }
+        }
+        probeStarted.await()
+        releaseOld.complete(Unit)
+        assertEquals("old result", oldRequest.await())
+        assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.state)
+        try {
+            breaker.execute { fail("Concurrent probe must not run") }
+            fail("Expected CircuitBreakerOpenException")
+        } catch (_: CircuitBreakerOpenException) { }
+        releaseProbe.complete(Unit)
+        assertEquals("recovered", probe.await())
+        assertEquals(CircuitBreaker.State.CLOSED, breaker.state)
+    }
+
+    @Test
+    fun lateFailureDoesNotExtendOpenCooldown() {
+        var now = 0L
+        val breaker = CircuitBreaker(failureThreshold = 1, cooldownMs = 10, timeProvider = { now })
+        breaker.onFailure(IOException("outage"))
+        now = 9
+        breaker.onFailure(IOException("late failure"))
+        now = 10
+        assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.state)
+    }
+
+    @Test
+    fun canceledRecoveryProbeAllowsAnotherProbeWithoutCountingFailure() {
+        var now = 0L
+        val breaker = CircuitBreaker(failureThreshold = 1, cooldownMs = 10, halfOpenSuccessThreshold = 1, timeProvider = { now })
+        breaker.onFailure(IOException("outage"))
+        now = 10
+        try {
+            breaker.execute { throw kotlinx.coroutines.CancellationException("user canceled") }
+        } catch (_: kotlinx.coroutines.CancellationException) { }
+        assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.state)
+        assertEquals("ok", breaker.execute { "ok" })
+        assertEquals(CircuitBreaker.State.CLOSED, breaker.state)
+    }
 
     @Test
     fun startsInClosedState() {

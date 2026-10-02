@@ -77,6 +77,49 @@ import org.junit.Test
 
 class ProviderAdaptersTest {
     @Test
+    fun `Ollama recovery deadline terminates a continuously active stream`() = kotlinx.coroutines.test.runTest {
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        while (true) {
+                            emit(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "x")))))
+                            kotlinx.coroutines.delay(10_000)
+                        }
+                    }
+                )
+            )
+        )
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OLLAMA))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(120_000L, testScheduler.currentTime)
+        assertEquals(1, api.chatRequests.size)
+        assertTrue(events.last() is ProviderEvent.Failed)
+        assertFalse(events.any { it is ProviderEvent.Completed })
+    }
+
+    @Test
+    fun `Ollama never replays a stream after delivering payload`() = runBlocking {
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        emit(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "partial")))))
+                        throw java.net.SocketTimeoutException("socket timed out")
+                    }
+                )
+            )
+        )
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OLLAMA))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, api.chatRequests.size)
+        assertEquals("partial", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(events.last() is ProviderEvent.Failed)
+    }
+
+    @Test
     fun `compatible collector failures propagate unchanged without rotating credentials`() = runBlocking {
         for (type in listOf(ClientType.CUSTOM, ClientType.LLAMA, ClientType.OLLAMA)) {
             for (payload in listOf(

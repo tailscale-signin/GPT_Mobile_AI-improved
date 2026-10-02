@@ -604,18 +604,18 @@ class ChatRepositoryImpl(
             }
     }
 
-    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool> = emptyList(), finalizationRepairAttempted: Boolean = false): String {
+    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool>? = null, finalizationRepairAttempted: Boolean = false): String {
         // Delegated runs are real child agent runs: they receive the target profile's
         // authorized tools, but never receive delegate_to_model itself. This enables
         // local -> remote tool use and remote -> local tool use without recursion.
-        val inheritedTools = authorizedTools
+        val inheritedTools = authorizedTools.orEmpty()
             .filterNot { it.realToolName == "delegate_to_model" }
             .distinctBy { it.modelToolName }
         val childTools: MutableList<AgentTool> = if (!allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled) {
             mutableListOf()
         } else if (fixtureTools != null) {
             fixtureTools.toMutableList()
-        } else if (inheritedTools.isNotEmpty()) {
+        } else if (authorizedTools != null) {
             // Delegated agents are children of the current run. Reuse the parent's
             // already-authorized and already-budgeted tool snapshot instead of resolving
             // a second catalog from the helper profile. This preserves chat-level
@@ -627,7 +627,7 @@ class ChatRepositoryImpl(
         val childToolSource = when {
             !allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled -> "disabled"
             fixtureTools != null -> "fixture"
-            inheritedTools.isNotEmpty() -> "parent-authorized"
+            authorizedTools != null -> "parent-authorized"
             else -> "target-fallback"
         }
         val discoveredChildToolCount = childTools.size
@@ -853,7 +853,7 @@ class ChatRepositoryImpl(
         )
 
         if (usableText != null && likelyTruncated && !finalizationRepairAttempted) {
-            val repairDraft = truncateUtf8(usableText, 6_000)
+            val repairDraft = dev.chungjungsoo.gptmobile.data.agent.truncateUtf8(usableText, 6_000)
             AppLogRecorder.record(
                 "Delegation",
                 "Output-cap completion repair · parentRun=$parentRunId · target=${target.uid} · cap=$effectiveCap · outputTokens=$maxRoundOutput · draftChars=${repairDraft.length}",

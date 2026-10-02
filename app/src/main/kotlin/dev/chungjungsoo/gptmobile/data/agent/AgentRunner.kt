@@ -289,12 +289,12 @@ class AgentRunner(
             val executedResults = coroutineScope {
                 executableCalls.map { call ->
                     async {
-                        semaphore.withPermit {
+                        perToolSemaphores.getValue(call.name).withPermit {
                             // Calls to different tools can run in parallel, but repeated
                             // calls to the same provider/tool are serialized. This avoids
                             // bursts that hammer one API, duplicate writes, or trip its
                             // rate/circuit protection simultaneously.
-                            perToolSemaphores.getValue(call.name).withPermit {
+                            semaphore.withPermit {
                                 executeBounded(call, executableToolByName[call.name])
                             }
                         }

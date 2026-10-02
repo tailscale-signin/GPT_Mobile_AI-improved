@@ -71,7 +71,9 @@ object DeviceHardwareGovernor {
     private const val TAG = "DeviceHardwareGov"
     private const val HARDWARE_STATE_CACHE_MS = 2_000L
     private val forecastSampler = ThermalForecastSampler()
+
     @Volatile private var cachedHardwareState: DeviceHardwareState? = null
+
     @Volatile private var cachedHardwareStateAtMs: Long = Long.MIN_VALUE
 
     fun inspectHardwareState(context: Context): DeviceHardwareState {
@@ -82,19 +84,19 @@ object DeviceHardwareGovernor {
             cachedHardwareState?.takeIf { lockedNow - cachedHardwareStateAtMs in 0 until HARDWARE_STATE_CACHE_MS }?.let { return@synchronized it }
 
             val thermalState = inspectThermalState(context)
-        val (batteryPct, isCharging) = inspectBattery(context)
-        val isPowerSaveMode = inspectPowerSaveMode(context)
-        val forecast = forecastSampler.read(SystemClock.elapsedRealtime()) {
-            val manager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            ThermalForecast(
-                headroom = manager?.getThermalHeadroom(10),
-                moderateThreshold = if (Build.VERSION.SDK_INT >= 35) {
-                    runCatching { manager?.thermalHeadroomThresholds?.get(PowerManager.THERMAL_STATUS_MODERATE) }.getOrNull()
-                } else {
-                    null
-                }
-            )
-        }
+            val (batteryPct, isCharging) = inspectBattery(context)
+            val isPowerSaveMode = inspectPowerSaveMode(context)
+            val forecast = forecastSampler.read(SystemClock.elapsedRealtime()) {
+                val manager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                ThermalForecast(
+                    headroom = manager?.getThermalHeadroom(10),
+                    moderateThreshold = if (Build.VERSION.SDK_INT >= 35) {
+                        runCatching { manager?.thermalHeadroomThresholds?.get(PowerManager.THERMAL_STATUS_MODERATE) }.getOrNull()
+                    } else {
+                        null
+                    }
+                )
+            }
 
             DeviceHardwareState(
                 thermalState = thermalState,

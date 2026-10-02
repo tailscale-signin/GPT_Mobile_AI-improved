@@ -25,7 +25,7 @@ extensions.configure<ApplicationExtension> {
         minSdk = 31
         targetSdk = 36
         versionCode = 96
-        versionName = "0.9.27.0" // delegation routing, GitHub write diagnostics, and plugin connections
+        versionName = "0.9.27.0" // delegation routing, GitHub write diagnostics, plugin connections, and release test fixes
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

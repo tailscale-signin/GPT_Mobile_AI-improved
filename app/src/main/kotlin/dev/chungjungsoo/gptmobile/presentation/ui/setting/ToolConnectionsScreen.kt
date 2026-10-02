@@ -381,8 +381,18 @@ fun ToolConnectionsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(plugin.description)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Enabled", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = uiState.pluginStates[plugin.id] ?: true,
+                            onCheckedChange = { viewModel.setPluginEnabled(plugin.id, it) }
+                        )
+                    }
                     Text(
-                        "This plugin is integrated into the app and does not require an MCP server. Its enable switch controls whether models can receive its tools.",
+                        "This plugin is integrated into the app and does not require an MCP server. Disabling it removes its tools from model sessions.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

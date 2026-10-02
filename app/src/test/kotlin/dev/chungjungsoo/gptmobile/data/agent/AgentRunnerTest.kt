@@ -22,6 +22,32 @@ import org.junit.Test
 
 class AgentRunnerTest {
     @Test
+    fun `GitHub resource and permission failures do not disable later valid operations`() = runBlocking {
+        var executions = 0
+        val github = tool("github__github_api") { id, _ ->
+            executions++
+            AgentToolResult(
+                id,
+                ToolResultContent.Text(
+                    if (executions <= 3) "GITHUB_NOT_FOUND_OR_HIDDEN: invalid path" else "Found valid resource"
+                ),
+                executions <= 3
+            )
+        }
+        AgentRunner(AgentRunLimits(maxRounds = 8)).run(
+            session { tools, exchanges ->
+                flow {
+                    assertTrue(tools.any { it.name == "github__github_api" })
+                    if (exchanges.size < 4) emit(toolCall("github-${exchanges.size}", "github__github_api"))
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(github)
+        ).toList()
+        assertEquals(4, executions)
+    }
+
+    @Test
     fun `primary executes GitHub after delegate reports missing capabilities`() = runBlocking {
         var writes = 0
         val delegate = tool("delegate_to_model") { id, _ ->

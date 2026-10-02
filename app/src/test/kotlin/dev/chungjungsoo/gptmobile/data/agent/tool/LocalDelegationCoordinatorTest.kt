@@ -117,7 +117,7 @@ class LocalDelegationCoordinatorTest {
     }
 
     private val source = PlatformV2(uid = "remote", name = "Remote", compatibleType = ClientType.OPENAI, apiUrl = "https://api.example.com")
-    private val target = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.2:8080")
+    private val target = PlatformV2(uid = "local", name = "Local", compatibleType = ClientType.LLAMA, model = java.util.UUID.randomUUID().toString(), apiUrl = "http://192.168.1.2:8080")
     private val config = ModelDelegationSettings(enabled = true, processingOwnership = 50, targetProfileUid = "local", maxLocalModelCalls = 2)
     private val raw = ToolResultContent.Text("Completed action: id=42. " + "Details. ".repeat(1000))
     private fun tool(action: () -> Unit = {}): ResolvedAgentTool {

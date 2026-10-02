@@ -74,6 +74,32 @@ class ToolExchangeCompactorTest {
     }
 
     @Test
+    fun compact_hard_bounds_call_metadata_and_keeps_newest_pairs() {
+        val exchanges = (0 until 100).map { index ->
+            val call = ProviderEvent.ToolCall(
+                callId = "call-$index",
+                name = "github__github_api",
+                arguments = buildJsonObject {
+                    put("action", "read_code")
+                    put("path", "src/very/long/path/$index/" + "segment".repeat(12))
+                }
+            )
+            AgentToolExchange(
+                calls = listOf(call),
+                results = listOf(AgentToolResult(call.callId, ToolResultContent.Text("ok-$index"), false))
+            )
+        }
+
+        val compacted = ToolExchangeCompactor.compact(exchanges, maxReplayTokens = 4_000, maxResultTokens = 256)
+
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) <= 4_000)
+        assertTrue(compacted.size < exchanges.size)
+        assertEquals("call-99", compacted.last().calls.last().callId)
+        compacted.forEach { exchange ->
+            assertEquals(exchange.calls.map { it.callId }, exchange.results.map { it.callId })
+        }
+    }
+    @Test
     fun compact_preserves_unmodified_json_result_type() {
         val call = ProviderEvent.ToolCall(
             "location",

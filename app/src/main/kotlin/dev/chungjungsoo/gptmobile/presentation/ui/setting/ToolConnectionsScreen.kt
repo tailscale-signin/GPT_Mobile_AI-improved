@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.FolderOpen
@@ -77,7 +78,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -484,23 +487,7 @@ private fun IntegratedPluginCard(
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(15.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    tonalElevation = 2.dp
-                ) {
-                    Box(
-                        modifier = Modifier.size(48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            plugin.icon,
-                            contentDescription = null,
-                            modifier = Modifier.size(25.dp)
-                        )
-                    }
-                }
+                IntegratedPluginIcon(plugin)
                 Column(Modifier.weight(1f)) {
                     Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -514,6 +501,52 @@ private fun IntegratedPluginCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onSettings) { Text("Settings") }
             }
+        }
+    }
+}
+
+@Composable
+private fun IntegratedPluginIcon(plugin: IntegratedPluginUi) {
+    val colors = MaterialTheme.colorScheme
+    val gradient = when (plugin.id) {
+        ToolPluginId.MODEL_DELEGATION -> listOf(colors.primaryContainer, colors.tertiaryContainer)
+        ToolPluginId.LOCAL_MEMORY -> listOf(colors.secondaryContainer, colors.primaryContainer)
+        ToolPluginId.GITHUB -> listOf(colors.surfaceVariant, colors.primaryContainer)
+        ToolPluginId.WEB_SEARCH -> listOf(colors.tertiaryContainer, colors.secondaryContainer)
+        ToolPluginId.DEVICE_LOCATION -> listOf(colors.primaryContainer, colors.secondaryContainer)
+        else -> listOf(colors.surfaceContainerHighest, colors.primaryContainer)
+    }
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Brush.linearGradient(gradient)),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(13.dp),
+            color = colors.surface.copy(alpha = 0.72f),
+            contentColor = colors.primary,
+            tonalElevation = 4.dp
+        ) {
+            Icon(
+                plugin.icon,
+                contentDescription = null,
+                modifier = Modifier.padding(9.dp).size(25.dp)
+            )
+        }
+        Surface(
+            shape = CircleShape,
+            color = colors.primary,
+            contentColor = colors.onPrimary,
+            shadowElevation = 3.dp,
+            modifier = Modifier.align(Alignment.BottomEnd).size(18.dp)
+        ) {
+            Icon(
+                Icons.Default.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.padding(4.dp)
+            )
         }
     }
 }

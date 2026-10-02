@@ -14,6 +14,12 @@ data class ModelDelegationSettings(
     val reviewerEnabled: Boolean = false,
     val reviewerProfileUid: String = "",
     val reviewerOutputTokens: Int = 384,
+    /** Minimum reviewer confidence accepted without a second review attempt. */
+    val reviewerMinimumScore: Int = 70,
+    /** Reviewer-only retries; delegate failover retries remain controlled separately. */
+    val reviewerRetryLimit: Int = 2,
+    /** Allow the reviewer to replace unsupported delegate context with corrected context. */
+    val reviewerAutoCorrect: Boolean = true,
     val fallbackToAnotherProfile: Boolean = true,
     val localPlatformsOnly: Boolean = true,
     /** Allow enabled remote profiles to receive delegated worker tasks. */
@@ -178,6 +184,8 @@ data class ModelDelegationSettings(
             strategy = strategy.coerceIn(0, 100),
             processingOwnership = processingOwnership.coerceIn(0, 100),
             reviewerOutputTokens = reviewerOutputTokens.coerceIn(128, 1024),
+            reviewerMinimumScore = reviewerMinimumScore.coerceIn(0, 100),
+            reviewerRetryLimit = reviewerRetryLimit.coerceIn(0, 5),
             maxDelegationDepth = maxDelegationDepth.coerceIn(1, 2),
             maxInputCharacters = maxInputCharacters.coerceIn(1000, 64000),
             maxInputTokensPerDelegate = normalizedInputCap,

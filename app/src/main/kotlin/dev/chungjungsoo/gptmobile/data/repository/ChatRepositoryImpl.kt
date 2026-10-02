@@ -33,6 +33,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.isResearchPageReader
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
+import dev.chungjungsoo.gptmobile.data.agent.tool.preferNativeGitHubForTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder

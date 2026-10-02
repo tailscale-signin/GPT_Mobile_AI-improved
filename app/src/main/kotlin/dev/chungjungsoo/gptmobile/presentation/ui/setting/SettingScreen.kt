@@ -42,7 +42,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -58,7 +57,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,7 +121,6 @@ fun SettingScreen(
         }
     }
 
-    MaterialTheme(typography = largerSettingsTypography(MaterialTheme.typography)) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -328,7 +325,6 @@ fun SettingScreen(
             }
         )
     }
-    }
 }
 
 @Composable
@@ -371,19 +367,6 @@ private fun SettingsStat(value: String, label: String, modifier: Modifier = Modi
     }
 }
 
-
-private fun largerSettingsTypography(base: Typography): Typography = base.copy(
-    headlineSmall = base.headlineSmall.copy(fontSize = base.headlineSmall.fontSize + 2.sp),
-    titleLarge = base.titleLarge.copy(fontSize = base.titleLarge.fontSize + 2.sp),
-    titleMedium = base.titleMedium.copy(fontSize = base.titleMedium.fontSize + 2.sp),
-    titleSmall = base.titleSmall.copy(fontSize = base.titleSmall.fontSize + 2.sp),
-    bodyLarge = base.bodyLarge.copy(fontSize = base.bodyLarge.fontSize + 2.sp),
-    bodyMedium = base.bodyMedium.copy(fontSize = base.bodyMedium.fontSize + 2.sp),
-    bodySmall = base.bodySmall.copy(fontSize = base.bodySmall.fontSize + 2.sp),
-    labelLarge = base.labelLarge.copy(fontSize = base.labelLarge.fontSize + 2.sp),
-    labelMedium = base.labelMedium.copy(fontSize = base.labelMedium.fontSize + 2.sp),
-    labelSmall = base.labelSmall.copy(fontSize = base.labelSmall.fontSize + 2.sp)
-)
 
 @Composable
 private fun SettingsCategory(

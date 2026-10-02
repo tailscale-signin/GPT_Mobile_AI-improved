@@ -135,8 +135,12 @@ internal fun resolveDelegatedChildResult(
     val recovered = toolFallbacks.distinct().joinToString("\n\n").takeIf { it.length >= MIN_DELEGATED_USEFUL_CHARS }
     val usable = direct ?: recovered
     val status = when {
-        providerFailure != null -> DelegatedChildStatus.FAILED
+        // Usable output wins over a trailing provider failure. Streaming providers can
+        // emit a valid final/tool result and then surface a transport reset while the
+        // connection is closing; discarding completed work turns success into a false
+        // tool error and causes duplicate retries.
         usable != null -> DelegatedChildStatus.COMPLETED
+        providerFailure != null -> DelegatedChildStatus.FAILED
         extractionFailed -> DelegatedChildStatus.PARSE_FAILED
         else -> DelegatedChildStatus.COMPLETED_EMPTY
     }
@@ -600,7 +604,7 @@ class ChatRepositoryImpl(
             }
     }
 
-    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool> = emptyList()): String {
+    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool> = emptyList(), finalizationRepairAttempted: Boolean = false): String {
         // Delegated runs are real child agent runs: they receive the target profile's
         // authorized tools, but never receive delegate_to_model itself. This enables
         // local -> remote tool use and remote -> local tool use without recursion.
@@ -846,9 +850,43 @@ class ChatRepositoryImpl(
             "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=${if (sawUsage) usageInputTokens else -1} · usageOutput=${if (sawUsage) usageOutputTokens else -1} · usageTotal=${if (sawUsage) usageTotalTokens else -1} · unusableTokens=${if (usableText == null && sawUsage) usageTotalTokens else 0} · outputCapMismatch=$outputCapMismatch"
         )
 
-        providerFailure?.let { error("DELEGATION_FAILED: $it") }
+        if (reasoningOnly && !finalizationRepairAttempted) {
+            val repairCap = minOf(maxOf(maxTokens * 2, 768), maxOf(target.maxTokens, maxTokens))
+            AppLogRecorder.record(
+                "Delegation",
+                "Reasoning-only completion repair · parentRun=$parentRunId · target=${target.uid} · firstCap=$maxTokens · repairCap=$repairCap · reasoningChars=$reasoningChars",
+                "W"
+            )
+            val repairTarget = target.copy(reasoning = false, maxTokens = maxOf(target.maxTokens, repairCap))
+            return delegateToProfile(
+                target = repairTarget,
+                task = task + "\n\nThe previous attempt used its response budget without producing a final answer. Do not expose internal reasoning. Return only the concise final answer or the required tool call now.",
+                maxTokens = repairCap,
+                parentRunId = parentRunId,
+                turnKey = turnKey,
+                maxInputTokens = maxInputTokens,
+                onProgress = onProgress,
+                allowTools = false,
+                fixtureTools = emptyList(),
+                chatToolConfig = chatToolConfig,
+                traceSequences = traceSequences,
+                onToolTrace = onToolTrace,
+                authorizedTools = emptyList(),
+                finalizationRepairAttempted = true
+            )
+        }
+        if (status == DelegatedChildStatus.FAILED) {
+            providerFailure?.let { error("DELEGATION_FAILED: $it") }
+        }
         if (reasoningOnly) {
-            error("REASONING_ONLY_RESPONSE: delegated provider produced reasoning tokens but no usable final answer.")
+            error("REASONING_ONLY_RESPONSE: delegated provider produced reasoning tokens but no usable final answer after one final-answer repair attempt.")
+        }
+        if (status == DelegatedChildStatus.COMPLETED && providerFailure != null) {
+            AppLogRecorder.record(
+                "Delegation",
+                "Recovered usable child result despite trailing provider failure · parentRun=$parentRunId · target=${target.uid} · message=${providerFailure.orEmpty().take(180)}",
+                "W"
+            )
         }
         return when (status) {
             DelegatedChildStatus.COMPLETED -> requireNotNull(usableText)

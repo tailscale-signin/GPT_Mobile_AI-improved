@@ -97,6 +97,11 @@ internal class DelegationBenchmarkRunner(
             val timing = telemetry()
             val workerInputDelta = after.first - before.first
             val workerOutputDelta = after.second - before.second
+            val reviewerScores = coordinator.reviewerScoresSnapshot()
+            val reviewerScore = reviewerScores.takeIf { it.isNotEmpty() }?.let { values ->
+                ((values.sum().toDouble() / values.size).coerceIn(0.0, 100.0) + 0.5).toInt()
+            }
+            reviewerScore?.let { event("REVIEWER_SCORE", "score=$it evaluations=${reviewerScores.size}") }
             if ((timing.firstTextMs ?: 0L) > 3_000L) event("INSIGHT_SLOW_FIRST_TEXT", "firstTextMs=${timing.firstTextMs}; investigate prompt evaluation, connection latency, model warmup, or context size", "WARN")
             if ((timing.decodeTokensPerSecond ?: Double.MAX_VALUE) < 10.0) event("INSIGHT_LOW_THROUGHPUT", "tokPerSec=${timing.decodeTokensPerSecond}; consider a faster delegate/runtime or lower worker context", "WARN")
             if (fixtureCalls > successfulCalls) event("INSIGHT_TOOL_USABILITY", "successfulFixtureCalls=$successfulCalls fixtureCalls=$fixtureCalls; inspect tool selection or argument generation", "WARN")
@@ -113,7 +118,9 @@ internal class DelegationBenchmarkRunner(
                     target.model, workerConfigKey, timing.estimated, timing.durationMs,
                     timing.firstTextMs, timing.decodeTokensPerSecond, timing.outputCapViolations,
                     timing.speedUsesReportedTokens,
-                    (diagnosticEvents + timing.events).sortedBy { it.elapsedMs }.takeLast(80)
+                    reviewerScore = reviewerScore,
+                    reviewerEvaluations = reviewerScores.size,
+                    diagnosticEvents = (diagnosticEvents + timing.events).sortedBy { it.elapsedMs }.takeLast(80)
                 )
             )
         }

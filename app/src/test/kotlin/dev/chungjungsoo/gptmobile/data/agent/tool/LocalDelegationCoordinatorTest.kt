@@ -173,9 +173,10 @@ class LocalDelegationCoordinatorTest {
                 "usable answer"
             }
         )
-        repeat(5) { index -> runCatching { coordinator.delegate(target, "Task", 256, emptyList(), "case-$index") } }
-        assertTrue(coordinator.researchAvailable())
-        runCatching { coordinator.delegate(target, "Task", 256, emptyList(), "blocked") }
+        repeat(5) { index ->
+            assertEquals("usable answer", coordinator.delegate(target, "Task", 256, emptyList(), "case-$index"))
+        }
+        assertEquals("usable answer", coordinator.delegate(target, "Task", 256, emptyList(), "recovered-again"))
         assertEquals(12, calls)
     }
 

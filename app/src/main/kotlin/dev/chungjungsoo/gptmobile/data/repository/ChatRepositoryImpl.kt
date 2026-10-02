@@ -1265,7 +1265,26 @@ class ChatRepositoryImpl(
                 val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })
                 val event = trace.start(call)
                 emit(ApiState.ToolCall(event.sequence))
-                val research = localDelegation.prepare(latestUser.content, delegatedTools, call.callId, automatic = true)
+                val research = try {
+                    localDelegation.prepare(latestUser.content, delegatedTools, call.callId, automatic = true)
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) {
+                        trace.finish(
+                            call,
+                            AgentToolResult(
+                                call.callId,
+                                ToolResultContent.Text("Delegated preparation canceled by the parent run."),
+                                true
+                            )
+                        )
+                    }
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Automatic preparation canceled · run=$runId · call=${call.callId} · terminalTraceRecorded=true",
+                        "W"
+                    )
+                    throw cancelled
+                }
                 val content = ToolResultContent.Text(research.handoff.ifBlank { "No external research was needed for this task." })
                 val preparationFailed = research.outcome in setOf(
                     dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.FAILED,

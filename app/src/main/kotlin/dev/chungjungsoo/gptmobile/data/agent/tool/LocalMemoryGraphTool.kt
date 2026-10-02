@@ -74,9 +74,19 @@ class LocalMemoryGraphTool(
                         val name = obj.string("name")
                         val type = obj.string("entityType").ifBlank { "ENTITY" }
                         require(entityGrounded(name)) { "Entity '$name' must be grounded in the current user message." }
+                        if (state.settings.reviewBeforeRecall) {
+                            require(obj.stringArray("observations").isNotEmpty()) {
+                                "Review-before-recall requires at least one grounded observation before creating a new entity."
+                            }
+                        }
                         MemoryGraphEntityInput(name, type)
                     }
-                    val saved = memoryGraph.createEntities(inputs, message.chatId, message.id)
+                    val saved = if (state.settings.reviewBeforeRecall) {
+                        emptyList()
+                    } else {
+                        memoryGraph.createEntities(inputs, message.chatId, message.id)
+                    }
+                    var pendingFacts = 0
                     objects.forEach { obj ->
                         val entityName = obj.string("name")
                         val entityType = obj.string("entityType").ifBlank { "ENTITY" }
@@ -89,11 +99,13 @@ class LocalMemoryGraphTool(
                                 targetType = "OBSERVATION",
                                 message = message
                             )
+                            pendingFacts++
                         }
                     }
                     buildJsonObject {
                         put("created", saved.size)
-                        put("entities", JsonArray(saved.map { JsonPrimitive(it.name) }))
+                        put("pendingReview", if (state.settings.reviewBeforeRecall) pendingFacts else 0)
+                        put("entities", JsonArray((if (saved.isEmpty()) inputs.map { it.name } else saved.map { it.name }).map(::JsonPrimitive)))
                         put("localOnly", true)
                     }.toString()
                 }

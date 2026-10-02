@@ -660,6 +660,7 @@ internal class LocalDelegationCoordinator(
         }
         return null
     }
+
     private suspend fun workerText(
         target: PlatformV2,
         prompt: String,
@@ -709,10 +710,6 @@ internal class LocalDelegationCoordinator(
                 val hardRuntimeSeconds = plan.hardRuntimeSeconds
                 val firstProgressSeconds = plan.firstProgressSeconds
                 val idleSeconds = plan.idleSeconds
-                AppLogRecorder.record(
-                    "Delegation",
-                    "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/$effectiveCallLimit · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · hardRuntimeMs=${hardRuntimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
-                )
                 val startedAtMs = nowMs()
                 dispatchedAtMs = startedAtMs
                 var observedInputTokens = 0L
@@ -805,6 +802,7 @@ internal class LocalDelegationCoordinator(
             failoverTarget = failoverTarget
         )
     }
+
     suspend fun prepare(
         task: String,
         tools: List<ResolvedAgentTool>,

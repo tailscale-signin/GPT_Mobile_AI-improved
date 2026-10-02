@@ -118,10 +118,18 @@ class ModelDelegationTool(
         // delegate_to_model may orchestrate several serialized worker generations.
         // Give the outer tool enough room for that workflow; individual workers remain
         // protected by their adaptive runtime/watchdog limits in the coordinator.
+        // Match the outer orchestration budget to the deadline each individual
+        // worker can actually consume. Using maxDelegateRuntimeSeconds unconditionally
+        // made short configured timeouts balloon into multi-minute waits (for example,
+        // a 5s worker timeout became a 12+ minute outer timeout with five retries).
+        val perAttemptRuntimeSeconds = minOf(
+            config.timeoutSeconds.toLong(),
+            config.maxDelegateRuntimeSeconds.toLong()
+        )
         val calculatedOrchestrationSeconds =
-            config.timeoutSeconds.toLong() * config.effectiveLocalModelCalls().coerceIn(1, 8) + 30L
+            perAttemptRuntimeSeconds * config.effectiveLocalModelCalls().coerceIn(1, 8) + 30L
         val stageRetryWindowSeconds =
-            (config.localRetryLimit.toLong() + 1L) * config.maxDelegateRuntimeSeconds.toLong() +
+            (config.localRetryLimit.toLong() + 1L) * perAttemptRuntimeSeconds +
                 config.localRetryLimit.toLong()
         val minimumRetryWindowSeconds =
             stageRetryWindowSeconds * if (config.reviewerEnabled) 2L else 1L

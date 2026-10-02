@@ -161,7 +161,7 @@ class LocalDelegationCoordinatorTest {
         assertEquals(1, toolCalls)
     }
 
-    @Test fun `intermittent malformed calls still quarantine the worker`() = runTest {
+    @Test fun `successful retry clears transient malformed call quarantine state`() = runTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
             source,
@@ -174,7 +174,7 @@ class LocalDelegationCoordinatorTest {
             }
         )
         repeat(5) { index -> runCatching { coordinator.delegate(target, "Task", 256, emptyList(), "case-$index") } }
-        assertFalse(coordinator.researchAvailable())
+        assertTrue(coordinator.researchAvailable())
         runCatching { coordinator.delegate(target, "Task", 256, emptyList(), "blocked") }
         assertEquals(12, calls)
     }

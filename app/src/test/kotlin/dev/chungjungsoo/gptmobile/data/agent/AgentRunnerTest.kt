@@ -369,6 +369,52 @@ class AgentRunnerTest {
     }
 
     @Test
+    fun `single tool is circuit broken after per response repeat limit`() = runBlocking {
+        val executions = AtomicInteger()
+        val providerCalls = AtomicInteger()
+        val repeated = tool("github__github_api") { id, _ ->
+            executions.incrementAndGet()
+            AgentToolResult(id, ToolResultContent.Text("ok"), false)
+        }
+        val session = session { tools, _ ->
+            val round = providerCalls.getAndIncrement()
+            flow {
+                if (tools.isNotEmpty()) emit(toolCall("call-$round", "github__github_api"))
+                else emit(ProviderEvent.TextDelta("finished"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+
+        val events = AgentRunner(AgentRunLimits(maxRounds = 40, maxToolCalls = 50)).run(session, listOf(repeated)).toList()
+
+        assertEquals(24, executions.get())
+        assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().any { it.result.isError })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
+
+    @Test
+    fun `tool is circuit broken after three consecutive errors`() = runBlocking {
+        val executions = AtomicInteger()
+        val failing = tool("github__github_api") { id, _ ->
+            executions.incrementAndGet()
+            AgentToolResult(id, ToolResultContent.Text("bad request"), true)
+        }
+        var round = 0
+        val session = session { tools, _ ->
+            flow {
+                if (tools.isNotEmpty()) emit(toolCall("failure-${round++}", "github__github_api"))
+                else emit(ProviderEvent.TextDelta("fallback answer"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+
+        val events = AgentRunner(AgentRunLimits(maxRounds = 10)).run(session, listOf(failing)).toList()
+
+        assertEquals(3, executions.get())
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.TextDelta })
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
+    @Test
     fun `tool output is bounded before persistence and provider replay`() = runBlocking {
         val providerCalls = AtomicInteger()
         var replayedResult: AgentToolResult? = null

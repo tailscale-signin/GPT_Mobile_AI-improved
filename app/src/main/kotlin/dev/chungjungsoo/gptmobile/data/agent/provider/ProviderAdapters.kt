@@ -382,31 +382,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     // The desktop gateway has its own intermediate-generation ceiling.
                     // Keep it aligned with the delegated provider cap so a 128/256-token
                     // worker cannot silently expand to the gateway default (for example 1024).
-                    val requestConfig = if (isLlama) {
-                        val delegationHeaders = buildMap {
-                            effectiveOutputTokens?.let {
-                                put("X-Gateway-Intermediate-Max-Tokens", it.toString())
-                            }
-                            // Delegated/local-preparation requests explicitly disable reasoning.
-                            // Propagate that intent to Gateway v12 as a request-scoped override;
-                            // otherwise Qwen thinking models can spend a tiny output cap entirely
-                            // on hidden reasoning and return no usable text.
-                            if (!constraints.allowReasoning) {
-                                put("X-Gateway-Reasoning-Effort", "none")
-                                if (constraints.maxOutputTokens != null) {
-                                    put("X-Gateway-Delegated-Worker", "true")
-                                    put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools).toString())
-                                }
-                            }
-                        }
-                        if (delegationHeaders.isEmpty()) {
-                            config
-                        } else {
-                            config.copy(extraHeaders = config.extraHeaders + delegationHeaders)
-                        }
-                    } else {
-                        config
-                    }
+                    val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints)
                     var currentRequestMessages = baseMessages
 
                     while (true) {
@@ -662,6 +638,25 @@ class OpenAICompatibleAdapter @Inject constructor(
         }
     }
 
+    private fun delegatedLlamaRequestConfig(
+        config: ProviderRequestConfig,
+        isLlama: Boolean,
+        effectiveOutputTokens: Int?,
+        constraints: RequestConstraints
+    ): ProviderRequestConfig {
+        if (!isLlama) return config
+        val headers = buildMap {
+            effectiveOutputTokens?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
+            if (!constraints.allowReasoning) {
+                put("X-Gateway-Reasoning-Effort", "none")
+                if (constraints.maxOutputTokens != null) {
+                    put("X-Gateway-Delegated-Worker", "true")
+                    put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools).toString())
+                }
+            }
+        }
+        return if (headers.isEmpty()) config else config.copy(extraHeaders = config.extraHeaders + headers)
+    }
     private fun isLocalLoopbackUrl(url: String): Boolean = runCatching {
         val uri = URI(if ("://" in url) url else "http://$url")
         val host = uri.host?.lowercase() ?: ""

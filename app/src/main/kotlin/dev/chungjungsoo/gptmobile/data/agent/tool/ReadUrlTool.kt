@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
@@ -72,13 +73,17 @@ class ReadUrlTool(
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: ReadUrlException) {
+            recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
             error(callId, "Read URL failed: ${exception.message}.")
-        } catch (_: UnknownHostException) {
+        } catch (exception: UnknownHostException) {
+            recordFailure(start, "dns", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: hostname could not be resolved. Check the URL and network connection.")
-        } catch (_: java.net.SocketTimeoutException) {
+        } catch (exception: java.net.SocketTimeoutException) {
+            recordFailure(start, "timeout", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: the website timed out. Try another source.")
-        } catch (ignored: Exception) {
-            error(callId, "Read URL failed: request failed.")
+        } catch (exception: Exception) {
+            recordFailure(start, "transport", exception.javaClass.simpleName, null)
+            error(callId, "Read URL failed: request failed (${exception.javaClass.simpleName}).")
         }
     }
 
@@ -228,6 +233,15 @@ class ReadUrlTool(
         } catch (ignored: Exception) {
             false
         }
+    }
+
+    private fun recordFailure(uri: URI, category: String, exceptionType: String, detail: String?) {
+        AppLogRecorder.record(
+            "ReadUrl",
+            "Read failed · host=${uri.host.orEmpty().take(160)} · category=$category · exception=$exceptionType" +
+                detail?.takeIf { it.isNotBlank() }?.let { " · detail=${it.take(240)}" }.orEmpty(),
+            "W"
+        )
     }
 
     private fun error(callId: String, message: String): AgentToolResult = AgentToolResult(

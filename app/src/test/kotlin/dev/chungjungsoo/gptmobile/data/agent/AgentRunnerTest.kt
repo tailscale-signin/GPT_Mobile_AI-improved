@@ -379,8 +379,11 @@ class AgentRunnerTest {
         val session = session { tools, _ ->
             val round = providerCalls.getAndIncrement()
             flow {
-                if (tools.isNotEmpty()) emit(toolCall("call-$round", "github__github_api"))
-                else emit(ProviderEvent.TextDelta("finished"))
+                if (tools.isNotEmpty()) {
+                    emit(toolCall("call-$round", "github__github_api"))
+                } else {
+                    emit(ProviderEvent.TextDelta("finished"))
+                }
                 emit(ProviderEvent.Completed)
             }
         }
@@ -402,8 +405,11 @@ class AgentRunnerTest {
         var round = 0
         val session = session { tools, _ ->
             flow {
-                if (tools.isNotEmpty()) emit(toolCall("failure-${round++}", "github__github_api"))
-                else emit(ProviderEvent.TextDelta("fallback answer"))
+                if (tools.isNotEmpty()) {
+                    emit(toolCall("failure-${round++}", "github__github_api"))
+                } else {
+                    emit(ProviderEvent.TextDelta("fallback answer"))
+                }
                 emit(ProviderEvent.Completed)
             }
         }

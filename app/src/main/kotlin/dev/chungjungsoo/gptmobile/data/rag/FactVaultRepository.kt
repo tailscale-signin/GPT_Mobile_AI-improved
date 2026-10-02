@@ -48,13 +48,14 @@ data class FactVaultSettings(
     val learnRelationships: Boolean = true,
     val reviewBeforeRecall: Boolean = false,
     val maxFacts: Int = 256,
-    val maxRecall: Int = 5,
+    val maxRecall: Int = 8,
     val retentionDays: Int = 0,
-    val captureSensitivity: Int = 50,
+    val captureSensitivity: Int = 65,
     val localModelLearning: Boolean = true,
     val rotateAutomaticFacts: Boolean = true,
-    val maxCapturePerMessage: Int = 8,
-    val recallTokens: Int = 1024,
+    val maxCapturePerMessage: Int = 12,
+    val recallTokens: Int = 1536,
+    val alwaysRecallPinned: Boolean = true,
     val externalRecallEnabled: Boolean = false,
     val externalMemoryConnections: Set<String> = emptySet(),
     val externalMemoryScopes: Map<String, String> = emptyMap()
@@ -166,7 +167,14 @@ class FactVaultRepository @Inject constructor(
                 !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
         }
         val selected = mutableListOf<VaultFact>()
+        if (settings.alwaysRecallPinned) {
+            for (entry in candidates.filter { it.pinned }.sortedByDescending { it.savedAtMillis }) {
+                if (selected.size >= minOf(2, settings.maxRecall)) break
+                if (FactRecall(selected + entry).prefix().toByteArray().size <= settings.recallTokens * 3) selected += entry
+            }
+        }
         for (entry in MemoryRecallPolicy.rank(query.take(MAX_QUERY_CHARS), candidates, previousContext)) {
+            if (selected.any { it.id == entry.id }) continue
             if (selected.size >= settings.maxRecall) break
             if (FactRecall(selected + entry).prefix().toByteArray().size <= settings.recallTokens * 3) selected += entry
         }

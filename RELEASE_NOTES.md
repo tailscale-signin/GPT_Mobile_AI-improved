@@ -1,29 +1,31 @@
-# GPT Mobile AI 0.9.25.0
+# GPT Mobile AI 0.9.26.0
 
-## Delegated tools and gateway 12.1.1
-- Preserve app-owned tool schemas in isolated delegated gateway requests so workers can execute authorized tools.
-- Bound gateway queue, model-read, and stream waits, and surface interrupted streams instead of accepting empty success.
-- Preserve backend token timing for buffered responses and avoid replaying completed tool work during retries.
+## Delegation reliability
+- Count delegated tool execution and explicit gateway tool lifecycle events as real watchdog progress.
+- Keep healthy tool-active delegates alive beyond short adaptive windows while preserving first-progress, idle, and hard runtime limits.
+- Propagate canceled and primary-only delegation as failures/handoffs instead of successful delegate responses.
+- Fail over and quarantine delegates that violate hard output-token caps.
 
-## Recovery and response handling
-- Apply first-response deadlines to local gateway workers and switch to eligible fallback models after failures.
-- Exclude unavailable LiteRT models and prevent repeated recovery cycles through failed helpers.
-- Accept short and array-form text responses and preserve exact values, identifiers, and sources during compaction.
-- Retry transient DNS and connection failures before output with bounded delays.
-- Omit unsupported model sampling parameters and retry explicitly rejected sampling fields.
+## GitHub tool reliability
+- Complete missing owner or repository fields from the selected GitHub workspace context instead of failing partial requests.
+- Add bounded GitHub failure diagnostics so tool errors include the actual validation or API reason.
+- Stop repeated tool-call storms after 24 calls to the same tool in one response and open a circuit after 3 consecutive tool failures.
+- Preserve tool-call/result ordering by call ID when calls are suppressed or deferred.
 
-## Delegation benchmarks
-- Report token speed using native/backend timings where available, with clearly labelled estimates otherwise.
-- Log delegation scores and rank, and distinguish transport failures from tool-capability failures.
-- Preserve the underlying worker error in case results and keep fixture checks dependent on real tool execution.
+## Context and local-model safeguards
+- Enforce the configured primary replay budget as a true hard ceiling, including accumulated tool-call metadata.
+- Remove the hidden 512-token replay minimum so smaller configured replay budgets are respected exactly.
+- Temporarily suppress unavailable local delegate runtimes within the current delegation turn without leaking unavailable-worker state into later turns.
+- Refactor large delegation and OpenAI-compatible provider hot paths to reduce Android ART compiler-instruction pressure.
+
+## Validation
+- Kotlin lint passed.
+- Android debug APK build and native-library verification passed.
+- Unit tests, JaCoCo, Room schema verification, and Android lint passed.
+- Remote diagnostics passed for resources/XML, unit tests, debug build, and Android lint.
+- CodeQL analysis passed.
+- Version: 0.9.26.0; version code: 95.
 
 ## Installation
-- Install the signed Android APK to use client repairs.
-- Update the PC gateway script to gateway/gateway_v12.1.py (version 12.1.1) and restart it to use gateway repairs.
-- Live phone and PC gateway behavior still requires verification after installation.
-
-## Validation and build
-- Android unit tests, Android and Kotlin lint, debug APK builds, and CodeQL passed for the repair commit.
-- All 15 gateway behavior and contract tests passed.
-- Version: 0.9.25.0; version code: 94.
-- Signed artifacts are verified for package/version identity and signing-certificate continuity before publication.
+- Install the signed Android APK from this release to use these fixes.
+- No gateway script change is required specifically for the 0.9.26.0 client reliability fixes; continue using the current supported Gateway v12.1.x deployment.

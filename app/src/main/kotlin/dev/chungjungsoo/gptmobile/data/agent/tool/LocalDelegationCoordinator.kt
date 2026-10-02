@@ -787,7 +787,8 @@ internal class LocalDelegationCoordinator(
         requirePrivate: Boolean,
         allowTools: Boolean,
         latest: ModelDelegationSettings,
-        interactiveRecovery: Boolean
+        interactiveRecovery: Boolean,
+        sameTargetRetryAttempt: Int
     ): WorkerPreparation {
         suspend fun recovery(uid: String, reason: String): WorkerPreparation {
             val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
@@ -802,8 +803,7 @@ internal class LocalDelegationCoordinator(
                 candidate.enabled &&
                 !candidate.excludesMemory() &&
                 candidate.uid != source.uid &&
-                candidate.uid !in quarantinedWorkerUids &&
-                !isPermanentlyUnavailable(candidate) &&
+                (sameTargetRetryAttempt > 0 || (candidate.uid !in quarantinedWorkerUids && !isPermanentlyUnavailable(candidate))) &&
                 (latest.remoteWorkersAllowed() || candidate.isPrivateDestination())
         } ?: return recovery(target.uid, "The selected delegate is unavailable or no longer eligible.").also {
             AppLogRecorder.record("Delegation", "Worker requires recovery · requested=${target.uid} · reason=TARGET_UNAVAILABLE · fallback=${it.failoverTarget?.uid}", "W")
@@ -833,13 +833,17 @@ internal class LocalDelegationCoordinator(
                 AppLogRecorder.record("Delegation", "Worker rejected · input budget too small · target=${profile.uid} · inputBudget=$budget · fallback=${it.failoverTarget?.uid}", "W")
             }
         }
-        if (failedLocalTokens.get() + canceledLocalTokens.get() >= effectiveWasteLimit) {
+        if (sameTargetRetryAttempt == 0 && failedLocalTokens.get() + canceledLocalTokens.get() >= effectiveWasteLimit) {
             AppLogRecorder.record("Delegation", "Worker rejected · wasted token budget exhausted · target=${profile.uid} · wasted=${failedLocalTokens.get() + canceledLocalTokens.get()} · max=$effectiveWasteLimit", "W")
             return WorkerPreparation(resolvedProfileUid = profile.uid)
         }
-        val callNumber = reserveWorkerCall(effectiveCallLimit) ?: run {
-            AppLogRecorder.record("Delegation", "Worker rejected · call budget exhausted · target=${profile.uid} · calls=${localCalls.get()}/$effectiveCallLimit", "W")
-            return WorkerPreparation(resolvedProfileUid = profile.uid)
+        val callNumber = if (sameTargetRetryAttempt > 0) {
+            localCalls.get().coerceAtLeast(1)
+        } else {
+            reserveWorkerCall(effectiveCallLimit) ?: run {
+                AppLogRecorder.record("Delegation", "Worker rejected · call budget exhausted · target=${profile.uid} · calls=${localCalls.get()}/$effectiveCallLimit", "W")
+                return WorkerPreparation(resolvedProfileUid = profile.uid)
+            }
         }
         val hardInputTokenCap = minOf(latest.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS)
         val profileOverhead = observedRequestOverheadTokens.getOrPut(profile.uid, ::AtomicLong)
@@ -942,7 +946,7 @@ internal class LocalDelegationCoordinator(
                     }
                     userSelectedRecoveryProfile.set(selected)
                     AppLogRecorder.record("Delegation", "User selected delegation failover · failed=$failedUid · selected=${selected.uid}", "W")
-                    return workerText(selected, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid)
+                    return workerText(selected, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid, sameTargetRetryAttempt = 0)
                 }
             }
         }
@@ -951,7 +955,7 @@ internal class LocalDelegationCoordinator(
             ?: if (failoverTarget != null) recoveryCandidates(latest, failedUid).firstOrNull { it.uid !in attemptedProfiles } else null
         if (fallback != null && fallback.uid != target.uid) {
             AppLogRecorder.record("Delegation", "Worker failover · failed=$failedUid · fallback=${fallback.uid} · type=${fallback.compatibleType}", "W")
-            return workerText(fallback, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid)
+            return workerText(fallback, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid, sameTargetRetryAttempt = 0)
         }
         return null
     }
@@ -964,7 +968,8 @@ internal class LocalDelegationCoordinator(
         allowTools: Boolean = false,
         pinnedConfig: ModelDelegationSettings? = null,
         interactiveRecovery: Boolean = false,
-        attemptedProfiles: Set<String> = emptySet()
+        attemptedProfiles: Set<String> = emptySet(),
+        sameTargetRetryAttempt: Int = 0
     ): String? {
         val config = (pinnedConfig ?: settings()).normalized()
         if (target.uid in attemptedProfiles) return null
@@ -985,7 +990,8 @@ internal class LocalDelegationCoordinator(
                     requirePrivate = requirePrivate,
                     allowTools = allowTools,
                     latest = latest,
-                    interactiveRecovery = interactiveRecovery
+                    interactiveRecovery = interactiveRecovery,
+                    sameTargetRetryAttempt = sameTargetRetryAttempt
                 )
                 resolvedProfileUid = preparation.resolvedProfileUid
                 recoveryReason = preparation.recoveryReason
@@ -1010,7 +1016,7 @@ internal class LocalDelegationCoordinator(
                 var observedInputTokens = 0L
                 AppLogRecorder.record(
                     "Delegation",
-                    "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/$effectiveCallLimit · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · hardRuntimeMs=${hardRuntimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
+                    "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/$effectiveCallLimit · sameTargetAttempt=${sameTargetRetryAttempt + 1}/${latest.localRetryLimit + 1} · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · hardRuntimeMs=${hardRuntimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
                 )
                 val response = try {
                     invokeWorkerWithWatchdog(
@@ -1082,6 +1088,28 @@ internal class LocalDelegationCoordinator(
         if (result != null) {
             lastFailure.set(null)
             return result
+        }
+        val retryLimit = config.localRetryLimit.coerceAtLeast(5)
+        if (recoveryReason != null && sameTargetRetryAttempt < retryLimit && !delegationCanceledByUser.get()) {
+            val retryNumber = sameTargetRetryAttempt + 1
+            val retryUid = resolvedProfileUid ?: target.uid
+            AppLogRecorder.record(
+                "Delegation",
+                "Same-delegate retry scheduled · target=$retryUid · retry=$retryNumber/$retryLimit · delayMs=$SAME_DELEGATE_RETRY_DELAY_MS · reason=${recoveryReason.orEmpty().take(180)}",
+                "W"
+            )
+            delay(SAME_DELEGATE_RETRY_DELAY_MS)
+            return workerText(
+                target = target,
+                prompt = prompt,
+                tokens = tokens,
+                requirePrivate = requirePrivate,
+                allowTools = allowTools,
+                pinnedConfig = pinnedConfig,
+                interactiveRecovery = interactiveRecovery,
+                attemptedProfiles = attemptedProfiles,
+                sameTargetRetryAttempt = retryNumber
+            )
         }
         return recoverWorkerText(
             target = target,

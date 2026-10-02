@@ -25,6 +25,7 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -155,7 +156,8 @@ private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_L
 
 private fun Modifier.chatViewportEdgeFade(
     topFade: Dp,
-    bottomFade: Dp
+    bottomFadeStartFromBottom: Dp,
+    bottomFadeEndFromBottom: Dp
 ): Modifier = this
     .graphicsLayer {
         compositingStrategy = CompositingStrategy.Offscreen
@@ -165,12 +167,16 @@ private fun Modifier.chatViewportEdgeFade(
         if (size.height <= 0f) return@drawWithContent
 
         val topStop = (topFade.toPx() / size.height).coerceIn(0f, 0.45f)
-        val bottomStop = (1f - (bottomFade.toPx() / size.height)).coerceIn(0.55f, 1f)
+        val bottomOpaqueStop = (1f - (bottomFadeStartFromBottom.toPx() / size.height))
+            .coerceIn(topStop, 0.96f)
+        val bottomTransparentStop = (1f - (bottomFadeEndFromBottom.toPx() / size.height))
+            .coerceIn(bottomOpaqueStop, 1f)
         drawRect(
             brush = Brush.verticalGradient(
                 0f to Color.Transparent,
                 topStop to Color.Black,
-                bottomStop to Color.Black,
+                bottomOpaqueStop to Color.Black,
+                bottomTransparentStop to Color.Transparent,
                 1f to Color.Transparent
             ),
             blendMode = BlendMode.DstIn
@@ -420,26 +426,32 @@ fun ChatScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        val density = LocalDensity.current
+        var composerHeightPx by remember { mutableIntStateOf(with(density) { 88.dp.roundToPx() }) }
+        val composerHeight = with(density) { composerHeightPx.toDp() }
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .imePadding()
         ) {
-            Box(
+            LazyColumn(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxSize()
+                    .chatViewportEdgeFade(
+                        // The list begins exactly below the title bar, so this mask starts
+                        // transparency at the bottom edge of the subject/title rather than
+                        // placing an opaque foreground scrim over rendered text.
+                        topFade = 52.dp,
+                        // Content continues behind the composer. Fade it from the top edge
+                        // of the input surface to transparent halfway through the bar.
+                        bottomFadeStartFromBottom = composerHeight,
+                        bottomFadeEndFromBottom = composerHeight * 0.5f
+                    ),
+                state = listState,
+                contentPadding = PaddingValues(bottom = composerHeight + 16.dp)
             ) {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .chatViewportEdgeFade(
-                            topFade = 40.dp,
-                            bottomFade = 16.dp
-                        ),
-                    state = listState
-                ) {
                     if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier messages") } }
                     if (hiddenTurnCount > 0) {
                         item(key = "archived-history-header") {
@@ -516,27 +528,30 @@ fun ChatScreen(
                             Spacer(if (hasTargetAssistant) Modifier.fillParentMaxHeight() else Modifier.size(1.dp))
                         }
                     }
-                }
+            }
 
-                if (!isFollowingBottom && listState.canScrollForward && !hasTargetMessage) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(bottom = 16.dp),
-                        contentAlignment = Alignment.BottomCenter
-                    ) {
-                        ScrollToBottomButton {
-                            scope.launch {
-                                listState.animateScrollToLatestChatMessage()
-                                isFollowingBottom = true
-                            }
+            if (!isFollowingBottom && listState.canScrollForward && !hasTargetMessage) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = composerHeight + 12.dp),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    ScrollToBottomButton {
+                        scope.launch {
+                            listState.animateScrollToLatestChatMessage()
+                            isFollowingBottom = true
                         }
                     }
                 }
             }
 
             ChatInputBox(
-                modifier = Modifier.navigationBarsPadding(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .onSizeChanged { composerHeightPx = it.height },
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
                 sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
@@ -564,7 +579,6 @@ fun ChatScreen(
                     focusManager.clearFocus()
                 }
             }
-        }
 
         if (isChatTitleDialogOpen) {
             ChatTitleDialog(
@@ -1202,10 +1216,21 @@ private fun ChatTopBar(
             )
         },
         navigationIcon = {
-            IconButton(
-                onClick = onBackAction
+            FilledIconButton(
+                onClick = onBackAction,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .size(40.dp)
             ) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.go_back),
+                    modifier = Modifier.size(21.dp)
+                )
             }
         },
         actions = {

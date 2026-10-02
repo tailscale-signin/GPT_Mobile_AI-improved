@@ -59,6 +59,15 @@ class GitHubTool(
     companion object {
         private const val BASE_URL = "https://api.github.com"
         private const val MAX_OUTPUT_CHARS = 32_000
+        private val MUTATING_ACTIONS = GitHubWorkspaceClient.writeActions + setOf(
+            "create_branch",
+            "update_file",
+            "create_pull_request",
+            "dispatch_workflow",
+            "rerun_workflow",
+            "rerun_failed_jobs",
+            "cancel_workflow"
+        )
 
         private val jsonParser = Json {
             ignoreUnknownKeys = true
@@ -78,7 +87,7 @@ class GitHubTool(
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = modelToolName,
-        description = "Work with GitHub repositories through one native integration. Prefer compact high-level actions: repo_status for an overview, repo_map before code reads, find_symbol/find_references/find_tests for discovery, pr_context for PR inspection, changed_since for compact diffs, release_status before releases, publish_release for end-to-end publication, and plan_change before multi-step writes. publish_release prefers an active repository release workflow and falls back to the GitHub Releases API when appropriate; do not tell the user to use local gh or the GitHub Web UI while this action is available. Use read_code line ranges instead of full files." + (accountName?.let { " Authenticated connection: $it. Use this tool for repositories available to this account." } ?: " Public read access; configure a GitHub API connection for private repositories and writes.") + (repositoryContext?.let { " Selected repository: ${it.fullName}, branch: ${it.ref}. Omitted owner/repo/ref use this selection. Read code in line ranges and include source paths. Read get_branch_head before commit_files; supply expected_head_sha. Commit only to a working branch and create a draft PR for review." } ?: ""),
+        description = "Work with GitHub repositories through one native integration. Prefer compact high-level actions: repo_status for an overview, repo_map before code reads, find_symbol/find_references/find_tests for discovery, pr_context for PR inspection, changed_since for compact diffs, release_status before releases, publish_release for end-to-end publication, and plan_change before multi-step writes. publish_release prefers an active repository release workflow and falls back to the GitHub Releases API when appropriate. Use write_capabilities to inspect repository write access when a write is denied. HTTP 403 alone does not prove a read-only token. Never fall back to shell, terminal, git CLI, gh CLI, or POSIX execution for a GitHub task while this integration is available. Use read_code line ranges instead of full files." + (accountName?.let { " Authenticated connection: $it. Use this tool for repositories available to this account." } ?: " Public read access; configure a GitHub API connection for private repositories and writes.") + (repositoryContext?.let { " Selected repository: ${it.fullName}, branch: ${it.ref}. Omitted owner/repo/ref use this selection. Read code in line ranges and include source paths. Read get_branch_head before commit_files; supply expected_head_sha. Commit only to a working branch and create a draft PR for review." } ?: ""),
         inputSchema = buildJsonObject {
             put("type", "object")
             put(
@@ -422,7 +431,7 @@ class GitHubTool(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
-            errorResult(callId, "GitHub request failed: ${throwable.localizedMessage ?: throwable.message ?: "Unknown error"}")
+            classifyGitHubFailure(callId, action, arguments, throwable)
         }
     }
 
@@ -862,7 +871,7 @@ class GitHubTool(
         return if (response.status.isSuccess()) {
             successResult(callId, truncate(text, MAX_OUTPUT_CHARS))
         } else {
-            errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            classifyGitHubHttpFailure(callId, "create_branch", arguments, response, text)
         }
     }
 
@@ -890,7 +899,7 @@ class GitHubTool(
         return if (response.status.isSuccess()) {
             successResult(callId, truncate(text, MAX_OUTPUT_CHARS))
         } else {
-            errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            classifyGitHubHttpFailure(callId, "update_file", arguments, response, text)
         }
     }
 
@@ -920,8 +929,82 @@ class GitHubTool(
         return if (response.status.isSuccess()) {
             successResult(callId, truncate(text, MAX_OUTPUT_CHARS))
         } else {
-            errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            classifyGitHubHttpFailure(callId, "create_pull_request", arguments, response, text)
         }
+    }
+
+    private suspend fun classifyGitHubFailure(
+        callId: String,
+        action: String,
+        arguments: JsonObject,
+        throwable: Throwable
+    ): AgentToolResult {
+        val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
+        if (action in MUTATING_ACTIONS && detail.contains("HTTP 403", ignoreCase = true)) {
+            return errorResult(callId, writeDeniedMessage(action, arguments, detail))
+        }
+        return errorResult(callId, "GitHub request failed: $detail")
+    }
+
+    private suspend fun classifyGitHubHttpFailure(
+        callId: String,
+        action: String,
+        arguments: JsonObject,
+        response: HttpResponse,
+        body: String
+    ): AgentToolResult {
+        val githubMessage = runCatching {
+            jsonParser.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.content
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+        val detail = buildString {
+            append("GitHub API returned HTTP ")
+            append(response.status.value)
+            githubMessage?.let {
+                append(" · message=")
+                append(it)
+            }
+            response.headers["X-RateLimit-Remaining"]?.let {
+                append(" · rateLimitRemaining=")
+                append(it)
+            }
+            response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let {
+                append(" · acceptedGitHubPermissions=")
+                append(it)
+            }
+            response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let {
+                append(" · oauthScopes=")
+                append(it)
+            }
+        }
+        return if (action in MUTATING_ACTIONS && response.status.value == 403) {
+            errorResult(callId, writeDeniedMessage(action, arguments, detail))
+        } else {
+            errorResult(callId, "$detail: ${truncate(body, 500)}")
+        }
+    }
+
+    private suspend fun writeDeniedMessage(
+        action: String,
+        arguments: JsonObject,
+        githubDetail: String
+    ): String {
+        val capabilities = runCatching {
+            workspaceClient.execute("write_capabilities", arguments).jsonObject
+        }.getOrNull()
+        val capability = capabilities?.get("write_capability")?.jsonPrimitive?.content ?: "unknown"
+        val canPush = capabilities?.get("can_push")?.jsonPrimitive?.content ?: "unknown"
+        val diagnosis = when (capability) {
+            "denied" ->
+                "Repository permission check reports can_push=false. The connected GitHub credential or installation does not have repository write access."
+            "allowed" ->
+                "Repository permission check reports can_push=$canPush. The credential is not generally read-only; this specific GitHub operation was blocked by an endpoint permission, repository rule, branch protection, SSO policy, or GitHub App permission."
+            else ->
+                "Repository write permission could not be determined. HTTP 403 alone does not prove the token is read-only."
+        }
+        return "GITHUB_WRITE_BLOCKED · action=$action · write_capability=$capability · can_push=$canPush. " +
+            "$diagnosis GitHub detail: $githubDetail. " +
+            "Do not retry this write repeatedly and do not fall back to shell/terminal/git commands. " +
+            "Use write_capabilities or the GitHub plugin settings to resolve the permission before another write attempt."
     }
 
     private fun compactGitRef(value: JsonObject): JsonObject = buildJsonObject {

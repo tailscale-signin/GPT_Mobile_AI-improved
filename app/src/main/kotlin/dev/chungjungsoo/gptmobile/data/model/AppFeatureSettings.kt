@@ -139,7 +139,6 @@ enum class AppFeature(
     )
 }
 
-
 object ToolPluginId {
     const val MODEL_DELEGATION = "model_delegation"
     const val LOCAL_MEMORY = "local_memory"

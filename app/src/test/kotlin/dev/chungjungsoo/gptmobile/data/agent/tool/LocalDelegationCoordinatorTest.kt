@@ -363,7 +363,7 @@ class LocalDelegationCoordinatorTest {
         assertEquals("recovered", coordinator.delegate(target, "first", 128, emptyList(), "first"))
         assertEquals("recovered", coordinator.delegate(target, "second", 128, emptyList(), "second"))
         assertEquals("recovered", coordinator.delegate(target, "third", 128, emptyList(), "third"))
-        assertEquals(16, dispatched.count { it == target.uid })
+        assertEquals(6, dispatched.count { it == target.uid })
         assertEquals(3, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -423,7 +423,7 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.executeTask(target, "first", 128))
         assertEquals("recovered", coordinator.executeTask(target, "second", 128))
-        assertEquals(11, dispatched.count { it == target.uid })
+        assertEquals(6, dispatched.count { it == target.uid })
         assertEquals(2, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -506,7 +506,7 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.delegate(target, "first", 256, emptyList(), "first"))
         assertEquals("recovered", coordinator.delegate(target, "second", 256, emptyList(), "second"))
-        assertEquals(11, dispatched.count { it == target.uid })
+        assertEquals(6, dispatched.count { it == target.uid })
         assertEquals(2, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }

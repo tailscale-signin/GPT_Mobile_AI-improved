@@ -24,12 +24,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -54,7 +57,8 @@ fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    ModelDelegationSettingsContent(config, profiles, busy, error, viewModel::update, viewModel::resetDelegationDefaults)
+    val modelScores by viewModel.modelScores.collectAsStateWithLifecycle()
+    ModelDelegationSettingsContent(config, profiles, busy, error, viewModel::update, viewModel::resetDelegationDefaults, modelScores)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -65,9 +69,11 @@ internal fun ModelDelegationSettingsContent(
     busy: Boolean,
     error: String?,
     onChange: ((ModelDelegationSettings) -> ModelDelegationSettings) -> Unit,
-    onReset: () -> Unit
+    onReset: () -> Unit,
+    modelScores: Map<String, Int> = emptyMap()
 ) {
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    var settingsTab by rememberSaveable { mutableIntStateOf(0) }
     val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (it.isPrivateDestination() || config.remoteWorkersAllowed()) }
     val configuredReviewer = eligible.firstOrNull { it.uid == config.reviewerProfileUid }
     val helperEligible = eligible.filter { candidate ->
@@ -94,7 +100,7 @@ internal fun ModelDelegationSettingsContent(
                     }
                     Column(Modifier.weight(1f)) {
                         Text("Model delegation", style = MaterialTheme.typography.headlineSmall)
-                        Text(if (config.enabled) "${100 - config.processingOwnership} delegation amount · ${config.strategy} research depth" else "Turn on to give tasks to a helper", style = MaterialTheme.typography.bodyMedium)
+                        Text(if (config.enabled) "${100 - config.processingOwnership} delegation amount · ${config.strategy} research depth" else "Turn on to give tasks to a delegate", style = MaterialTheme.typography.bodyMedium)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
@@ -110,32 +116,51 @@ internal fun ModelDelegationSettingsContent(
                         )
                     }
                 }
-                Text("A helper can research, read pages, and compress tool results so the main model receives a focused answer with evidence.", style = MaterialTheme.typography.bodyMedium)
+                Text("A delegate can research, read pages, and compress tool results so the main model receives a focused answer with evidence.", style = MaterialTheme.typography.bodyMedium)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusPill(Icons.Default.Memory, "Up to ${config.effectiveLocalModelCalls()} helper calls")
+                    StatusPill(Icons.Default.Memory, "Up to ${config.effectiveLocalModelCalls()} delegate calls")
                     StatusPill(Icons.Default.Bolt, "Compact evidence brief")
                     if (config.remoteWorkersAllowed()) StatusPill(Icons.Default.Cloud, "Remote workers on")
                     if (config.reviewerEnabled) StatusPill(Icons.Default.AutoAwesome, "Reviewer on")
                 }
             }
         }
+        PrimaryTabRow(selectedTabIndex = settingsTab) {
+            Tab(
+                selected = settingsTab == 0,
+                onClick = { settingsTab = 0 },
+                text = { Text("Delegation") },
+                icon = { Icon(Icons.Default.Bolt, null) }
+            )
+            Tab(
+                selected = settingsTab == 1,
+                onClick = { settingsTab = 1 },
+                text = { Text("Reviewer") },
+                icon = { Icon(Icons.Default.AutoAwesome, null) }
+            )
+        }
+
+        if (settingsTab == 0) {
         Card(shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SectionHeading("Helper model", "Choose an AI profile to handle delegated work.")
+                SectionHeading("Delegate model", "Choose an AI profile to handle delegated work.")
                 LocalToolToggle("Allow cloud helpers", config.remoteWorkersAllowed(), !busy) { value -> onChange { it.withRemoteWorkersAllowed(value) } }
-                Text("Cloud helpers receive delegated content and use their provider's tokens. Leave off to use only this device or a private server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Cloud delegates receive delegated content and use their provider's tokens. Leave off to use only this device or a private server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 DelegateModelDropdown(
                     profiles = helperEligible,
                     selectedProfileUid = config.targetProfileUid,
                     enabled = !busy,
-                    onSelected = { profile -> onChange { it.copy(targetProfileUid = profile?.uid.orEmpty()) } }
+                    onSelected = { profile -> onChange { it.copy(targetProfileUid = profile?.uid.orEmpty()) } },
+                    scores = modelScores
                 )
                 if (selectedDelegate == null) {
-                    Text("Select an enabled profile with a working model and connection in AI profiles. If it becomes unavailable, another eligible helper may be used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    Text("Select an enabled profile with a working model and connection in AI profiles. If it becomes unavailable, another eligible delegate may be used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }
+        }
+        if (settingsTab == 1) {
         Card(shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SectionHeading("Reviewer", "Use a second, different model to fact-check the delegate before the handoff reaches the primary model.")
@@ -157,7 +182,9 @@ internal fun ModelDelegationSettingsContent(
                         profiles = reviewerEligible,
                         selectedProfileUid = config.reviewerProfileUid,
                         enabled = !busy,
-                        onSelected = { profile -> onChange { it.copy(reviewerProfileUid = profile?.uid.orEmpty()) } }
+                        onSelected = { profile -> onChange { it.copy(reviewerProfileUid = profile?.uid.orEmpty()) } },
+                        roleLabel = "Reviewer model",
+                        scores = modelScores
                     )
                     val selectedReviewer = reviewerEligible.firstOrNull { it.uid == config.reviewerProfileUid }
                     if (selectedReviewer == null) {
@@ -167,19 +194,53 @@ internal fun ModelDelegationSettingsContent(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                    DelegationSlider(
+                        "Reviewer output tokens",
+                        config.reviewerOutputTokens,
+                        128..1024,
+                        64,
+                        !busy,
+                        "Budget for the score, findings, and optional corrected context."
+                    ) { value -> onChange { it.copy(reviewerOutputTokens = value) } }
+                    DelegationSlider(
+                        "Minimum reviewer score",
+                        config.reviewerMinimumScore,
+                        0..100,
+                        5,
+                        !busy,
+                        "Scores below this threshold are reviewed again before handoff when retry attempts remain."
+                    ) { value -> onChange { it.copy(reviewerMinimumScore = value) } }
+                    DelegationSlider(
+                        "Reviewer retry attempts",
+                        config.reviewerRetryLimit,
+                        0..5,
+                        1,
+                        !busy,
+                        "Reviewer retries are separate from the delegate's required five failover retries."
+                    ) { value -> onChange { it.copy(reviewerRetryLimit = value) } }
+                    LocalToolToggle("Allow reviewer corrections", config.reviewerAutoCorrect, !busy) { value ->
+                        onChange { it.copy(reviewerAutoCorrect = value) }
+                    }
+                    Text(
+                        "Turn corrections off to use the reviewer only as an independent score and warning layer; the original delegate context is preserved.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
+        }
+        if (settingsTab == 0) {
         Card(shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SectionHeading("Workload", "Adjust how much the helper does and how widely it researches.")
+                SectionHeading("Workload", "Adjust how much the delegate does and how widely it researches.")
                 DelegationSlider(
                     "Delegation amount",
                     100 - config.processingOwnership,
                     0..100,
                     5,
                     !busy,
-                    "Less → More. Recommended: 80. Higher values favor the helper for research and tool results; the main model writes the final answer. This is a routing preference, not a guaranteed token percentage."
+                    "Less → More. Recommended: 80. Higher values favor the delegate for research and tool results; the main model writes the final answer. This is a routing preference, not a guaranteed token percentage."
                 ) { value -> onChange { it.withDelegationAmount(value) } }
                 DelegationSlider(
                     "Research depth",
@@ -189,7 +250,7 @@ internal fun ModelDelegationSettingsContent(
                     !busy,
                     "Focused → Broad. Recommended: 70. More coverage reads more sources while keeping each helper request bounded."
                 ) { value -> onChange { it.withStrategy(value) } }
-                Text("Up to ${config.effectiveLocalModelCalls()} helper calls · ${config.maxSearchQueries} searches · ${config.maxPages} pages per research pass", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Up to ${config.effectiveLocalModelCalls()} delegate calls · ${config.maxSearchQueries} searches · ${config.maxPages} pages per research pass", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Card(shape = RoundedCornerShape(20.dp)) {
@@ -225,13 +286,12 @@ internal fun ModelDelegationSettingsContent(
                     DelegationSlider("Page characters to process", config.maxPageCharacters, 1000..96000, 1000, !busy) { value -> onChange { it.copy(maxPageCharacters = value) } }
                     Text("Handoff and helper workload", style = MaterialTheme.typography.titleMedium)
                     DelegationSlider("Remote brief token budget", config.handoffTokens, 128..8192, 128, !busy, "A byte-based estimate. Lower values reduce remote context; sources and limitations remain attached.") { value -> onChange { it.copy(handoffTokens = value) } }
-                    DelegationSlider("Helper input characters per step", config.maxInputCharacters, 1000..64000, 500, !busy) { value -> onChange { it.copy(maxInputCharacters = value) } }
+                    DelegationSlider("Delegate input characters per step", config.maxInputCharacters, 1000..64000, 500, !busy) { value -> onChange { it.copy(maxInputCharacters = value) } }
                     DelegationSlider("Max input tokens per delegate", config.maxInputTokensPerDelegate, 1000..12000, 500, !busy, "Hard preflight cap including the worker prompt and retained tool schemas. Oversized tasks are chunked before inference.") { value -> onChange { it.copy(maxInputTokensPerDelegate = value) } }
                     DelegationSlider("Chunk size", config.chunkSizeTokens, 1000..12000, 500, !busy, "Large delegated payloads are split near this token size instead of truncating one giant request.") { value -> onChange { it.copy(chunkSizeTokens = value) } }
                     DelegationSlider("Retry chunk size", config.retryChunkSizeTokens, 500..6000, 250, !busy, "A failed chunk is retried only as smaller pieces; the original oversized payload is never replayed.") { value -> onChange { it.copy(retryChunkSizeTokens = value) } }
-                    DelegationSlider("Helper output tokens per step", config.maxOutputTokens, 64..4096, 64, !busy) { value -> onChange { it.copy(maxOutputTokens = value) } }
-                    DelegationSlider("Reviewer output tokens", config.reviewerOutputTokens, 128..1024, 64, !busy, "Budget for the independent review verdict, score, findings, and corrected context.") { value -> onChange { it.copy(reviewerOutputTokens = value) } }
-                    DelegationSlider("Helper model calls per turn", config.maxLocalModelCalls, 1..48, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> onChange { it.copy(maxLocalModelCalls = value) } }
+                    DelegationSlider("Delegate output tokens per step", config.maxOutputTokens, 64..4096, 64, !busy) { value -> onChange { it.copy(maxOutputTokens = value) } }
+                    DelegationSlider("Delegate model calls per turn", config.maxLocalModelCalls, 1..48, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> onChange { it.copy(maxLocalModelCalls = value) } }
                     DelegationSlider("Maximum concurrent delegates", config.maxConcurrentDelegates, 1..4, 1, !busy, "One is safest for on-device inference. Increase only when the selected backend can run independent workers safely.") { value -> onChange { it.copy(maxConcurrentDelegates = value) } }
                     DelegationSlider("Research timeout in seconds", config.timeoutSeconds, 5..300, 5, !busy, "Legacy ceiling. Per-worker adaptive deadlines are also limited by the maximum delegate runtime below.") { value -> onChange { it.copy(timeoutSeconds = value) } }
                     DelegationSlider("Time-to-first-token timeout", config.timeToFirstTokenTimeoutSeconds, 5..90, 5, !busy, "Cancels a worker that never produces output or tool activity.") { value -> onChange { it.copy(timeToFirstTokenTimeoutSeconds = value) } }
@@ -250,6 +310,7 @@ internal fun ModelDelegationSettingsContent(
                     }
                 }
             }
+        }
         }
     }
 }

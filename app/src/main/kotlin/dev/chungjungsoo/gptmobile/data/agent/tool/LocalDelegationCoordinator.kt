@@ -63,7 +63,6 @@ internal class LocalDelegationCoordinator(
         private const val WATCHDOG_POLL_MS = 250L
         private const val MAX_CONSECUTIVE_EMPTY_RESPONSES = 2
         private const val RUNTIME_NOT_READY_COOLDOWN_MS = 60_000L
-        private val runtimeNotReadyUntilMs = ConcurrentHashMap<String, Long>()
     }
 
     private val localCalls = AtomicInteger()
@@ -78,6 +77,7 @@ internal class LocalDelegationCoordinator(
     private val emptyResponsesByWorker = ConcurrentHashMap<String, AtomicInteger>()
     private val quarantinedWorkerUids = ConcurrentHashMap.newKeySet<String>()
     private val observedRequestOverheadTokens = ConcurrentHashMap<String, AtomicLong>()
+    private val runtimeNotReadyUntilMs = ConcurrentHashMap<String, Long>()
     private val delegationCanceledByUser = AtomicBoolean(false)
     private val userSelectedRecoveryProfile = AtomicReference<PlatformV2?>(null)
     private val lastFailure = AtomicReference<String?>(null)

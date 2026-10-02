@@ -495,6 +495,59 @@ internal class LocalDelegationCoordinator(
         }
     }
 
+    private suspend fun recoverWorkerText(
+        target: PlatformV2,
+        prompt: String,
+        tokens: Int,
+        requirePrivate: Boolean,
+        allowTools: Boolean,
+        pinnedConfig: ModelDelegationSettings?,
+        interactiveRecovery: Boolean,
+        attemptedProfiles: Set<String>,
+        resolvedProfileUid: String?,
+        recoveryReason: String?,
+        failoverTarget: PlatformV2?
+    ): String? {
+        val failedUid = resolvedProfileUid ?: target.uid
+        val latest = (pinnedConfig ?: settings()).normalized()
+        if (interactiveRecovery && onRecoveryRequired != null && recoveryReason != null) {
+            val failedProfile = profiles().firstOrNull { it.uid == failedUid } ?: target
+            val candidates = recoveryCandidates(latest, failedUid).filter { it.uid !in attemptedProfiles }
+            val decision = if (candidates.isEmpty()) DelegationRecoveryDecision.PrimaryOnly
+                else onRecoveryRequired.invoke(failedProfile, candidates, recoveryReason)
+            when (decision) {
+                DelegationRecoveryDecision.PrimaryOnly -> {
+                    delegationCanceledByUser.set(true)
+                    val detail = if (candidates.isEmpty()) "no eligible fallback delegate" else "primary-only selected"
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Delegation primary-only handoff · failed=$failedUid · primary=${source.uid} · reason=$detail",
+                        "W"
+                    )
+                    return null
+                }
+                is DelegationRecoveryDecision.SwitchProfile -> {
+                    val selected = candidates.firstOrNull { it.uid == decision.profileUid }
+                    if (selected == null) {
+                        delegationCanceledByUser.set(true)
+                        AppLogRecorder.record("Delegation", "Selected failover no longer eligible · failed=$failedUid · selected=${decision.profileUid}", "W")
+                        return null
+                    }
+                    userSelectedRecoveryProfile.set(selected)
+                    AppLogRecorder.record("Delegation", "User selected delegation failover · failed=$failedUid · selected=${selected.uid}", "W")
+                    return workerText(selected, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid)
+                }
+            }
+        }
+        if (lastFailure.get() == null && recoveryReason != null) lastFailure.set(recoveryReason)
+        val fallback = failoverTarget?.takeIf { it.uid !in attemptedProfiles }
+            ?: if (failoverTarget != null) recoveryCandidates(latest, failedUid).firstOrNull { it.uid !in attemptedProfiles } else null
+        if (fallback != null && fallback.uid != target.uid) {
+            AppLogRecorder.record("Delegation", "Worker failover · failed=$failedUid · fallback=${fallback.uid} · type=${fallback.compatibleType}", "W")
+            return workerText(fallback, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid)
+        }
+        return null
+    }
     private suspend fun workerText(
         target: PlatformV2,
         prompt: String,
@@ -704,57 +757,20 @@ internal class LocalDelegationCoordinator(
             lastFailure.set(null)
             return result
         }
-        val failedUid = resolvedProfileUid ?: target.uid
-        val latest = (pinnedConfig ?: settings()).normalized()
-        if (interactiveRecovery && onRecoveryRequired != null && recoveryReason != null) {
-            val failedProfile = profiles().firstOrNull { it.uid == failedUid } ?: target
-            val candidates = recoveryCandidates(latest, failedUid).filter { it.uid !in attemptedProfiles }
-            val decision = if (candidates.isEmpty()) {
-                DelegationRecoveryDecision.PrimaryOnly
-            } else {
-                onRecoveryRequired.invoke(failedProfile, candidates, recoveryReason.orEmpty())
-            }
-            when (decision) {
-                DelegationRecoveryDecision.PrimaryOnly -> {
-                    delegationCanceledByUser.set(true)
-                    AppLogRecorder.record(
-                        "Delegation",
-                        "Delegation failover canceled or timed out · failed=$failedUid · primary=${source.uid}",
-                        "W"
-                    )
-                    return null
-                }
-
-                is DelegationRecoveryDecision.SwitchProfile -> {
-                    val selected = candidates.firstOrNull { it.uid == decision.profileUid }
-                    if (selected == null) {
-                        delegationCanceledByUser.set(true)
-                        return null
-                    }
-                    userSelectedRecoveryProfile.set(selected)
-                    AppLogRecorder.record(
-                        "Delegation",
-                        "User selected delegation failover · failed=$failedUid · selected=${selected.uid}",
-                        "W"
-                    )
-                    return workerText(selected, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid)
-                }
-            }
-        }
-        if (lastFailure.get() == null && recoveryReason != null) lastFailure.set(recoveryReason)
-        val fallback = failoverTarget?.takeIf { it.uid !in attemptedProfiles }
-            ?: if (failoverTarget != null) recoveryCandidates(latest, failedUid).firstOrNull { it.uid !in attemptedProfiles } else null
-        if (fallback != null && fallback.uid != target.uid) {
-            AppLogRecorder.record(
-                "Delegation",
-                "Worker failover · failed=$failedUid · fallback=${fallback.uid} · type=${fallback.compatibleType}",
-                "W"
-            )
-            return workerText(fallback, prompt, tokens, requirePrivate, allowTools, pinnedConfig, interactiveRecovery, attemptedProfiles + failedUid)
-        }
-        return null
+        return recoverWorkerText(
+            target = target,
+            prompt = prompt,
+            tokens = tokens,
+            requirePrivate = requirePrivate,
+            allowTools = allowTools,
+            pinnedConfig = pinnedConfig,
+            interactiveRecovery = interactiveRecovery,
+            attemptedProfiles = attemptedProfiles,
+            resolvedProfileUid = resolvedProfileUid,
+            recoveryReason = recoveryReason,
+            failoverTarget = failoverTarget
+        )
     }
-
     suspend fun prepare(
         task: String,
         tools: List<ResolvedAgentTool>,

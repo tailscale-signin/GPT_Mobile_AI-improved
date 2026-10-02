@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -28,6 +29,10 @@ class ModelDelegationTool(
 ) : AgentTool {
     private val calls = AtomicInteger(0)
     private val primaryOnlyForTurn = AtomicBoolean(false)
+    private val githubUnavailableTargets = ConcurrentHashMap.newKeySet<String>()
+    private val exhaustedTasks = ConcurrentHashMap.newKeySet<String>()
+
+    private fun targetKey(profile: PlatformV2): String = "${profile.uid}|${profile.compatibleType}|${profile.model}|${profile.apiUrl}"
 
     private companion object {
         const val OUTER_TIMEOUT_GRACE_SECONDS = 20
@@ -61,6 +66,7 @@ class ModelDelegationTool(
             it.enabled &&
                 it.uid != source.uid &&
                 !it.excludesMemory() &&
+                (!isGitHubTask(task) || targetKey(it) !in githubUnavailableTargets) &&
                 (config.remoteWorkersAllowed() || it.isPrivateDestination())
         }
         val target = eligibleTargets.firstOrNull { it.uid == config.targetProfileUid }
@@ -79,6 +85,10 @@ class ModelDelegationTool(
                 )
             }
         AppLogRecorder.record("Delegation", "Target selected · target=${target.uid} · type=${target.compatibleType} · model=${target.model.take(96)} · taskChars=${task.length}")
+        val taskKey = "${targetKey(target)}|${task.trim()}"
+        if (taskKey in exhaustedTasks) {
+            return error("This helper already exhausted recovery for the same task. Continue with the primary model or delegate only a smaller missing subtask; do not replay completed writes.")
+        }
         if (target.excludesMemory()) return error("Free models cannot receive delegated context. Start a separate Free chat with a public prompt.").also { AppLogRecorder.record("Delegation", "Rejected free target · target=${target.uid}", "W") }
         if (target.uid == source.uid) return error("Choose a different target profile; self-delegation is disabled.").also { AppLogRecorder.record("Delegation", "Rejected self-delegation · target=${target.uid}", "W") }
         // `localPlatformsOnly` governs the default destination policy. An explicit
@@ -135,6 +145,7 @@ class ModelDelegationTool(
                 return error(response)
             }
             if (gitHubCapabilityRefusal(task, response)) {
+                githubUnavailableTargets += targetKey(target)
                 calls.decrementAndGet()
                 AppLogRecorder.record("Delegation", "GitHub capability unavailable on helper · call=$callId · target=${target.uid} · recoverWithPrimary=true · terminalCircuit=false · callBudgetRestored=true", "W")
                 return error("The helper lacks GitHub access. This does not describe the primary model's tools. Continue using the primary model's enabled GitHub integration to complete the authorized task. Do not replay completed writes.\n\nHelper report:\n$response")
@@ -152,6 +163,7 @@ class ModelDelegationTool(
             throw cancellation
         } catch (failure: Exception) {
             val message = failure.message.orEmpty()
+            if (message.contains("CANCELED_NO_RESULT", ignoreCase = true)) exhaustedTasks += taskKey
             // Provider/runtime failures are scoped to the failed attempt. The coordinator
             // owns target quarantine and failover; this outer tool must not disable every
             // delegate for the remainder of the turn after one transient failure.

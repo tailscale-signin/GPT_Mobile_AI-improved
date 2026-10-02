@@ -69,7 +69,15 @@ internal fun ModelDelegationSettingsContent(
 ) {
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     val eligible = profiles.filter { it.enabled && !it.excludesMemory() && (it.isPrivateDestination() || config.remoteWorkersAllowed()) }
-    val selectedDelegate = eligible.firstOrNull { it.uid == config.targetProfileUid }
+    val configuredReviewer = eligible.firstOrNull { it.uid == config.reviewerProfileUid }
+    val helperEligible = eligible.filter { candidate ->
+        !config.reviewerEnabled ||
+            (
+                candidate.uid != configuredReviewer?.uid &&
+                    (configuredReviewer == null || !candidate.model.trim().equals(configuredReviewer.model.trim(), ignoreCase = true))
+                )
+    }
+    val selectedDelegate = helperEligible.firstOrNull { it.uid == config.targetProfileUid }
     val reviewerEligible = eligible.filter { candidate ->
         candidate.uid != config.targetProfileUid &&
             (selectedDelegate == null || !candidate.model.trim().equals(selectedDelegate.model.trim(), ignoreCase = true))
@@ -117,7 +125,7 @@ internal fun ModelDelegationSettingsContent(
                 LocalToolToggle("Allow cloud helpers", config.remoteWorkersAllowed(), !busy) { value -> onChange { it.withRemoteWorkersAllowed(value) } }
                 Text("Cloud helpers receive delegated content and use their provider's tokens. Leave off to use only this device or a private server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 DelegateModelDropdown(
-                    profiles = eligible,
+                    profiles = helperEligible,
                     selectedProfileUid = config.targetProfileUid,
                     enabled = !busy,
                     onSelected = { profile -> onChange { it.copy(targetProfileUid = profile?.uid.orEmpty()) } }

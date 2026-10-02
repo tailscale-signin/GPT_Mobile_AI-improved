@@ -291,7 +291,7 @@ class ChatRepositoryImpl(
         tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
         runId: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
-        val constraints = RequestConstraints(maxOutputTokens = 512, allowTools = tools.isNotEmpty(), allowReasoning = false)
+        val constraints = RequestConstraints(maxOutputTokens = 512, allowTools = tools.isNotEmpty(), allowReasoning = true)
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty())
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
@@ -686,13 +686,15 @@ class ChatRepositoryImpl(
         val constraints = RequestConstraints(
             maxOutputTokens = maxTokens,
             allowTools = childTools.isNotEmpty() || allowGatewayLocalTools,
-            allowReasoning = false,
+            // Do not prohibit reasoning at the transport layer. Some endpoints require it;
+            // the worker prompt still asks for a concise visible final answer.
+            allowReasoning = true,
             allowGatewayLocalTools = allowGatewayLocalTools
         )
         val bounded = target.copy(
             batchMode = false,
             model = if (target.compatibleType == ClientType.OPENROUTER) target.model.removeSuffix(":batch") else target.model,
-            reasoning = false,
+            reasoning = target.reasoning,
             disableAllTools = childTools.isEmpty() && !allowGatewayLocalTools,
             systemPrompt = boundedSystemPrompt
         )
@@ -873,9 +875,8 @@ class ChatRepositoryImpl(
                 "Output-cap completion repair · parentRun=$parentRunId · target=${target.uid} · cap=$effectiveCap · outputTokens=$maxRoundOutput · draftChars=${repairDraft.length}",
                 "W"
             )
-            val repairTarget = target.copy(reasoning = false)
             return delegateToProfile(
-                target = repairTarget,
+                target = target,
                 task = task + "\n\nA previous draft reached the output cap and may be truncated. Rewrite it into a complete, concise final answer within the same token budget. Preserve exact facts/source IDs and do not invent anything.\n\nDraft:\n" + repairDraft,
                 maxTokens = maxTokens,
                 parentRunId = parentRunId,
@@ -899,9 +900,8 @@ class ChatRepositoryImpl(
                 "Reasoning-only completion repair · parentRun=$parentRunId · target=${target.uid} · firstCap=$maxTokens · repairCap=$repairCap · reasoningChars=$reasoningChars",
                 "W"
             )
-            val repairTarget = target.copy(reasoning = false)
             return delegateToProfile(
-                target = repairTarget,
+                target = target,
                 task = task + "\n\nThe previous attempt used its response budget without producing a final answer. Do not expose internal reasoning. Return only the concise final answer or the required tool call now.",
                 maxTokens = repairCap,
                 parentRunId = parentRunId,

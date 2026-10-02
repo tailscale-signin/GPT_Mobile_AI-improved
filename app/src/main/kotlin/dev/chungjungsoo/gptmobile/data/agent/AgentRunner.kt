@@ -311,7 +311,15 @@ class AgentRunner(
                     isError = true
                 )
             }
-            val allResults = (executedResults + deferredResults).toMutableList()
+            val producedResults = executedResults + deferredResults
+            val resultByCallId = producedResults.associateBy { it.callId }
+            val allResults = calls.map { call ->
+                resultByCallId[call.callId] ?: AgentToolResult(
+                    callId = call.callId,
+                    content = ToolResultContent.Text("Tool result was unavailable; do not retry this call in the same response."),
+                    isError = true
+                )
+            }.toMutableList()
             val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
             val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
             replayTokens = ToolExchangeCompactor.estimateTokens(

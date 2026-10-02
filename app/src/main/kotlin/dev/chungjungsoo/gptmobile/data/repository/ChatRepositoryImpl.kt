@@ -320,6 +320,7 @@ class ChatRepositoryImpl(
         val eligible = profiles.filter {
             it.enabled &&
                 it.uid != platform.uid &&
+                (!config.reviewerEnabled || it.uid != config.reviewerProfileUid) &&
                 !it.excludesMemory() &&
                 (config.allowRemoteWorkers || it.isPrivateDestination()) &&
                 !(platform.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
@@ -327,6 +328,19 @@ class ChatRepositoryImpl(
         val target = eligible.firstOrNull { it.uid == config.targetProfileUid }
             ?: error("The selected delegate is unavailable or ineligible. Choose an enabled helper; benchmarks never switch to another profile.")
         validateBenchmarkProfile(target)
+        val reviewer = if (config.reviewerEnabled) {
+            val candidate = profiles.firstOrNull { it.uid == config.reviewerProfileUid }
+                ?: error("Choose an enabled Reviewer profile before running a delegation benchmark.")
+            check(candidate.enabled && !candidate.excludesMemory()) { "The Reviewer profile is disabled or cannot receive delegated context." }
+            check(candidate.uid != platform.uid && candidate.uid != target.uid) { "Reviewer must be a different profile from both the primary and delegate." }
+            check(!candidate.model.trim().equals(target.model.trim(), ignoreCase = true)) { "Reviewer must use a different model from the delegate." }
+            check(config.remoteWorkersAllowed() || candidate.isPrivateDestination()) { "Reviewer is blocked by the private-destination-only setting." }
+            check(!(platform.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM)) { "The on-device primary cannot use another on-device LiteRT model as Reviewer during the same response." }
+            validateBenchmarkProfile(candidate)
+            candidate
+        } else {
+            null
+        }
         var calls = 0
         var input = 0L
         var output = 0L
@@ -353,11 +367,11 @@ class ChatRepositoryImpl(
             }
             AppLogRecorder.record("DelegationBenchmark", "$type · $message", logLevel)
         }
-        benchmarkEvent("BENCHMARK_START", "primary=${platform.uid} worker=${target.uid} model=${target.model} case=${test.id}")
+        benchmarkEvent("BENCHMARK_START", "primary=${platform.uid} worker=${target.uid} model=${target.model} reviewer=${reviewer?.uid ?: "off"} case=${test.id}")
         val features = settingRepository.getFeatureSettings()
         val workerEnvironment = "${settingRepository.getLocalRuntimeBackend()}|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|" +
             "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}"
-        val pinnedProfiles = listOf(platform, target)
+        val pinnedProfiles = listOfNotNull(platform, target, reviewer).distinctBy { it.uid }
         val runner = dev.chungjungsoo.gptmobile.data.benchmark.DelegationBenchmarkRunner(
             createCoordinator = { fixtures ->
                 suspend fun generate(targetProfile: PlatformV2, task: String, cap: Int, inputCap: Int, progress: (DelegateProgress) -> Unit, allowTools: Boolean): String {

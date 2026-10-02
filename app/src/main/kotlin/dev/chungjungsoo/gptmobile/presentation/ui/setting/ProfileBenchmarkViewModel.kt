@@ -75,6 +75,14 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
     val delegationSettings = settings.observeFeatureSettings().map { it.delegation.normalized() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings())
+    private val selectedBenchmarkUids = MutableStateFlow<Set<String>?>(null)
+    val benchmarkCandidates = profiles.map { list -> list.filter { it.enabled && it.model.isNotBlank() } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val selectedBenchmarks = combine(benchmarkCandidates, selectedBenchmarkUids) { list, selected ->
+        val ids = selected ?: list.map { it.uid }.toSet()
+        list.filter { it.uid in ids }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val delegateUid = MutableStateFlow("")
     private val selectedDelegateUids = MutableStateFlow<Set<String>?>(null)
     val delegates = combine(profiles, selected, delegationSettings) { list, primary, config ->
@@ -142,6 +150,20 @@ class ProfileBenchmarkViewModel @Inject constructor(
 
     fun select(profile: PlatformV2) {
         if (job?.isActive != true) selectedUid.value = profile.uid
+    }
+
+    fun toggleBenchmarkProfile(profile: PlatformV2) {
+        if (job?.isActive == true) return
+        val current = selectedBenchmarkUids.value ?: selectedBenchmarks.value.map { it.uid }.toSet()
+        selectedBenchmarkUids.value = if (profile.uid in current) current - profile.uid else current + profile.uid
+    }
+
+    fun selectAllBenchmarks() {
+        if (job?.isActive != true) selectedBenchmarkUids.value = benchmarkCandidates.value.map { it.uid }.toSet()
+    }
+
+    fun clearBenchmarks() {
+        if (job?.isActive != true) selectedBenchmarkUids.value = emptySet()
     }
 
     fun selectDelegate(profile: PlatformV2) {
@@ -295,6 +317,99 @@ class ProfileBenchmarkViewModel @Inject constructor(
                     }
                     mutableProgress.value = null
                 }
+            }
+        }
+    }
+
+
+    fun startStandardBatch(mode: BenchmarkMode) {
+        require(mode != BenchmarkMode.DELEGATION)
+        val targets = selectedBenchmarks.value
+        if (job?.isActive == true || !mutableReady.value) return
+        if (activeRequests.value) {
+            mutableError.value = "Wait for active model requests to finish before benchmarking."
+            return
+        }
+        if (targets.isEmpty()) {
+            mutableError.value = "Select at least one AI model to benchmark."
+            return
+        }
+        val suite = benchmarkSuite(mode)
+        val totalTests = suite.size * targets.size
+        mutableError.value = null
+        mutableProgress.value = BenchmarkProgress("Batch benchmark", "Preparing models", 0, totalTests)
+        job = viewModelScope.launch {
+            val failures = mutableListOf<String>()
+            try {
+                targets.forEachIndexed { profileIndex, target ->
+                    val baseProgress = profileIndex * suite.size
+                    var run = BenchmarkRun(
+                        UUID.randomUUID().toString(), target.uid, target.name, target.compatibleType.name,
+                        target.model, benchmarkConfigKey(target, localEnvironment.value), target.compatibleType == ClientType.LITERT_LM,
+                        mode, System.currentTimeMillis(), finished = false, suiteVersion = 1,
+                        device = "${Build.MANUFACTURER} ${Build.MODEL}", thermalBefore = thermal(), batteryBefore = battery(),
+                        engineWasLoaded = target.compatibleType == ClientType.LITERT_LM && runtime.loadedEngineSpec() != null
+                    )
+                    var currentTest = suite.first()
+                    try {
+                        if (target.compatibleType == ClientType.LITERT_LM && localEnvironment.value.isBlank()) {
+                            error("Local runtime details are not ready.")
+                        }
+                        mutableProgress.value = BenchmarkProgress(target.name, "Validating profile", baseProgress, totalTests)
+                        chats.validateBenchmarkProfile(target)
+                        store.save(run)
+                        val supportsTools = chats.supportsBenchmarkTools(target)
+                        val stoppedReason = runBenchmarkSuite(
+                            suite = suite,
+                            runCase = { index, test ->
+                                currentTest = test
+                                mutableProgress.value = BenchmarkProgress(target.name, test.label, baseProgress + index, totalTests)
+                                BenchmarkRunner(openSession = { turns, tools ->
+                                    chats.openBenchmarkSession(target, turns, tools, "benchmark-${run.id}-${test.id}")
+                                }).run(test, supportsTools)
+                            },
+                            onSample = { sample ->
+                                val pss = withContext(Dispatchers.IO) { Debug.getPss() }
+                                val actual = runtime.state.value.takeIf { run.local && sample.completed }
+                                run = run.copy(
+                                    samples = run.samples + sample,
+                                    peakClientPssKb = maxOf(run.peakClientPssKb ?: 0, pss),
+                                    backend = actual?.backend?.displayName ?: run.backend,
+                                    accelerator = actual?.engineSpec?.accelerator ?: run.accelerator
+                                )
+                                store.save(run)
+                            },
+                            stopOnError = true
+                        )
+                        if (stoppedReason != null) {
+                            run = run.copy(stoppedReason = stoppedReason)
+                            failures += "${target.name}: $stoppedReason"
+                        }
+                    } catch (cancelled: CancellationException) {
+                        val canceledSample = if (run.samples.any { it.testId == currentTest.id }) {
+                            emptyList()
+                        } else {
+                            listOf(BenchmarkSample(currentTest.id, currentTest.label, currentTest.category, BenchmarkOutcome.CANCELED))
+                        }
+                        run = run.copy(canceled = true, samples = run.samples + canceledSample)
+                        throw cancelled
+                    } catch (error: Exception) {
+                        val reason = safeMessage(error)
+                        failures += "${target.name}: $reason"
+                        run = run.copy(stoppedReason = reason)
+                    } finally {
+                        withContext(NonCancellable) {
+                            runCatching {
+                                store.save(run.copy(finished = true, thermalAfter = thermal(), batteryAfter = battery()))
+                            }.onFailure { failures += "${target.name}: could not save benchmark" }
+                        }
+                    }
+                }
+            } catch (_: CancellationException) {
+                // The current run is persisted as canceled by the per-profile finally block.
+            } finally {
+                mutableProgress.value = null
+                if (failures.isNotEmpty()) mutableError.value = failures.joinToString("\n").take(1500)
             }
         }
     }

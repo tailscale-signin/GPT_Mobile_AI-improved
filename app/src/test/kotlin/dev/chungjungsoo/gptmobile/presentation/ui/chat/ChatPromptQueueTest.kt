@@ -386,6 +386,9 @@ class ChatPromptQueueTest {
             ),
             conversationReadStateStore = dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore(
                 ApplicationProvider.getApplicationContext()
+            ),
+            generationCompletionStore = dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore(
+                ApplicationProvider.getApplicationContext()
             )
         ).also { store.put("chat", it) }
     }

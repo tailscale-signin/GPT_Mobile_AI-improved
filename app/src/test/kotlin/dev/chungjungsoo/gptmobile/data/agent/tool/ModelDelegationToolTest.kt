@@ -167,12 +167,18 @@ class ModelDelegationToolTest {
     fun timesOutAndPropagatesParentCancellation() = runTest {
         val slow = ModelDelegationTool(
             source,
-            { enabled.copy(timeoutSeconds = 5, maxLocalModelCalls = 1) },
+            {
+                enabled.copy(
+                    timeoutSeconds = 5,
+                    maxDelegateRuntimeSeconds = 5,
+                    maxLocalModelCalls = 1
+                )
+            },
             { listOf(target) }
         ) { _, _, _ ->
-            // The outer timeout now reserves enough time for the coordinator's mandatory
-            // five same-delegate retries. Exceed that expanded window to verify the
-            // orchestration timeout itself still terminates a genuinely stuck call.
+            // Make the per-attempt hard runtime explicit. The production coordinator
+            // intentionally allows active tool work to continue up to that hard ceiling,
+            // so a short legacy timeout alone must not shrink the mandatory retry window.
             delay(600_000)
             "late"
         }

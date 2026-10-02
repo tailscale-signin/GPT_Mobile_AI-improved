@@ -272,8 +272,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                         }
                     }
                     if (advancedControls) {
-                    item {
-                        Card(Modifier.fillMaxWidth()) {
+                        item {
+                            Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text("Connected memory · advanced", style = MaterialTheme.typography.titleMedium)
                                 VaultToggle("Automatically recall from selected MCPs", settings.externalRecallEnabled, !busy) { viewModel.updateSettings(settings.copy(externalRecallEnabled = it)) }
@@ -293,8 +293,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                                     }
                                 }
                             }
+                            }
                         }
-                    }
                     }
                     item {
                         Text("Local memory tools", style = MaterialTheme.typography.titleMedium)

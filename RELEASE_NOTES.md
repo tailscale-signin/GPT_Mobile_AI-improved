@@ -1,31 +1,34 @@
-# GPT Mobile AI 0.9.26.0
+# GPT Mobile AI 0.9.27.0
 
-## Delegation reliability
-- Count delegated tool execution and explicit gateway tool lifecycle events as real watchdog progress.
-- Keep healthy tool-active delegates alive beyond short adaptive windows while preserving first-progress, idle, and hard runtime limits.
-- Propagate canceled and primary-only delegation as failures/handoffs instead of successful delegate responses.
-- Fail over and quarantine delegates that violate hard output-token caps.
+## Delegation and GitHub reliability
+- Fixes delegate selection for legacy configurations where cloud helpers had been allowed through the older local-only setting.
+- Prevents delegation from selecting the active primary profile or repeatedly cycling through unavailable helpers.
+- Keeps GitHub repository work on the native GitHub integration and removes POSIX/shell/terminal fallbacks for GitHub tasks.
+- Adds repository write-capability inspection before diagnosing GitHub write failures.
+- Stops treating every HTTP 403 as proof of a read-only token.
+- Reports the exact GitHub permission layer involved, including repository push authority and endpoint-specific requirements such as Contents: write, Pull requests: write, and Actions: write.
+- Preserves GitHub API error messages, rate-limit state, accepted permissions, OAuth scope hints, and SSO details when available.
+- Returns structured GITHUB_WRITE_BLOCKED errors and stops repeated write retries after a confirmed denial.
 
-## GitHub tool reliability
-- Complete missing owner or repository fields from the selected GitHub workspace context instead of failing partial requests.
-- Add bounded GitHub failure diagnostics so tool errors include the actual validation or API reason.
-- Stop repeated tool-call storms after 24 calls to the same tool in one response and open a circuit after 3 consecutive tool failures.
-- Preserve tool-call/result ordering by call ID when calls are suppressed or deferred.
+## Tool Connections redesign
+- Splits Tool Connections into a default Plugins tab and a separate Remote MCP tab.
+- Moves built-in and native integrations, including GitHub API, web search, memory, calculator, file reading, URL reading, location, and delegation, under Plugins.
+- Adds persistent per-plugin enable/disable controls and settings.
+- Keeps actual MCP servers isolated under Remote MCP with their connection, health, authentication, resources/prompts, permissions, pairing, and marketplace controls.
+- Ensures disabled plugins are actually removed from model tool catalogs rather than being cosmetic UI toggles.
 
-## Context and local-model safeguards
-- Enforce the configured primary replay budget as a true hard ceiling, including accumulated tool-call metadata.
-- Remove the hidden 512-token replay minimum so smaller configured replay budgets are respected exactly.
-- Temporarily suppress unavailable local delegate runtimes within the current delegation turn without leaking unavailable-worker state into later turns.
-- Refactor large delegation and OpenAI-compatible provider hot paths to reduce Android ART compiler-instruction pressure.
+## GitHub plugin UX
+- Shows the permissions required for repository writes, pull requests, and Actions directly in GitHub Plugin settings.
+- Keeps native GitHub and GitHub MCP clearly separated so the app does not duplicate or confuse the two tool paths.
+- Prevents anonymous GitHub fallback from bypassing a disabled authenticated GitHub plugin.
 
-## Validation
-- Kotlin lint passed.
-- Android debug APK build and native-library verification passed.
-- Unit tests, JaCoCo, Room schema verification, and Android lint passed.
-- Remote diagnostics passed for resources/XML, unit tests, debug build, and Android lint.
-- CodeQL analysis passed.
-- Version: 0.9.26.0; version code: 95.
+## Regression coverage
+- Covers legacy delegation migration, strict local-only behavior, plugin gating, GitHub write capability inspection, false read-only 403 diagnosis, and POSIX suppression for GitHub tasks.
+
+## Version
+- Version: 0.9.27.0
+- Version code: 96
 
 ## Installation
-- Install the signed Android APK from this release to use these fixes.
-- No gateway script change is required specifically for the 0.9.26.0 client reliability fixes; continue using the current supported Gateway v12.1.x deployment.
+- Install the signed Android APK from this release.
+- No gateway script update is required specifically for these client-side delegation, GitHub, and Tool Connections fixes.

@@ -109,6 +109,7 @@ class DelegationBenchmarkRatingTest {
         assertEquals(60L, result.workerOutputTokens)
         assertTrue(result.estimated)
     }
+
     @Test fun `reviewer score is exposed and influences delegation score`() {
         val strong = delegationBenchmarkRating(listOf(run("strong-review", reviewerScore = 100)))
         val weak = delegationBenchmarkRating(listOf(run("weak-review", reviewerScore = 0)))
@@ -128,5 +129,4 @@ class DelegationBenchmarkRatingTest {
         assertEquals(0, result.reviewerEvaluations)
         assertTrue(result.dimensions.any { it.label == "Reviewer quality" && it.score == null })
     }
-
 }

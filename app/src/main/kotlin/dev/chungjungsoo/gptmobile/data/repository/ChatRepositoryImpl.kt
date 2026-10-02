@@ -830,6 +830,8 @@ class ChatRepositoryImpl(
         val recoveredToolChars = if (directUsableChars == 0) usableText?.length ?: 0 else 0
         val effectiveCap = effectiveProviderOutputCap ?: constraints.outputLimit(target.maxTokens)
         val outputCapMismatch = sawUsage && effectiveCap != null && maxRoundOutput > effectiveCap
+        val outputCapReached = sawUsage && effectiveCap != null && maxRoundOutput >= effectiveCap
+        val likelyTruncated = isLikelyDelegatedTruncation(rawText, outputCapReached)
 
         if (outputCapMismatch) {
             AppLogRecorder.record(
@@ -847,8 +849,34 @@ class ChatRepositoryImpl(
         )
         AppLogRecorder.record(
             "Delegation",
-            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=${if (sawUsage) usageInputTokens else -1} · usageOutput=${if (sawUsage) usageOutputTokens else -1} · usageTotal=${if (sawUsage) usageTotalTokens else -1} · unusableTokens=${if (usableText == null && sawUsage) usageTotalTokens else 0} · outputCapMismatch=$outputCapMismatch"
+            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=${if (sawUsage) usageInputTokens else -1} · usageOutput=${if (sawUsage) usageOutputTokens else -1} · usageTotal=${if (sawUsage) usageTotalTokens else -1} · unusableTokens=${if (usableText == null && sawUsage) usageTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
         )
+
+        if (usableText != null && likelyTruncated && !finalizationRepairAttempted) {
+            val repairDraft = truncateUtf8(usableText, 6_000)
+            AppLogRecorder.record(
+                "Delegation",
+                "Output-cap completion repair · parentRun=$parentRunId · target=${target.uid} · cap=$effectiveCap · outputTokens=$maxRoundOutput · draftChars=${repairDraft.length}",
+                "W"
+            )
+            val repairTarget = target.copy(reasoning = false)
+            return delegateToProfile(
+                target = repairTarget,
+                task = task + "\n\nA previous draft reached the output cap and may be truncated. Rewrite it into a complete, concise final answer within the same token budget. Preserve exact facts/source IDs and do not invent anything.\n\nDraft:\n" + repairDraft,
+                maxTokens = maxTokens,
+                parentRunId = parentRunId,
+                turnKey = turnKey,
+                maxInputTokens = maxInputTokens,
+                onProgress = onProgress,
+                allowTools = false,
+                fixtureTools = emptyList(),
+                chatToolConfig = chatToolConfig,
+                traceSequences = traceSequences,
+                onToolTrace = onToolTrace,
+                authorizedTools = emptyList(),
+                finalizationRepairAttempted = true
+            )
+        }
 
         if (reasoningOnly && !finalizationRepairAttempted) {
             val repairCap = minOf(maxOf(maxTokens * 2, 768), maxOf(target.maxTokens, maxTokens))
@@ -1891,6 +1919,16 @@ class ChatRepositoryImpl(
     }
 
     private fun contextString(resId: Int, fallback: String): String = runCatching { context.getString(resId) }.getOrDefault(fallback)
+}
+
+internal fun isLikelyDelegatedTruncation(text: String, outputCapReached: Boolean): Boolean {
+    if (!outputCapReached || text.isBlank()) return false
+    val trimmed = text.trimEnd()
+    val fence = "\u0060\u0060\u0060"
+    val unclosedFence = trimmed.windowed(fence.length, 1).count { it == fence } % 2 != 0
+    val finalCharacter = trimmed.lastOrNull()
+    val hasNaturalEnding = finalCharacter != null && finalCharacter in ".!?)]}\\\"'"
+    return unclosedFence || !hasNaturalEnding
 }
 
 internal fun MessageV2.sendableAssistantContent(): String {

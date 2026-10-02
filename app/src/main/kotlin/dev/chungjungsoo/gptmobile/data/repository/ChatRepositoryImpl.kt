@@ -1145,13 +1145,22 @@ class ChatRepositoryImpl(
                 )
             }
             val recalled = try {
-                if (latestUser == null || platform.excludesMemory() || platform.disableAllTools || platform.disableLocalTools) {
+                if (latestUser == null || platform.excludesMemory()) {
                     FactRecall()
                 } else {
-                    val recall = factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.isPrivateDestination(), previousContext = userMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }) ?: FactRecall()
-                    if (taskRoutedTools.any { it.realToolName == "delegate_to_model" }) {
+                    // Automatic local memory capture/recall is independent from the
+                    // profile's ordinary tool-call switches. Disabling tools should not
+                    // silently disable the user's Memory setting.
+                    val recall = factVault?.prepareTurn(
+                        latestUser.content,
+                        latestUser.chatId,
+                        latestUser.id,
+                        isLocal = platform.isPrivateDestination(),
+                        previousContext = userMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
+                    ) ?: FactRecall()
+                    if (factVault?.state?.value?.settings?.localModelLearning == true) {
                         try {
-                            factVault?.enrichTurn(latestUser, localDelegation::memoryObservations)
+                            factVault.enrichTurn(latestUser, localDelegation::memoryObservations)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {

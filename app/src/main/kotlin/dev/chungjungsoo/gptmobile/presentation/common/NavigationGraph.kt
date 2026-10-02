@@ -24,6 +24,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
@@ -49,6 +50,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingViewMod
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ProviderConnectionSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsTypographyScope
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionEditorScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
@@ -69,6 +71,23 @@ fun SetupNavGraph(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
     onLaunchOAuth: (String) -> Unit = {}
+) {
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val navHost: @Composable () -> Unit = {
+        AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+    }
+    if (isSettingsDestination(currentEntry?.destination?.route)) {
+        SettingsTypographyScope(content = navHost)
+    } else {
+        navHost()
+    }
+}
+
+@Composable
+private fun AppNavHost(
+    navController: NavHostController,
+    toolConnectionsViewModel: ToolConnectionsViewModel,
+    onLaunchOAuth: (String) -> Unit
 ) {
     NavHost(
         modifier = Modifier
@@ -152,6 +171,25 @@ fun SetupNavGraph(
         settingNavigation(navController, toolConnectionsViewModel, onLaunchOAuth)
         chatScreenNavigation(navController)
     }
+}
+
+private fun isSettingsDestination(route: String?): Boolean {
+    if (route == null) return false
+    return route == Route.SETTINGS ||
+        route == Route.AI_PLATFORMS ||
+        route == Route.ADD_PLATFORM ||
+        route == Route.OPENROUTER_SETTINGS ||
+        route == Route.FACT_VAULT ||
+        route == Route.ADVANCED_SETTINGS ||
+        route == Route.USAGE_STATISTICS ||
+        route == Route.DEBUG_DIAGNOSTICS ||
+        route == Route.ABOUT_PAGE ||
+        route == Route.LICENSE ||
+        route.startsWith(Route.LOCAL_MODELS) ||
+        route.startsWith("profile_benchmarks") ||
+        route.startsWith("tool_connections") ||
+        route.startsWith("platform_settings/") ||
+        route.startsWith("provider_settings/")
 }
 
 fun NavGraphBuilder.migrationScreenNavigation(navController: NavHostController) {

@@ -768,6 +768,8 @@ class GitHubTool(
                     compactWorkflowPayload(action, text)
                 }
             )
+        } else if (write) {
+            classifyGitHubHttpFailure(callId, action, arguments, response, text)
         } else {
             errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
         }

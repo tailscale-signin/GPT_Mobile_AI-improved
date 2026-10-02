@@ -267,6 +267,7 @@ fun SettingScreen(
                     }
                 }
             },
+            onRecentRestore = settingViewModel::restoreRecentBackup,
             onSectionChange = settingViewModel::updateBackupSection,
             onPasswordProtectionChange = settingViewModel::updateBackupPasswordProtection,
             onPasswordChange = settingViewModel::updateBackupPassword

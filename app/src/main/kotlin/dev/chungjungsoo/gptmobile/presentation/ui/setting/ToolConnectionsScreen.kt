@@ -56,6 +56,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -94,6 +95,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
@@ -112,7 +114,9 @@ fun ToolConnectionsScreen(
     onEditConnectionClick: (String) -> Unit,
     onNavigationClick: () -> Unit
 ) {
-    var settingsTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var remoteMcpTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var pluginSettings by remember { mutableStateOf<IntegratedPluginUi?>(null) }
+    var delegationSettingsOpen by remember { mutableStateOf(false) }
     var pairingLink by remember { mutableStateOf<String?>(null) }
     val pairingContext = LocalContext.current
     pairingLink?.let { entered ->
@@ -197,38 +201,103 @@ fun ToolConnectionsScreen(
                 .padding(innerPadding)
                 .verticalScroll(scrollState)
         ) {
-            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = if (settingsTab) 1 else 0) {
-                androidx.compose.material3.Tab(selected = !settingsTab, onClick = { settingsTab = false }, text = { Text("Connections") })
-                androidx.compose.material3.Tab(selected = settingsTab, onClick = { settingsTab = true }, text = { Text("Settings") })
+            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = if (remoteMcpTab) 1 else 0) {
+                androidx.compose.material3.Tab(
+                    selected = !remoteMcpTab,
+                    onClick = { remoteMcpTab = false },
+                    text = { Text("Plugins") }
+                )
+                androidx.compose.material3.Tab(
+                    selected = remoteMcpTab,
+                    onClick = { remoteMcpTab = true },
+                    text = { Text("Remote MCP") }
+                )
             }
-            if (settingsTab) {
-                LocalToolsSettingsPanel(settingsOnly = true)
-            } else {
+
+            val nativeConnections = uiState.connections.filter { it.type != ToolConnectionType.MCP }
+            val mcpConnections = uiState.connections.filter { it.type == ToolConnectionType.MCP }
+
+            if (!remoteMcpTab) {
                 ToolInventorySummaryCard(
-                    installedCount = uiState.connections.size,
-                    remoteMcpCount = uiState.connections.count { it.type == ToolConnectionType.MCP },
+                    installedCount = INTEGRATED_PLUGINS.size + nativeConnections.size,
+                    remoteMcpCount = mcpConnections.size,
                     onlineMcpCount = uiState.connectionHealth.values.count {
                         it.status == ToolConnectionHealthStatus.ONLINE
                     }
                 )
 
                 Text(
-                    text = "Integrated tools",
+                    text = "Integrated plugins",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                 )
-                IntegratedToolsCard()
-                TextButton(onClick = { pairingLink = "" }) { Text(stringResource(R.string.pair_server_title)) }
-
                 Text(
-                    text = "Installed connections",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    text = "Built into the app. Disable any plugin to remove its tools from model sessions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                )
+                INTEGRATED_PLUGINS.forEach { plugin ->
+                    val enabled = uiState.pluginStates[plugin.id] ?: true
+                    IntegratedPluginCard(
+                        plugin = plugin,
+                        enabled = enabled,
+                        onEnabledChange = { viewModel.setPluginEnabled(plugin.id, it) },
+                        onSettings = {
+                            when (plugin.id) {
+                                ToolPluginId.MODEL_DELEGATION -> delegationSettingsOpen = true
+                                ToolPluginId.GITHUB -> {
+                                    nativeConnections.firstOrNull { it.type == ToolConnectionType.GITHUB }
+                                        ?.let { onEditConnectionClick(it.connectionUid) }
+                                        ?: onAddConnectionClick()
+                                }
+                                else -> pluginSettings = plugin
+                            }
+                        }
+                    )
+                }
+
+                if (nativeConnections.isNotEmpty()) {
+                    Text(
+                        text = "Configured plugins",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                    )
+                    nativeConnections.forEach { connection ->
+                        val pluginId = ToolPluginId.connection(connection.connectionUid)
+                        CollapsibleToolConnectionCard(
+                            connection = connection,
+                            onEditClick = { onEditConnectionClick(connection.connectionUid) },
+                            onPermissionsClick = { permissionsConnection = connection },
+                            onBrowseClick = { browsingConnection = connection },
+                            onOAuthClick = {
+                                val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
+                                if (needsPermission &&
+                                    Build.VERSION.SDK_INT >= 37 &&
+                                    ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    pendingOAuthConnection = connection
+                                    localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
+                                } else {
+                                    viewModel.startOAuth(connection.connectionUid)
+                                }
+                            },
+                            onDeleteClick = { deletingConnection = connection },
+                            health = null,
+                            onRefreshHealth = {},
+                            enabled = uiState.pluginStates[pluginId] ?: true,
+                            onEnabledChange = { viewModel.setPluginEnabled(pluginId, it) }
+                        )
+                    }
+                }
+            } else {
+                RemoteMcpMasterCard(
+                    enabled = uiState.remoteMcpEnabled,
+                    onEnabledChange = viewModel::setRemoteMcpEnabled
                 )
 
-                // Marketplace Discover Banner
                 ListItem(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -242,7 +311,7 @@ fun ToolConnectionsScreen(
                     },
                     supportingContent = {
                         Text(
-                            text = "Discover pre-configured MCP tools categorized into Free, Free with sign up, and Paid.",
+                            text = "Discover remote MCP servers and connect their advertised tools.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     },
@@ -259,18 +328,19 @@ fun ToolConnectionsScreen(
                         }
                     }
                 )
+                TextButton(onClick = { pairingLink = "" }) {
+                    Text(stringResource(R.string.pair_server_title))
+                }
 
-                LocalToolsSettingsPanel()
-
-                if (uiState.connections.isEmpty()) {
+                if (mcpConnections.isEmpty()) {
                     Text(
-                        text = stringResource(R.string.no_tool_connections),
+                        text = "No remote MCP servers are connected.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
                     )
                 }
-                uiState.connections.forEach { connection ->
+                mcpConnections.forEach { connection ->
                     CollapsibleToolConnectionCard(
                         connection = connection,
                         onEditClick = { onEditConnectionClick(connection.connectionUid) },
@@ -290,11 +360,38 @@ fun ToolConnectionsScreen(
                         },
                         onDeleteClick = { deletingConnection = connection },
                         health = uiState.connectionHealth[connection.connectionUid],
-                        onRefreshHealth = { viewModel.probeConnections(listOf(connection)) }
+                        onRefreshHealth = { viewModel.probeConnections(listOf(connection), force = true) }
                     )
                 }
             }
         }
+    }
+
+    if (delegationSettingsOpen) {
+        LocalToolConfigurationDialog(
+            section = "delegation",
+            onDismiss = { delegationSettingsOpen = false }
+        )
+    }
+
+    pluginSettings?.let { plugin ->
+        AlertDialog(
+            onDismissRequest = { pluginSettings = null },
+            title = { Text(plugin.name) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(plugin.description)
+                    Text(
+                        "This plugin is integrated into the app and does not require an MCP server. Its enable switch controls whether models can receive its tools.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { pluginSettings = null }) { Text("Done") }
+            }
+        )
     }
 
     deletingConnection?.let { connection ->
@@ -337,6 +434,81 @@ fun ToolConnectionsScreen(
     }
 }
 
+private data class IntegratedPluginUi(
+    val id: String,
+    val name: String,
+    val description: String
+)
+
+private val INTEGRATED_PLUGINS = listOf(
+    IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured helper model."),
+    IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context."),
+    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & time", "Provides current date context without a remote MCP server."),
+    IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally."),
+    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read files", "Reads bounded slices of files made available to the app."),
+    IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack."),
+    IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes."),
+    IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server."),
+    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device location", "Provides device location only when the app and profile permissions allow it.")
+)
+
+@Composable
+private fun IntegratedPluginCard(
+    plugin: IntegratedPluginUi,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onSettings: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        plugin.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onSettings) { Text("Settings") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteMcpMasterCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Remote MCP servers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "Allow profiles to discover and call tools hosted by configured MCP servers.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onEnabledChange)
+        }
+    }
+}
+
 @Composable
 private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
     val icon = when (type) {
@@ -372,6 +544,8 @@ private fun CollapsibleToolConnectionCard(
     onDeleteClick: () -> Unit,
     health: ToolConnectionHealth?,
     onRefreshHealth: () -> Unit,
+    enabled: Boolean? = null,
+    onEnabledChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -425,6 +599,14 @@ private fun CollapsibleToolConnectionCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         ConnectionHealthLine(health)
                     }
+                }
+
+                enabled?.let { isEnabled ->
+                    Switch(
+                        checked = isEnabled,
+                        onCheckedChange = onEnabledChange
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
 
                 Surface(

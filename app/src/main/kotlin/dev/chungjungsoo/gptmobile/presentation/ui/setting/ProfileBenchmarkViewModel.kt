@@ -78,9 +78,12 @@ class ProfileBenchmarkViewModel @Inject constructor(
     private val delegateUid = MutableStateFlow("")
     private val selectedDelegateUids = MutableStateFlow<Set<String>?>(null)
     val delegates = combine(profiles, selected, delegationSettings) { list, primary, config ->
+        val reviewer = list.firstOrNull { it.uid == config.reviewerProfileUid }
         list.filter {
             it.enabled &&
                 it.uid != primary?.uid &&
+                (!config.reviewerEnabled || it.uid != reviewer?.uid) &&
+                (!config.reviewerEnabled || reviewer == null || !it.model.trim().equals(reviewer.model.trim(), ignoreCase = true)) &&
                 !it.excludesMemory() &&
                 (config.allowRemoteWorkers || it.isPrivateDestination()) &&
                 !(primary?.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
@@ -331,11 +334,17 @@ class ProfileBenchmarkViewModel @Inject constructor(
         mutableProgress.value = BenchmarkProgress(profile.name, "Validating delegation batch", 0, totalTests)
         job = viewModelScope.launch {
             val failures = mutableListOf<String>()
+            val reviewer = if (baseConfig.reviewerEnabled) profiles.value.firstOrNull { it.uid == baseConfig.reviewerProfileUid } else null
             try {
                 chats.validateBenchmarkProfile(profile)
                 check(baseConfig.enabled && baseConfig.processingOwnership < 100) { "Enable delegation and give helpers a share of the work before testing." }
                 check(baseConfig.researchEnabled && baseConfig.maxPages > 0) { "Enable delegate research and allow at least one page for the research test." }
                 check(!profile.disableAllTools && !profile.disableLocalTools && !profile.excludesMemory()) { "Enable tools on the primary profile before testing delegation." }
+                if (baseConfig.reviewerEnabled) {
+                    val selectedReviewer = checkNotNull(reviewer) { "Choose a Reviewer model before running delegation benchmarks." }
+                    check(selectedReviewer.uid != profile.uid) { "Reviewer must be different from the primary model." }
+                    chats.validateBenchmarkProfile(selectedReviewer)
+                }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 mutableError.value = safeMessage(error)
@@ -359,6 +368,10 @@ class ProfileBenchmarkViewModel @Inject constructor(
                         mutableProgress.value = BenchmarkProgress("${profile.name} → ${helper.name}", "Validating helper", baseProgress, totalTests)
                         chats.validateBenchmarkProfile(helper)
                         check(!helper.disableAllTools && chats.supportsBenchmarkTools(helper)) { "The delegate needs tool calling enabled and a model that supports tools." }
+                        reviewer?.let { selectedReviewer ->
+                            check(selectedReviewer.uid != helper.uid) { "Reviewer must be a different profile from the delegate." }
+                            check(!selectedReviewer.model.trim().equals(helper.model.trim(), ignoreCase = true)) { "Reviewer must use a different model from the delegate." }
+                        }
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("DelegationBenchmark", "BATCH_WORKER_START · worker=${helper.uid} model=${helper.model} index=${helperIndex + 1}/${helpers.size}")
                         store.save(run)
                         val stoppedReason = runBenchmarkSuite(

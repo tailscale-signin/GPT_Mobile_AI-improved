@@ -570,7 +570,8 @@ internal class LocalDelegationCoordinator(
         observedInputTokens: Long,
         requestedOutputCap: Int,
         latest: ModelDelegationSettings,
-        interactiveRecovery: Boolean
+        interactiveRecovery: Boolean,
+        allowFailover: Boolean
     ): WorkerResolution {
         if (response == null) {
             canceledLocalTokens.addAndGet(chargedInput)
@@ -581,7 +582,7 @@ internal class LocalDelegationCoordinator(
                 quarantinedWorkerUids += profile.uid
             }
             val reason = "The delegate stopped or timed out before returning a usable result."
-            val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
+            val fallback = if (allowFailover && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
                 recoveryCandidates(latest, profile.uid).firstOrNull()
             } else {
                 null
@@ -607,7 +608,7 @@ internal class LocalDelegationCoordinator(
             quarantinedWorkerUids += profile.uid
         }
         val reason = "The delegate completed without returning usable content."
-        val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
+        val fallback = if (allowFailover && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
             recoveryCandidates(latest, profile.uid).firstOrNull()
         } else {
             null
@@ -629,7 +630,8 @@ internal class LocalDelegationCoordinator(
         observedForFailure: Long,
         dispatchedAtMs: Long?,
         latest: ModelDelegationSettings,
-        interactiveRecovery: Boolean
+        interactiveRecovery: Boolean,
+        allowFailover: Boolean
     ): WorkerResolution {
         dispatchedAtMs?.let { wastedLocalMs.addAndGet((nowMs() - it).coerceAtLeast(0L)) }
         val estimated = maxOf(estimatedDelegateTokens(prompt).toLong(), observedForFailure)
@@ -667,7 +669,7 @@ internal class LocalDelegationCoordinator(
         }
         val reason = message.takeIf { it.isNotBlank() }?.let { "The delegate failed: ${it.take(240)}" }
             ?: "The delegate failed before completing the task."
-        val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
+        val fallback = if (allowFailover && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
             recoveryCandidates(latest, failedUid).firstOrNull()
         } else {
             null
@@ -791,7 +793,8 @@ internal class LocalDelegationCoordinator(
         sameTargetRetryAttempt: Int
     ): WorkerPreparation {
         suspend fun recovery(uid: String, reason: String): WorkerPreparation {
-            val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
+            val allowFailover = sameTargetRetryAttempt >= latest.localRetryLimit
+            val fallback = if (allowFailover && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
                 recoveryCandidates(latest, uid).firstOrNull()
             } else {
                 null
@@ -1058,7 +1061,8 @@ internal class LocalDelegationCoordinator(
                     observedInputTokens = observedInputTokens,
                     requestedOutputCap = requestedOutputCap,
                     latest = latest,
-                    interactiveRecovery = interactiveRecovery
+                    interactiveRecovery = interactiveRecovery,
+                    allowFailover = sameTargetRetryAttempt >= latest.localRetryLimit
                 )
                 recoveryReason = resolution.recoveryReason
                 failoverTarget = resolution.failoverTarget
@@ -1076,7 +1080,8 @@ internal class LocalDelegationCoordinator(
                     observedForFailure = observedForFailure,
                     dispatchedAtMs = dispatchedAtMs,
                     latest = latestAfterFailure,
-                    interactiveRecovery = interactiveRecovery
+                    interactiveRecovery = interactiveRecovery,
+                    allowFailover = sameTargetRetryAttempt >= latestAfterFailure.localRetryLimit
                 )
                 recoveryReason = resolution.recoveryReason
                 failoverTarget = resolution.failoverTarget

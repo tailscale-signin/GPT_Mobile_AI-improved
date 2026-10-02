@@ -11,8 +11,10 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
@@ -92,9 +94,16 @@ class AgentToolResolver @Inject constructor(
         val disableLocal = platform?.disableLocalTools == true
         val featureSettings = settingRepository.getFeatureSettings()
         val allowRemoteMcp = !disableRemote && featureSettings.remoteMcpConnections
-        val allowDeviceLocation = !disableLocal && featureSettings.deviceLocationTool
+        val allowDeviceLocation =
+            !disableLocal &&
+                featureSettings.deviceLocationTool &&
+                featureSettings.isToolPluginEnabled(ToolPluginId.DEVICE_LOCATION)
         val connections = toolConnectionRepository.listConnections()
-        val nativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
+        val configuredNativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
+        val nativeGitHubConnections = configuredNativeGitHubConnections.filter { connection ->
+            featureSettings.isToolPluginEnabled(ToolPluginId.GITHUB) &&
+                featureSettings.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid))
+        }
 
         // Baseline zero-config tools available out of the box to all models
         val defaultWebSearch = WebSearchTool(
@@ -111,7 +120,12 @@ class AgentToolResolver @Inject constructor(
 
         if (!disableLocal) {
             // Keep explicitly enabled delegation available in small on-device context windows.
-            if ((chatToolConfig?.effectiveDelegation(featureSettings.delegation) ?: featureSettings.delegation).enabled && delegate != null && platform != null) {
+            if (
+                featureSettings.isToolPluginEnabled(ToolPluginId.MODEL_DELEGATION) &&
+                (chatToolConfig?.effectiveDelegation(featureSettings.delegation) ?: featureSettings.delegation).enabled &&
+                delegate != null &&
+                platform != null
+            ) {
                 val tool = ModelDelegationTool(
                     platform,
                     {
@@ -123,7 +137,12 @@ class AgentToolResolver @Inject constructor(
                 )
                 resolved += tool.resolved(null, "Model delegation", tool.definition.name)
             }
-            if (factVault != null && userMessage != null && platform != null) {
+            if (
+                featureSettings.isToolPluginEnabled(ToolPluginId.LOCAL_MEMORY) &&
+                factVault != null &&
+                userMessage != null &&
+                platform != null
+            ) {
                 val memoryAvailable = try {
                     factVault.load()
                     factVault.state.value.enabled
@@ -143,26 +162,40 @@ class AgentToolResolver @Inject constructor(
                     }
                 }
             }
-            resolved += CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
-            resolved += CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
-            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
+            if (featureSettings.isToolPluginEnabled(ToolPluginId.CURRENT_DATE)) {
+                resolved += CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
+            }
+            if (featureSettings.isToolPluginEnabled(ToolPluginId.CALCULATOR)) {
+                resolved += CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+            }
+            if (featureSettings.isToolPluginEnabled(ToolPluginId.READ_FILES)) {
+                resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
+            }
         }
 
         if (!disableRemote) {
-            resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
-            // Do not expose an anonymous GitHub tool beside an authenticated native
-            // connection. The overlapping surfaces caused duplicate repo/API calls.
-            if (nativeGitHubConnections.isEmpty()) {
-                resolved += GitHubTool().resolved(null, null, BuiltInAgentTool.GITHUB)
+            if (featureSettings.isToolPluginEnabled(ToolPluginId.READ_URL)) {
+                resolved += ReadUrlTool().resolved(null, null, BuiltInAgentTool.READ_URL)
             }
-            nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection) }
-            resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
+            // Native GitHub is an integrated plugin. If an authenticated native
+            // connection exists but is disabled, do not silently replace it with
+            // anonymous GitHub access because that would bypass the plugin toggle.
+            if (featureSettings.isToolPluginEnabled(ToolPluginId.GITHUB)) {
+                if (configuredNativeGitHubConnections.isEmpty()) {
+                    resolved += GitHubTool().resolved(null, null, BuiltInAgentTool.GITHUB)
+                }
+                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection) }
+            }
+            if (featureSettings.isToolPluginEnabled(ToolPluginId.WEB_SEARCH)) {
+                resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
+            }
         }
 
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
+            .filter { binding -> pluginEnabledForBinding(featureSettings, binding) }
             .distinctBy { if (it.binding.toolName == WEB_SEARCH_TOOL) "${it.binding.toolName}:${it.binding.connectionUid}" else it.binding.toolName }
             .forEach { binding ->
                 val isRemoteBinding = binding.binding.toolName in setOf(WEB_SEARCH_TOOL, BuiltInAgentTool.READ_URL, BuiltInAgentTool.GITHUB)
@@ -236,6 +269,33 @@ class AgentToolResolver @Inject constructor(
                 }
             }
             .sortedBy { it.modelToolName }
+    }
+
+    private fun pluginEnabledForBinding(
+        settings: AppFeatureSettings,
+        binding: AgentToolBindingWithConnection
+    ): Boolean {
+        val connection = binding.connection
+        if (connection != null && !settings.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid))) {
+            return false
+        }
+        return when (connection?.type) {
+            ToolConnectionType.GITHUB -> settings.isToolPluginEnabled(ToolPluginId.GITHUB)
+            ToolConnectionType.FIRECRAWL,
+            ToolConnectionType.PERPLEXITY,
+            ToolConnectionType.EXA,
+            ToolConnectionType.BRAVE -> settings.isToolPluginEnabled(ToolPluginId.WEB_SEARCH)
+            else -> when (binding.binding.toolName) {
+                BuiltInAgentTool.CURRENT_DATE -> settings.isToolPluginEnabled(ToolPluginId.CURRENT_DATE)
+                BuiltInAgentTool.CALCULATE_EXPRESSION -> settings.isToolPluginEnabled(ToolPluginId.CALCULATOR)
+                BuiltInAgentTool.READ_FILE_SLICE -> settings.isToolPluginEnabled(ToolPluginId.READ_FILES)
+                BuiltInAgentTool.READ_URL -> settings.isToolPluginEnabled(ToolPluginId.READ_URL)
+                BuiltInAgentTool.DEVICE_LOCATION -> settings.isToolPluginEnabled(ToolPluginId.DEVICE_LOCATION)
+                BuiltInAgentTool.GITHUB -> settings.isToolPluginEnabled(ToolPluginId.GITHUB)
+                WEB_SEARCH_TOOL -> settings.isToolPluginEnabled(ToolPluginId.WEB_SEARCH)
+                else -> true
+            }
+        }
     }
 
     private suspend fun resolveBinding(binding: AgentToolBindingWithConnection): ResolvedAgentTool? = when (binding.binding.toolName) {

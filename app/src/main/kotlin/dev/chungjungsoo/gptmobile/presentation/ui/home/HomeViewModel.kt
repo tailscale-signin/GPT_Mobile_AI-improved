@@ -34,6 +34,22 @@ enum class HomeTab {
     FAVORITES
 }
 
+internal fun automaticArchiveTargets(
+    chats: List<ChatRoomV2>,
+    activeIds: Set<Int>,
+    maxVisible: Int = 20
+): List<ChatRoomV2> {
+    val overflow = (chats.size - maxVisible).coerceAtLeast(0)
+    if (overflow == 0) return emptyList()
+
+    return chats
+        .filter { !it.isFavorite && it.id !in activeIds }
+        .sortedWith(compareBy<ChatRoomV2> { it.updatedAt }.thenBy { it.id })
+        .take(overflow * 2)
+        .filterIndexed { index, _ -> index % 2 == 0 }
+        .take(overflow)
+}
+
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -469,15 +485,11 @@ class HomeViewModel @Inject constructor(
             // conversations until the visible count returns to 20. Pinned/favorite and
             // actively generating chats are never selected for automatic archival.
             if (rawChats.size > MAX_MAIN_CHAT_COUNT) {
-                val overflow = rawChats.size - MAX_MAIN_CHAT_COUNT
-                val activeIds = _activeChatIds.value
-                val eligibleOldestFirst = rawChats
-                    .filter { !it.isFavorite && it.id !in activeIds }
-                    .sortedWith(compareBy<ChatRoomV2> { it.updatedAt }.thenBy { it.id })
-                val archiveTargets = eligibleOldestFirst
-                    .take(overflow * 2)
-                    .filterIndexed { index, _ -> index % 2 == 0 }
-                    .take(overflow)
+                val archiveTargets = automaticArchiveTargets(
+                    chats = rawChats,
+                    activeIds = _activeChatIds.value,
+                    maxVisible = MAX_MAIN_CHAT_COUNT
+                )
                 archiveTargets.forEach { chatRepository.setChatArchived(it.id, isArchived = true) }
                 if (archiveTargets.isNotEmpty()) {
                     rawChats = chatRepository.fetchChatListV2()

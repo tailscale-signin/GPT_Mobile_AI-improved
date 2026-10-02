@@ -20,6 +20,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun `GitHub task uses tool capable worker without spending budget on public web planner`() = runTest {
+        var calls = 0
+        val task = "Create a draft PR in the repository"
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = true, automaticResearch = true, maxLocalModelCalls = 4) },
+            { listOf(target) },
+            { _, _, _ -> error("Unexpected legacy generation") },
+            generateWithProgress = { _, prompt, _, _, _ ->
+                calls++
+                assertTrue(prompt.contains(task))
+                "GitHub draft PR created"
+            },
+            generateTextWithProgress = { _, _, _, _, _ -> error("Public web planner must not run for GitHub tasks") }
+        )
+        assertEquals("GitHub draft PR created", coordinator.delegate(target, task, 256, emptyList(), "github-task"))
+        assertEquals(1, calls)
+    }
+
     @Test fun `first empty result recovers and failed profiles are not revisited within the same task`() = runTest {
         val second = target.copy(uid = "second")
         val third = target.copy(uid = "third")

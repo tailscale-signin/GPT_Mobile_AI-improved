@@ -1,0 +1,45 @@
+package dev.chungjungsoo.gptmobile.data.agent.tool
+
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import kotlinx.serialization.json.JsonObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DelegationGitHubPolicyTest {
+    @Test
+    fun `local first keeps native and MCP GitHub available for primary recovery`() {
+        val tools = listOf(tool("delegate_to_model"), tool("github__work", "github"), tool("mcp__github__create_pull_request"), tool("calculate_expression"))
+        assertEquals(tools.take(3), primaryDelegationTools(tools, true, 0))
+        assertEquals(tools, primaryDelegationTools(tools, false, 0))
+        assertEquals(tools, primaryDelegationTools(tools, true, 100))
+    }
+
+    @Test
+    fun `repository actions bypass public web planning`() {
+        listOf("Create a draft PR", "Push a branch", "Inspect the repository", "Read github.com/owner/project", "Commit files").forEach {
+            assertTrue(it, isGitHubTask(it))
+        }
+        assertFalse(isGitHubTask("Find restaurants near me"))
+    }
+
+    @Test
+    fun `capability refusal is scoped to helper and does not reject successful writes`() {
+        val task = "Create a draft PR in the repo"
+        assertTrue(gitHubCapabilityRefusal(task, "I cannot do it because **no GitHub integration, Git CLI, shell, or remote repository write tools are enabled**."))
+        assertFalse(gitHubCapabilityRefusal(task, "Created the GitHub draft PR successfully."))
+        assertFalse(gitHubCapabilityRefusal("Explain this error message", "No GitHub integration is enabled."))
+    }
+
+    private fun tool(name: String, realName: String = name): ResolvedAgentTool {
+        val agent = object : AgentTool {
+            override val definition = AgentToolDefinition(name, "Test tool", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("ok"), false)
+        }
+        return ResolvedAgentTool(agent, null, null, realName, name)
+    }
+}

@@ -127,6 +127,28 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun `delegated GitHub tools precede generic tools for repository tasks`() = runBlocking {
+        val resolver = mockk<AgentToolResolver>()
+        val tools = listOf("web_search", "current_date", "read_url", "github__work").map { name ->
+            val agent = object : AgentTool {
+                override val definition = AgentToolDefinition(name, "Test tool", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("ok"), false)
+            }
+            ResolvedAgentTool(agent, null, null, if (name == "github__work") "github" else name, name)
+        }
+        coEvery { resolver.resolve(any(), any(), any(), any(), any()) } returns tools
+        val ordered = createRepository(agentToolResolver = resolver).resolveDelegatedTools(
+            customPlatform(),
+            "parent",
+            dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(),
+            "Create a branch in the repo"
+        )
+        assertEquals("github__work", ordered.first().definition.name)
+        assertEquals(tools.size, ordered.size)
+        assertEquals("github__work", orderPrimaryTools(tools).first().modelToolName)
+    }
+
+    @Test
     fun `primary tool ordering preserves catalogs larger than eight tools`() {
         val tools = (1..12).map { index ->
             val agentTool = object : AgentTool {

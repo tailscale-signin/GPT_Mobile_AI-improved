@@ -441,10 +441,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var lastFinishReason: String? = null
 
                         if (isOllama) {
-                            // Ollama platform timeout resilience:
-                            // Never fail because of timeout. Continue retrying over and over for up to 5 minutes.
-                            // If still nothing after 5 minutes, wrap up and emit an incomplete AI response.
-                            val maxRetryDurationMs = 5 * 60 * 1000L
+                            // Keep retries inside a real wall-clock budget. Previously the
+                            // 5-minute loop could start another 180-second request near its
+                            // deadline, stretching a chat beyond eight minutes.
+                            val maxRetryDurationMs = 2 * 60 * 1000L
                             val startTime = System.currentTimeMillis()
                             var hasReceivedTokens = false
                             var ollamaSucceeded = false
@@ -455,9 +455,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 var chunkError: String? = null
                                 var caughtThrowable: Throwable? = null
 
-                                // For Ollama streaming during the resilience loop, provide an extended per-chunk timeout (180s)
-                                // if the platform timeout is configured lower (e.g. 0 or 30s), so prompt evaluation on larger models has room.
-                                val effectiveOllamaTimeout = maxOf(platform.timeout, 180)
+                                val elapsedBeforeAttemptMs = System.currentTimeMillis() - startTime
+                                val remainingAttemptMs = (maxRetryDurationMs - elapsedBeforeAttemptMs).coerceAtLeast(1L)
+                                val remainingAttemptSeconds = ((remainingAttemptMs + 999L) / 1000L).toInt().coerceAtLeast(1)
+                                // Each request is bounded by the remaining global deadline,
+                                // so a late retry cannot overshoot the recovery window.
+                                val configuredAttemptSeconds = platform.timeout.takeIf { it > 0 } ?: 60
+                                val effectiveOllamaTimeout = minOf(maxOf(configuredAttemptSeconds, 30), 60, remainingAttemptSeconds)
 
                                 openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig)
                                     .catch { error ->
@@ -561,12 +565,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 emit(ProviderEvent.Completed)
                                 return@flow
                             } else {
-                                // 5 minutes elapsed with timeouts / network glitches:
-                                // Cleanly wrap up with incomplete response notice and completed event
+                                // The bounded recovery deadline elapsed. Preserve any
+                                // partial output, but never hold the conversation indefinitely.
                                 val wrapUpNotice = if (hasReceivedTokens) {
-                                    "\n\n[Response incomplete: Ollama server timed out after 5 minutes]"
+                                    "\n\n[Response incomplete: Ollama server timed out after 2 minutes]"
                                 } else {
-                                    "[Response incomplete: Ollama server timed out after 5 minutes with no response]"
+                                    "[Response incomplete: Ollama server timed out after 2 minutes with no response]"
                                 }
                                 emit(ProviderEvent.TextDelta(wrapUpNotice))
                                 emit(ProviderEvent.Completed)

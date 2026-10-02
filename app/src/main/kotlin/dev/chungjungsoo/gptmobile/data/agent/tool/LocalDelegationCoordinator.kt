@@ -144,7 +144,7 @@ internal class LocalDelegationCoordinator(
         return selected
     }
 
-    private fun parseReviewerAssessment(raw: String, delegateOutput: String): ReviewerAssessment? {
+    private fun parseReviewerAssessment(raw: String, delegateOutput: String, autoCorrect: Boolean): ReviewerAssessment? {
         val score = Regex("""(?im)^\s*REVIEW_SCORE\s*:\s*(\d{1,3})\s*$""")
             .find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 100) ?: return null
         val verdict = Regex("""(?im)^\s*VERDICT\s*:\s*([A-Z_ -]+)\s*$""")
@@ -163,7 +163,7 @@ internal class LocalDelegationCoordinator(
         } else {
             ""
         }
-        val context = if (corrected.isBlank() || corrected.equals("USE_DELEGATE_CONTEXT", ignoreCase = true)) {
+        val context = if (!autoCorrect || corrected.isBlank() || corrected.equals("USE_DELEGATE_CONTEXT", ignoreCase = true)) {
             delegateOutput
         } else {
             corrected
@@ -192,7 +192,8 @@ internal class LocalDelegationCoordinator(
         val reviewPrompt = buildString {
             append("You are an independent REVIEWER model. Fact-check the delegate context against the original task and the evidence, source IDs, URLs, identifiers, numbers, code details, and explicit limitations contained in that context. ")
             append("Do not reward verbosity. Penalize unsupported claims, contradictions, missing requested details, invented facts, lost citations, or unsafe assumptions. ")
-            append("Do not perform external actions and do not claim to have checked information that is not present. Preserve exact verified details.\n\n")
+            append("Do not perform external actions and do not claim to have checked information that is not present. Preserve exact verified details. ")
+            append("A score below ${config.reviewerMinimumScore}/100 means the context needs another review attempt before handoff.\n\n")
             append("ORIGINAL TASK:\n")
             append(task)
             append("\n\nDELEGATE CONTEXT:\n")
@@ -205,7 +206,7 @@ internal class LocalDelegationCoordinator(
             append("<write USE_DELEGATE_CONTEXT if it is already reliable; otherwise provide a concise corrected context that preserves verified source markers and exact details>")
         }
 
-        val retryLimit = config.localRetryLimit.coerceAtLeast(5)
+        val retryLimit = config.reviewerRetryLimit.coerceIn(0, 5)
         var lastIssue = "Reviewer returned no usable assessment."
         for (attempt in 0..retryLimit) {
             if (attempt > 0) {
@@ -243,9 +244,18 @@ internal class LocalDelegationCoordinator(
                     lastIssue = "Reviewer returned no text."
                     continue
                 }
-                val assessment = parseReviewerAssessment(response, delegateOutput)
+                val assessment = parseReviewerAssessment(response, delegateOutput, config.reviewerAutoCorrect)
                 if (assessment == null) {
                     lastIssue = "Reviewer response did not contain a valid REVIEW_SCORE."
+                    continue
+                }
+                if (assessment.score < config.reviewerMinimumScore && attempt < retryLimit) {
+                    lastIssue = "Reviewer score ${assessment.score}/100 is below the configured ${config.reviewerMinimumScore}/100 threshold."
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Reviewer quality retry · reviewer=${reviewer.uid} · delegate=${delegate.uid} · score=${assessment.score} · minimum=${config.reviewerMinimumScore}",
+                        "W"
+                    )
                     continue
                 }
                 reviewerScores.add(assessment.score)
@@ -254,7 +264,8 @@ internal class LocalDelegationCoordinator(
                     "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · attempt=${attempt + 1}/${retryLimit + 1} · observedInputTokens=$observedInputTokens"
                 )
                 return buildString {
-                    append("[Reviewer Score: ${assessment.score}/100 · ${assessment.verdict}]\n")
+                    val thresholdVerdict = if (assessment.score < config.reviewerMinimumScore) "BELOW_THRESHOLD" else assessment.verdict
+                    append("[Reviewer Score: ${assessment.score}/100 · $thresholdVerdict]\n")
                     if (assessment.findings.isNotBlank()) append("Reviewer findings: ${assessment.findings}\n")
                     append("\nReviewed delegate context:\n")
                     append(assessment.context)

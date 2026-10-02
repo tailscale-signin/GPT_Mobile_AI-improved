@@ -362,12 +362,14 @@ internal class LocalDelegationCoordinator(
         val battery = batteryPercent()
         if (battery != null && battery <= config.lowBatteryThresholdPercent && config.processingOwnership < 65) return null
         val availableProfiles = profiles()
+        val reviewerModel = availableProfiles.firstOrNull { it.uid == config.reviewerProfileUid }?.model?.trim().orEmpty()
         val eligible = mutableListOf<PlatformV2>()
         for (candidate in availableProfiles) {
             val metadataEligible =
                 candidate.uid != source.uid &&
                     candidate.enabled &&
                     (!config.reviewerEnabled || candidate.uid != config.reviewerProfileUid) &&
+                    (!config.reviewerEnabled || reviewerModel.isBlank() || !candidate.model.trim().equals(reviewerModel, ignoreCase = true)) &&
                     !candidate.excludesMemory() &&
                     !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                     candidate.uid !in quarantinedWorkerUids &&
@@ -409,11 +411,14 @@ internal class LocalDelegationCoordinator(
         if (failedLocalTokens.get() + canceledLocalTokens.get() >= config.effectiveWastedLocalTokens()) return emptyList()
         val battery = batteryPercent()
         if (battery != null && battery <= config.lowBatteryThresholdPercent && config.processingOwnership < 65) return emptyList()
-        return profiles().filter { candidate ->
+        val availableProfiles = profiles()
+        val reviewerModel = availableProfiles.firstOrNull { it.uid == config.reviewerProfileUid }?.model?.trim().orEmpty()
+        return availableProfiles.filter { candidate ->
             candidate.uid != source.uid &&
                 candidate.uid != failedUid &&
                 candidate.enabled &&
                 (!config.reviewerEnabled || candidate.uid != config.reviewerProfileUid) &&
+                (!config.reviewerEnabled || reviewerModel.isBlank() || !candidate.model.trim().equals(reviewerModel, ignoreCase = true)) &&
                 !candidate.excludesMemory() &&
                 !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                 candidate.uid !in quarantinedWorkerUids &&

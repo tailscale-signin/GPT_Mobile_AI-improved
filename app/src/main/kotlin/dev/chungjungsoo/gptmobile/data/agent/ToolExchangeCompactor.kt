@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
 
 /**
  * Builds a bounded replay view of tool exchanges for subsequent model rounds.
@@ -48,8 +49,8 @@ internal object ToolExchangeCompactor {
             remaining = (remaining - allowance).coerceAtLeast(0)
         }
 
-        return exchanges.map { exchange ->
-            val compacted = exchange.results.map { result ->
+        val compacted = exchanges.map { exchange ->
+            val compactedResults = exchange.results.map { result ->
                 val index = resultIndex++
                 val raw = render(result.content)
                 val duplicate = lastOccurrence[fingerprints[index]] != index
@@ -61,8 +62,47 @@ internal object ToolExchangeCompactor {
                     else -> result.copy(content = ToolResultContent.Text(compactText(raw, maxChars)))
                 }
             }
-            exchange.copy(results = compacted)
+            exchange.copy(results = compactedResults)
         }
+
+        // Result compaction alone cannot bound replay when dozens of tool-call argument
+        // objects accumulate. If metadata still exceeds the hard budget, retain complete
+        // call/result pairs newest-first and evict older pairs. This makes maxReplayTokens
+        // an actual upper bound instead of a warning threshold.
+        return if (estimateTokens(compacted) <= hardBudget) compacted else hardBound(compacted, hardBudget)
+    }
+
+    private fun hardBound(exchanges: List<AgentToolExchange>, hardBudget: Int): List<AgentToolExchange> {
+        var remaining = hardBudget
+        val retained = mutableListOf<AgentToolExchange>()
+        for (exchange in exchanges.asReversed()) {
+            val resultByCallId = exchange.results.associateBy { it.callId }
+            val keptPairs = mutableListOf<Pair<ProviderEvent.ToolCall, AgentToolResult>>()
+            for (call in exchange.calls.asReversed()) {
+                val result = resultByCallId[call.callId] ?: continue
+                var keptCall = call
+                var keptResult = result
+                var cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))))
+                if (cost > remaining) {
+                    // Arguments and consumed payload are no longer needed to execute the call;
+                    // preserving the id/name/result pairing is sufficient for provider replay.
+                    keptCall = call.copy(arguments = buildJsonObject { })
+                    keptResult = result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
+                    cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))))
+                }
+                if (cost <= remaining) {
+                    keptPairs += keptCall to keptResult
+                    remaining -= cost
+                }
+                if (remaining <= 0) break
+            }
+            if (keptPairs.isNotEmpty()) {
+                val ordered = keptPairs.asReversed()
+                retained += AgentToolExchange(ordered.map { it.first }, ordered.map { it.second })
+            }
+            if (remaining <= 0) break
+        }
+        return retained.asReversed()
     }
 
     fun estimateTokens(exchanges: List<AgentToolExchange>): Int =

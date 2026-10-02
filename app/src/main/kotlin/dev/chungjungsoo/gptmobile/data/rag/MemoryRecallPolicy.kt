@@ -53,7 +53,13 @@ internal object MemoryRecallPolicy {
                 }
             }
             val followUp = if (continuity.isNotEmpty()) continuity.intersect(terms).size.coerceAtMost(3) * 0.6 else 0.0
-            val score = exact + related + intent + followUp + if (broad && fact.fact.entity.id == "user") 0.5 else 0.0
+            val durablePersonal = if (
+                personal &&
+                fact.fact.entity.id == "user" &&
+                relation in setOf("PREFERS", "AVOIDS", "RESPONSE_LANGUAGE", "LOCATED_IN", "NAMED", "OCCUPATION", "WORKING_ON", "GOAL", "USES", "OWNS", "PROFILE", "REMEMBERS")
+            ) 0.8 else 0.0
+            val broadProfile = if (broad && fact.fact.entity.id == "user") 3.0 else 0.0
+            val score = exact + related + intent + followUp + durablePersonal + broadProfile
             fact to score
         }.filter { it.second > 0.0 }
             .sortedWith(compareByDescending<Pair<VaultFact, Double>> { it.second }.thenByDescending { it.first.pinned }.thenByDescending { it.first.savedAtMillis })

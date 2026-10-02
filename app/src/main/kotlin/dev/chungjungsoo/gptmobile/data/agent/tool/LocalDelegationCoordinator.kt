@@ -69,6 +69,7 @@ internal class LocalDelegationCoordinator(
         // Sharing this cache prevents a new coordinator from probing the same missing
         // LiteRT/QNN package on every response.
         private val runtimeNotReadyUntilMs = ConcurrentHashMap<String, Long>()
+        private val permanentlyUnavailableWorkers = ConcurrentHashMap.newKeySet<String>()
     }
 
     private val localCalls = AtomicInteger()
@@ -92,6 +93,12 @@ internal class LocalDelegationCoordinator(
 
     private fun automaticFallbackAllowed(config: ModelDelegationSettings): Boolean =
         config.targetProfileUid.isBlank() || config.fallbackToAnotherProfile
+
+    private fun availabilityKey(profile: PlatformV2): String =
+        "${profile.uid}|${profile.compatibleType}|${profile.model.trim()}"
+
+    private fun isPermanentlyUnavailable(profile: PlatformV2): Boolean =
+        availabilityKey(profile) in permanentlyUnavailableWorkers
 
     private fun primaryOnlyHandoff(partialNotes: List<String> = emptyList()): String = buildString {
         append("Delegation was canceled. Continue this turn with the primary model only and do not call delegate_to_model again.")
@@ -184,6 +191,7 @@ internal class LocalDelegationCoordinator(
                     !candidate.excludesMemory() &&
                     !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                     candidate.uid !in quarantinedWorkerUids &&
+                    !isPermanentlyUnavailable(candidate) &&
                     (config.remoteWorkersAllowed() || candidate.isPrivateDestination())
             if (!metadataEligible) continue
 
@@ -228,6 +236,7 @@ internal class LocalDelegationCoordinator(
                 !candidate.excludesMemory() &&
                 !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                 candidate.uid !in quarantinedWorkerUids &&
+                !isPermanentlyUnavailable(candidate) &&
                 (config.remoteWorkersAllowed() || candidate.isPrivateDestination())
         }.filter { candidate ->
             candidateInputBudget(candidate, config.maxOutputTokens, logFailure = false) != null
@@ -466,6 +475,15 @@ internal class LocalDelegationCoordinator(
         if (shouldQuarantine) {
             quarantinedWorkerUids += failedUid
         }
+        if (classified.permanentlyUnavailable) {
+            val unavailableProfile = profiles().firstOrNull { it.uid == failedUid } ?: target
+            permanentlyUnavailableWorkers += availabilityKey(unavailableProfile)
+            AppLogRecorder.record(
+                "Delegation",
+                "Worker marked permanently unavailable · target=$failedUid · model=${unavailableProfile.model.take(120)} · reason=${message.take(180)}",
+                "W"
+            )
+        }
         val reason = message.takeIf { it.isNotBlank() }?.let { "The delegate failed: ${it.take(240)}" }
             ?: "The delegate failed before completing the task."
         val fallback = if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
@@ -604,6 +622,7 @@ internal class LocalDelegationCoordinator(
                 !candidate.excludesMemory() &&
                 candidate.uid != source.uid &&
                 candidate.uid !in quarantinedWorkerUids &&
+                !isPermanentlyUnavailable(candidate) &&
                 (latest.remoteWorkersAllowed() || candidate.isPrivateDestination())
         } ?: return recovery(target.uid, "The selected delegate is unavailable or no longer eligible.").also {
             AppLogRecorder.record("Delegation", "Worker requires recovery · requested=${target.uid} · reason=TARGET_UNAVAILABLE · fallback=${it.failoverTarget?.uid}", "W")

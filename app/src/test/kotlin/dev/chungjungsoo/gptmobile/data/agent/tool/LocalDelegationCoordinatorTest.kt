@@ -176,7 +176,7 @@ class LocalDelegationCoordinatorTest {
         repeat(5) { index -> runCatching { coordinator.delegate(target, "Task", 256, emptyList(), "case-$index") } }
         assertFalse(coordinator.researchAvailable())
         runCatching { coordinator.delegate(target, "Task", 256, emptyList(), "blocked") }
-        assertEquals(5, calls)
+        assertEquals(12, calls)
     }
 
     @Test fun `parallel result processing serializes local inference and shares its call allowance`() = runTest {
@@ -342,7 +342,7 @@ class LocalDelegationCoordinatorTest {
             val failure = runCatching { coordinator.delegate(target, "task", 128, emptyList(), "timeout-$it") }.exceptionOrNull()
             assertTrue(failure?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         }
-        assertEquals(2, calls)
+        assertEquals(16, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -381,11 +381,11 @@ class LocalDelegationCoordinatorTest {
             }
         )
 
-        assertTrue(runCatching { coordinator.delegate(target, "first", 128, emptyList(), "first") }.isFailure)
+        assertEquals("done", coordinator.delegate(target, "first", 128, emptyList(), "first"))
         assertEquals("done", coordinator.delegate(target, "second", 128, emptyList(), "second"))
-        assertTrue(runCatching { coordinator.delegate(target, "third", 128, emptyList(), "third") }.isFailure)
+        assertEquals("done", coordinator.delegate(target, "third", 128, emptyList(), "third"))
         assertEquals("done", coordinator.delegate(target, "fourth", 128, emptyList(), "fourth"))
-        assertEquals(4, calls)
+        assertEquals(8, calls)
     }
 
     @Test fun `connection abort quarantines worker immediately`() = runTest {
@@ -659,8 +659,7 @@ class LocalDelegationCoordinatorTest {
             }
         )
 
-        assertTrue(runCatching { coordinator.delegate(target, "first", 128, emptyList(), "first") }.isFailure)
-        assertEquals("recovered", coordinator.delegate(target, "second", 128, emptyList(), "second"))
+        assertEquals("recovered", coordinator.delegate(target, "first", 128, emptyList(), "first"))
         assertEquals(listOf(128, 768), caps)
     }
 

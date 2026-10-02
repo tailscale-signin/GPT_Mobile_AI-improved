@@ -187,7 +187,7 @@ class LocalMemoryGraphTool(
                 }
 
                 "open_nodes" -> {
-                    val names = stringArray(arguments, "names")
+                    val names = arguments.stringArray("names")
                     require(names.isNotEmpty()) { "Provide entity names." }
                     if (graph != null) {
                         encodeNodes(graph.openNodes(names, scopedChatId), referenceDataOnly = true)
@@ -301,9 +301,6 @@ class LocalMemoryGraphTool(
 
     private fun objectArray(arguments: JsonObject, key: String): List<JsonObject> =
         (arguments[key] as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
-
-    private fun stringArray(arguments: JsonObject, key: String): List<String> =
-        (arguments[key] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
 
     private fun JsonObject.string(key: String): String = (this[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
 

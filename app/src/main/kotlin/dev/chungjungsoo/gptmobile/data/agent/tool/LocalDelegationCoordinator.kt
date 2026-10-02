@@ -277,6 +277,51 @@ internal class LocalDelegationCoordinator(
         }
     }
 
+    private data class WorkerFailureFlags(
+        val message: String,
+        val authBlocked: Boolean,
+        val permanentlyUnavailable: Boolean,
+        val connectionUnavailable: Boolean,
+        val emptyResponse: Boolean,
+        val reasoningOnly: Boolean,
+        val malformedTool: Boolean,
+        val outputCapViolation: Boolean
+    ) {
+        val softEmpty: Boolean get() = emptyResponse || reasoningOnly || malformedTool
+    }
+
+    private fun classifyWorkerFailure(failure: Exception): WorkerFailureFlags {
+        val message = failure.message.orEmpty()
+        fun containsAny(vararg needles: String): Boolean = needles.any { message.contains(it, ignoreCase = true) }
+        val authBlocked = containsAny(
+            "HTTP 401", "HTTP 403", "unauthorized", "forbidden", "denied access",
+            "unregistered callers", "API key not valid"
+        )
+        val permanentlyUnavailable = containsAny(
+            "HTTP 404", "HTTP 410", "model not found", "model unavailable", "model is unavailable",
+            "not downloaded", "download it from Settings", "no installed local model",
+            "local model file is missing", "no longer available", "retired", "deprecated",
+            "end of life", " eol"
+        ) || Regex("model\\s+.+?\\s+not found", RegexOption.IGNORE_CASE).containsMatchIn(message)
+        val connectionUnavailable = failure.javaClass.simpleName in setOf(
+            "ConnectException", "SocketTimeoutException", "UnknownHostException",
+            "NoRouteToHostException", "SocketException", "EOFException"
+        ) || containsAny(
+            "Unable to resolve host", "UnknownHostException", "connection abort", "connection refused",
+            "connection reset", "broken pipe", "No route to host", "Connect timeout",
+            "read timed out", "timeout has expired"
+        )
+        return WorkerFailureFlags(
+            message = message,
+            authBlocked = authBlocked,
+            permanentlyUnavailable = permanentlyUnavailable,
+            connectionUnavailable = connectionUnavailable,
+            emptyResponse = containsAny("EMPTY_RESPONSE"),
+            reasoningOnly = containsAny("REASONING_ONLY_RESPONSE"),
+            malformedTool = containsAny("Tool arguments were not valid JSON", "incomplete function call"),
+            outputCapViolation = containsAny("OUTPUT_CAP_EXCEEDED", "DELEGATION_OUTPUT_CAP_NOT_ENFORCED")
+        )
+    }
     private fun logComputeTotals() {
         val successful = successfulLocalTokens.get()
         val failed = failedLocalTokens.get()
@@ -571,59 +616,20 @@ internal class LocalDelegationCoordinator(
                 val estimated = maxOf(estimatedDelegateTokens(prompt).toLong(), observedForFailure)
                 val chargedFailureTokens = if (dispatchedAtMs != null || observedForFailure > 0L) estimated else 0L
                 if (chargedFailureTokens > 0L) failedLocalTokens.addAndGet(chargedFailureTokens)
-                val message = failure.message.orEmpty()
+                val classified = classifyWorkerFailure(failure)
+                val message = classified.message
                 lastFailure.set(message.ifBlank { failure.javaClass.simpleName })
                 val failedUid = resolvedProfileUid ?: target.uid
-                val authBlocked = message.contains("HTTP 401", ignoreCase = true) ||
-                    message.contains("HTTP 403", ignoreCase = true) ||
-                    message.contains("unauthorized", ignoreCase = true) ||
-                    message.contains("forbidden", ignoreCase = true) ||
-                    message.contains("denied access", ignoreCase = true) ||
-                    message.contains("unregistered callers", ignoreCase = true) ||
-                    message.contains("API key not valid", ignoreCase = true)
-                val permanentlyUnavailable = message.contains("HTTP 404", ignoreCase = true) ||
-                    message.contains("HTTP 410", ignoreCase = true) ||
-                    message.contains("model not found", ignoreCase = true) ||
-                    Regex("model\\s+.+?\\s+not found", RegexOption.IGNORE_CASE).containsMatchIn(message) ||
-                    message.contains("model unavailable", ignoreCase = true) ||
-                    message.contains("model is unavailable", ignoreCase = true) ||
-                    message.contains("not downloaded", ignoreCase = true) ||
-                    message.contains("download it from Settings", ignoreCase = true) ||
-                    message.contains("no installed local model", ignoreCase = true) ||
-                    message.contains("local model file is missing", ignoreCase = true) ||
-                    message.contains("no longer available", ignoreCase = true) ||
-                    message.contains("retired", ignoreCase = true) ||
-                    message.contains("deprecated", ignoreCase = true) ||
-                    message.contains("end of life", ignoreCase = true) ||
-                    message.contains("eol", ignoreCase = true)
-                val emptyResponse = message.contains("EMPTY_RESPONSE", ignoreCase = true)
-                val reasoningOnly = message.contains("REASONING_ONLY_RESPONSE", ignoreCase = true)
-                val malformedTool = message.contains("Tool arguments were not valid JSON", ignoreCase = true) ||
-                    message.contains("incomplete function call", ignoreCase = true)
-                val failureType = failure.javaClass.simpleName
-                val connectionUnavailable = failureType in setOf(
-                    "ConnectException",
-                    "SocketTimeoutException",
-                    "UnknownHostException",
-                    "NoRouteToHostException",
-                    "SocketException",
-                    "EOFException"
-                ) ||
-                    message.contains("Unable to resolve host", ignoreCase = true) ||
-                    message.contains("UnknownHostException", ignoreCase = true) ||
-                    message.contains("connection abort", ignoreCase = true) ||
-                    message.contains("connection refused", ignoreCase = true) ||
-                    message.contains("connection reset", ignoreCase = true) ||
-                    message.contains("broken pipe", ignoreCase = true) ||
-                    message.contains("No route to host", ignoreCase = true) ||
-                    message.contains("Connect timeout", ignoreCase = true) ||
-                    message.contains("read timed out", ignoreCase = true) ||
-                    message.contains("timeout has expired", ignoreCase = true)
-                val softEmpty = emptyResponse || reasoningOnly || malformedTool
+                val authBlocked = classified.authBlocked
+                val permanentlyUnavailable = classified.permanentlyUnavailable
+                val connectionUnavailable = classified.connectionUnavailable
+                val emptyResponse = classified.emptyResponse
+                val reasoningOnly = classified.reasoningOnly
+                val softEmpty = classified.softEmpty
                 val counter = emptyResponsesByWorker.getOrPut(failedUid, ::AtomicInteger)
                 val emptyCount = if (softEmpty) counter.incrementAndGet() else counter.get()
                 val failures = failuresByWorker.getOrPut(failedUid, ::AtomicInteger).incrementAndGet()
-                val shouldQuarantine = authBlocked || permanentlyUnavailable || connectionUnavailable || failures >= 3 || (softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES)
+                val shouldQuarantine = authBlocked || permanentlyUnavailable || connectionUnavailable || classified.outputCapViolation || failures >= 3 || (softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES)
                 if (shouldQuarantine) {
                     quarantinedWorkerUids += failedUid
                 }
@@ -635,7 +641,7 @@ internal class LocalDelegationCoordinator(
                 }
                 AppLogRecorder.record(
                     "Delegation",
-                    "Worker failed · target=$failedUid · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · observedInputTokens=$observedForFailure · emptyResponse=$emptyResponse · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · failedCalls=$failures · reasoningOnly=$reasoningOnly · authBlocked=$authBlocked · permanentlyUnavailable=$permanentlyUnavailable · connectionUnavailable=$connectionUnavailable · quarantined=$shouldQuarantine · fallback=${failoverTarget?.uid}",
+                    "Worker failed · target=$failedUid · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · observedInputTokens=$observedForFailure · emptyResponse=$emptyResponse · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · failedCalls=$failures · reasoningOnly=$reasoningOnly · authBlocked=$authBlocked · permanentlyUnavailable=$permanentlyUnavailable · connectionUnavailable=$connectionUnavailable · outputCapViolation=${classified.outputCapViolation} · quarantined=$shouldQuarantine · fallback=${failoverTarget?.uid}",
                     "E"
                 )
                 logComputeTotals()

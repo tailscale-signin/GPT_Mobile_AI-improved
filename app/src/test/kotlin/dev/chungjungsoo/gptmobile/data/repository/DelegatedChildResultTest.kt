@@ -71,16 +71,16 @@ class DelegatedChildResultTest {
     }
 
     @Test
-    fun `provider failure wins over partial content`() {
+    fun `usable content survives a trailing provider failure`() {
         val result = resolveDelegatedChildResult(
-            rawText = "partial content",
+            rawText = "completed content",
             toolFallbacks = emptyList(),
             extractionFailed = false,
-            providerFailure = "provider failed"
+            providerFailure = "stream reset after payload"
         )
 
-        assertEquals(DelegatedChildStatus.FAILED, result.status)
-        assertEquals("partial content", result.text)
+        assertEquals(DelegatedChildStatus.COMPLETED, result.status)
+        assertEquals("completed content", result.text)
     }
 
     @Test

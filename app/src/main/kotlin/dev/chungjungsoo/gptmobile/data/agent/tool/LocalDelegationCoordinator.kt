@@ -62,7 +62,13 @@ internal class LocalDelegationCoordinator(
         private const val APPROX_CHARS_PER_TOKEN = 4
         private const val WATCHDOG_POLL_MS = 250L
         private const val MAX_CONSECUTIVE_EMPTY_RESPONSES = 2
-        private const val RUNTIME_NOT_READY_COOLDOWN_MS = 60_000L
+        private const val RUNTIME_NOT_READY_COOLDOWN_MS = 5 * 60_000L
+        private const val NOT_DOWNLOADED_COOLDOWN_MS = 30 * 60_000L
+
+        // Readiness belongs to the runtime/model installation, not to one chat turn.
+        // Sharing this cache prevents a new coordinator from probing the same missing
+        // LiteRT/QNN package on every response.
+        private val runtimeNotReadyUntilMs = ConcurrentHashMap<String, Long>()
     }
 
     private val localCalls = AtomicInteger()
@@ -77,7 +83,6 @@ internal class LocalDelegationCoordinator(
     private val emptyResponsesByWorker = ConcurrentHashMap<String, AtomicInteger>()
     private val quarantinedWorkerUids = ConcurrentHashMap.newKeySet<String>()
     private val observedRequestOverheadTokens = ConcurrentHashMap<String, AtomicLong>()
-    private val runtimeNotReadyUntilMs = ConcurrentHashMap<String, Long>()
     private val delegationCanceledByUser = AtomicBoolean(false)
     private val userSelectedRecoveryProfile = AtomicReference<PlatformV2?>(null)
     private val lastFailure = AtomicReference<String?>(null)
@@ -123,17 +128,15 @@ internal class LocalDelegationCoordinator(
     }
 
     private suspend fun candidateInputBudget(candidate: PlatformV2, outputTokens: Int, logFailure: Boolean): Int? {
-        val now = System.nanoTime() / 1_000_000
+        val now = nowMs()
         val cachedUntil = runtimeNotReadyUntilMs[candidate.uid]
-        if (cachedUntil != null && cachedUntil > now) {
-            quarantinedWorkerUids += candidate.uid
-            return null
-        }
+        if (cachedUntil != null && cachedUntil > now) return null
+        if (cachedUntil != null) runtimeNotReadyUntilMs.remove(candidate.uid, cachedUntil)
+
         return try {
             val available = inputBudget(candidate, outputTokens)
             if (available < 600) {
                 runtimeNotReadyUntilMs[candidate.uid] = now + RUNTIME_NOT_READY_COOLDOWN_MS
-                quarantinedWorkerUids += candidate.uid
                 if (logFailure) {
                     AppLogRecorder.record(
                         "Delegation",
@@ -149,12 +152,19 @@ internal class LocalDelegationCoordinator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            runtimeNotReadyUntilMs[candidate.uid] = now + RUNTIME_NOT_READY_COOLDOWN_MS
-            quarantinedWorkerUids += candidate.uid
+            val message = failure.message.orEmpty()
+            val cooldownMs = if (message.contains("not downloaded", ignoreCase = true) ||
+                message.contains("package", ignoreCase = true) && message.contains("missing", ignoreCase = true)
+            ) {
+                NOT_DOWNLOADED_COOLDOWN_MS
+            } else {
+                RUNTIME_NOT_READY_COOLDOWN_MS
+            }
+            runtimeNotReadyUntilMs[candidate.uid] = now + cooldownMs
             if (logFailure) {
                 AppLogRecorder.record(
                     "Delegation",
-                    "Worker candidate skipped · target=${candidate.uid} · type=${candidate.compatibleType} · reason=RUNTIME_NOT_READY · cooldownMs=$RUNTIME_NOT_READY_COOLDOWN_MS · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
+                    "Worker candidate skipped · target=${candidate.uid} · type=${candidate.compatibleType} · reason=RUNTIME_NOT_READY · cooldownMs=$cooldownMs · ${failure.javaClass.simpleName}: $message",
                     "W"
                 )
             }

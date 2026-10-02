@@ -235,7 +235,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                     put("X-OpenRouter-Cache-TTL", openRouterProviderSettings.cacheTtlSeconds.coerceIn(1, 86_400).toString())
                 }
             }
-        } else emptyMap()
+        } else {
+            emptyMap()
+        }
         val (parsedOpenRouterOptions, parsedRouting) = if (isOpenRouter) {
             if (!platform.openRouterRouting.isNullOrBlank()) {
                 val asOptions = runCatching { json.decodeFromString<OpenRouterOptions>(platform.openRouterRouting) }.getOrNull()
@@ -249,10 +251,16 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val defaults = OpenRouterOptions.createDefault()
                 defaults to defaults.provider?.normalized()
             }
-        } else null to null
+        } else {
+            null to null
+        }
         val parsedOllamaOptions = if (isOllama && !platform.ollamaOptions.isNullOrBlank()) {
             runCatching { json.decodeFromString<OllamaOptions>(platform.ollamaOptions) }.getOrNull()
-        } else if (isOllama) OllamaOptions.createDefault() else null
+        } else if (isOllama) {
+            OllamaOptions.createDefault()
+        } else {
+            null
+        }
         val effectiveTemperature = when {
             isOpenRouter && parsedOpenRouterOptions?.temperature != null -> parsedOpenRouterOptions.temperature
             isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.temperature ?: platform.temperature
@@ -263,9 +271,21 @@ class OpenAICompatibleAdapter @Inject constructor(
             isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.topP ?: platform.topP
             else -> platform.topP
         }
-        val effectiveTopK = if (isOpenRouter) parsedOpenRouterOptions?.topK ?: platform.topK else platform.topK
-        val effectiveMaxTokens = if (isOpenRouter && parsedOpenRouterOptions?.maxTokens != null) parsedOpenRouterOptions.maxTokens else platform.maxTokens
-        val effectiveStream = if (isOpenRouter && parsedOpenRouterOptions?.stream != null) parsedOpenRouterOptions.stream else platform.stream
+        val effectiveTopK = if (isOpenRouter) {
+            parsedOpenRouterOptions?.topK ?: platform.topK
+        } else {
+            platform.topK
+        }
+        val effectiveMaxTokens = if (isOpenRouter && parsedOpenRouterOptions?.maxTokens != null) {
+            parsedOpenRouterOptions.maxTokens
+        } else {
+            platform.maxTokens
+        }
+        val effectiveStream = if (isOpenRouter && parsedOpenRouterOptions?.stream != null) {
+            parsedOpenRouterOptions.stream
+        } else {
+            platform.stream
+        }
         val effectiveFrequencyPenalty = if (isOpenRouter) parsedOpenRouterOptions?.frequencyPenalty else null
         val effectivePresencePenalty = if (isOpenRouter) parsedOpenRouterOptions?.presencePenalty else null
         val effectiveRepetitionPenalty = if (isOpenRouter) parsedOpenRouterOptions?.repetitionPenalty else null
@@ -290,7 +310,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                 // Gateway job affinity changes as metadata arrives, so this remains round-scoped.
                 val llamaGatewayHeaders = if (isLlama) {
                     gatewayPerformanceHeaders + capturedGatewayJobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty()
-                } else emptyMap()
+                } else {
+                    emptyMap()
+                }
 
                 val maxAutoContinues = parsedOllamaOptions?.maxAutoContinues ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES
                 val isAutoContinueEnabled = constraints.maxOutputTokens == null && parsedOllamaOptions?.autoContinue == true

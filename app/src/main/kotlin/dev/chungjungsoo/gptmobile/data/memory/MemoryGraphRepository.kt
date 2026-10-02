@@ -273,7 +273,7 @@ class MemoryGraphRepository @Inject constructor(
             val cursor = database.openHelper.readableDatabase.query(
                 SimpleSQLiteQuery(
                     "SELECT entity_id FROM memory_graph_fts WHERE scope = ? AND memory_graph_fts MATCH ? GROUP BY entity_id LIMIT ?",
-                    arrayOf(scope, match, limit)
+                    arrayOf<Any?>(scope, match, limit)
                 )
             )
             cursor.use {

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
+import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -194,6 +195,50 @@ class GitHubToolTest {
         assertTrue(text.contains("tailscale-signin/GPT_Mobile_AI-improved"))
     }
 
+    @Test
+    fun `selected repository fills whichever owner or repo field is missing`() = runTest {
+        var requestIndex = 0
+        val client = HttpClient(
+            MockEngine { request ->
+                when (requestIndex++) {
+                    0 -> assertEquals("/repos/selected-owner/repo/contents/README.md", request.url.encodedPath)
+                    else -> assertEquals("/repos/selected-owner/repo/contents/README.md", request.url.encodedPath)
+                }
+                respond(
+                    """{"name":"README.md","path":"README.md","encoding":"base64","content":"b2s="}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+        )
+        try {
+            val tool = GitHubTool(
+                httpClient = client,
+                repositoryContext = GitHubRepositoryContext("selected-owner", "repo", "main")
+            )
+            val missingOwner = tool.execute(
+                "missing-owner",
+                buildJsonObject {
+                    put("action", "get_file_contents")
+                    put("repo", "repo")
+                    put("path", "README.md")
+                }
+            )
+            val missingRepo = tool.execute(
+                "missing-repo",
+                buildJsonObject {
+                    put("action", "get_file_contents")
+                    put("owner", "selected-owner")
+                    put("path", "README.md")
+                }
+            )
+            assertFalse(missingOwner.isError)
+            assertFalse(missingRepo.isError)
+            assertEquals(2, requestIndex)
+        } finally {
+            client.close()
+        }
+    }
     @Test
     fun `get_file_contents decodes base64 encoded content`() = runTest {
         val rawContent = "Hello from GitHub agent tool test!"

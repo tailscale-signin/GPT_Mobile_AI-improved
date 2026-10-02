@@ -123,6 +123,11 @@ class ModelDelegationTool(
                     AppLogRecorder.record("Delegation", "Empty response · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · terminalCircuit=true", "W")
                 }
             }
+            if (response.startsWith("Delegation was canceled.", ignoreCase = true)) {
+                unavailableForTurn.set(true)
+                AppLogRecorder.record("Delegation", "Primary-only handoff · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · terminalCircuit=true", "W")
+                return error(response)
+            }
             if (gitHubCapabilityRefusal(task, response)) {
                 unavailableForTurn.set(true)
                 AppLogRecorder.record("Delegation", "GitHub capability unavailable on helper · call=$callId · target=${target.uid} · recoverWithPrimary=true", "W")

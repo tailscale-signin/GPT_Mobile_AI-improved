@@ -732,9 +732,16 @@ class ChatRepositoryImpl(
                         }
                     }
                     is ProviderEvent.ToolCall -> {
+                        // Provider-level tool calls are real delegate progress even when
+                        // the gateway executes them internally and AgentRunner emits no ToolStarted.
+                        onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
                         childTrace?.start(provider)?.let { onToolTrace?.invoke(ApiState.ToolCall(it.sequence, delegated = true)) }
                     }
                     is ProviderEvent.GatewayProgressUpdate -> {
+                        // Ignore generic heartbeats, but explicit tool lifecycle events keep the watchdog alive.
+                        if (provider.progress.toolName != null || provider.progress.event?.startsWith("tool_") == true) {
+                            onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
+                        }
                         childTrace?.gateway(provider.progress)?.let { onToolTrace?.invoke(it.copy(delegated = true)) }
                     }
                     is ProviderEvent.ThinkingDelta -> {
@@ -809,8 +816,11 @@ class ChatRepositoryImpl(
             AppLogRecorder.record(
                 "Delegation",
                 "DELEGATION_OUTPUT_CAP_NOT_ENFORCED · parentRun=$parentRunId · target=${target.uid} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · generatedOutputTokens=$maxRoundOutput · aggregateOutputTokens=$usageOutputTokens",
-                "W"
+                "E"
             )
+            // A delegated cap is a hard invariant. Reject provider/gateway output that exceeds it
+            // so the coordinator can fail over instead of replaying unbounded worker output.
+            error("OUTPUT_CAP_EXCEEDED: provider generated $maxRoundOutput tokens with effective cap $effectiveCap")
         }
         AppLogRecorder.record(
             "Delegation",

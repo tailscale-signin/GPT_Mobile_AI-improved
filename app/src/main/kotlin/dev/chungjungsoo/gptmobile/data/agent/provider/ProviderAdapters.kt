@@ -221,6 +221,77 @@ class OpenAICompatibleAdapter @Inject constructor(
             null
         }
 
+        // These values are invariant for the whole session. Resolve them once here
+        // instead of rebuilding a very large streamRound state machine every round.
+        val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
+        val isOllama = platform.compatibleType == ClientType.OLLAMA
+        val isLlama = platform.compatibleType == ClientType.LLAMA
+        val openRouterHeaders = if (isOpenRouter) {
+            buildMap {
+                put("HTTP-Referer", "https://github.com/tailscale-signin/GPT_Mobile_AI-improved")
+                put("X-Title", "GPT Mobile AI Improved")
+                if (openRouterProviderSettings?.responseCachingEnabled == true) {
+                    put("X-OpenRouter-Cache", "true")
+                    put("X-OpenRouter-Cache-TTL", openRouterProviderSettings.cacheTtlSeconds.coerceIn(1, 86_400).toString())
+                }
+            }
+        } else {
+            emptyMap()
+        }
+        val (parsedOpenRouterOptions, parsedRouting) = if (isOpenRouter) {
+            if (!platform.openRouterRouting.isNullOrBlank()) {
+                val asOptions = runCatching { json.decodeFromString<OpenRouterOptions>(platform.openRouterRouting) }.getOrNull()
+                if (asOptions != null && (asOptions.provider != null || asOptions.maxTokens != null || asOptions.stream != null || asOptions.repetitionPenalty != null || asOptions.seed != null)) {
+                    asOptions to asOptions.provider?.normalized()
+                } else {
+                    val routing = runCatching { json.decodeFromString<OpenRouterProviderRouting>(platform.openRouterRouting) }.getOrNull()
+                    null to routing?.normalized()
+                }
+            } else {
+                val defaults = OpenRouterOptions.createDefault()
+                defaults to defaults.provider?.normalized()
+            }
+        } else {
+            null to null
+        }
+        val parsedOllamaOptions = if (isOllama && !platform.ollamaOptions.isNullOrBlank()) {
+            runCatching { json.decodeFromString<OllamaOptions>(platform.ollamaOptions) }.getOrNull()
+        } else if (isOllama) {
+            OllamaOptions.createDefault()
+        } else {
+            null
+        }
+        val effectiveTemperature = when {
+            isOpenRouter && parsedOpenRouterOptions?.temperature != null -> parsedOpenRouterOptions.temperature
+            isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.temperature ?: platform.temperature
+            else -> platform.temperature
+        }
+        val effectiveTopP = when {
+            isOpenRouter && parsedOpenRouterOptions?.topP != null -> parsedOpenRouterOptions.topP
+            isOllama && parsedOllamaOptions != null -> parsedOllamaOptions.topP ?: platform.topP
+            else -> platform.topP
+        }
+        val effectiveTopK = if (isOpenRouter) {
+            parsedOpenRouterOptions?.topK ?: platform.topK
+        } else {
+            platform.topK
+        }
+        val effectiveMaxTokens = if (isOpenRouter && parsedOpenRouterOptions?.maxTokens != null) {
+            parsedOpenRouterOptions.maxTokens
+        } else {
+            platform.maxTokens
+        }
+        val effectiveStream = if (isOpenRouter && parsedOpenRouterOptions?.stream != null) {
+            parsedOpenRouterOptions.stream
+        } else {
+            platform.stream
+        }
+        val effectiveFrequencyPenalty = if (isOpenRouter) parsedOpenRouterOptions?.frequencyPenalty else null
+        val effectivePresencePenalty = if (isOpenRouter) parsedOpenRouterOptions?.presencePenalty else null
+        val effectiveRepetitionPenalty = if (isOpenRouter) parsedOpenRouterOptions?.repetitionPenalty else null
+        val effectiveSeed = if (isOpenRouter) parsedOpenRouterOptions?.seed else null
+        val effectiveStop = if (isOllama && parsedOllamaOptions != null) parsedOllamaOptions.stop else null
+
         return object : AgentProviderSession {
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
@@ -236,62 +307,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
 
-                val isOpenRouter = platform.compatibleType == ClientType.OPENROUTER
-                val isOllama = platform.compatibleType == ClientType.OLLAMA
-                val isLlama = platform.compatibleType == ClientType.LLAMA
-
-                val openRouterHeaders = if (isOpenRouter) {
-                    buildMap {
-                        put("HTTP-Referer", "https://github.com/tailscale-signin/GPT_Mobile_AI-improved")
-                        put("X-Title", "GPT Mobile AI Improved")
-                        if (openRouterProviderSettings?.responseCachingEnabled == true) {
-                            put("X-OpenRouter-Cache", "true")
-                            put(
-                                "X-OpenRouter-Cache-TTL",
-                                openRouterProviderSettings.cacheTtlSeconds.coerceIn(1, 86_400).toString()
-                            )
-                        }
-                    }
-                } else {
-                    emptyMap()
-                }
-
-                // If on Llama AI platform and a gateway job ID was captured from previous rounds, propagate it
+                // Gateway job affinity changes as metadata arrives, so this remains round-scoped.
                 val llamaGatewayHeaders = if (isLlama) {
-                    gatewayPerformanceHeaders +
-                        if (capturedGatewayJobId != null) {
-                            mapOf("X-Gateway-Job-ID" to capturedGatewayJobId!!)
-                        } else {
-                            emptyMap()
-                        }
+                    gatewayPerformanceHeaders + capturedGatewayJobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty()
                 } else {
                     emptyMap()
-                }
-
-                // Parse OpenRouter options or fallback to routing if legacy
-                val (parsedOpenRouterOptions, parsedRouting) = if (isOpenRouter) {
-                    if (!platform.openRouterRouting.isNullOrBlank()) {
-                        val asOptions = runCatching { json.decodeFromString<OpenRouterOptions>(platform.openRouterRouting) }.getOrNull()
-                        if (asOptions != null && (asOptions.provider != null || asOptions.maxTokens != null || asOptions.stream != null || asOptions.repetitionPenalty != null || asOptions.seed != null)) {
-                            asOptions to asOptions.provider?.normalized()
-                        } else {
-                            val routing = runCatching { json.decodeFromString<OpenRouterProviderRouting>(platform.openRouterRouting) }.getOrNull()
-                            null to routing?.normalized()
-                        }
-                    } else {
-                        val defaultOpts = OpenRouterOptions.createDefault()
-                        defaultOpts to defaultOpts.provider?.normalized()
-                    }
-                } else {
-                    null to null
-                }
-
-                val parsedOllamaOptions = if (isOllama && !platform.ollamaOptions.isNullOrBlank()) {
-                    runCatching { json.decodeFromString<OllamaOptions>(platform.ollamaOptions) }.getOrNull()
-                } else if (isOllama) {
-                    OllamaOptions.createDefault()
-                } else {
-                    null
                 }
 
                 val maxAutoContinues = parsedOllamaOptions?.maxAutoContinues ?: OllamaOptions.DEFAULT_MAX_AUTO_CONTINUES
@@ -376,70 +396,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
                     }
 
-                    val effectiveTemperature = if (isOpenRouter && parsedOpenRouterOptions?.temperature != null) {
-                        parsedOpenRouterOptions.temperature
-                    } else if (isOllama && parsedOllamaOptions != null) {
-                        parsedOllamaOptions.temperature ?: platform.temperature
-                    } else {
-                        platform.temperature
-                    }
-
-                    val effectiveTopP = if (isOpenRouter && parsedOpenRouterOptions?.topP != null) {
-                        parsedOpenRouterOptions.topP
-                    } else if (isOllama && parsedOllamaOptions != null) {
-                        parsedOllamaOptions.topP ?: platform.topP
-                    } else {
-                        platform.topP
-                    }
-
-                    val effectiveTopK = if (isOpenRouter) {
-                        parsedOpenRouterOptions?.topK ?: platform.topK
-                    } else {
-                        platform.topK
-                    }
-
-                    val effectiveMaxTokens = if (isOpenRouter && parsedOpenRouterOptions?.maxTokens != null) {
-                        parsedOpenRouterOptions.maxTokens
-                    } else {
-                        platform.maxTokens
-                    }
-
-                    val effectiveStream = if (isOpenRouter && parsedOpenRouterOptions?.stream != null) {
-                        parsedOpenRouterOptions.stream
-                    } else {
-                        platform.stream
-                    }
-
-                    val effectiveFrequencyPenalty = if (isOpenRouter) {
-                        parsedOpenRouterOptions?.frequencyPenalty
-                    } else {
-                        null
-                    }
-
-                    val effectivePresencePenalty = if (isOpenRouter) {
-                        parsedOpenRouterOptions?.presencePenalty
-                    } else {
-                        null
-                    }
-
-                    val effectiveRepetitionPenalty = if (isOpenRouter) {
-                        parsedOpenRouterOptions?.repetitionPenalty
-                    } else {
-                        null
-                    }
-
-                    val effectiveSeed = if (isOpenRouter) {
-                        parsedOpenRouterOptions?.seed
-                    } else {
-                        null
-                    }
-
-                    val effectiveStop = if (isOllama && parsedOllamaOptions != null) {
-                        parsedOllamaOptions.stop
-                    } else {
-                        null
-                    }
-
                     val effectiveOutputTokens = constraints.outputLimit(effectiveMaxTokens)
                     if (constraints.maxOutputTokens != null) {
                         emit(
@@ -453,31 +409,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     // The desktop gateway has its own intermediate-generation ceiling.
                     // Keep it aligned with the delegated provider cap so a 128/256-token
                     // worker cannot silently expand to the gateway default (for example 1024).
-                    val requestConfig = if (isLlama) {
-                        val delegationHeaders = buildMap {
-                            effectiveOutputTokens?.let {
-                                put("X-Gateway-Intermediate-Max-Tokens", it.toString())
-                            }
-                            // Delegated/local-preparation requests explicitly disable reasoning.
-                            // Propagate that intent to Gateway v12 as a request-scoped override;
-                            // otherwise Qwen thinking models can spend a tiny output cap entirely
-                            // on hidden reasoning and return no usable text.
-                            if (!constraints.allowReasoning) {
-                                put("X-Gateway-Reasoning-Effort", "none")
-                                if (constraints.maxOutputTokens != null) {
-                                    put("X-Gateway-Delegated-Worker", "true")
-                                    put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools).toString())
-                                }
-                            }
-                        }
-                        if (delegationHeaders.isEmpty()) {
-                            config
-                        } else {
-                            config.copy(extraHeaders = config.extraHeaders + delegationHeaders)
-                        }
-                    } else {
-                        config
-                    }
+                    val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints)
                     var currentRequestMessages = baseMessages
 
                     while (true) {
@@ -733,6 +665,25 @@ class OpenAICompatibleAdapter @Inject constructor(
         }
     }
 
+    private fun delegatedLlamaRequestConfig(
+        config: ProviderRequestConfig,
+        isLlama: Boolean,
+        effectiveOutputTokens: Int?,
+        constraints: RequestConstraints
+    ): ProviderRequestConfig {
+        if (!isLlama) return config
+        val headers = buildMap {
+            effectiveOutputTokens?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
+            if (!constraints.allowReasoning) {
+                put("X-Gateway-Reasoning-Effort", "none")
+                if (constraints.maxOutputTokens != null) {
+                    put("X-Gateway-Delegated-Worker", "true")
+                    put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools).toString())
+                }
+            }
+        }
+        return if (headers.isEmpty()) config else config.copy(extraHeaders = config.extraHeaders + headers)
+    }
     private fun isLocalLoopbackUrl(url: String): Boolean = runCatching {
         val uri = URI(if ("://" in url) url else "http://$url")
         val host = uri.host?.lowercase() ?: ""

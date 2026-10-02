@@ -504,6 +504,51 @@ class LocalDelegationCoordinatorTest {
         assertTrue(coordinator.failureReason().orEmpty().contains("WATCHDOG"))
     }
 
+    @Test fun `tool activity keeps worker alive beyond short adaptive runtime`() = runTest {
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            {
+                config.copy(
+                    researchEnabled = false,
+                    timeoutSeconds = 45,
+                    maxDelegateRuntimeSeconds = 90,
+                    timeToFirstTokenTimeoutSeconds = 5,
+                    idleTokenTimeoutSeconds = 45
+                )
+            },
+            { listOf(target) },
+            { _, _, _ -> error("progressive path expected") },
+            nowMs = { testScheduler.currentTime },
+            generateWithProgress = { _, _, _, _, progress ->
+                progress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
+                delay(40_000)
+                progress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
+                delay(20_000)
+                progress(DelegateProgress(DelegateProgressKind.OUTPUT))
+                "done"
+            }
+        )
+
+        assertEquals("done", coordinator.delegate(target, "GitHub task", 128, emptyList(), "tool-active"))
+    }
+
+    @Test fun `output cap violation quarantines provider and fails over`() = runTest {
+        val fallback = target.copy(uid = "cap-fallback")
+        val dispatched = mutableListOf<String>()
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 4) },
+            { listOf(target, fallback) },
+            { profile, _, _ ->
+                dispatched += profile.uid
+                if (profile.uid == target.uid) error("OUTPUT_CAP_EXCEEDED: provider generated 2650 tokens with effective cap 2048")
+                "bounded recovery"
+            }
+        )
+
+        assertEquals("bounded recovery", coordinator.executeTask(target, "task", 256))
+        assertEquals(listOf(target.uid, fallback.uid), dispatched)
+    }
     @Test fun `settings failure after completed action returns original success without reexecution`() = runTest {
         var actions = 0
         val coordinator = LocalDelegationCoordinator(source, { error("Settings unavailable") }, { listOf(target) }, { _, _, _ -> error("Unused") })

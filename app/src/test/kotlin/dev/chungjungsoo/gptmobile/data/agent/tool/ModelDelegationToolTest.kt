@@ -192,6 +192,15 @@ class ModelDelegationToolTest {
     }
 
     @Test
+    fun primaryOnlyRecoveryIsAnErrorHandoffNotSuccessfulDelegation() = runTest {
+        val tool = ModelDelegationTool(source, { enabled }, { listOf(target) }) { _, _, _ ->
+            "Delegation was canceled. Continue this turn with the primary model only and do not call delegate_to_model again."
+        }
+
+        val result = tool.execute("primary-only", task)
+        assertTrue(result.isError)
+    }
+    @Test
     fun localFirstOwnershipRaisesExplicitDelegationAllowance() = runTest {
         var attempts = 0
         val localFirst = enabled.copy(processingOwnership = 0, maxCallsPerTurn = 1)

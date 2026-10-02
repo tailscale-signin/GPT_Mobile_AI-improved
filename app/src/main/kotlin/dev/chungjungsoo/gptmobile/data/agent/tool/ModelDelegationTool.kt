@@ -27,10 +27,11 @@ class ModelDelegationTool(
     private val generate: suspend (PlatformV2, String, Int) -> String
 ) : AgentTool {
     private val calls = AtomicInteger(0)
-    private val unavailableForTurn = AtomicBoolean(false)
+    private val primaryOnlyForTurn = AtomicBoolean(false)
 
     private companion object {
         const val OUTER_TIMEOUT_GRACE_SECONDS = 20
+        const val MAX_OUTER_ORCHESTRATION_SECONDS = 180L
     }
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
@@ -48,9 +49,9 @@ class ModelDelegationTool(
         val config = settings().normalized()
         AppLogRecorder.record("Delegation", "Tool requested · call=$callId · source=${source.uid} · enabled=${config.enabled} · localOnly=${config.localPlatformsOnly} · remoteWorkers=${config.remoteWorkersAllowed()}")
         if (!config.enabled) return error("Model delegation is disabled in Settings → Model Delegation.")
-        if (unavailableForTurn.get()) {
-            return error("Delegation is unavailable for the remainder of this turn. Continue with the evidence already available; do not retry delegation until the next turn.").also {
-                AppLogRecorder.record("Delegation", "Rejected · terminal circuit open · call=$callId · source=${source.uid}", "W")
+        if (primaryOnlyForTurn.get()) {
+            return error("Delegation was canceled for this turn. Continue with the primary model and do not retry delegation until the next turn.").also {
+                AppLogRecorder.record("Delegation", "Rejected · primary-only mode active · call=$callId · source=${source.uid}", "W")
             }
         }
         val task = (arguments["task"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
@@ -104,8 +105,13 @@ class ModelDelegationTool(
         // delegate_to_model may orchestrate several serialized worker generations.
         // Give the outer tool enough room for that workflow; individual workers remain
         // protected by their adaptive runtime/watchdog limits in the coordinator.
-        val orchestrationTimeoutSeconds =
+        val calculatedOrchestrationSeconds =
             config.timeoutSeconds.toLong() * config.effectiveLocalModelCalls().coerceIn(1, 8) + 30L
+        val orchestrationTimeoutSeconds = minOf(
+            calculatedOrchestrationSeconds,
+            config.maxDelegateRuntimeSeconds.toLong() * 2L + OUTER_TIMEOUT_GRACE_SECONDS,
+            MAX_OUTER_ORCHESTRATION_SECONDS
+        ).coerceAtLeast(30L)
         val timeoutMs = (orchestrationTimeoutSeconds + OUTER_TIMEOUT_GRACE_SECONDS) * 1000L
         val startedAtMs = System.currentTimeMillis()
         AppLogRecorder.record("Delegation", "Dispatching · call=$callId · source=${source.compatibleType} · sourceUid=${source.uid} · target=${target.compatibleType} · targetUid=${target.uid} · model=${target.model.take(96)} · timeoutMs=$timeoutMs · requestedOutputCap=${config.maxOutputTokens} · taskChars=${task.length} · callIndex=${calls.get()}/$effectiveCallLimit · configuredCalls=${config.maxCallsPerTurn} · ownership=${config.processingOwnership}")
@@ -113,25 +119,25 @@ class ModelDelegationTool(
             val response = withTimeoutOrNull(timeoutMs) { generate(target, task, config.maxOutputTokens) }
             val elapsedMs = System.currentTimeMillis() - startedAtMs
             if (response == null) {
-                unavailableForTurn.set(true)
-                AppLogRecorder.record("Delegation", "Timed out · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · timeoutMs=$timeoutMs · requestedOutputCap=${config.maxOutputTokens} · taskChars=${task.length} · terminalCircuit=true", "E")
-                return error("The delegated task timed out and delegation has been paused for the remainder of this turn. Continue without retrying it.")
+                calls.decrementAndGet()
+                AppLogRecorder.record("Delegation", "Timed out · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · timeoutMs=$timeoutMs · requestedOutputCap=${config.maxOutputTokens} · taskChars=${task.length} · terminalCircuit=false · callBudgetRestored=true", "E")
+                return error("The delegated task timed out. The primary model may continue or retry a smaller missing subtask.")
             }
             if (response.isBlank()) {
-                unavailableForTurn.set(true)
-                return error("The target model returned no usable text, so delegation has been paused for the remainder of this turn.").also {
-                    AppLogRecorder.record("Delegation", "Empty response · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · terminalCircuit=true", "W")
+                calls.decrementAndGet()
+                return error("The target model returned no usable text. The primary model may continue or retry a smaller missing subtask.").also {
+                    AppLogRecorder.record("Delegation", "Empty response · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · terminalCircuit=false · callBudgetRestored=true", "W")
                 }
             }
             if (response.startsWith("Delegation was canceled.", ignoreCase = true)) {
-                unavailableForTurn.set(true)
+                primaryOnlyForTurn.set(true)
                 AppLogRecorder.record("Delegation", "Primary-only handoff · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · terminalCircuit=true", "W")
                 return error(response)
             }
             if (gitHubCapabilityRefusal(task, response)) {
-                unavailableForTurn.set(true)
-                AppLogRecorder.record("Delegation", "GitHub capability unavailable on helper · call=$callId · target=${target.uid} · recoverWithPrimary=true", "W")
-                return error("The helper lacks GitHub access. This does not describe the primary model's tools. Continue using the primary model's enabled GitHub integration to complete the authorized task. Do not retry this helper or replay completed writes.\n\nHelper report:\n$response")
+                calls.decrementAndGet()
+                AppLogRecorder.record("Delegation", "GitHub capability unavailable on helper · call=$callId · target=${target.uid} · recoverWithPrimary=true · terminalCircuit=false · callBudgetRestored=true", "W")
+                return error("The helper lacks GitHub access. This does not describe the primary model's tools. Continue using the primary model's enabled GitHub integration to complete the authorized task. Do not replay completed writes.\n\nHelper report:\n$response")
             }
             AppLogRecorder.record("Delegation", "Completed · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · outputChars=${response.length} · approxOutputTokens=${(response.length + 3) / 4} · requestedOutputCap=${config.maxOutputTokens}")
             val transportMarker =
@@ -146,14 +152,13 @@ class ModelDelegationTool(
             throw cancellation
         } catch (failure: Exception) {
             val message = failure.message.orEmpty()
-            val terminalUnavailable = message.contains("CANCELED_NO_RESULT", ignoreCase = true) ||
-                message.contains("no eligible target", ignoreCase = true) ||
-                message.contains("no eligible worker", ignoreCase = true) ||
-                message.contains("not downloaded", ignoreCase = true)
+            // Provider/runtime failures are scoped to the failed attempt. The coordinator
+            // owns target quarantine and failover; this outer tool must not disable every
+            // delegate for the remainder of the turn after one transient failure.
+            val terminalUnavailable = message.contains("Delegation was canceled.", ignoreCase = true)
             if (terminalUnavailable) {
-                unavailableForTurn.set(true)
+                primaryOnlyForTurn.set(true)
             } else {
-                // Preserve the existing explicit retry behavior for one-off provider failures.
                 calls.decrementAndGet()
             }
             AppLogRecorder.record(
@@ -162,9 +167,9 @@ class ModelDelegationTool(
                 "E"
             )
             if (terminalUnavailable) {
-                error("Delegation is unavailable for the remainder of this turn. Continue without retrying it; it will be eligible again on the next turn.")
+                error("Delegation was canceled for this turn. Continue with the primary model only.")
             } else {
-                error("Delegation failed. Check the target profile, credentials and model availability.")
+                error("Delegation failed for this attempt. Continue with the primary model or retry only the missing subtask with an eligible helper.")
             }
         }
     }

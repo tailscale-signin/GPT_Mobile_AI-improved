@@ -23,6 +23,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.Serializable
@@ -98,120 +100,124 @@ class GoogleAPIImpl @Inject constructor(
     ): Flow<GenerateContentResponse> = flow {
         var receivedPayload = false
         var completed = false
-        try {
-            val apiUrl = config.apiUrl
-            val endpoint = if (apiUrl.endsWith("/")) {
-                "${apiUrl}v1beta/models/$model:streamGenerateContent"
-            } else {
-                "$apiUrl/v1beta/models/$model:streamGenerateContent"
-            }
-
-            ResilientStreamingClient.executeWithRetry(
-                config = ResilientStreamingClient.RetryConfig(
-                    maxAttempts = 3,
-                    initialDelayMs = 500L,
-                    maxDelayMs = 4_000L
-                ),
-                shouldRetry = { !receivedPayload && !completed },
-                onRetry = { attempt, delayMs, reason ->
-                    AppLogRecorder.record(
-                        "Network",
-                        "Gemini stream retry · model=$model · attempt=$attempt · delayMs=$delayMs · reason=${reason.javaClass.simpleName}: ${reason.message.orEmpty().take(180)}",
-                        "W"
-                    )
+        emitAll(
+            flow {
+                val apiUrl = config.apiUrl
+                val endpoint = if (apiUrl.endsWith("/")) {
+                    "${apiUrl}v1beta/models/$model:streamGenerateContent"
+                } else {
+                    "$apiUrl/v1beta/models/$model:streamGenerateContent"
                 }
-            ) {
-                networkClient().preparePost(endpoint) {
-                    applyPlatformStreamingTimeout(timeoutSeconds)
-                    header(GOOGLE_API_KEY_HEADER, config.token ?: "")
-                    parameter("alt", "sse")
-                    contentType(ContentType.Application.Json)
-                    setBody(NetworkClient.json.encodeToString(request))
-                }.execute { response ->
-                    if (!response.status.isSuccess()) {
-                        val errorBody = response.body<String>()
-                        throwIfToolDefinitionsRejected(
-                            response.status.value,
-                            !request.tools.isNullOrEmpty(),
-                            errorBody
+
+                ResilientStreamingClient.executeWithRetry(
+                    config = ResilientStreamingClient.RetryConfig(
+                        maxAttempts = 3,
+                        initialDelayMs = 500L,
+                        maxDelayMs = 4_000L
+                    ),
+                    shouldRetry = { !receivedPayload && !completed },
+                    onRetry = { attempt, delayMs, reason ->
+                        AppLogRecorder.record(
+                            "Network",
+                            "Gemini stream retry · model=$model · attempt=$attempt · delayMs=$delayMs · reason=${reason.javaClass.simpleName}: ${reason.message.orEmpty().take(180)}",
+                            "W"
                         )
-                        if (response.status.value in TRANSIENT_HTTP_STATUSES && !receivedPayload) {
-                            throw IllegalStateException("HTTP ${response.status.value}: ${errorBody.take(240)}")
-                        }
-
-                        val errorMessage = try {
-                            val errorList = NetworkClient.json.decodeFromString<List<GoogleErrorResponse>>(errorBody)
-                            errorList.firstOrNull()?.error?.message ?: "Unknown error"
-                        } catch (_: Exception) {
-                            try {
-                                val errorResponse = NetworkClient.json.decodeFromString<GoogleErrorResponse>(errorBody)
-                                errorResponse.error.message
-                            } catch (_: Exception) {
-                                "HTTP ${response.status.value}: $errorBody"
+                    }
+                ) {
+                    networkClient().preparePost(endpoint) {
+                        applyPlatformStreamingTimeout(timeoutSeconds)
+                        header(GOOGLE_API_KEY_HEADER, config.token ?: "")
+                        parameter("alt", "sse")
+                        contentType(ContentType.Application.Json)
+                        setBody(NetworkClient.json.encodeToString(request))
+                    }.execute { response ->
+                        if (!response.status.isSuccess()) {
+                            val errorBody = response.body<String>()
+                            throwIfToolDefinitionsRejected(
+                                response.status.value,
+                                !request.tools.isNullOrEmpty(),
+                                errorBody
+                            )
+                            if (response.status.value in TRANSIENT_HTTP_STATUSES && !receivedPayload) {
+                                throw IllegalStateException("HTTP ${response.status.value}: ${errorBody.take(240)}")
                             }
-                        }
 
-                        emit(
-                            GenerateContentResponse(
-                                error = ErrorDetail(
-                                    message = errorMessage,
-                                    code = response.status.value,
-                                    status = "ERROR"
+                            val errorMessage = try {
+                                val errorList = NetworkClient.json.decodeFromString<List<GoogleErrorResponse>>(errorBody)
+                                errorList.firstOrNull()?.error?.message ?: "Unknown error"
+                            } catch (_: Exception) {
+                                try {
+                                    val errorResponse = NetworkClient.json.decodeFromString<GoogleErrorResponse>(errorBody)
+                                    errorResponse.error.message
+                                } catch (_: Exception) {
+                                    "HTTP ${response.status.value}: $errorBody"
+                                }
+                            }
+
+                            receivedPayload = true
+                            emit(
+                                GenerateContentResponse(
+                                    error = ErrorDetail(
+                                        message = errorMessage,
+                                        code = response.status.value,
+                                        status = "ERROR"
+                                    )
                                 )
                             )
-                        )
-                        return@execute
-                    }
+                            return@execute
+                        }
 
-                    val channel = response.bodyAsChannel()
-                    while (!channel.isClosedForRead) {
-                        val line = channel.readLine() ?: break
-                        val data = SseUtils.extractSseData(line) ?: continue
+                        val channel = response.bodyAsChannel()
+                        while (!channel.isClosedForRead) {
+                            val line = channel.readLine() ?: break
+                            val data = SseUtils.extractSseData(line) ?: continue
 
-                        try {
-                            val chunk = NetworkClient.json.decodeFromString<GenerateContentResponse>(data)
+                            val chunk = try {
+                                NetworkClient.json.decodeFromString<GenerateContentResponse>(data)
+                            } catch (_: kotlinx.serialization.SerializationException) {
+                                // Only malformed JSON is skipped. Cancellation/collector failures
+                                // must escape instead of being mistaken for invalid server data.
+                                continue
+                            }
                             receivedPayload = true
                             if (chunk.candidates.orEmpty().any { !it.finishReason.isNullOrBlank() }) {
                                 completed = true
                             }
                             emit(chunk)
-                        } catch (_: Exception) {
-                            // Skip a malformed SSE frame. A later valid frame may still
-                            // complete the response, so one bad frame is not terminal.
                         }
                     }
                 }
-            }
-        } catch (e: Exception) {
-            if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
-            if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e, completed)) {
-                AppLogRecorder.record("Network", "Gemini stream closed after completion · model=$model · ${e.message.orEmpty().take(180)}", "W")
-                return@flow
-            }
-            val errorMessage = when (e) {
-                is java.net.UnknownHostException -> "Network error: Unable to resolve host."
-                is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
-                is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
-                is HttpRequestTimeoutException -> "Request timed out."
-                is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
-                is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                else -> e.message ?: "Unknown network error"
-            }
-            AppLogRecorder.record(
-                "Network",
-                "Gemini stream failed · model=$model · receivedPayload=$receivedPayload · completed=$completed · ${e.javaClass.simpleName}: ${e.message.orEmpty().take(240)}",
-                "E"
-            )
-            emit(
-                GenerateContentResponse(
-                    error = ErrorDetail(
-                        message = errorMessage,
-                        code = -1,
-                        status = "NETWORK_ERROR"
+            }.catch { e ->
+                if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
+                if (ResilientStreamingClient.shouldTreatPrematureCloseAsStreamEnd(receivedPayload, e, completed)) {
+                    AppLogRecorder.record("Network", "Gemini stream closed after completion · model=$model · ${e.message.orEmpty().take(180)}", "W")
+                    return@catch
+                }
+                val errorMessage = when (e) {
+                    is java.net.UnknownHostException -> "Network error: Unable to resolve host."
+                    is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
+                    is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
+                    is HttpRequestTimeoutException -> "Request timed out."
+                    is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
+                    is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
+                    else -> e.message ?: "Unknown network error"
+                }
+                AppLogRecorder.record(
+                    "Network",
+                    "Gemini stream failed · model=$model · receivedPayload=$receivedPayload · completed=$completed · ${e.javaClass.simpleName}: ${e.message.orEmpty().take(240)}",
+                    "E"
+                )
+                emit(
+                    GenerateContentResponse(
+                        error = ErrorDetail(
+                            message = errorMessage,
+                            code = -1,
+                            status = "NETWORK_ERROR"
+                        )
                     )
                 )
-            )
-        }
+            }
+        )
     }.flowOn(Dispatchers.IO)
 
     private companion object {

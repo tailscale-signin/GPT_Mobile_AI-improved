@@ -995,18 +995,25 @@ class GitHubTool(
         }.getOrNull()
         val capability = capabilities?.get("write_capability")?.jsonPrimitive?.content ?: "unknown"
         val canPush = capabilities?.get("can_push")?.jsonPrimitive?.content ?: "unknown"
+        val requiredPermission = requiredGitHubPermission(action)
         val diagnosis = when (capability) {
             "denied" ->
-                "Repository permission check reports can_push=false. The connected GitHub credential or installation does not have repository write access."
+                "Repository-level permission check reports can_push=false. The authenticated GitHub actor does not have repository write authority."
             "allowed" ->
-                "Repository permission check reports can_push=$canPush. The credential is not generally read-only; this specific GitHub operation was blocked by an endpoint permission, repository rule, branch protection, SSO policy, or GitHub App permission."
+                "Repository-level permission check reports can_push=$canPush. The actor can write to the repository, but the current PAT/GitHub App can still lack the endpoint permission required for this operation, or repository/branch/SSO rules may block it."
             else ->
-                "Repository write permission could not be determined. HTTP 403 alone does not prove the token is read-only."
+                "Repository-level write authority could not be determined. HTTP 403 alone does not prove the token is globally read-only."
         }
-        return "GITHUB_WRITE_BLOCKED · action=$action · write_capability=$capability · can_push=$canPush. " +
+        return "GITHUB_WRITE_BLOCKED · action=$action · write_capability=$capability · can_push=$canPush · required_permission=$requiredPermission. " +
             "$diagnosis GitHub detail: $githubDetail. " +
             "Do not retry this write repeatedly and do not fall back to shell/terminal/git commands. " +
-            "Use write_capabilities or the GitHub plugin settings to resolve the permission before another write attempt."
+            "Use write_capabilities or the GitHub plugin settings to resolve the required permission before another write attempt."
+    }
+
+    private fun requiredGitHubPermission(action: String): String = when (action) {
+        "create_pull_request" -> "Pull requests: write"
+        "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "Actions: write"
+        else -> "Contents: write"
     }
 
     private fun compactGitRef(value: JsonObject): JsonObject = buildJsonObject {

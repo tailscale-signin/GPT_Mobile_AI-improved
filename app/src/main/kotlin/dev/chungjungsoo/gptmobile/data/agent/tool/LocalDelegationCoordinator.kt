@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -61,6 +62,7 @@ internal class LocalDelegationCoordinator(
         private const val DELEGATE_INPUT_SAFETY_PERCENT = 60
         private const val APPROX_CHARS_PER_TOKEN = 4
         private const val WATCHDOG_POLL_MS = 250L
+        private const val SAME_DELEGATE_RETRY_DELAY_MS = 1_000L
         private const val MAX_CONSECUTIVE_EMPTY_RESPONSES = 2
         private const val RUNTIME_NOT_READY_COOLDOWN_MS = 5 * 60_000L
         private const val NOT_DOWNLOADED_COOLDOWN_MS = 30 * 60_000L
@@ -87,7 +89,10 @@ internal class LocalDelegationCoordinator(
     private val delegationCanceledByUser = AtomicBoolean(false)
     private val userSelectedRecoveryProfile = AtomicReference<PlatformV2?>(null)
     private val lastFailure = AtomicReference<String?>(null)
+    private val reviewerScores = ConcurrentLinkedQueue<Int>()
     fun failureReason(): String? = lastFailure.get()
+    internal fun reviewerScoresSnapshot(): List<Int> = reviewerScores.toList()
+    internal fun latestReviewerScore(): Int? = reviewerScores.toList().lastOrNull()
 
     private val worker = Semaphore(4)
 
@@ -105,6 +110,177 @@ internal class LocalDelegationCoordinator(
         if (partialNotes.isNotEmpty()) {
             append("\n\nPartial helper notes completed before cancellation:\n")
             append(partialNotes.joinToString("\n\n"))
+        }
+    }
+
+    private data class ReviewerAssessment(
+        val score: Int,
+        val verdict: String,
+        val findings: String,
+        val context: String
+    )
+
+    private suspend fun reviewerTarget(config: ModelDelegationSettings, delegate: PlatformV2): PlatformV2? {
+        if (!config.reviewerEnabled) return null
+        val candidates = profiles().filter { candidate ->
+            candidate.enabled &&
+                candidate.uid != source.uid &&
+                candidate.uid != delegate.uid &&
+                !candidate.excludesMemory() &&
+                candidate.model.isNotBlank() &&
+                !candidate.model.trim().equals(delegate.model.trim(), ignoreCase = true) &&
+                (config.remoteWorkersAllowed() || candidate.isPrivateDestination()) &&
+                !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM)
+        }
+        val selected = candidates.firstOrNull { it.uid == config.reviewerProfileUid }
+            ?: candidates.firstOrNull().takeIf { config.reviewerProfileUid.isBlank() }
+        if (selected == null) {
+            AppLogRecorder.record(
+                "Delegation",
+                "Reviewer unavailable · configured=${config.reviewerProfileUid.ifBlank { "<none>" }} · delegate=${delegate.uid} · delegateModel=${delegate.model.take(96)}",
+                "W"
+            )
+        }
+        return selected
+    }
+
+    private fun parseReviewerAssessment(raw: String, delegateOutput: String): ReviewerAssessment? {
+        val score = Regex("""(?im)^\s*REVIEW_SCORE\s*:\s*(\d{1,3})\s*$""")
+            .find(raw)?.groupValues?.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 100) ?: return null
+        val verdict = Regex("""(?im)^\s*VERDICT\s*:\s*([A-Z_ -]+)\s*$""")
+            .find(raw)?.groupValues?.getOrNull(1)?.trim()?.uppercase()?.replace(' ', '_') ?: "REVIEWED"
+        val findingsStart = raw.indexOf("FINDINGS:", ignoreCase = true)
+        val contextStart = raw.indexOf("CORRECTED_CONTEXT:", ignoreCase = true)
+        val findings = if (findingsStart >= 0) {
+            val start = findingsStart + "FINDINGS:".length
+            val end = if (contextStart > start) contextStart else raw.length
+            raw.substring(start, end).trim().take(800)
+        } else {
+            ""
+        }
+        val corrected = if (contextStart >= 0) {
+            raw.substring(contextStart + "CORRECTED_CONTEXT:".length).trim()
+        } else {
+            ""
+        }
+        val context = if (corrected.isBlank() || corrected.equals("USE_DELEGATE_CONTEXT", ignoreCase = true)) {
+            delegateOutput
+        } else {
+            corrected
+        }
+        return ReviewerAssessment(score, verdict, findings, context)
+    }
+
+    private suspend fun reviewForPrimary(
+        delegate: PlatformV2,
+        task: String,
+        delegateOutput: String,
+        config: ModelDelegationSettings
+    ): String {
+        if (!config.reviewerEnabled || delegateOutput.isBlank()) return delegateOutput
+        val reviewer = reviewerTarget(config, delegate)
+        if (reviewer == null) {
+            reviewerScores.add(0)
+            AppLogRecorder.record("Delegation", "REVIEWER_SCORE · score=0 · verdict=REVIEWER_UNAVAILABLE · delegate=${delegate.uid}", "W")
+            return buildString {
+                append("[Reviewer Score: 0/100 · REVIEWER_UNAVAILABLE]\n")
+                append("Reviewer findings: No eligible reviewer model was available. Treat the following delegate context as unverified.\n\n")
+                append(delegateOutput)
+            }
+        }
+
+        val reviewPrompt = buildString {
+            append("You are an independent REVIEWER model. Fact-check the delegate context against the original task and the evidence, source IDs, URLs, identifiers, numbers, code details, and explicit limitations contained in that context. ")
+            append("Do not reward verbosity. Penalize unsupported claims, contradictions, missing requested details, invented facts, lost citations, or unsafe assumptions. ")
+            append("Do not perform external actions and do not claim to have checked information that is not present. Preserve exact verified details.\n\n")
+            append("ORIGINAL TASK:\n")
+            append(task)
+            append("\n\nDELEGATE CONTEXT:\n")
+            append(delegateOutput)
+            append("\n\nReturn exactly this format:\n")
+            append("REVIEW_SCORE: <0-100>\n")
+            append("VERDICT: PASS | CORRECTED | REJECT\n")
+            append("FINDINGS: <brief factual explanation>\n")
+            append("CORRECTED_CONTEXT:\n")
+            append("<write USE_DELEGATE_CONTEXT if it is already reliable; otherwise provide a concise corrected context that preserves verified source markers and exact details>")
+        }
+
+        val retryLimit = config.localRetryLimit.coerceAtLeast(5)
+        var lastIssue = "Reviewer returned no usable assessment."
+        for (attempt in 0..retryLimit) {
+            if (attempt > 0) {
+                AppLogRecorder.record(
+                    "Delegation",
+                    "Reviewer retry · reviewer=${reviewer.uid} · delegate=${delegate.uid} · retry=$attempt/$retryLimit · delayMs=$SAME_DELEGATE_RETRY_DELAY_MS",
+                    "W"
+                )
+                delay(SAME_DELEGATE_RETRY_DELAY_MS)
+            }
+            try {
+                val available = inputBudget(reviewer, config.reviewerOutputTokens).coerceAtLeast(0)
+                if (available < 600) {
+                    lastIssue = "Reviewer input capacity is unavailable."
+                    continue
+                }
+                val hardInputTokenCap = minOf(config.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS)
+                val boundedPrompt = capPrompt(reviewPrompt, minOf(available, hardInputTokenCap * APPROX_CHARS_PER_TOKEN))
+                val estimatedInput = estimatedDelegateTokens(boundedPrompt)
+                var observedInputTokens = 0L
+                val runtimeSeconds = adaptiveRuntimeSeconds(estimatedInput, config)
+                val response = invokeWorkerWithWatchdog(
+                    profile = reviewer,
+                    prompt = boundedPrompt,
+                    outputTokens = config.reviewerOutputTokens,
+                    inputTokenCap = hardInputTokenCap,
+                    runtimeSeconds = runtimeSeconds,
+                    hardRuntimeSeconds = config.maxDelegateRuntimeSeconds,
+                    firstProgressSeconds = minOf(config.timeToFirstTokenTimeoutSeconds, config.maxDelegateRuntimeSeconds),
+                    idleSeconds = minOf(config.idleTokenTimeoutSeconds, config.maxDelegateRuntimeSeconds),
+                    allowTools = false
+                ) { usage -> observedInputTokens = maxOf(observedInputTokens, usage) }
+
+                if (response.isNullOrBlank()) {
+                    lastIssue = "Reviewer returned no text."
+                    continue
+                }
+                val assessment = parseReviewerAssessment(response, delegateOutput)
+                if (assessment == null) {
+                    lastIssue = "Reviewer response did not contain a valid REVIEW_SCORE."
+                    continue
+                }
+                reviewerScores.add(assessment.score)
+                AppLogRecorder.record(
+                    "Delegation",
+                    "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · attempt=${attempt + 1}/${retryLimit + 1} · observedInputTokens=$observedInputTokens"
+                )
+                return buildString {
+                    append("[Reviewer Score: ${assessment.score}/100 · ${assessment.verdict}]\n")
+                    if (assessment.findings.isNotBlank()) append("Reviewer findings: ${assessment.findings}\n")
+                    append("\nReviewed delegate context:\n")
+                    append(assessment.context)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                lastIssue = failure.message.orEmpty().ifBlank { failure.javaClass.simpleName }
+                AppLogRecorder.record(
+                    "Delegation",
+                    "Reviewer attempt failed · reviewer=${reviewer.uid} · delegate=${delegate.uid} · attempt=${attempt + 1}/${retryLimit + 1} · ${failure.javaClass.simpleName}: ${lastIssue.take(180)}",
+                    "W"
+                )
+            }
+        }
+
+        reviewerScores.add(0)
+        AppLogRecorder.record(
+            "Delegation",
+            "REVIEWER_SCORE · score=0 · verdict=REVIEW_FAILED · reviewer=${reviewer.uid} · delegate=${delegate.uid} · reason=${lastIssue.take(180)}",
+            "E"
+        )
+        return buildString {
+            append("[Reviewer Score: 0/100 · REVIEW_FAILED]\n")
+            append("Reviewer findings: ${lastIssue.take(500)} Treat the following delegate context as unverified.\n\n")
+            append(delegateOutput)
         }
     }
 
@@ -191,6 +367,7 @@ internal class LocalDelegationCoordinator(
             val metadataEligible =
                 candidate.uid != source.uid &&
                     candidate.enabled &&
+                    (!config.reviewerEnabled || candidate.uid != config.reviewerProfileUid) &&
                     !candidate.excludesMemory() &&
                     !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                     candidate.uid !in quarantinedWorkerUids &&
@@ -236,6 +413,7 @@ internal class LocalDelegationCoordinator(
             candidate.uid != source.uid &&
                 candidate.uid != failedUid &&
                 candidate.enabled &&
+                (!config.reviewerEnabled || candidate.uid != config.reviewerProfileUid) &&
                 !candidate.excludesMemory() &&
                 !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM) &&
                 candidate.uid !in quarantinedWorkerUids &&

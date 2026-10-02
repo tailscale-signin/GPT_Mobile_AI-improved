@@ -600,6 +600,9 @@ internal class LocalDelegationCoordinator(
         response.takeIf { it.isNotBlank() }?.let { usable ->
             timeoutsByWorker[profile.uid]?.set(0)
             emptyResponsesByWorker[profile.uid]?.set(0)
+            failuresByWorker[profile.uid]?.set(0)
+            quarantinedWorkerUids.remove(profile.uid)
+            permanentlyUnavailableWorkers.remove(availabilityKey(profile))
             successfulLocalTokens.addAndGet(chargedInput + estimatedDelegateTokens(usable))
             AppLogRecorder.record("Delegation", "Worker completed · target=${profile.uid} · call=$callNumber/$effectiveCallLimit · elapsedMs=$elapsedMs · outputChars=${usable.length} · requestedOutputCap=$requestedOutputCap · approxOutputTokens=${estimatedDelegateTokens(usable)}")
             logComputeTotals()

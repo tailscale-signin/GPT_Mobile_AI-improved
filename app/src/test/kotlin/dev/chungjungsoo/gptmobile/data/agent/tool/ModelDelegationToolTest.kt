@@ -170,7 +170,10 @@ class ModelDelegationToolTest {
             { enabled.copy(timeoutSeconds = 5, maxLocalModelCalls = 1) },
             { listOf(target) }
         ) { _, _, _ ->
-            delay(60_000)
+            // The outer timeout now reserves enough time for the coordinator's mandatory
+            // five same-delegate retries. Exceed that expanded window to verify the
+            // orchestration timeout itself still terminates a genuinely stuck call.
+            delay(600_000)
             "late"
         }
         assertTrue(slow.execute("1", task).isError)

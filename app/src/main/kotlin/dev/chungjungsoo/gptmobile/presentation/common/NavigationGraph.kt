@@ -1,5 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +60,10 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupViewModelV2
 import dev.chungjungsoo.gptmobile.presentation.ui.startscreen.StartScreen
 import dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterSettingsViewModel
 
+private const val PAGE_ENTER_DURATION_MS = 280
+private const val PAGE_EXIT_DURATION_MS = 240
+private const val PAGE_FADE_DURATION_MS = 180
+
 @Composable
 fun SetupNavGraph(
     navController: NavHostController,
@@ -63,7 +75,75 @@ fun SetupNavGraph(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
         navController = navController,
-        startDestination = Route.CHAT_LIST
+        startDestination = Route.CHAT_LIST,
+        enterTransition = {
+            slideInHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_ENTER_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                initialOffsetX = { width -> width / 9 }
+            ) +
+                fadeIn(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleIn(
+                    initialScale = 0.992f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_ENTER_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_EXIT_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                targetOffsetX = { width -> -width / 28 }
+            ) +
+                fadeOut(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleOut(
+                    targetScale = 0.996f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_EXIT_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_EXIT_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                initialOffsetX = { width -> -width / 28 }
+            ) +
+                fadeIn(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleIn(
+                    initialScale = 0.996f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_EXIT_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_ENTER_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                targetOffsetX = { width -> width / 9 }
+            ) +
+                fadeOut(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleOut(
+                    targetScale = 0.992f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_ENTER_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        }
     ) {
         homeScreenNavigation(navController)
         migrationScreenNavigation(navController)

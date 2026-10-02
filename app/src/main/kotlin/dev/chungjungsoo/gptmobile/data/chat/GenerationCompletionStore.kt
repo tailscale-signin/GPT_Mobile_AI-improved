@@ -30,8 +30,8 @@ class GenerationCompletionStore @Inject constructor(
     fun record(runId: String, chatId: Int, assistantMessageId: Int, completedAt: Long) {
         if (runId.isBlank() || chatId <= 0 || assistantMessageId <= 0) return
         _items.update { current ->
-            (listOf(CompletedGeneration(runId, chatId, assistantMessageId, completedAt)) +
-                current.filterNot { it.runId == runId })
+            listOf(CompletedGeneration(runId, chatId, assistantMessageId, completedAt))
+                .plus(current.filterNot { it.runId == runId })
                 .sortedByDescending { it.completedAt }
                 .take(MAX_ITEMS)
         }

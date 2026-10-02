@@ -651,98 +651,19 @@ internal class LocalDelegationCoordinator(
                         observedForFailure = maxOf(observedForFailure, usage)
                     }
                 } catch (failure: Exception) {
-                    if (observedInputTokens > estimatedInput) {
-                        val observedOverhead = observedInputTokens - estimatedInput
-                        profileOverhead.accumulateAndGet(observedOverhead) { current, observed -> maxOf(current, observed) }
-                    }
-                    throw failure
-                }
-                val elapsedMs = nowMs() - startedAtMs
-                if (observedInputTokens > estimatedInput) {
-                    val observedOverhead = observedInputTokens - estimatedInput
-                    profileOverhead.accumulateAndGet(observedOverhead) { current, observed -> maxOf(current, observed) }
-                }
-                val chargedInput = maxOf(estimatedEffectiveInput, observedInputTokens)
-                if (response == null) {
-                    canceledLocalTokens.addAndGet(chargedInput)
-                    wastedLocalMs.addAndGet(elapsedMs)
-                    val timeouts = timeoutsByWorker.getOrPut(profile.uid, ::AtomicInteger).incrementAndGet()
-                    val quarantined = timeouts >= 2
-                    if (quarantined) {
-                        quarantinedWorkerUids += profile.uid
-                    }
-                    recoveryReason = "The delegate stopped or timed out before returning a usable result."
-                    if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
-                        failoverTarget = recoveryCandidates(latest, profile.uid).firstOrNull()
-                    }
-                    AppLogRecorder.record("Delegation", "CANCELED_NO_RESULT · target=${profile.uid} · call=$callNumber/$effectiveCallLimit · elapsedMs=$elapsedMs · estimatedInputTokens=$estimatedInput · observedInputTokens=$observedInputTokens · requestedOutputCap=$requestedOutputCap", "E")
-                    AppLogRecorder.record("Delegation", "Worker timeout circuit · target=${profile.uid} · timeouts=$timeouts/2 · quarantined=$quarantined · fallback=${failoverTarget?.uid}", "W")
-                    logComputeTotals()
-                    return@withPermit null
-                }
-                return@withPermit response.takeIf { it.isNotBlank() }?.also {
-                    timeoutsByWorker[profile.uid]?.set(0)
-                    emptyResponsesByWorker[profile.uid]?.set(0)
-                    successfulLocalTokens.addAndGet(chargedInput + estimatedDelegateTokens(it))
-                    AppLogRecorder.record("Delegation", "Worker completed · target=${profile.uid} · call=$callNumber/$effectiveCallLimit · elapsedMs=$elapsedMs · outputChars=${it.length} · requestedOutputCap=$requestedOutputCap · approxOutputTokens=${estimatedDelegateTokens(it)}")
-                    logComputeTotals()
-                } ?: run {
-                    failedLocalTokens.addAndGet(chargedInput)
-                    wastedLocalMs.addAndGet(elapsedMs)
-                    val emptyCount = emptyResponsesByWorker.getOrPut(profile.uid, ::AtomicInteger).incrementAndGet()
-                    val quarantined = emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES
-                    if (quarantined) {
-                        quarantinedWorkerUids += profile.uid
-                    }
-                    recoveryReason = "The delegate completed without returning usable content."
-                    if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
-                        failoverTarget = recoveryCandidates(latest, profile.uid).firstOrNull()
-                    }
-                    AppLogRecorder.record(
-                        "Delegation",
-                        "Worker completed empty · target=${profile.uid} · call=$callNumber/$effectiveCallLimit · elapsedMs=$elapsedMs · requestedOutputCap=$requestedOutputCap · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · quarantined=$quarantined · fallback=${failoverTarget?.uid}",
-                        "W"
-                    )
-                    logComputeTotals()
-                    null
-                }
-            } catch (cancelled: CancellationException) {
-                AppLogRecorder.record("Delegation", "Worker cancelled by parent · target=${target.uid} · calls=${localCalls.get()} · reason=${cancelled.message.orEmpty()}", "W")
-                throw cancelled
-            } catch (failure: Exception) {
-                dispatchedAtMs?.let { wastedLocalMs.addAndGet((nowMs() - it).coerceAtLeast(0L)) }
-                val estimated = maxOf(estimatedDelegateTokens(prompt).toLong(), observedForFailure)
-                val chargedFailureTokens = if (dispatchedAtMs != null || observedForFailure > 0L) estimated else 0L
-                if (chargedFailureTokens > 0L) failedLocalTokens.addAndGet(chargedFailureTokens)
-                val classified = classifyWorkerFailure(failure)
-                val message = classified.message
-                lastFailure.set(message.ifBlank { failure.javaClass.simpleName })
-                val failedUid = resolvedProfileUid ?: target.uid
-                val authBlocked = classified.authBlocked
-                val permanentlyUnavailable = classified.permanentlyUnavailable
-                val connectionUnavailable = classified.connectionUnavailable
-                val emptyResponse = classified.emptyResponse
-                val reasoningOnly = classified.reasoningOnly
-                val softEmpty = classified.softEmpty
-                val counter = emptyResponsesByWorker.getOrPut(failedUid, ::AtomicInteger)
-                val emptyCount = if (softEmpty) counter.incrementAndGet() else counter.get()
-                val failures = failuresByWorker.getOrPut(failedUid, ::AtomicInteger).incrementAndGet()
-                val shouldQuarantine = authBlocked || permanentlyUnavailable || connectionUnavailable || classified.outputCapViolation || failures >= 3 || (softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES)
-                if (shouldQuarantine) {
-                    quarantinedWorkerUids += failedUid
-                }
-                recoveryReason = message.takeIf { it.isNotBlank() }
-                    ?.let { "The delegate failed: ${it.take(240)}" }
-                    ?: "The delegate failed before completing the task."
-                if ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest)) {
-                    failoverTarget = recoveryCandidates(latest, failedUid).firstOrNull()
-                }
-                AppLogRecorder.record(
-                    "Delegation",
-                    "Worker failed · target=$failedUid · calls=${localCalls.get()} · ${failure.javaClass.simpleName}: $message · observedInputTokens=$observedForFailure · emptyResponse=$emptyResponse · consecutiveEmpty=$emptyCount/$MAX_CONSECUTIVE_EMPTY_RESPONSES · failedCalls=$failures · reasoningOnly=$reasoningOnly · authBlocked=$authBlocked · permanentlyUnavailable=$permanentlyUnavailable · connectionUnavailable=$connectionUnavailable · outputCapViolation=${classified.outputCapViolation} · quarantined=$shouldQuarantine · fallback=${failoverTarget?.uid}",
-                    "E"
+                val latest = (pinnedConfig ?: settings()).normalized()
+                val resolution = handleWorkerFailure(
+                    failure = failure,
+                    target = target,
+                    resolvedProfileUid = resolvedProfileUid,
+                    prompt = prompt,
+                    observedForFailure = observedForFailure,
+                    dispatchedAtMs = dispatchedAtMs,
+                    latest = latest,
+                    interactiveRecovery = interactiveRecovery
                 )
-                logComputeTotals()
+                recoveryReason = resolution.recoveryReason
+                failoverTarget = resolution.failoverTarget
                 null
             } finally {
                 activeWorkers.decrementAndGet()

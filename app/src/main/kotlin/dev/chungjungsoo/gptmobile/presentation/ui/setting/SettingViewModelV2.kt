@@ -64,7 +64,12 @@ class SettingViewModelV2 @Inject constructor(
     val backupStatus: StateFlow<BackupStatus> = _backupStatus.asStateFlow()
 
     private val backupProtectionMutex = Mutex()
-    private val _backupUi = MutableStateFlow(BackupUiState(selection = completeBackupManager.savedSelection()))
+    private val _backupUi = MutableStateFlow(
+        BackupUiState(
+            selection = completeBackupManager.savedSelection(),
+            recentBackups = completeBackupManager.recentBackups()
+        )
+    )
     val backupUi: StateFlow<BackupUiState> = _backupUi.asStateFlow()
 
     private val _dialogState = MutableStateFlow(DialogState())
@@ -246,7 +251,7 @@ class SettingViewModelV2 @Inject constructor(
         if (_backupUi.value.isBusy) return
         refreshBackupStatus()
         _dialogState.update { it.copy(isBackupRestoreDialogOpen = true) }
-        _backupUi.update { it.copy(isBusy = true) }
+        _backupUi.update { it.copy(isBusy = true, recentBackups = completeBackupManager.recentBackups()) }
         viewModelScope.launch {
             try {
                 backupProtectionMutex.withLock { loadBackupProtection() }
@@ -285,7 +290,12 @@ class SettingViewModelV2 @Inject constructor(
     fun closeBackupRestoreDialog() {
         if (_backupUi.value.isBusy) return
         _backupUi.update {
-            BackupUiState(selection = completeBackupManager.savedSelection(), passwordProtectionEnabled = it.passwordProtectionEnabled, backupPassword = it.backupPassword)
+            BackupUiState(
+                selection = completeBackupManager.savedSelection(),
+                passwordProtectionEnabled = it.passwordProtectionEnabled,
+                backupPassword = it.backupPassword,
+                recentBackups = completeBackupManager.recentBackups()
+            )
         }
         _dialogState.update { it.copy(isBackupRestoreDialogOpen = false) }
     }
@@ -421,6 +431,12 @@ class SettingViewModelV2 @Inject constructor(
         if (uri != null) _backupUi.update { it.copy(recoveryKeyUri = uri, message = null, isError = false) }
     }
 
+    fun restoreRecentBackup(uri: String) {
+        if (_backupUi.value.isBusy || _backupUi.value.isWorking) return
+        _backupUi.update { it.copy(isBusy = true, message = null, isError = false) }
+        restoreSourceSelected(Uri.parse(uri))
+    }
+
     fun restoreSourceSelected(uri: Uri?) {
         if (uri == null) {
             cancelBackupPicker()
@@ -489,6 +505,7 @@ class SettingViewModelV2 @Inject constructor(
                     )
                 }
                 refreshBackupStatus()
+                _backupUi.update { it.copy(recentBackups = completeBackupManager.recentBackups()) }
                 if (result.success) {
                     fetchPlatforms()
                 }
@@ -514,6 +531,7 @@ class SettingViewModelV2 @Inject constructor(
         val backupUri: Uri? = null,
         val recoveryKeyUri: Uri? = null,
         val requiresRecoveryKey: Boolean = false,
+        val recentBackups: List<dev.chungjungsoo.gptmobile.data.backup.RecentBackup> = emptyList(),
         val message: String? = null,
         val isError: Boolean = false
     ) {

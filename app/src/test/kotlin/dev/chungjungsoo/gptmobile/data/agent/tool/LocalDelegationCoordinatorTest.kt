@@ -176,7 +176,7 @@ class LocalDelegationCoordinatorTest {
         var profileReads = 0
         var generations = 0
         var actions = 0
-        val coordinator = LocalDelegationCoordinator(source, { config.copy(localPlatformsOnly = false) }, {
+        val coordinator = LocalDelegationCoordinator(source, { config.withRemoteWorkersAllowed(false) }, {
             profileReads++
             listOf(if (profileReads == 1) target else target.copy(apiUrl = "https://public.example.com"))
         }, { _, _, _ ->

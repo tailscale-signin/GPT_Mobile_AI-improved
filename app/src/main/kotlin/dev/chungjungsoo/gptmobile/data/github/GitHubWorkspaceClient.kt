@@ -219,9 +219,9 @@ class GitHubWorkspaceClient(
         val admin = permissions?.get("admin")?.jsonPrimitive?.booleanOrNull
         return buildJsonObject {
             put("authenticated", token.isNotBlank())
-            put("can_push", push?.let(::JsonPrimitive) ?: JsonNull)
-            put("can_maintain", maintain?.let(::JsonPrimitive) ?: JsonNull)
-            put("can_admin", admin?.let(::JsonPrimitive) ?: JsonNull)
+            put("can_push", push?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("can_maintain", maintain?.let { JsonPrimitive(it) } ?: JsonNull)
+            put("can_admin", admin?.let { JsonPrimitive(it) } ?: JsonNull)
             put("write_capability", when {
                 push == true || maintain == true || admin == true -> JsonPrimitive("allowed")
                 push == false && maintain != true && admin != true -> JsonPrimitive("denied")

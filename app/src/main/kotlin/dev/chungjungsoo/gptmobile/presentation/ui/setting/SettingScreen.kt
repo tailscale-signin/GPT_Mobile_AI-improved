@@ -367,7 +367,6 @@ private fun SettingsStat(value: String, label: String, modifier: Modifier = Modi
     }
 }
 
-
 @Composable
 private fun SettingsCategory(
     title: String,

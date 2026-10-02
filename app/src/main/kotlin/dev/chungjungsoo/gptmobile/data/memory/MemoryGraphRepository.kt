@@ -101,13 +101,17 @@ class MemoryGraphRepository @Inject constructor(
 
         val persisted = entityRows.values.map { row ->
             val existing = dao.entityById(row.id)
-            if (existing == null) row else row.copy(
-                standalone = existing.standalone,
-                createdAt = existing.createdAt,
-                sourceChatId = existing.sourceChatId.takeIf { it != 0 } ?: row.sourceChatId,
-                sourceMessageId = existing.sourceMessageId.takeIf { it != 0 } ?: row.sourceMessageId,
-                entityType = existing.entityType.takeIf { existing.standalone && it != "ENTITY" } ?: row.entityType
-            )
+            if (existing == null) {
+                row
+            } else {
+                row.copy(
+                    standalone = existing.standalone,
+                    createdAt = existing.createdAt,
+                    sourceChatId = existing.sourceChatId.takeIf { it != 0 } ?: row.sourceChatId,
+                    sourceMessageId = existing.sourceMessageId.takeIf { it != 0 } ?: row.sourceMessageId,
+                    entityType = existing.entityType.takeIf { existing.standalone && it != "ENTITY" } ?: row.entityType
+                )
+            }
         }
         if (persisted.isNotEmpty()) dao.upsertEntities(persisted)
         if (observations.isNotEmpty()) dao.upsertObservations(observations)
@@ -183,10 +187,14 @@ class MemoryGraphRepository @Inject constructor(
     }
 
     private fun mergeEntity(current: MemoryGraphEntityRecord?, incoming: MemoryGraphEntityRecord): MemoryGraphEntityRecord =
-        if (current == null) incoming else incoming.copy(
-            standalone = current.standalone || incoming.standalone,
-            createdAt = minOf(current.createdAt, incoming.createdAt)
-        )
+        if (current == null) {
+            incoming
+        } else {
+            incoming.copy(
+                standalone = current.standalone || incoming.standalone,
+                createdAt = minOf(current.createdAt, incoming.createdAt)
+            )
+        }
 
     private suspend fun loadNodesLocked(rows: List<MemoryGraphEntityRecord>, chatId: Int?): List<MemoryGraphNode> {
         if (rows.isEmpty()) return emptyList()

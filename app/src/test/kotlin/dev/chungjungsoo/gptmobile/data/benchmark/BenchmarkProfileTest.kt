@@ -22,11 +22,25 @@ class BenchmarkProfileTest {
         assertEquals("true", options.getValue("stream").jsonPrimitive.content)
         assertEquals("512", options.getValue("max_tokens").jsonPrimitive.content)
         assertEquals("latency", options.getValue("provider").jsonObject.getValue("sort").jsonPrimitive.content)
-        assertFalse(bounded.reasoning)
+        assertTrue(bounded.reasoning)
         assertFalse(bounded.disableAllTools)
         assertTrue(bounded.stream)
         assertNull(original.maxTokens)
         assertTrue(original.reasoning)
+    }
+
+    @Test
+    fun `benchmark preserves a profile that explicitly has reasoning disabled`() {
+        val original = PlatformV2(
+            name = "Non-reasoning",
+            compatibleType = ClientType.OPENROUTER,
+            reasoning = false
+        )
+
+        val bounded = benchmarkProfile(original, false)
+
+        assertFalse(bounded.reasoning)
+        assertFalse(original.reasoning)
     }
 
     @Test

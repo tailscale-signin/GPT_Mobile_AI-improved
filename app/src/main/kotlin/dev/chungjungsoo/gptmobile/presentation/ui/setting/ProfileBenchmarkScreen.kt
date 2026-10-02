@@ -195,7 +195,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 }
                                 Text("${selectedDelegates.size} selected · no automatic fallback between benchmarked helpers.", style = MaterialTheme.typography.bodySmall)
                                 Text("Ownership ${delegationSettings.processingOwnership}/100 · Worker output ${delegationSettings.maxOutputTokens} tokens · Brief ${delegationSettings.handoffTokens} tokens")
-                                Text("${delegationSettings.effectiveLocalModelCalls()} worker calls per turn · ${delegationSettings.maxDelegateRuntimeSeconds}s runtime · ${delegationSettings.timeToFirstTokenTimeoutSeconds}s first progress · ${delegationSettings.idleTokenTimeoutSeconds}s idle")
+                                val reviewerProfile = profiles.firstOrNull { it.uid == delegationSettings.reviewerProfileUid }
+                                Text(
+                                    if (delegationSettings.reviewerEnabled) {
+                                        "Reviewer: ${reviewerProfile?.name ?: "not selected"} · ${reviewerProfile?.model.orEmpty()} · ${delegationSettings.reviewerOutputTokens} output tokens"
+                                    } else {
+                                        "Reviewer: Off"
+                                    }
+                                )
+                                Text("${delegationSettings.effectiveLocalModelCalls()} worker calls per turn · ${delegationSettings.maxDelegateRuntimeSeconds}s runtime · ${delegationSettings.timeToFirstTokenTimeoutSeconds}s first progress · ${delegationSettings.idleTokenTimeoutSeconds}s idle · ${delegationSettings.localRetryLimit} same-delegate retries")
                                 Text("Each helper runs evidence compaction, a tool-call usability test, and research → handoff → synthesis. The benchmark records token throughput, first-text latency, end-to-end latency, tool success, token usage, and diagnostic events. Each case has a 180-second ceiling.", style = MaterialTheme.typography.bodySmall)
                                 Button(
                                     onClick = { viewModel.start(BenchmarkMode.DELEGATION) },
@@ -208,7 +216,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         val rankings = delegateRankings(profileHistory, benchmarkConfigKey(selected, localEnvironment), delegationSettings)
                         item {
                             BenchmarkPanel("Delegation scoreboard · best score") {
-                                Text("Same primary and current delegation settings · latest five runs per helper. Delegation score: reliability 20%, tool usability 25%, token throughput 20%, first-response latency 15%, end-to-end latency 10%, evidence accuracy 5%, research/handoff 5%. Overall score is capped by task reliability.", style = MaterialTheme.typography.bodySmall)
+                                Text("Same primary and current delegation settings · latest five runs per helper. Delegation score measures reliability, tool usability, throughput, latency, evidence accuracy, research/handoff, and—when Reviewer mode is enabled—the independent Reviewer Score. Reviewer quality contributes a 20-weight dimension and the overall score remains capped by task reliability.", style = MaterialTheme.typography.bodySmall)
                                 Text("Throughput prefers provider-reported output tokens; character estimates are used only when token usage is unavailable. Diagnostic events are saved with each run to expose stalls, failures, tool activity, cap violations, and handoff behavior.", style = MaterialTheme.typography.bodySmall)
                                 if (rankings.isEmpty()) Text("Benchmark delegates to build the scoreboard.")
                                 rankings.take(10).forEachIndexed { index, row ->
@@ -220,7 +228,11 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                             Text(worker.workerName, fontWeight = FontWeight.SemiBold)
                                             Text("${row.rating.passed}/${row.rating.attempts} passed · ${row.runs} runs · ${row.rating.medianDecodeSpeed?.let { "%.1f tok/s".format(it) } ?: "speed —"} · tools ${percent(row.rating.toolTaskSuccessPercent)} · first ${formatLatency(row.rating.medianFirstTextMs)}", style = MaterialTheme.typography.labelSmall)
                                         }
-                                        Text(row.rating.score?.let { "$it / 100" } ?: "Unrated", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(row.rating.score?.let { "$it / 100" } ?: "Unrated", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Reviewer Score", style = MaterialTheme.typography.labelSmall)
+                                            Text(row.rating.reviewerScore?.let { "$it / 100" } ?: "—", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                        }
                                     }
                                 }
                             }
@@ -240,6 +252,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 MetricLine("Worker input / output tokens", "${result.workerInputTokens} / ${result.workerOutputTokens}")
                                 MetricLine("Primary input / output tokens", "${result.primaryInputTokens} / ${result.primaryOutputTokens}")
                                 MetricLine("Output cap violations", result.outputCapViolations.toString())
+                                MetricLine("Reviewer Score", result.reviewerScore?.let { "$it / 100 · ${result.reviewerEvaluations} evaluations" } ?: "Not measured")
                                 MetricLine("Diagnostic events", "${result.diagnosticEvents} total · ${result.warningEvents} warnings · ${result.errorEvents} errors")
                                 if (result.estimated) Text("Token totals include estimates.", style = MaterialTheme.typography.labelSmall)
                                 result.dimensions.forEach { dimension ->
@@ -265,6 +278,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                             MetricLine("Worker time / first text", "${formatLatency(metrics.workerDurationMs)} / ${formatLatency(metrics.workerFirstTextMs)}")
                                             MetricLine("Worker token throughput", metrics.workerDecodeTokensPerSecond?.let { "${if (metrics.workerSpeedUsesReportedTokens) "" else "≈ "}%.1f tok/s".format(it) } ?: "Not observed")
                                             MetricLine("Output cap violations", metrics.outputCapViolations.toString())
+                                            MetricLine("Reviewer Score", metrics.reviewerScore?.let { "$it / 100 · ${metrics.reviewerEvaluations} evaluations" } ?: "Not measured")
                                             Text("Primary tokens: ${metrics.primaryInputTokens} input / ${metrics.primaryOutputTokens} output${if (metrics.primaryEstimated) " (output estimated)" else ""}")
                                             Text("${metrics.searches} searches · ${metrics.pagesRead} pages · ${metrics.rawEvidenceBytes} evidence bytes → ${metrics.handoffCharacters} brief characters")
                                             if (metrics.fixtureCalls > 0) Text("Fixture calls: ${metrics.successfulFixtureCalls}/${metrics.fixtureCalls} successful")

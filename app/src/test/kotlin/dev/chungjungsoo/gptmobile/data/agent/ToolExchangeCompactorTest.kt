@@ -74,6 +74,21 @@ class ToolExchangeCompactorTest {
     }
 
     @Test
+    fun compact_respects_replay_budgets_below_previous_512_token_floor() {
+        val call = ProviderEvent.ToolCall(
+            callId = "tiny-budget",
+            name = "github__github_api",
+            arguments = buildJsonObject { put("path", "x".repeat(2_000)) }
+        )
+        val compacted = ToolExchangeCompactor.compact(
+            exchanges = listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("y".repeat(2_000)), false)))),
+            maxReplayTokens = 128,
+            maxResultTokens = 128
+        )
+
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) <= 128)
+    }
+    @Test
     fun compact_hard_bounds_call_metadata_and_keeps_newest_pairs() {
         val exchanges = (0 until 100).map { index ->
             val call = ProviderEvent.ToolCall(

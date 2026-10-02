@@ -95,7 +95,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -148,6 +152,30 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+
+private fun Modifier.chatViewportEdgeFade(
+    topFade: Dp,
+    bottomFade: Dp
+): Modifier = this
+    .graphicsLayer {
+        compositingStrategy = CompositingStrategy.Offscreen
+    }
+    .drawWithContent {
+        drawContent()
+        if (size.height <= 0f) return@drawWithContent
+
+        val topStop = (topFade.toPx() / size.height).coerceIn(0f, 0.45f)
+        val bottomStop = (1f - (bottomFade.toPx() / size.height)).coerceIn(0.55f, 1f)
+        drawRect(
+            brush = Brush.verticalGradient(
+                0f to Color.Transparent,
+                topStop to Color.Black,
+                bottomStop to Color.Black,
+                1f to Color.Transparent
+            ),
+            blendMode = BlendMode.DstIn
+        )
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -396,7 +424,6 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .navigationBarsPadding()
                 .imePadding()
         ) {
             Box(
@@ -405,7 +432,12 @@ fun ChatScreen(
                     .fillMaxWidth()
             ) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .chatViewportEdgeFade(
+                            topFade = 40.dp,
+                            bottomFade = 16.dp
+                        ),
                     state = listState
                 ) {
                     if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier messages") } }
@@ -504,6 +536,7 @@ fun ChatScreen(
             }
 
             ChatInputBox(
+                modifier = Modifier.navigationBarsPadding(),
                 inputState = chatViewModel.question,
                 chatEnabled = canUseChat,
                 sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
@@ -1355,6 +1388,7 @@ private fun Context.toolTraceLabels(): ToolTraceLabels = ToolTraceLabels(
 @Preview
 @Composable
 fun ChatInputBox(
+    modifier: Modifier = Modifier,
     inputState: TextFieldState = rememberTextFieldState(),
     chatEnabled: Boolean = true,
     sendButtonEnabled: Boolean = true,
@@ -1388,7 +1422,7 @@ fun ChatInputBox(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 8.dp)

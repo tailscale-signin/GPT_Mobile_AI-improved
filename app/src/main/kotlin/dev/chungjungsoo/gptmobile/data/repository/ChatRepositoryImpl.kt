@@ -879,13 +879,13 @@ class ChatRepositoryImpl(
         }
 
         if (reasoningOnly && !finalizationRepairAttempted) {
-            val repairCap = minOf(maxOf(maxTokens * 2, 768), maxOf(target.maxTokens, maxTokens))
+            val repairCap = maxTokens
             AppLogRecorder.record(
                 "Delegation",
                 "Reasoning-only completion repair · parentRun=$parentRunId · target=${target.uid} · firstCap=$maxTokens · repairCap=$repairCap · reasoningChars=$reasoningChars",
                 "W"
             )
-            val repairTarget = target.copy(reasoning = false, maxTokens = maxOf(target.maxTokens, repairCap))
+            val repairTarget = target.copy(reasoning = false)
             return delegateToProfile(
                 target = repairTarget,
                 task = task + "\n\nThe previous attempt used its response budget without producing a final answer. Do not expose internal reasoning. Return only the concise final answer or the required tool call now.",

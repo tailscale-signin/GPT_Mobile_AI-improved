@@ -22,6 +22,42 @@ import org.junit.Test
 
 class AgentRunnerTest {
     @Test
+    fun `primary executes GitHub after delegate reports missing capabilities`() = runBlocking {
+        var writes = 0
+        val delegate = tool("delegate_to_model") { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("Helper lacks GitHub access. Use primary GitHub tools."), true)
+        }
+        val github = tool("github__work") { id, _ ->
+            writes++
+            AgentToolResult(id, ToolResultContent.Text("Draft PR created"), false)
+        }
+        val resolved = listOf(delegate, github).map {
+            dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool(it, null, null, it.definition.name, it.definition.name)
+        }
+        val tools = dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools(resolved, true, 0).map { it.tool }
+        val events = AgentRunner().run(
+            session { schemas, exchanges ->
+                flow {
+                    assertTrue(schemas.any { it.name == "github__work" })
+                    when (exchanges.size) {
+                        0 -> emit(toolCall("delegate", "delegate_to_model"))
+                        1 -> {
+                            assertTrue(exchanges.single().results.single().isError)
+                            emit(toolCall("write", "github__work"))
+                        }
+                        else -> emit(ProviderEvent.TextDelta("Draft PR created"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            tools
+        ).toList()
+        assertEquals(1, writes)
+        assertEquals(2, events.filterIsInstance<AgentRunEvent.ToolFinished>().size)
+        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
+    }
+
+    @Test
     fun `context guard reserves a final answer and asks to continue`() = runBlocking {
         val exposed = mutableListOf<Int>()
         var rounds = 0

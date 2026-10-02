@@ -2413,7 +2413,7 @@ SINGLEFLIGHT_MAX_REQUEST_KEYS = 256
 # v7.5 REMOTE-CLIENT CONTINUITY + RESUMABLE PROGRESS
 # ------------------------------------------------------------
 
-GATEWAY_VERSION = "12.1.1"
+GATEWAY_VERSION = "12.1.2"
 GATEWAY_PROGRESS_PROTOCOL = "gpt-mobile-gateway-progress/2"
 
 V9_0_1_PATCH_APPLIED = True
@@ -2593,6 +2593,9 @@ def resolve_mobile_performance(headers):
         "delegated_worker": _header_bool(
             headers.get("x-gateway-delegated-worker"),
             False,
+        ),
+        "allow_gateway_local_tools": _header_bool(
+            headers.get("x-gateway-allow-local-tools"), False,
         ),
         "tool_optimization": _header_bool(headers.get("x-gateway-tool-optimization"), True),
         "tool_limit": _header_int(headers.get("x-gateway-tool-surface-limit"), preset["tool_limit"], 0, 128),
@@ -14438,9 +14441,9 @@ def process_chat_payload(
     runtime_perf.setdefault("client_thinking_budget_tokens", incoming_payload.get("thinking_budget_tokens", incoming_payload.get("reasoning_budget_tokens")))
     runtime_perf.setdefault("client_tool_choice", incoming_payload.get("tool_choice"))
 
-    # A child agent owns its tool schemas and execution. Domain routing, memory
-    # injection and the gateway's local-first tool loop must not replace them.
-    if runtime_perf.get("delegated_worker", False):
+    # Fixtures/text workers own an isolated tool cycle. Repository workers may
+    # explicitly opt into the user's configured gateway-local MCP capabilities.
+    if v12_isolated_delegate(runtime_perf):
         return v12_delegate_model_round(
             incoming_payload, runtime_perf, progress_callback,
             cancel_event, hard_cancel_event,
@@ -14717,7 +14720,7 @@ def process_chat_payload(
         == "none"
     )
     no_tool_fast_path = (
-        delegated_worker_request
+        (delegated_worker_request and not runtime_perf.get("allow_gateway_local_tools", False))
         or strict_no_tool_request
         or (
             request_domain in V11_NO_TOOL_DOMAINS
@@ -19726,7 +19729,7 @@ async def stream_chat_with_keepalive(
     last_progress_signature = None
     v12_last_event = {"phase": "starting", "message": "Preparing memory, tools, and routing"}
     v12_stream_started = time.monotonic()
-    v12_delegate_stream = bool((incoming_payload.get("_gateway_performance") or {}).get("delegated_worker"))
+    v12_delegate_stream = v12_isolated_delegate(incoming_payload.get("_gateway_performance") or {})
     last_heartbeat = (
         time.monotonic()
     )
@@ -20622,6 +20625,14 @@ def v12_enforce_request_budget(payload):
             if budget:
                 result[key] = min(budget, max(0, cap - 1))
     return result
+
+
+def v12_isolated_delegate(runtime_perf):
+    """Local gateway tools require an explicit request-scoped worker opt-in."""
+    return bool(runtime_perf.get("delegated_worker", False)) and (
+        not bool(runtime_perf.get("allow_gateway_local_tools", False))
+        or str(runtime_perf.get("client_tool_choice") or "").lower() == "none"
+    )
 
 
 def v12_delegate_model_round(incoming, runtime_perf, progress_callback=None,

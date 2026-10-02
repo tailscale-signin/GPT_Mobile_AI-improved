@@ -466,6 +466,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 put("X-Gateway-Reasoning-Effort", "none")
                                 if (constraints.maxOutputTokens != null) {
                                     put("X-Gateway-Delegated-Worker", "true")
+                                    put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools).toString())
                                 }
                             }
                         }

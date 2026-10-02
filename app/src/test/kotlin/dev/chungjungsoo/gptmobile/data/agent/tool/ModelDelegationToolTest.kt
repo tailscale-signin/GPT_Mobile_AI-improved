@@ -20,6 +20,21 @@ class ModelDelegationToolTest {
     private val task = buildJsonObject { put("task", "Summarize this text") }
 
     @Test
+    fun gitHubCapabilityRefusalIsAnErrorAndStopsRepeatedHelperCalls() = runTest {
+        var calls = 0
+        val tool = ModelDelegationTool(source, { enabled }, { listOf(target) }) { _, _, _ ->
+            calls++
+            "I cannot do it because **no GitHub integration, Git CLI, shell, or remote repository write tools are enabled**."
+        }
+        val arguments = buildJsonObject { put("task", "Create a draft PR in the repository") }
+        val result = tool.execute("github-refusal", arguments)
+        assertTrue(result.isError)
+        assertTrue(result.content.toString().contains("primary model's enabled GitHub integration"))
+        assertTrue(tool.execute("retry-refusal", arguments).isError)
+        assertEquals(1, calls)
+    }
+
+    @Test
     fun onDeviceSourceCanDelegateToOllamaAndLlamaWhileThePhoneEngineIsBusy() = runTest {
         for (type in listOf(ClientType.OLLAMA, ClientType.LLAMA)) {
             var called = false

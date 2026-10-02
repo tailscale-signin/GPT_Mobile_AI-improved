@@ -69,10 +69,19 @@ data class AdaptiveThrottlingPolicy(
 
 object DeviceHardwareGovernor {
     private const val TAG = "DeviceHardwareGov"
+    private const val HARDWARE_STATE_CACHE_MS = 2_000L
     private val forecastSampler = ThermalForecastSampler()
+    @Volatile private var cachedHardwareState: DeviceHardwareState? = null
+    @Volatile private var cachedHardwareStateAtMs: Long = Long.MIN_VALUE
 
     fun inspectHardwareState(context: Context): DeviceHardwareState {
-        val thermalState = inspectThermalState(context)
+        val now = SystemClock.elapsedRealtime()
+        cachedHardwareState?.takeIf { now - cachedHardwareStateAtMs in 0 until HARDWARE_STATE_CACHE_MS }?.let { return it }
+        return synchronized(this) {
+            val lockedNow = SystemClock.elapsedRealtime()
+            cachedHardwareState?.takeIf { lockedNow - cachedHardwareStateAtMs in 0 until HARDWARE_STATE_CACHE_MS }?.let { return@synchronized it }
+
+            val thermalState = inspectThermalState(context)
         val (batteryPct, isCharging) = inspectBattery(context)
         val isPowerSaveMode = inspectPowerSaveMode(context)
         val forecast = forecastSampler.read(SystemClock.elapsedRealtime()) {
@@ -87,14 +96,18 @@ object DeviceHardwareGovernor {
             )
         }
 
-        return DeviceHardwareState(
-            thermalState = thermalState,
-            batteryPct = batteryPct,
-            isCharging = isCharging,
-            isPowerSaveMode = isPowerSaveMode,
-            thermalHeadroom = forecast.headroom,
-            moderateThermalThreshold = forecast.moderateThreshold
-        )
+            DeviceHardwareState(
+                thermalState = thermalState,
+                batteryPct = batteryPct,
+                isCharging = isCharging,
+                isPowerSaveMode = isPowerSaveMode,
+                thermalHeadroom = forecast.headroom,
+                moderateThermalThreshold = forecast.moderateThreshold
+            ).also {
+                cachedHardwareState = it
+                cachedHardwareStateAtMs = lockedNow
+            }
+        }
     }
 
     fun computeThrottlingPolicy(

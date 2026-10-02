@@ -39,6 +39,35 @@ class GitHubIntegrationV2Test {
     }
 
     @Test
+    fun write_capabilities_reports_repository_push_permission_without_attempting_a_write() = runTest {
+        val http = HttpClient(
+            MockEngine { request ->
+                assertEquals("/repos/owner/repo", request.url.encodedPath)
+                assertEquals("GET", request.method.value)
+                respond(
+                    """{"full_name":"owner/repo","default_branch":"main","visibility":"private","permissions":{"push":false,"maintain":false,"admin":false}}""",
+                    HttpStatusCode.OK
+                )
+            }
+        )
+        try {
+            val result = GitHubWorkspaceClient("token", http).execute(
+                "write_capabilities",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                }
+            ).jsonObject
+
+            assertEquals("denied", result["write_capability"]!!.jsonPrimitive.content)
+            assertEquals("false", result["can_push"]!!.jsonPrimitive.content)
+            assertEquals("owner/repo", result["full_name"]!!.jsonPrimitive.content)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
     fun repository_index_strips_raw_payload_and_ranks_related_files() {
         val tree = Json.parseToJsonElement(
             """

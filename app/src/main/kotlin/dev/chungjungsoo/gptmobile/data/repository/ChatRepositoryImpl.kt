@@ -739,7 +739,7 @@ class ChatRepositoryImpl(
                     }
                     is ProviderEvent.GatewayProgressUpdate -> {
                         // Ignore generic heartbeats, but explicit tool lifecycle events keep the watchdog alive.
-                        if (provider.progress.toolName != null || provider.progress.event.startsWith("tool_")) {
+                        if (provider.progress.toolName != null || provider.progress.event?.startsWith("tool_") == true) {
                             onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
                         }
                         childTrace?.gateway(provider.progress)?.let { onToolTrace?.invoke(it.copy(delegated = true)) }

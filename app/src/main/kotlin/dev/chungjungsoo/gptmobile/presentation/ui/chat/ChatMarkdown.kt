@@ -162,9 +162,23 @@ fun ChatMarkdown(
                 highlightProgress > 0.01f &&
                 text.contains(highlightSentence, ignoreCase = true)
 
-            if (!hasMath && !hasSentenceHighlight && hasStreamed && child.type == MarkdownTokenTypes.TEXT) {
+            val streamVisibleText = when (child.type) {
+                MarkdownTokenTypes.TEXT -> text
+                MarkdownTokenTypes.SINGLE_QUOTE -> "'"
+                MarkdownTokenTypes.DOUBLE_QUOTE -> "\""
+                MarkdownTokenTypes.LPAREN -> "("
+                MarkdownTokenTypes.RPAREN -> ")"
+                MarkdownTokenTypes.LBRACKET -> "["
+                MarkdownTokenTypes.RBRACKET -> "]"
+                MarkdownTokenTypes.COLON -> ":"
+                MarkdownTokenTypes.EXCLAMATION_MARK -> "!"
+                MarkdownTokenTypes.BACKTICK -> "`"
+                else -> null
+            }
+
+            if (!hasMath && !hasSentenceHighlight && hasStreamed && streamVisibleText != null) {
                 appendStreamFadedText(
-                    text = text,
+                    text = streamVisibleText,
                     sourceStartOffset = child.startOffset,
                     arrivalSegments = arrivalSegments,
                     nowMs = fadeClock,

@@ -57,7 +57,11 @@ internal object MemoryRecallPolicy {
                 personal &&
                 fact.fact.entity.id == "user" &&
                 relation in setOf("PREFERS", "AVOIDS", "RESPONSE_LANGUAGE", "LOCATED_IN", "NAMED", "OCCUPATION", "WORKING_ON", "GOAL", "USES", "OWNS", "PROFILE", "REMEMBERS")
-            ) 0.8 else 0.0
+            ) {
+                0.8
+            } else {
+                0.0
+            }
             val broadProfile = if (broad && fact.fact.entity.id == "user") 3.0 else 0.0
             val score = exact + related + intent + followUp + durablePersonal + broadProfile
             fact to score

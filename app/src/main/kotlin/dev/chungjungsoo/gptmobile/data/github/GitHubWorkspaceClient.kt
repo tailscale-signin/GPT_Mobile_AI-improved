@@ -65,7 +65,7 @@ class GitHubWorkspaceClient(
             "get_account", "list_repositories", "get_repository", "list_branches", "browse_files",
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
             "repo_status", "repo_map", "find_symbol", "find_references", "find_tests", "related_files",
-            "changed_since", "pr_context", "rate_limit_status", "plan_change",
+            "changed_since", "pr_context", "rate_limit_status", "plan_change", "write_capabilities",
             "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status"
         )
         val writeActions = setOf(
@@ -117,6 +117,7 @@ class GitHubWorkspaceClient(
 
         return when (action) {
             "get_repository" -> request(root)
+            "write_capabilities" -> writeCapabilities(root)
             "repo_status" -> repoStatus(owner, repo, root)
             "list_branches" -> pageResult(request("$root/branches?$pagination"), page)
             "get_branch_head" -> request("$root/git/ref/heads/${segment(required("branch"))}")
@@ -207,6 +208,28 @@ class GitHubWorkspaceClient(
             put("has_more", end < lines.size)
             put("cache_key", sha)
             put("content", selected)
+        }
+    }
+
+    private suspend fun writeCapabilities(root: String): JsonObject {
+        val metadata = request(root, authenticated = true).jsonObject
+        val permissions = metadata["permissions"]?.jsonObject
+        val push = permissions?.get("push")?.jsonPrimitive?.booleanOrNull
+        val maintain = permissions?.get("maintain")?.jsonPrimitive?.booleanOrNull
+        val admin = permissions?.get("admin")?.jsonPrimitive?.booleanOrNull
+        return buildJsonObject {
+            put("authenticated", token.isNotBlank())
+            put("can_push", push?.let(::JsonPrimitive) ?: JsonNull)
+            put("can_maintain", maintain?.let(::JsonPrimitive) ?: JsonNull)
+            put("can_admin", admin?.let(::JsonPrimitive) ?: JsonNull)
+            put("write_capability", when {
+                push == true || maintain == true || admin == true -> JsonPrimitive("allowed")
+                push == false && maintain != true && admin != true -> JsonPrimitive("denied")
+                else -> JsonPrimitive("unknown")
+            })
+            put("default_branch", metadata["default_branch"] ?: JsonNull)
+            put("visibility", metadata["visibility"] ?: JsonNull)
+            put("full_name", metadata["full_name"] ?: JsonNull)
         }
     }
 
@@ -806,7 +829,20 @@ class GitHubWorkspaceClient(
         rateLimits.record(response.headers)
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            error("GitHub GraphQL HTTP ${response.status.value}. ${requestHint(response.status.value, response.headers["Retry-After"], response.headers["X-RateLimit-Reset"])}")
+            val githubMessage = runCatching {
+                json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
+            }.getOrNull()
+            error(
+                "GitHub GraphQL HTTP ${response.status.value}" +
+                    githubMessage?.let { " · message=$it" }.orEmpty() + ". " +
+                    requestHint(
+                        response.status.value,
+                        response.headers["Retry-After"],
+                        response.headers["X-RateLimit-Reset"],
+                        githubMessage,
+                        response.headers["X-RateLimit-Remaining"]
+                    )
+            )
         }
         return json.parseToJsonElement(text).jsonObject
     }
@@ -838,18 +874,53 @@ class GitHubWorkspaceClient(
 
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            error("GitHub HTTP ${response.status.value}. ${requestHint(response.status.value, response.headers["Retry-After"], response.headers["X-RateLimit-Reset"])}")
+            val githubMessage = runCatching {
+                json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+            val details = buildList {
+                githubMessage?.let { add("message=$it") }
+                response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }
+                response.headers["Retry-After"]?.let { add("retryAfter=$it") }
+                response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("oauthScopes=$it") }
+                response.headers["X-Accepted-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("acceptedOAuthScopes=$it") }
+                response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let { add("acceptedGitHubPermissions=$it") }
+                response.headers["X-GitHub-SSO"]?.takeIf { it.isNotBlank() }?.let { add("sso=$it") }
+            }.joinToString(" · ")
+            error(
+                "GitHub HTTP ${response.status.value}" +
+                    if (details.isBlank()) "." else " · $details. " +
+                    requestHint(
+                        response.status.value,
+                        response.headers["Retry-After"],
+                        response.headers["X-RateLimit-Reset"],
+                        githubMessage,
+                        response.headers["X-RateLimit-Remaining"]
+                    )
+            )
         }
         val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
         if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed)
         return parsed
     }
 
-    private fun requestHint(status: Int, retryAfter: String?, reset: String?): String = when (status) {
-        401 -> "Reconnect your GitHub account."
-        403, 429 -> "Check token permissions or GitHub rate limits. Retry after: ${retryAfter ?: reset ?: "not supplied"}."
-        404 -> "Check repository access, branch and path."
-        409, 422 -> "Refresh the branch and review the change before retrying."
+    private fun requestHint(
+        status: Int,
+        retryAfter: String?,
+        reset: String?,
+        githubMessage: String? = null,
+        rateLimitRemaining: String? = null
+    ): String = when {
+        status == 401 -> "Reconnect the GitHub API plugin."
+        status == 429 || (status == 403 && rateLimitRemaining == "0") ->
+            "GitHub rate limiting blocked this request. Retry after: ${retryAfter ?: reset ?: "not supplied"}."
+        status == 403 && githubMessage?.contains("resource not accessible", ignoreCase = true) == true ->
+            "The credential or GitHub App installation cannot perform this API operation. Check the plugin's repository access and required write permission."
+        status == 403 && githubMessage?.contains("protected branch", ignoreCase = true) == true ->
+            "Branch protection blocked this write. Create or use a working branch allowed by repository rules."
+        status == 403 ->
+            "GitHub denied this operation. Do not infer a read-only token from HTTP 403 alone; inspect write_capabilities and the GitHub message before choosing a recovery path."
+        status == 404 -> "Check repository access, branch and path."
+        status == 409 || status == 422 -> "Refresh the branch and review the change before retrying."
         else -> "Try again later."
     }
 }

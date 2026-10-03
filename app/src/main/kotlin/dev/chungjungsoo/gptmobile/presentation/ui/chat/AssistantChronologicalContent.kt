@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import kotlinx.coroutines.delay
 
@@ -46,6 +47,7 @@ internal fun AssistantChronologicalContent(
     isLoading: Boolean,
     animateResponse: Boolean = true,
     debugMode: Boolean,
+    debugSettings: AppFeatureSettings = AppFeatureSettings(),
     showReasoning: Boolean,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
@@ -104,17 +106,39 @@ internal fun AssistantChronologicalContent(
                     }
                     AssistantTimelineItemType.TOOL -> if (expanded) {
                         events[item.toolSequence]?.let { event ->
-                            InlineExecutionTrace(listOf(event), listOf(item), "$contentIdentity:$index", debugMode, remoteDelegation = items.take(index + 1).lastOrNull { it.delegationInvocationId != null }?.delegationRemote == true || items.drop(index + 1).firstOrNull { it.delegationInvocationId != null }?.delegationRemote == true)
+                            InlineExecutionTrace(
+                                listOf(event),
+                                listOf(item),
+                                "$contentIdentity:$index",
+                                debugMode,
+                                remoteDelegation = items.take(index + 1).lastOrNull { it.delegationInvocationId != null }?.delegationRemote == true ||
+                                    items.drop(index + 1).firstOrNull { it.delegationInvocationId != null }?.delegationRemote == true,
+                                debugSettings = debugSettings
+                            )
                         }
                     }
                     AssistantTimelineItemType.NOTICE -> if (item.delegationInvocationId != null) {
-                        if (debugMode) {
-                            Text("${item.delegationProfile.orEmpty()} · Delegation", style = MaterialTheme.typography.labelMedium, color = androidx.compose.ui.graphics.Color(0xFF4CAF50))
-                            Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                        if (debugMode && expanded) {
+                            val reviewer = item.content.contains("Reviewer", true) ||
+                                item.delegationProfile.orEmpty().contains("Reviewer", true)
+                            val visible = if (reviewer) debugSettings.debugShowReviewerTrace else debugSettings.debugShowDelegationTrace
+                            if (visible) {
+                                val traceColor = if (reviewer) {
+                                    androidx.compose.ui.graphics.Color(0xFFFFEA00)
+                                } else {
+                                    androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                }
+                                Text(
+                                    "${item.delegationProfile.orEmpty()} · ${if (reviewer) "Reviewer" else "Delegation"}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = traceColor
+                                )
+                                Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = traceColor)
+                            }
                         }
                     } else if (expanded && !item.statusSummary && !isContextDiagnostic(item.content)) {
                         if (item.recalledFacts.isNotEmpty()) {
-                            InlineExecutionTrace(emptyList(), listOf(item), "$contentIdentity:$index", debugMode)
+                            InlineExecutionTrace(emptyList(), listOf(item), "$contentIdentity:$index", debugMode, debugSettings = debugSettings)
                         } else if (item.content.isNotBlank()) {
                             Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }

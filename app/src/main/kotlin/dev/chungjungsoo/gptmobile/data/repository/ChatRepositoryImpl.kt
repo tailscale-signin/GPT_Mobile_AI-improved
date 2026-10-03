@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolBudgetPolicy
 import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
@@ -1292,12 +1293,18 @@ class ChatRepositoryImpl(
             // starts. Local research must not consume the last tool allowance needed to
             // produce a grounded response.
             val reservedFinalToolCalls = if (localResearch) 1 else 0
-            val toolBudget = ToolExecutionBudget(
-                customRunner.limits.copy(
-                    maxToolOutputBytes = if (localResearch) maxOf(contextPlan.toolResultBytes, 256 * 1024) else contextPlan.toolResultBytes,
-                    finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls)
-                )
+            val toolBudgetLimits = customRunner.limits.copy(
+                maxToolOutputBytes = if (localResearch) maxOf(contextPlan.toolResultBytes, 256 * 1024) else contextPlan.toolResultBytes,
+                finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls)
             )
+            AppLogRecorder.record(
+                "ToolBudget",
+                "Run limits · configuredCalls=${toolBudgetLimits.maxToolCalls} · " +
+                    "executableCalls=${ToolBudgetPolicy.executionLimit(toolBudgetLimits)} · " +
+                    "reservedCalls=${toolBudgetLimits.finalResponseToolCallReserve} · " +
+                    "resultBytes=${toolBudgetLimits.maxToolOutputBytes} · localResearch=$localResearch"
+            )
+            val toolBudget = ToolExecutionBudget(toolBudgetLimits)
             val boundedTools = taskRoutedTools.filter { resolved ->
                 (behavior.crawlersEnabled && resolved.selectionId() in behavior.crawlerToolIds) ||
                     resolved in connectedMemoryTools ||

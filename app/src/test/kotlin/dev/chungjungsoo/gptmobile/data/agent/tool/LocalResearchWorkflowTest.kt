@@ -93,7 +93,8 @@ class LocalResearchWorkflowTest {
         }
         val result = LocalResearchWorkflow(config, listOf(boundedSearch, reader), { prompt, _ -> worker(prompt) }).run("Research latency", "budget")
         assertEquals(0, pageCalls)
-        assertTrue(result.handoff.contains("tool budget"))
+        assertTrue(result.handoff.contains("shared tool-call limit"))
+        assertTrue(result.handoff.contains("1/1 executable calls used"))
         val cancelled = runCatching { LocalResearchWorkflow(config, emptyList(), { _, _ -> throw CancellationException("stop") }).run("test", "cancel") }.exceptionOrNull()
         assertTrue(cancelled is CancellationException)
     }

@@ -37,17 +37,12 @@ internal fun SettingsDiscoveryPanel(
     resetOverrides: (Int) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    var changedOnly by remember { mutableStateOf(false) }
     var inspect by remember { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(query, { query = it }, label = { Text("Search all settings") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Row {
-            Text("Only changed features", Modifier.weight(1f))
-            Switch(changedOnly, { changedOnly = it })
-        }
-        if (query.isNotBlank() || changedOnly) {
-            val features = AppFeature.entries.filter { "${it.title} ${it.description}".contains(query, true) && (!changedOnly || (settings.withFeature(it, true) == settings) != (AppFeatureSettings().withFeature(it, true) == AppFeatureSettings())) }
+        if (query.isNotBlank()) {
+            val features = AppFeature.entries.filter { "${it.title} ${it.description}".contains(query, true) }
             val sections = if (query.isBlank()) emptyMap() else destinations.filterKeys { it.contains(query, true) }
             if (features.isEmpty() && sections.isEmpty()) Text("No matching settings")
             features.forEach { feature ->

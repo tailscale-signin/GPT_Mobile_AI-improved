@@ -1,49 +1,39 @@
-# GPT Mobile AI 0.9.28.0
+# GPT Mobile AI 0.9.30.0
 
-## Reliability and delegation
-- Strengthens delegate retry, failover, timeout, and recovery behavior while preserving authorized tool access.
-- Preserves model reasoning requirements during benchmarks and delegated requests instead of forcing reasoning off on endpoints that require it.
-- Keeps delegate-produced debug result text hidden until execution details are expanded.
-- Adds an independent Reviewer tab with a separate model, Reviewer Score, retry threshold, output budget, and optional correction controls.
-- Shows benchmark/delegation scores directly in delegate and reviewer model pickers.
+## Diagnostics, statistics, and benchmarks
+- Reworks Debug, Statistics, and Benchmark into cleaner top-level areas with dedicated sub-tabs and richer presentation.
+- Expands benchmark and delegation diagnostics, scoring, failure inspection, and reproducible validation coverage.
+- Improves release, gateway, provider, MCP, and local-runtime telemetry so failures are easier to classify and recover from.
 
-## Benchmarks
-- Separates Benchmark and Delegation performance into top-level tabs.
-- Adds sequential multi-model standard benchmarking with a selectable model list and one-click select-all.
-- Keeps Delegation benchmarks on their own scoreboard with tool usability, latency, throughput, reliability, and Reviewer Score measurements.
+## Local memory, projects, and documents
+- Expands on-device memory capture and recall with project-aware and branch-aware context, provenance, corrections, and synthetic evaluation.
+- Adds persistent hybrid document retrieval and deferred on-device enrichment while keeping cloud memory recall separately controlled.
+- Adds non-destructive conversation branching, durable drafts, temporary conversations, and Android share-in workflows.
 
-## Memory
-- Improves automatic local capture for durable preferences, identity, devices/tools, projects, goals, and explicit remember requests.
-- Adds Selective, Balanced, and Detailed capture presets plus cleaner recommended and advanced controls.
-- Keeps recall relevance-driven and bounded so stronger capture does not crowd responses with unrelated memories.
-- Adds pinned-memory recall and improved local-model-assisted extraction while retaining privacy/tombstone protections.
+## Workspaces, tools, and GitHub
+- Adds workspace support for tasks, retained research evidence, branches, recipes, model guidance, budgets, and GitHub review.
+- Redesigns plugin and remote MCP configuration with scoped expiring tool grants, catalog-change revocation, and modern MCP compatibility.
+- Improves portable plugin configuration while excluding credentials and sensitive URL components.
 
-## Settings, models, and plugins
-- Splits AI Platforms into Remote, Local, and Free tabs with themed icons.
-- Moves custom local-model import into the main Local Models library.
-- Redesigns the local-model marketplace into Discover, Browse, and Downloads with improved filtering and device/accelerator guidance.
-- Adds richer layered themed icons for built-in plugins.
-- Increases Settings typography by 2sp across Settings destinations and removes repetitive navigation chevrons.
+## Privacy, recovery, and gateway security
+- Adds app-lock and screenshot controls, clearer backup/deletion boundaries, and private-log suppression.
+- Protects authoritative facts and memory-bearing context receipts with encryption and improves temporary-session cleanup.
+- Adds revocable per-device gateway tokens, single-use pairing, job ownership checks, and loopback-by-default gateway binding.
 
-## Conversation experience
-- Improves the themed back button and page transition animations.
-- Moves conversation content behind the composer with top and bottom edge fades; the lower fade reaches transparency halfway through the input bar.
-- Adds a persistent finished-response navigator with the themed chat icon, red completion count, multi-response expansion, and exact jump-to-response targeting.
-- Automatically keeps the main chat list to 20 visible conversations by archiving alternating oldest eligible chats; pinned and active chats are protected.
-- Keeps the 1-second streaming text fade consistent across punctuation, tables, code blocks, and display math.
+## Release reliability
+- Fixes signed-release certificate verification for Android Build Tools 37, whose `apksigner --print-certs` signer label differs from earlier versions.
+- Validates that parsed SHA-256 fingerprints are non-empty and well formed before accepting APK, keystore, or AAB signer continuity.
+- Keeps the existing release signing key and upgrade path intact.
 
-## Backup and restore
-- Shows the three most recent dated backups from the most recently used backup folder for quick restore access.
-
-## Diagnostics and validation
-- Improves provider recovery, circuit breaking, MCP renewal, tool failure classification, local-runtime readiness, and diagnostic telemetry.
-- Adds regression coverage for benchmark reasoning, automatic chat archival, streaming punctuation, memory relevance, and completion navigation wiring.
-- Validated with Kotlin lint, unit tests, Android lint, resource/XML preflight, debug/APK builds, Remote diagnostics, and CodeQL.
+## Validation
+- The v0.9.30.0 implementation record reports 1,454 JVM/Robolectric tests passing, 22 gateway tests passing, and 3 performance-comparison tests passing.
+- Android lint, release vital lint, dependency verification, package integrity, ABI policy, and 16 KiB host-library alignment checks were completed.
+- Physical-device execution, native inference quality, NPU compatibility, thermals, and measured Baseline Profile gains remain device validation items.
 
 ## Version
-- Version: 0.9.28.0
-- Version code: 97
+- Version: 0.9.30.0
+- Version code: 99
 
 ## Installation
 - Install the signed Android APK from this release.
-- This release is built and signed by the repository's immutable Publish Signed Release workflow.
+- This release is built, verified, attested, and published by the repository's Publish Signed Release workflow.

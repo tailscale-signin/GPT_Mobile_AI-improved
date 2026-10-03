@@ -41,24 +41,41 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.presentation.theme.defaultSpatialSpec
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimelineItem>, contentIdentity: Any, debugMode: Boolean = false, remoteDelegation: Boolean = false) {
+fun InlineExecutionTrace(
+    events: List<ToolEvent>,
+    timeline: List<AssistantTimelineItem>,
+    contentIdentity: Any,
+    debugMode: Boolean = false,
+    remoteDelegation: Boolean = false,
+    debugSettings: AppFeatureSettings = AppFeatureSettings()
+) {
     val recalled = timeline.flatMap { it.recalledFacts }.distinctBy { it.id }
     if (events.isEmpty() && recalled.isEmpty()) return
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        if (recalled.isNotEmpty()) {
+        if (recalled.isNotEmpty() && (!debugMode || debugSettings.debugShowMemoryRecall)) {
+            val recallColor = androidx.compose.ui.graphics.Color(0xFFFF5CAA)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 recalled.forEach { fact ->
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-                        Text("🧠 Recalled: ${fact.label}", Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (debugMode) recallColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.tertiaryContainer
+                    ) {
+                        Text(
+                            "🧠 Recalled: ${fact.label}",
+                            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (debugMode) recallColor else MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                     }
                 }
             }
@@ -66,7 +83,7 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
         events.sortedBy { it.sequence }.forEach { event ->
             val toolItem = timeline.firstOrNull { it.toolSequence == event.sequence }
             val metrics = toolItem?.toolMetrics
-            val delegatedTool = debugMode && toolItem?.delegatedTool == true
+            val delegatedTool = debugMode && debugSettings.debugShowDelegationTrace && toolItem?.delegatedTool == true
             var expanded by rememberSaveable(contentIdentity.toString(), event.eventId) { mutableStateOf(false) }
             val status = if (event.isError) {
                 "Failed"
@@ -84,6 +101,10 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
                 event.toolName.contains("delegate_to_model", true) ||
                     event.modelToolName.contains("delegate_to_model", true)
             val isRemoteDelegation = isDelegation && (remoteDelegation || event.result.orEmpty().startsWith("<!-- delegation:remote -->"))
+            val isReviewerResult = isDelegation && (
+                event.result.orEmpty().contains("[Reviewer Score:", ignoreCase = true) ||
+                    event.result.orEmpty().contains("Reviewer findings:", ignoreCase = true)
+                )
             var dots by androidx.compose.runtime.remember(event.eventId) { mutableStateOf(1) }
             LaunchedEffect(running) {
                 while (running) {
@@ -105,6 +126,8 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
                 onClick = { expanded = !expanded },
                 shape = RoundedCornerShape(18.dp),
                 color = when {
+                    debugMode && isReviewerResult && debugSettings.debugShowReviewerTrace ->
+                        androidx.compose.ui.graphics.Color(0xFFFFEA00).copy(alpha = 0.13f)
                     delegatedTool -> androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.18f)
                     failed -> MaterialTheme.colorScheme.errorContainer
                     isDelegation -> androidx.compose.ui.graphics.Color(0xFFFFD54F).copy(alpha = 0.10f)
@@ -172,14 +195,22 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
                             }
                             val mediaLinks = Regex("gptmobile://media/[a-f0-9-]{36}\\.(?:png|jpg|webp|mp3|wav|ogg)").findAll(event.result.orEmpty()).map { it.value }.distinct().take(8).toList()
                             mediaLinks.forEach { link -> ChatMarkdown("[Open media result]($link)") }
-                            if (expanded && debugMode && isDelegation && !event.result.isNullOrBlank()) {
+                            val showReviewerTrace =
+                                expanded && debugMode && isReviewerResult && debugSettings.debugShowReviewerTrace
+                            val showDelegationTrace =
+                                expanded && debugMode && isDelegation && !isReviewerResult && debugSettings.debugShowDelegationTrace
+                            if ((showReviewerTrace || showDelegationTrace) && !event.result.isNullOrBlank()) {
                                 Text(
                                     event.result
                                         .orEmpty()
                                         .removePrefix("<!-- delegation:remote -->")
                                         .removePrefix("<!-- delegation:local -->")
                                         .trimStart(),
-                                    color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                                    color = if (showReviewerTrace) {
+                                        androidx.compose.ui.graphics.Color(0xFFFFEA00)
+                                    } else {
+                                        androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.padding(top = 6.dp)
                                 )

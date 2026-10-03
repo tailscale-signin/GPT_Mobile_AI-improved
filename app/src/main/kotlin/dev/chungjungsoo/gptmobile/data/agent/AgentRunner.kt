@@ -443,6 +443,7 @@ class AgentRunner(
                 allResults[allResults.lastIndex] = when {
                     roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
                     contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
+                    outputBudgetExhausted -> appendInstruction(allResults.last(), OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION)
                     else -> appendFinalResponseInstruction(allResults.last())
                 }
             } else if (shouldInjectWrapUp && allResults.isNotEmpty()) {
@@ -570,6 +571,11 @@ class AgentRunner(
             "The model/tool work-round allowance is exhausted. Do not request more tools. " +
                 "Use the available findings to answer now. If additional tool work is required, " +
                 "briefly state what remains and ask the user to reply exactly \"continue\"."
+        const val OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION =
+            "The tool-result byte budget is exhausted for this response. Do not request more tool output. " +
+                "Use every successful result already returned, including completed delegated research, to answer the user's request now. " +
+                "Do not claim research failed merely because additional result bytes cannot be collected. " +
+                "Ask the user to continue only if essential evidence is still missing."
         const val FINAL_RESPONSE_INSTRUCTION =
             "The tool-call allowance is exhausted for this response. Do not request more tools. " +
                 "Use every successful result already returned, including completed delegated research, to answer the user's request now. " +

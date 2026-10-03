@@ -891,23 +891,14 @@ private fun SearchBackendDialog(
             title = { Text("Search Engines") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                        shape = RoundedCornerShape(20.dp)
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"), null, tint = MaterialTheme.colorScheme.primary)
-                            Column(Modifier.weight(1f)) {
-                                Text("Built-In Web Search", style = MaterialTheme.typography.titleMedium)
-                                Text("Always Available", style = MaterialTheme.typography.labelSmall)
-                            }
-                            Icon(Icons.Outlined.Check, contentDescription = "Enabled", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+                    PreferenceListSwitch(
+                        title = "Built-In Web Search",
+                        icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                        description = "Default · Always Available",
+                        enabled = false,
+                        isChecked = true,
+                        onCheckedChange = {}
+                    )
 
                     if (toolBindingState.searchConnections.isNotEmpty() || discoveredSearchTools.isNotEmpty() || unavailableSearchSelections.isNotEmpty()) {
                         Text("Additional Search Engines", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)

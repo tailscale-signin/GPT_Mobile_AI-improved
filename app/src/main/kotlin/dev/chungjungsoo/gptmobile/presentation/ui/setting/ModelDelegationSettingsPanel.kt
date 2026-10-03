@@ -53,13 +53,31 @@ import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import kotlin.math.roundToInt
 
 @Composable
-fun ModelDelegationSettingsPanel(viewModel: LocalToolsViewModel = hiltViewModel()) {
+fun ModelDelegationSettingsPanel(
+    viewModel: LocalToolsViewModel = hiltViewModel(),
+    memoryViewModel: FactVaultViewModel = hiltViewModel()
+) {
     val config by viewModel.delegation.collectAsStateWithLifecycle()
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val modelScores by viewModel.modelScores.collectAsStateWithLifecycle()
-    ModelDelegationSettingsContent(config, profiles, busy, error, viewModel::update, viewModel::resetDelegationDefaults, modelScores)
+    val vault by memoryViewModel.vault.collectAsStateWithLifecycle()
+    val memoryBusy by memoryViewModel.busy.collectAsStateWithLifecycle()
+    ModelDelegationSettingsContent(
+        config = config,
+        profiles = profiles,
+        busy = busy,
+        error = error,
+        onChange = viewModel::update,
+        onReset = viewModel::resetDelegationDefaults,
+        modelScores = modelScores,
+        cloudRecallEnabled = vault.settings.allowCloudRecall,
+        cloudRecallBusy = memoryBusy,
+        onCloudRecallChange = { enabled ->
+            memoryViewModel.updateSettings(vault.settings.copy(allowCloudRecall = enabled))
+        }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -71,7 +89,10 @@ internal fun ModelDelegationSettingsContent(
     error: String?,
     onChange: ((ModelDelegationSettings) -> ModelDelegationSettings) -> Unit,
     onReset: () -> Unit,
-    modelScores: Map<String, Int> = emptyMap()
+    modelScores: Map<String, Int> = emptyMap(),
+    cloudRecallEnabled: Boolean? = null,
+    cloudRecallBusy: Boolean = false,
+    onCloudRecallChange: (Boolean) -> Unit = {}
 ) {
     var showAdvanced by rememberSaveable { mutableStateOf(false) }
     var settingsTab by rememberSaveable { mutableIntStateOf(0) }
@@ -153,6 +174,14 @@ internal fun ModelDelegationSettingsContent(
                         !busy,
                         "Cloud delegates receive delegated content and use their provider's tokens. Turn this off to use only this device or a private server."
                     ) { value -> onChange { it.withRemoteWorkersAllowed(value) } }
+                    cloudRecallEnabled?.let { enabled ->
+                        LocalToolToggle(
+                            "Allow Recall In Cloud Requests",
+                            enabled,
+                            !busy && !cloudRecallBusy,
+                            "When enabled, relevant saved local memories can be included as reference context in cloud AI requests."
+                        ) { onCloudRecallChange(it) }
+                    }
                     DelegateModelDropdown(
                         profiles = helperEligible,
                         selectedProfileUid = config.targetProfileUid,

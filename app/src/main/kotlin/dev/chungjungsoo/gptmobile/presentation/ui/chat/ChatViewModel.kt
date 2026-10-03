@@ -2022,7 +2022,7 @@ class ChatViewModel @Inject constructor(
                     ?: return@launch
 
                 val aiTitle = chatRepository.generateAiTitle(userContext, assistantContext, platform)
-                val titleWords = buildList {
+                val titleWords = buildList<String> {
                     fun addWords(value: String) {
                         value.replace('\n', ' ')
                             .trim()

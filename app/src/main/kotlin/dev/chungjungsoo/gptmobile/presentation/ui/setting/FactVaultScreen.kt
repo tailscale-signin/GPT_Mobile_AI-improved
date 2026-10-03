@@ -103,7 +103,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Memory", style = MaterialTheme.typography.titleLarge)
+                                Text("Memory Overview", style = MaterialTheme.typography.titleLarge)
                                 SettingsHelpIcon("Private saved facts, recurring topics, semantic recall, and indexed documents are managed here.")
                             }
                             Switch(vault.enabled, viewModel::setEnabled, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Enable Local Memory" })

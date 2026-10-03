@@ -501,7 +501,7 @@ fun OpponentChatBubble(
                         AssistChip(
                             onClick = {
                                 actionDismissed = true
-                                onActionClick(
+                                onActionClick?.invoke(
                                     buildString {
                                         append("Please do all of the following: ")
                                         append(dynamicActions.joinToString("; ") { it.actionPrompt })
@@ -555,7 +555,7 @@ fun OpponentChatBubble(
                             AssistChip(
                                 onClick = {
                                     actionDismissed = true
-                                    onActionClick(action.actionPrompt)
+                                    onActionClick?.invoke(action.actionPrompt)
                                 },
                                 label = {
                                     Text(

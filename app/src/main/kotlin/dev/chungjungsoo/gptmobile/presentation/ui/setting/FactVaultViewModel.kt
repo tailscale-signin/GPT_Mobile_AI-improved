@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.knowledge.AttachmentLibraryRepository
 import dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository
+import dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultSettings
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -21,11 +22,13 @@ class FactVaultViewModel @Inject constructor(
     private val repository: FactVaultRepository,
     private val documentsRepository: MemoryDocumentRepository,
     private val library: AttachmentLibraryRepository,
-    private val toolConnections: ToolConnectionRepository
+    private val toolConnections: ToolConnectionRepository,
+    semanticMemory: LocalSemanticMemory
 ) : ViewModel() {
     private val _connections = MutableStateFlow<List<ToolConnection>>(emptyList())
     val connections = _connections.asStateFlow()
     val vault = repository.state
+    val semanticStatus = semanticMemory.status
     val documents = documentsRepository.documents
     val attachments = library.attachments
     private val _busy = MutableStateFlow(false)
@@ -54,9 +57,13 @@ class FactVaultViewModel @Inject constructor(
                 learnRelationships = true,
                 localModelLearning = true,
                 rotateAutomaticFacts = true,
-                captureSensitivity = 65,
+                captureSensitivity = 75,
                 maxCapturePerMessage = 12,
-                maxRecall = 8,
+                maxRecall = 12,
+                maxFacts = 4096,
+                semanticRecall = true,
+                learnRecurringTopics = true,
+                allowCloudRecall = false,
                 recallTokens = 1536,
                 alwaysRecallPinned = true
             )
@@ -67,6 +74,7 @@ class FactVaultViewModel @Inject constructor(
     fun delete(id: String) = perform { repository.deleteFact(id) }
     fun saveFact(text: String, id: String? = null) = perform { repository.saveManual(text, id) }
     fun clear() = perform { repository.clear() }
+    fun rebuildSemanticIndex() = perform { repository.rebuildSemanticIndex() }
     fun removeDocument(id: String) = perform { documentsRepository.dao.deleteDocument(id) }
     fun indexDocuments() = perform {
         require(repository.state.value.enabled) { "Enable memory before indexing documents." }

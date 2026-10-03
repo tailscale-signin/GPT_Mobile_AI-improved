@@ -652,6 +652,25 @@ class ChatViewModel @Inject constructor(
 
     private val conversationDelegationMutex = Mutex()
 
+    fun setConversationReasoning(enabled: Boolean) {
+        _chatToolConfig.update { it.copy(reasoning = enabled) }
+        val chatId = _chatRoom.value.id
+        if (chatId > 0) {
+            viewModelScope.launch {
+                try {
+                    conversationDelegationMutex.withLock {
+                        val latest = settingRepository.getFeatureSettings()
+                        settingRepository.updateFeatureSettings(latest.copy(conversationReasoning = latest.conversationReasoning + (chatId to enabled)))
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    _attachmentNotice.value = "Could not save reasoning for this conversation. Please try again."
+                }
+            }
+        }
+    }
+
     fun setConversationDelegation(value: ConversationDelegationSettings?) {
         _chatToolConfig.update { it.copy(delegation = value) }
         val chatId = _chatRoom.value.id
@@ -845,6 +864,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun retryChat(turnIndex: Int, platformIndex: Int) {
+        if (_loadingStates.value.getOrNull(platformIndex) == LoadingState.Loading) return
         if (enabledPlatformsInChat.getOrNull(platformIndex) in _disabledPlatformUids.value) return
         if (turnIndex !in _groupedMessages.value.assistantMessages.indices) return
         if (platformIndex >= enabledPlatformsInChat.size || platformIndex < 0) return
@@ -1236,6 +1256,7 @@ class ChatViewModel @Inject constructor(
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
                         val wasNewConversation = _chatRoom.value.id <= 0
                         _chatRoom.update { persisted.chatRoom }
+                        if (wasNewConversation) _chatToolConfig.value.reasoning?.let(::setConversationReasoning)
                         if (wasNewConversation && _chatToolConfig.value.delegation != null) {
                             setConversationDelegation(_chatToolConfig.value.delegation)
                         }
@@ -1546,7 +1567,7 @@ class ChatViewModel @Inject constructor(
                 chatRepository.fetchChatListV2().first { it.id == chatRoomId }
             }
             val features = settingRepository.getFeatureSettings()
-            _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id]) }
+            _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id], reasoning = features.conversationReasoning[room.id]) }
             _chatRoom.value = room
             applyChatPlatformState(room)
         }
@@ -1991,7 +2012,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun resolvePlatformModel(platform: PlatformV2): PlatformV2 = resolvePlatformModel(platform, _chatPlatformModels.value)
+    private fun resolvePlatformModel(platform: PlatformV2): PlatformV2 = resolvePlatformModel(platform, _chatPlatformModels.value).let { it.copy(reasoning = _chatToolConfig.value.reasoning ?: it.reasoning) }
 
     private fun persistCurrentChatSnapshot() {
         viewModelScope.launch {

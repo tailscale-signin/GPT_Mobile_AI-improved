@@ -64,7 +64,7 @@ class DurablePromptQueue @Inject constructor(
                         }
                         val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return@forEach
                         val before = chats.fetchMessagesV2(chatId)
-                        val resolved = targets.map { it.copy(model = payload.models[it.uid] ?: it.model) }
+                        val resolved = targets.map { it.copy(model = payload.models[it.uid] ?: it.model, reasoning = payload.tools.reasoning ?: it.reasoning) }
                         val result = chats.persistAgentTurn(
                             PersistAgentTurnRequest(
                                 chatRoom = room,

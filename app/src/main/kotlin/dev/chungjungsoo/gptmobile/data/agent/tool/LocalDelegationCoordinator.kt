@@ -1318,7 +1318,7 @@ internal class LocalDelegationCoordinator(
         val candidates = profiles().filter { candidate ->
             candidate.enabled &&
                 candidate.uid != source.uid &&
-                candidate.isPrivateDestination() &&
+                candidate.compatibleType == ClientType.LITERT_LM &&
                 !candidate.excludesMemory() &&
                 candidate.model.isNotBlank() &&
                 !(source.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM)
@@ -1339,7 +1339,7 @@ internal class LocalDelegationCoordinator(
         return workerText(
             target,
             delegationPrompt(
-                "Select up to 6 durable facts explicitly stated by the user: preferences, profile facts, tools they use, owned devices, locations, ongoing projects or goals. Return JSON {\"observations\":[{\"quote\":\"one exact complete user statement\",\"kind\":\"preference|profile|project|goal\"}]}. Preserve negation and qualifiers. Omit questions, hypothetical situations, third-party quotations, secrets and temporary requests. Never infer or rewrite facts. Return an empty array when there is nothing to remember.",
+                "Select up to 6 durable facts explicitly stated by the user: preferences, profile facts, tools they use, owned devices, locations, ongoing projects, goals, constraints or enduring interests. Return JSON {\"observations\":[{\"quote\":\"one exact complete user statement\",\"kind\":\"preference|profile|project|goal|constraint|interest\"}]}. Preserve negation and qualifiers. Omit questions, hypothetical situations, third-party quotations, secrets and temporary requests. Never infer or rewrite facts. Return an empty array when there is nothing to remember.",
                 "Identify useful long-term memory from user statements.",
                 userText,
                 bounded.maxInputCharacters

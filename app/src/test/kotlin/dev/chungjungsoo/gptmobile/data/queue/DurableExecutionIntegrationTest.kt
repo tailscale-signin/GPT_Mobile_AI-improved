@@ -65,6 +65,32 @@ class DurableExecutionIntegrationTest {
         assertEquals(result.userMessage.id, database.agentRunDao().getById("r")!!.userMessageId)
     }
 
+    @Test fun `follow-up is atomically appended once and survives a restart`() = runBlocking {
+        val first = database.agentPersistenceDao().persistAgentTurn(request("First question").copy(queuedPromptId = null))
+        database.agentRunDao().updateStatus("r", "RUNNING", 1, null, null)
+        database.pendingPromptDao().enqueue(prompt("Focus on performance"))
+        val transfers = (1..2).map {
+            async { database.pendingPromptDao().consumeFollowUp(1, first.userMessage.id, "r", "p", "model", 8000) }
+        }.map { it.await() }
+        assertEquals(1, transfers.count { it != null })
+        assertEquals(first.userMessage.id, database.pendingPromptDao().get("q")!!.userMessageId)
+        assertEquals("First question\n\nFollow-up from user:\nFocus on performance", database.messageDao().loadMessages(1).first { it.id == first.userMessage.id }.content)
+        assertTrue(database.pendingPromptDao().observePending().first().isEmpty())
+    }
+
+    @Test fun `paused oversized or differently configured follow-ups stay queued`() = runBlocking {
+        val first = database.agentPersistenceDao().persistAgentTurn(request("First question").copy(queuedPromptId = null))
+        database.agentRunDao().updateStatus("r", "RUNNING", 1, null, null)
+        database.pendingPromptDao().enqueue(prompt("More detail").copy(paused = true))
+        val dao = database.pendingPromptDao()
+        assertEquals(null, dao.consumeFollowUp(1, first.userMessage.id, "r", "p", "model", 8000))
+        dao.pause("q", false)
+        assertEquals(null, dao.consumeFollowUp(1, first.userMessage.id, "r", "p", "model", 2))
+        assertEquals(null, dao.consumeFollowUp(1, first.userMessage.id, "r", "p", "model", 8000, dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(allToolsDisabled = true)))
+        assertEquals(1, dao.observePending().first().size)
+        assertEquals("First question", database.messageDao().loadMessages(1).first { it.id == first.userMessage.id }.content)
+    }
+
     @Test fun `editing or pausing a queued prompt prevents stale dispatch`() = runBlocking {
         database.pendingPromptDao().enqueue(prompt())
         database.pendingPromptDao().edit("q", "changed")

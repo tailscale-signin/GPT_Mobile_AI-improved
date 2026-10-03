@@ -85,17 +85,8 @@ internal class WebSearchEngineAdapter private constructor(
 
         fun forTool(realToolName: String, definition: AgentToolDefinition): WebSearchEngineAdapter? {
             val name = realToolName.lowercase()
-            val genericWebName = name == "web_search" ||
-                name.startsWith("web_search_") ||
-                name.endsWith("_web_search") ||
-                name == "search_web" ||
-                name.startsWith("search_web_")
-            val nonWebQualifier = name.split('_', '-').any { it in setOf("image", "images", "video", "videos", "news", "local", "workspace", "private") }
-            val describedSearch = name == "search" &&
-                listOf("web search", "search the web", "search web", "internet search").any {
-                    definition.description.contains(it, ignoreCase = true)
-                }
-            if (name !in marketplaceNames && name !in aliases && !(genericWebName && !nonWebQualifier) && !describedSearch) return null
+            if (isCrawlerTool(name)) return null
+            if (name !in marketplaceNames && name !in aliases && !isNamedWebSearch(name, definition.description)) return null
             val schema = definition.inputSchema
             val properties = schema["properties"] as? JsonObject ?: return null
             val queryKeys = if (name == "deep_search_exa") listOf("objective") else listOf("query", "q", "search_query", "searchQuery", "queries")

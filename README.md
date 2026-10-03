@@ -6,7 +6,7 @@ An enhanced, high-performance, and feature-rich Android client for Large Languag
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Android](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
-[![Target SDK](https://img.shields.io/badge/Target%20SDK-36-brightgreen.svg)](https://developer.android.com)
+[![Target SDK](https://img.shields.io/badge/Target%20SDK-37-brightgreen.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Language-Kotlin%202.x-purple.svg)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-4285F4.svg)](https://developer.android.com/jetpack/compose)
 
@@ -169,7 +169,7 @@ Here is a comprehensive breakdown of new features and enhancements in this fork,
 ### Prerequisites
 - Android Studio with AGP 9.4 support, or the Gradle wrapper for command-line builds
 - JDK 21
-- Android SDK 37.0 (compile) / Target SDK 36 / Min SDK 31
+- Android SDK 37.0 (compile) / Target SDK 37 / Min SDK 31
 
 ### Building from Source
 ```bash

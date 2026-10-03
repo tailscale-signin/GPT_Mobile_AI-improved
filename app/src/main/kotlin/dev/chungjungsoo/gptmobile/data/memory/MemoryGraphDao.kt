@@ -15,6 +15,9 @@ interface MemoryGraphDao {
     @Upsert
     suspend fun upsertRelations(relations: List<MemoryGraphRelationRecord>)
 
+    @Query("SELECT * FROM memory_graph_entities ORDER BY id")
+    suspend fun allEntities(): List<MemoryGraphEntityRecord>
+
     @Query("SELECT * FROM memory_graph_entities WHERE id = :id")
     suspend fun entityById(id: String): MemoryGraphEntityRecord?
 

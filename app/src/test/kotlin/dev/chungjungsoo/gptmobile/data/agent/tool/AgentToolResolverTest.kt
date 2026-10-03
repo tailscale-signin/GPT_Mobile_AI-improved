@@ -105,12 +105,8 @@ class AgentToolResolverTest {
             delegate = { _, _, _ -> error("Free profiles must not delegate") }
         )
         assertTrue(resolved.map { it.modelToolName }.containsAll(listOf("calculate_expression", "current_date", "device_location", "github", "read_file_slice", "read_url", "web_search")))
-        assertTrue(
-            resolved.map { it.modelToolName }.containsAll(
-                listOf("create_entities", "create_relations", "add_observations", "search_nodes", "read_graph")
-            )
-        )
-        assertTrue(resolved.any { it.modelToolName.startsWith("memory_") })
+        assertEquals(1, resolved.count { it.modelToolName == "memory" })
+        assertTrue(resolved.single { it.modelToolName == "memory" }.tool.definition.description.contains("search_documents"))
     }
 
     @Test

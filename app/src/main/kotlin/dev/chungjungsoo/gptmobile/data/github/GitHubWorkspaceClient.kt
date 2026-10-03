@@ -44,8 +44,11 @@ data class GitHubRepositoryContext(val owner: String, val repo: String, val ref:
 class GitHubWorkspaceClient(
     private val token: String,
     private val client: HttpClient = sharedClient,
-    private val responseCache: GitHubResponseCache = GitHubResponseCache(),
-    private val rateLimits: GitHubRateLimitManager = GitHubRateLimitManager()
+    private val responseCache: GitHubResponseCache = if (client === sharedClient) GitHubSessionCaches.forCredential(token) else GitHubResponseCache(),
+    private val rateLimits: GitHubRateLimitManager = GitHubRateLimitManager(),
+    private val conditionalReads: Boolean = true,
+    private val blobCache: Boolean = true,
+    private val freshnessSeconds: Int = 15
 ) {
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -186,10 +189,10 @@ class GitHubWorkspaceClient(
         require(result["type"]?.jsonPrimitive?.content == "file") { "Only regular text files can be opened." }
         require(result["encoding"]?.jsonPrimitive?.content == "base64") { "File is too large for this workspace. Read a smaller file." }
         val sha = result["sha"]?.jsonPrimitive?.content.orEmpty()
-        val content = responseCache.getDecodedBlob(sha) ?: run {
+        val content = (if (blobCache) responseCache.getDecodedBlob(sha) else null) ?: run {
             val bytes = Base64.getMimeDecoder().decode(result["content"]?.jsonPrimitive?.content.orEmpty())
             require(bytes.size <= 256_000 && bytes.none { it == 0.toByte() }) { "Workspace supports text files up to 256 KB." }
-            bytes.decodeToString(throwOnInvalidSequence = true).also { responseCache.putDecodedBlob(sha, it) }
+            bytes.decodeToString(throwOnInvalidSequence = true).also { if (blobCache) responseCache.putDecodedBlob(sha, it) }
         }
         val lines = content.split('\n')
         val start = startField.ifBlank { "1" }.toInt()
@@ -859,8 +862,11 @@ class GitHubWorkspaceClient(
     ): JsonElement {
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         val cacheKey = "${method.value}:$path"
-        val cacheable = method == HttpMethod.Get && path != "/rate_limit"
+        val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val cached = if (cacheable) responseCache.get(cacheKey) else null
+        // Mutable branch heads and permission checks are always revalidated.
+        val freshList = path.startsWith("/user/repos") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
+        if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) return cached.value
         val response = client.request("https://api.github.com$path") {
             this.method = method
             header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -874,10 +880,14 @@ class GitHubWorkspaceClient(
             }
         }
         rateLimits.record(response.headers)
-        if (response.status.value == 304 && cached != null) return cached.value
+        if (response.status.value == 304 && cached != null) {
+            responseCache.put(cacheKey, cached.etag, cached.value)
+            return cached.value
+        }
 
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
+            if (response.status.value in setOf(401, 403, 404)) responseCache.clear()
             val githubMessage = runCatching {
                 json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
             }.getOrNull()?.takeIf { it.isNotBlank() }
@@ -903,6 +913,7 @@ class GitHubWorkspaceClient(
             )
         }
         val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+        if (method != HttpMethod.Get) responseCache.clear()
         if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed)
         return parsed
     }

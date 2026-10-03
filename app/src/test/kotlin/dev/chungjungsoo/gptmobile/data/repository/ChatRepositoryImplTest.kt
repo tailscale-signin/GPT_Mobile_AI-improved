@@ -297,6 +297,7 @@ class ChatRepositoryImplTest {
         }
         val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
         facts.setEnabled(true)
+        facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = true))
         facts.prepareTurn("I prefer Kotlin", 1, 1)
         val api = FakeGroqAPI(emptyFlow())
         val cloud = createRepository(groqAPI = api, factVault = facts)

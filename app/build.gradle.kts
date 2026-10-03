@@ -2,6 +2,10 @@
 
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
+import java.net.URI
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import org.gradle.kotlin.dsl.aboutLibraries
 import org.gradle.kotlin.dsl.configure
 
@@ -10,22 +14,25 @@ plugins {
     alias(libs.plugins.android.hilt)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.ksp)
+    alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.auto.license)
     jacoco
     kotlin(libs.plugins.kotlin.serialization.get().pluginId).version(libs.versions.kotlin)
+    alias(libs.plugins.objectbox)
 }
 
 extensions.configure<ApplicationExtension> {
     namespace = "dev.chungjungsoo.gptmobile"
     compileSdk = 37
+    buildToolsVersion = "37.0.0"
 
     defaultConfig {
         applicationId = "dev.melo.gptmobile.improved"
         minSdk = 31
-        targetSdk = 36
-        versionCode = 97
-        versionName = "0.9.28.0" // diagnostics reliability, reviewer/benchmark, memory, marketplace, settings, and completion UX
+        targetSdk = 37
+        versionCode = 98
+        versionName = "0.9.30.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -63,6 +70,7 @@ extensions.configure<ApplicationExtension> {
 
     androidResources {
         generateLocaleConfig = true
+        noCompress += "tflite"
     }
 
     lint {
@@ -99,6 +107,7 @@ extensions.configure<ApplicationExtension> {
         unitTests {
             isIncludeAndroidResources = true
             all {
+                it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
                 it.testLogging {
                     events("passed", "skipped", "failed", "standardError")
                 }
@@ -136,14 +145,81 @@ extensions.configure<ApplicationExtension> {
     }
 }
 
+@CacheableTask
+abstract class PrepareMemoryModel : DefaultTask() {
+    @get:Input abstract val sourceUrl: Property<String>
+
+    @get:Input abstract val expectedSha256: Property<String>
+
+    @get:Input abstract val offline: Property<Boolean>
+
+    @get:Optional @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val localModel: RegularFileProperty
+
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun prepare() {
+        val target = outputDirectory.file("memory/universal_sentence_encoder.tflite").get().asFile
+        fun checksum(file: File) = MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+        if (target.isFile && checksum(target) == expectedSha256.get()) return
+        target.parentFile.mkdirs()
+        val temporary = File(target.parentFile, "${target.name}.part")
+        try {
+            val input = if (localModel.isPresent) {
+                localModel.get().asFile.inputStream()
+            } else {
+                check(!offline.get()) { "Memory model is not cached. Build online once or provide -PmemoryModelFile=/path/to/universal_sentence_encoder.tflite." }
+                URI(sourceUrl.get()).toURL().openConnection().apply {
+                    connectTimeout = 30_000
+                    readTimeout = 120_000
+                }.getInputStream()
+            }
+            input.use { source ->
+                temporary.outputStream().use { output ->
+                    val buffer = ByteArray(8192)
+                    var total = 0
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        check(total <= 6_120_274) { "Unexpected memory model size." }
+                        output.write(buffer, 0, count)
+                    }
+                }
+            }
+            check(checksum(temporary) == expectedSha256.get()) { "Memory model checksum mismatch; refusing to package it." }
+            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            temporary.delete()
+        }
+    }
+}
+
+val prepareMemoryModel = tasks.register<PrepareMemoryModel>("prepareMemoryModel") {
+    sourceUrl.set("https://storage.googleapis.com/mediapipe-models/text_embedder/universal_sentence_encoder/float32/1/universal_sentence_encoder.tflite")
+    expectedSha256.set("89ad3c74175dd8caa398cc22b657296d94302d20c525c12b58b29420f7249749")
+    offline.set(gradle.startParameter.isOffline)
+    providers.gradleProperty("memoryModelFile").orNull?.let { localModel.set(file(it)) }
+    outputDirectory.set(layout.buildDirectory.dir("generated/memoryAssets"))
+}
+
 extensions.configure<ApplicationAndroidComponentsExtension> {
     onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(prepareMemoryModel, PrepareMemoryModel::outputDirectory)
         variant.androidTest?.sources?.assets?.addStaticSourceDirectory("$projectDir/schemas")
     }
 }
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// ObjectBox 5.4.2 retains Project in its preparation task. Keep incremental/build
+// caches enabled, but tell Gradle honestly that this task cannot be serialized.
+tasks.matching { it.name == "objectboxPrepareBuild" }.configureEach {
+    notCompatibleWithConfigurationCache("ObjectBox preparation currently retains Gradle Project")
 }
 
 tasks.register<JacocoReport>("jacocoTestReport") {
@@ -187,6 +263,12 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 }
 
 dependencies {
+    // Local memory only: no model provider, hosted vector store or remote embedding SDK.
+    implementation(libs.langchain4j.memory) {
+        exclude(group = "org.apache.opennlp", module = "opennlp-tools")
+        exclude(group = "io.smallrye.reactive", module = "mutiny-zero")
+    }
+    implementation(libs.mediapipe.text)
     // Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

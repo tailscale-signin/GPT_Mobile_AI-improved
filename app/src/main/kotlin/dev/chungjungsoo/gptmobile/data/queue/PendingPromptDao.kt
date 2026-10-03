@@ -35,6 +35,41 @@ interface PendingPromptDao {
     @Query("UPDATE pending_prompts SET position = :position WHERE id = :id AND userMessageId IS NULL")
     suspend fun reposition(id: String, position: Long)
 
+    @Query("SELECT * FROM pending_prompts WHERE chatId = :chatId AND userMessageId IS NULL ORDER BY position, id LIMIT 1")
+    suspend fun firstPending(chatId: Int): PendingPrompt?
+
+    @Query("SELECT COUNT(*) FROM agent_runs WHERE chat_id = :chatId AND status IN ('RUNNING', 'QUEUED')")
+    suspend fun activeRunCount(chatId: Int): Int
+
+    @Query("SELECT COUNT(*) FROM agent_runs WHERE run_id = :runId AND user_message_id = :messageId AND status = 'RUNNING'")
+    suspend fun isRunningTurn(runId: String, messageId: Int): Int
+
+    @Query("UPDATE messages_v2 SET content = content || :suffix WHERE message_id = :messageId AND chat_id = :chatId AND platform_type IS NULL")
+    suspend fun appendFollowUp(messageId: Int, chatId: Int, suffix: String): Int
+
+    @Query("UPDATE pending_prompts SET userMessageId = :messageId WHERE id = :id AND userMessageId IS NULL")
+    suspend fun markFollowUpConsumed(id: String, messageId: Int): Int
+
+    /** Atomic transfer: an accepted queued prompt is always retained in conversation history. */
+    @Transaction
+    suspend fun consumeFollowUp(chatId: Int, messageId: Int, runId: String, profileUid: String, model: String, maxCharacters: Int, tools: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig()): String? {
+        if (activeRunCount(chatId) != 1 || isRunningTurn(runId, messageId) != 1) return null
+        val pending = firstPending(chatId) ?: return null
+        if (pending.paused || pending.text.isBlank() || pending.text.length > maxCharacters.coerceIn(0, 8000)) return null
+        val payload = pending.details()
+        if (payload.tools != tools ||
+            payload.attachments.isNotEmpty() ||
+            payload.profileUids != listOf(profileUid) ||
+            (payload.models[profileUid] != null && payload.models[profileUid] != model)
+        ) {
+            return null
+        }
+        val suffix = "\n\nFollow-up from user:\n${pending.text}"
+        check(appendFollowUp(messageId, chatId, suffix) == 1)
+        check(markFollowUpConsumed(pending.id, messageId) == 1)
+        return suffix
+    }
+
     @Transaction
     suspend fun swap(first: String, second: String) {
         val a = get(first) ?: return

@@ -54,6 +54,9 @@ internal object MemoryLearning {
             Regex("(?iu)^my (?:time ?zone) is $target$") to "TIMEZONE",
             Regex("(?iu)^my pronouns are $target$") to "PRONOUNS",
             Regex("(?iu)^(?:I (?:avoid|dislike)|I cannot eat|I can't eat) $target$") to "AVOIDS",
+            Regex("(?iu)^(?:I teach|I instruct|my course is) $target$") to "TEACHES",
+            Regex("(?iu)^(?:I am interested in|I’m interested in|I enjoy|I love) $target$") to "INTERESTED_IN",
+            Regex("(?iu)^(?:I need|I require|my budget is|my deadline is) $target$") to "CONSTRAINT",
             Regex("(?iu)^(?:I own|my (?:phone|computer|laptop) is) $target$") to "OWNS",
             Regex("(?iu)^(?:I live in|I am based in|I'm based in|I’m based in) $target$") to "LOCATED_IN",
             Regex("(?iu)^(?:I prefer|I like|my favorite(?: [^.!?;]{1,60})? is) $target$") to "PREFERS",
@@ -83,6 +86,8 @@ internal object MemoryLearning {
                 "profile" -> "PROFILE"
                 "project" -> "WORKING_ON"
                 "goal" -> "GOAL"
+                "constraint" -> "CONSTRAINT"
+                "interest" -> "INTERESTED_IN"
                 else -> return@mapNotNull null
             }
             val fact = observation(original).let { it.copy(relation = it.relation.copy(relationType = relation)) }

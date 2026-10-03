@@ -68,6 +68,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
+    val semanticStatus by viewModel.semanticStatus.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf("Memories") }
     var filter by rememberSaveable { mutableStateOf("All") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -98,19 +99,20 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text("A memory you control", style = MaterialTheme.typography.titleLarge)
-                                Text("Encrypted facts · local graph · document recall", style = MaterialTheme.typography.bodySmall)
+                                Text("Your memory, connected", style = MaterialTheme.typography.titleLarge)
+                                Text("Facts · topics · semantic search · documents", style = MaterialTheme.typography.bodySmall)
                             }
                             Switch(vault.enabled, viewModel::setEnabled, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Enable local memory" })
                         }
                         Text("${vault.facts.size} memories · ${documents.size} indexed documents", style = MaterialTheme.typography.labelLarge)
-                        Text("${vault.facts.count { !it.enabled }} awaiting review or disabled · Free profiles never receive memory", style = MaterialTheme.typography.bodySmall)
+                        Text(semanticStatus.detail, style = MaterialTheme.typography.bodySmall)
+                        Text("${vault.facts.count { !it.enabled }} awaiting review or disabled · Auto-recall skips Free profiles", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Memories", "Documents", "Controls").forEach { label ->
+                    listOf("Memories", "Topics", "Documents", "Controls").forEach { label ->
                         FilterChip(tab == label, {
                             tab = label
                             query = ""
@@ -127,6 +129,17 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
             }
             status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) } }
             when (tab) {
+                "Topics" -> {
+                    item { SettingsHero("ON DEVICE", "Recurring interests", "Topics become memories after ${settings.topicRepetitions} different messages.") }
+                    val topics = vault.topics.sortedByDescending { it.messageKeys.size }
+                    if (topics.isEmpty()) item { Text("Repeated topics will appear here as you chat.") }
+                    items(topics, key = { "${it.scope}:${it.label}" }) { topic ->
+                        SettingsPanel(topic.label) {
+                            Text("${topic.messageKeys.size} mentions · ${topic.scope}", style = MaterialTheme.typography.labelMedium)
+                            LinearProgressIndicator(progress = { (topic.messageKeys.size.toFloat() / settings.topicRepetitions).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
                 "Memories" -> {
                     item {
                         OutlinedTextField(query, { query = it }, label = { Text("Find a memory") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -234,7 +247,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                                     Text("Only key facts", style = MaterialTheme.typography.labelSmall)
                                     Text("More details", style = MaterialTheme.typography.labelSmall)
                                 }
-                                Text("Balanced (65%) now keeps preferences, owned/used tools and devices, locations, ongoing projects and stated goals. Explicit “remember” requests are always strongest.", style = MaterialTheme.typography.bodySmall)
+                                Text("Explicit facts and interests are learned locally. Repeated questions build topic evidence.", style = MaterialTheme.typography.bodySmall)
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(40 to "Selective", 65 to "Balanced", 85 to "Detailed").forEach { (value, label) ->
                                         FilterChip(
@@ -248,24 +261,31 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
 
                                 VaultToggle("Learn from new messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
                                 VaultToggle("Recall saved memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
+                                VaultToggle("Semantic recall · fully on-device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
+                                Text("${semanticStatus.indexed} / ${semanticStatus.total} semantic memories · no server required", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text("Rebuild semantic index") }
                                 VaultToggle("Always include pinned memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
                                 VaultToggle("Allow recall in cloud requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
                                 VaultToggle("Recall only within the original chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
                                 VaultToggle("Review new memories before use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
                                 VaultToggle("Learn preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
                                 VaultToggle("Learn relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
+                                VaultToggle("Learn recurring topics", settings.learnRecurringTopics, !busy) { viewModel.updateSettings(settings.copy(learnRecurringTopics = it)) }
+                                VaultToggle("Prioritize recent memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
+                                VaultToggle("Prioritize repeated information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
+                                VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
                                 VaultToggle("Use local model for richer learning", settings.localModelLearning, !busy) { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
                                 Text("Uses an available private local delegate profile for richer extraction even when ordinary tool calls are off. It only selects exact user statements; deterministic text capture remains the fallback.", style = MaterialTheme.typography.bodySmall)
                                 VaultToggle("Make room for new automatic memories", settings.rotateAutomaticFacts, !busy) { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
                                 Text("Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.", style = MaterialTheme.typography.bodySmall)
                                 VaultLimit("New facts per message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
-                                VaultLimit("Recall token budget · estimate", settings.recallTokens, 128..4096, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
-                                VaultLimit("Memories per response", settings.maxRecall, 1..20, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
+                                VaultLimit("Recall token budget · estimate", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
+                                VaultLimit("Memories per response", settings.maxRecall, 1..40, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
                                 TextButton(onClick = { advancedControls = !advancedControls }) {
                                     Text(if (advancedControls) "Hide advanced memory controls" else "Show advanced memory controls")
                                 }
                                 if (advancedControls) {
-                                    VaultLimit("Memory capacity", settings.maxFacts, 16..2048, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
+                                    VaultLimit("Memory capacity", settings.maxFacts, 16..16384, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
                                     VaultLimit("Retention days · 0 keeps memories", settings.retentionDays, 0..365, !busy) { viewModel.updateSettings(settings.copy(retentionDays = it)) }
                                 }
                             }

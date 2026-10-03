@@ -52,16 +52,21 @@ import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewModel = hiltViewModel()) {
+fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewModel = hiltViewModel(), embedded: Boolean = false) {
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    var order by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(PerformanceOrder.LATENCY) }
     val stats by viewModel.statistics.collectAsStateWithLifecycle()
     val samples = remember(stats.profilePerformance) { stats.profilePerformance.flatMap { it.samples } }
     val measured = samples.filterNot { it.estimated }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("Usage") }, navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
-        })
+        if (!embedded) {
+            TopAppBar(title = { Text("Usage") }, navigationIcon = {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
+            })
+        }
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item { SettingsTabs(listOf("Overview", "Trends", "Tools", "History", "Models"), tab) { tab = it } }
             item {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(7 to "7 days", 30 to "30 days", 0 to "Stored history").forEach { (days, label) ->
@@ -82,34 +87,65 @@ fun UsageStatisticsScreen(onBack: () -> Unit, viewModel: UsageStatisticsViewMode
                     }
                 }
             }
-            item {
-                StatisticsCard("Conversation output over time") {
-                    Text(if (stats.days == 0) "Last 30 days · reported tokens" else "Reported tokens each day", style = MaterialTheme.typography.labelMedium)
-                    TrendChart(stats.dailyTokens.map { it.second.toDouble() }, stats.dailyTokens.map { it.first.toString() }, MaterialTheme.colorScheme.primary, "tokens")
-                }
-            }
-            item {
-                StatisticsCard("Request outcomes") {
-                    OutcomeChart(samples.count { it.status == "COMPLETED" }, samples.count { it.status in setOf("FAILED", "INTERRUPTED") }, samples.count { it.status == "CANCELED" }, samples.count { it.status == "STOPPED" })
-                }
-            }
-            item {
-                StatisticsCard("Tools") {
-                    if (stats.toolUsage.isEmpty()) Text("No tool calls in this period.")
-                    val max = stats.toolUsage.maxOfOrNull { it.calls }?.coerceAtLeast(1) ?: 1
-                    stats.toolUsage.take(12).forEach { tool ->
-                        Text(tool.name, color = modelChartColor(tool.name), style = MaterialTheme.typography.bodyMedium)
-                        LinearProgressIndicator(progress = { tool.calls.toFloat() / max }, modifier = Modifier.fillMaxWidth(), color = modelChartColor(tool.name))
-                        Text("${tool.calls} calls · ${tool.failures} failures", style = MaterialTheme.typography.labelSmall)
+            if (tab == 0 || tab == 1) {
+                item {
+                    StatisticsCard("Conversation output over time") {
+                        Text(if (stats.days == 0) "Last 30 days · reported tokens" else "Reported tokens each day", style = MaterialTheme.typography.labelMedium)
+                        TrendChart(stats.dailyTokens.map { it.second.toDouble() }, stats.dailyTokens.map { it.first.toString() }, MaterialTheme.colorScheme.primary, "tokens")
                     }
                 }
             }
-            item {
-                StatisticsCard("Conversation history") {
-                    MetricLine("Runs / conversations", "${stats.runs} / ${stats.conversations}")
-                    MetricLine("Reported output", number(stats.generatedTokens))
-                    MetricLine("Unreported output estimate", "≈ ${number(stats.estimatedTokens)}")
-                    Text("Includes older conversations recorded before request performance tracking was available. Conversation totals and individual request totals are separate views; they are never added together.", style = MaterialTheme.typography.bodySmall)
+            if (tab == 0 || tab == 1) {
+                item {
+                    StatisticsCard("Request outcomes") {
+                        OutcomeChart(samples.count { it.status == "COMPLETED" }, samples.count { it.status in setOf("FAILED", "INTERRUPTED") }, samples.count { it.status == "CANCELED" }, samples.count { it.status == "STOPPED" })
+                    }
+                }
+            }
+            if (tab == 2) {
+                item {
+                    StatisticsCard("Tools") {
+                        if (stats.toolUsage.isEmpty()) Text("No tool calls in this period.")
+                        val max = stats.toolUsage.maxOfOrNull { it.calls }?.coerceAtLeast(1) ?: 1
+                        stats.toolUsage.take(12).forEach { tool ->
+                            Text(tool.name, color = modelChartColor(tool.name), style = MaterialTheme.typography.bodyMedium)
+                            LinearProgressIndicator(progress = { tool.calls.toFloat() / max }, modifier = Modifier.fillMaxWidth(), color = modelChartColor(tool.name))
+                            Text("${tool.calls} calls · ${tool.failures} failures", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+            if (tab == 4) {
+                item {
+                    SettingsHero("PERFORMANCE", "Compare your models", "Measured response times and reported throughput")
+                    SettingsTabs(PerformanceOrder.entries.map { it.label }, order.ordinal) { order = PerformanceOrder.entries[it] }
+                }
+                val ranked = rankPerformance(stats.profilePerformance, order)
+                if (ranked.isEmpty()) item { Text("Run a conversation or benchmark to compare profiles.") }
+                ranked.forEach { row ->
+                    item(key = row.key) {
+                        SettingsPanel(row.name) {
+                            Text(row.metrics.model, color = modelChartColor(row.key), style = MaterialTheme.typography.labelLarge)
+                            MetricLine("Requests / completed", "${row.metrics.requests} / ${row.metrics.completed}")
+                            MetricLine("Median / p95 response", "${formatLatency(row.metrics.medianLatencyMs)} / ${formatLatency(row.metrics.p95LatencyMs)}")
+                            MetricLine("First token · median / p95", "${formatLatency(row.metrics.medianFirstTokenMs)} / ${formatLatency(row.metrics.p95FirstTokenMs)}")
+                            MetricLine("Reported output per second", row.metrics.outputTokensPerSecond?.let { "%.1f tokens/s".format(it) } ?: "—")
+                            row.successPercent?.let { success ->
+                                LinearProgressIndicator(progress = { (success / 100).toFloat() }, modifier = Modifier.fillMaxWidth(), color = modelChartColor(row.key))
+                                Text("${"%.1f".format(success)}% success · ${row.failed} failed · ${row.canceled} canceled", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+            if (tab == 3) {
+                item {
+                    StatisticsCard("Conversation history") {
+                        MetricLine("Runs / conversations", "${stats.runs} / ${stats.conversations}")
+                        MetricLine("Reported output", number(stats.generatedTokens))
+                        MetricLine("Unreported output estimate", "≈ ${number(stats.estimatedTokens)}")
+                        Text("Includes older conversations recorded before request performance tracking was available. Conversation totals and individual request totals are separate views; they are never added together.", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
             item {

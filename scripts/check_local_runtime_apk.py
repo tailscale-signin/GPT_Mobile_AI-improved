@@ -29,8 +29,13 @@ def check_apk(apk_path, manifest):
     with ZipFile(apk_path) as apk:
         names = apk.namelist()
         assert len(names) == len(set(names)), f"{apk_path}: duplicate ZIP entries"
+        model = apk.read("assets/memory/universal_sentence_encoder.tflite")
+        assert hashlib.sha256(model).hexdigest() == "89ad3c74175dd8caa398cc22b657296d94302d20c525c12b58b29420f7249749", "Memory model checksum mismatch"
         abis = {name.split("/")[1] for name in names if name.startswith("lib/") and name.endswith(".so")}
         assert abis and abis <= {"arm64-v8a", "x86_64"}, f"Unexpected APK ABIs: {abis}"
+        for abi in abis:
+            for library in ("libobjectbox-jni.so", "libmediapipe_tasks_jni.so", "libmediapipe_tasks_textgenai_jni.so"):
+                assert f"lib/{abi}/{library}" in names, f"Missing memory runtime {abi}/{library}"
         checked = 0
         for name, expected in manifest["libraries"].items():
             if name.split("/")[1] not in abis:

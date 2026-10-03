@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.memory
 
+import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
@@ -54,19 +55,19 @@ class MemoryGraphRepository @Inject constructor(
     suspend fun findEntity(name: String, scope: String = "personal"): MemoryGraphEntityRecord? =
         mutex.withLock { dao.entityByName(scope, normalize(name)) }
 
-    suspend fun replaceFromVault(facts: List<VaultFact>, scope: String = "personal") = mutex.withLock {
-        val fingerprint = vaultFingerprint(facts, scope)
+    suspend fun replaceFromVault(facts: List<VaultFact>) = mutex.withLock {
+        val fingerprint = vaultFingerprint(facts)
         if (fingerprint == lastVaultFingerprint) return@withLock
-        dao.deleteObservationsBySource(SOURCE_VAULT)
-        dao.deleteRelationsBySource(SOURCE_VAULT)
+        val existingEntities = dao.allEntities().associateBy { it.id }
         val now = System.currentTimeMillis()
         val entityRows = linkedMapOf<String, MemoryGraphEntityRecord>()
         val observations = mutableListOf<MemoryGraphObservationRecord>()
         val relations = mutableListOf<MemoryGraphRelationRecord>()
 
-        facts.filter { it.scope == scope }.forEach { entry ->
-            val source = entityRecord(entry.fact.entity.name, entry.fact.entity.type, scope, entry.sourceChatId, entry.sourceMessageId, now)
-            val target = entityRecord(entry.fact.target.name, entry.fact.target.type, scope, entry.sourceChatId, entry.sourceMessageId, now)
+        facts.forEach { entry ->
+            val scope = entry.scope
+            val source = entityRecord(entry.fact.entity.name, entry.fact.entity.type, scope, entry.sourceChatId, entry.sourceMessageId, now, existingEntities)
+            val target = entityRecord(entry.fact.target.name, entry.fact.target.type, scope, entry.sourceChatId, entry.sourceMessageId, now, existingEntities)
             entityRows[source.id] = mergeEntity(entityRows[source.id], source)
             entityRows[target.id] = mergeEntity(entityRows[target.id], target)
             relations += MemoryGraphRelationRecord(
@@ -100,7 +101,7 @@ class MemoryGraphRepository @Inject constructor(
         }
 
         val persisted = entityRows.values.map { row ->
-            val existing = dao.entityById(row.id)
+            val existing = existingEntities[row.id]
             if (existing == null) {
                 row
             } else {
@@ -113,10 +114,14 @@ class MemoryGraphRepository @Inject constructor(
                 )
             }
         }
-        if (persisted.isNotEmpty()) dao.upsertEntities(persisted)
-        if (observations.isNotEmpty()) dao.upsertObservations(observations)
-        if (relations.isNotEmpty()) dao.upsertRelations(relations)
-        dao.pruneUnreferencedEntities()
+        database.withTransaction {
+            dao.deleteObservationsBySource(SOURCE_VAULT)
+            dao.deleteRelationsBySource(SOURCE_VAULT)
+            if (persisted.isNotEmpty()) dao.upsertEntities(persisted)
+            if (observations.isNotEmpty()) dao.upsertObservations(observations)
+            if (relations.isNotEmpty()) dao.upsertRelations(relations)
+            dao.pruneUnreferencedEntities()
+        }
         rebuildFtsLocked()
         lastVaultFingerprint = fingerprint
     }
@@ -167,11 +172,12 @@ class MemoryGraphRepository @Inject constructor(
         scope: String,
         chatId: Int,
         messageId: Int,
-        now: Long
+        now: Long,
+        existingEntities: Map<String, MemoryGraphEntityRecord>
     ): MemoryGraphEntityRecord {
         val normalized = normalize(name).take(120)
         val id = stableId("entity", scope, normalized)
-        val existing = dao.entityById(id)
+        val existing = existingEntities[id]
         return MemoryGraphEntityRecord(
             id = id,
             name = name.trim().take(120),
@@ -202,7 +208,7 @@ class MemoryGraphRepository @Inject constructor(
         val relations = dao.relationsFor(ids)
             .filter { chatId == null || it.sourceChatId == 0 || it.sourceChatId == chatId }
         val relatedIds = (ids + relations.flatMap { listOf(it.fromEntityId, it.toEntityId) }).distinct()
-        val entityMap = dao.entitiesByIds(relatedIds).associateBy { it.id }
+        val entityMap = relatedIds.chunked(400).flatMap { dao.entitiesByIds(it) }.associateBy { it.id }
         val observations = dao.observationsFor(ids)
             .filter { chatId == null || it.sourceChatId == 0 || it.sourceChatId == chatId }
             .groupBy { it.entityId }
@@ -240,8 +246,8 @@ class MemoryGraphRepository @Inject constructor(
         if (!ensureFtsLocked()) return
         // Read through Room before taking the raw SQLite transaction. Suspending
         // DAO calls inside a SupportSQLiteDatabase transaction can switch threads.
-        val entities = dao.entities("personal")
-        val observations = if (entities.isEmpty()) emptyList() else dao.observationsFor(entities.map { it.id })
+        val entities = dao.allEntities()
+        val observations = entities.map { it.id }.chunked(400).flatMap { dao.observationsFor(it) }
         val db = database.openHelper.writableDatabase
         runCatching {
             db.beginTransaction()
@@ -310,13 +316,12 @@ class MemoryGraphRepository @Inject constructor(
         return "$kind-${digest.take(32)}"
     }
 
-    private fun vaultFingerprint(facts: List<VaultFact>, scope: String): String {
+    private fun vaultFingerprint(facts: List<VaultFact>): String {
         val stable = facts.asSequence()
-            .filter { it.scope == scope }
             .sortedBy { it.id }
-            .joinToString("|") { "${it.id}:${it.sourceChatId}:${it.sourceMessageId}" }
+            .joinToString("|") { "${it.scope}:${it.id}:${it.sourceChatId}:${it.sourceMessageId}" }
         return MessageDigest.getInstance("SHA-256")
-            .digest("$scope|$stable".encodeToByteArray())
+            .digest(stable.encodeToByteArray())
             .joinToString("") { "%02x".format(it) }
     }
 

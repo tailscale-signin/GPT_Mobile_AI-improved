@@ -19,7 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectedMemoryRecallTest {
-    private val config = FactVaultSettings(externalRecallEnabled = true, externalMemoryConnections = setOf("mem0", "supermemory", "graphiti"))
+    private val config = FactVaultSettings(allowCloudRecall = true, externalRecallEnabled = true, externalMemoryConnections = setOf("mem0", "supermemory", "graphiti"))
     private fun tool(provider: String, name: String, fields: String, required: String = "\"query\""): ResolvedAgentTool {
         val schema = Json.parseToJsonElement("""{"properties":{"query":{"type":"string"},$fields},"required":[$required]}""").jsonObject
         val tool = object : AgentTool {

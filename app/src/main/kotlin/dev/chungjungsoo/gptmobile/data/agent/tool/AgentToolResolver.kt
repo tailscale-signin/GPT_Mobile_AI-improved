@@ -11,13 +11,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
-import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
@@ -122,14 +123,14 @@ class AgentToolResolver @Inject constructor(
             // Keep explicitly enabled delegation available in small on-device context windows.
             if (
                 featureSettings.isToolPluginEnabled(ToolPluginId.MODEL_DELEGATION) &&
-                (chatToolConfig?.effectiveDelegation(featureSettings.delegation) ?: featureSettings.delegation).enabled &&
+                (chatToolConfig?.effectiveDelegation(featureSettings.delegationFor(profileUid)) ?: featureSettings.delegationFor(profileUid)).enabled &&
                 delegate != null &&
                 platform != null
             ) {
                 val tool = ModelDelegationTool(
                     platform,
                     {
-                        val defaults = settingRepository.getFeatureSettings().delegation
+                        val defaults = settingRepository.getFeatureSettings().delegationFor(profileUid)
                         chatToolConfig?.effectiveDelegation(defaults) ?: defaults
                     },
                     { settingRepository.fetchPlatformV2s() },
@@ -152,21 +153,15 @@ class AgentToolResolver @Inject constructor(
                     false
                 }
                 if (memoryAvailable) {
-                    listOf(true, false).forEach { capture ->
-                        val tool = LocalMemoryTool(factVault, userMessage, platform.isPrivateDestination(), capture)
-                        resolved += tool.resolved(null, "Local memory", tool.definition.name)
-                    }
-                    LocalMemoryGraphTool.operations.forEach { operation ->
-                        val tool = LocalMemoryGraphTool(factVault, memoryGraph, memoryDocuments, userMessage, platform.isPrivateDestination(), operation)
-                        resolved += tool.resolved(null, "Local memory", tool.definition.name)
-                    }
+                    val tool = UnifiedMemoryTool(factVault, memoryGraph, memoryDocuments, userMessage, platform.isPrivateDestination())
+                    resolved += tool.resolved(null, "Memory", tool.definition.name)
                 }
             }
             if (featureSettings.isToolPluginEnabled(ToolPluginId.CURRENT_DATE)) {
-                resolved += CurrentDateTool().resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
+                resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
             }
             if (featureSettings.isToolPluginEnabled(ToolPluginId.CALCULATOR)) {
-                resolved += CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+                resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
             }
             if (featureSettings.isToolPluginEnabled(ToolPluginId.READ_FILES)) {
                 resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
@@ -182,7 +177,7 @@ class AgentToolResolver @Inject constructor(
             // anonymous GitHub access because that would bypass the plugin toggle.
             if (featureSettings.isToolPluginEnabled(ToolPluginId.GITHUB)) {
                 if (configuredNativeGitHubConnections.isEmpty()) {
-                    resolved += GitHubTool().resolved(null, null, BuiltInAgentTool.GITHUB)
+                    resolved += GitHubTool(featureSettings = featureSettings).resolved(null, null, BuiltInAgentTool.GITHUB)
                 }
                 nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection) }
             }
@@ -204,7 +199,7 @@ class AgentToolResolver @Inject constructor(
                     if (binding.binding.toolName == BuiltInAgentTool.DEVICE_LOCATION && !allowDeviceLocation) {
                         return@forEach
                     }
-                    resolveBinding(binding)?.let { customResolvedTool ->
+                    resolveBinding(binding, featureSettings)?.let { customResolvedTool ->
                         resolved.removeAll { it.modelToolName == customResolvedTool.modelToolName }
                         resolved += customResolvedTool
                     }
@@ -268,6 +263,24 @@ class AgentToolResolver @Inject constructor(
                     chatToolConfig.isToolEnabled(candidateIds)
                 }
             }
+            .map { resolved ->
+                val id = resolved.connectionUid?.let(ToolPluginId::connection) ?: when (resolved.realToolName) {
+                    "current_date" -> ToolPluginId.CURRENT_DATE
+                    "calculate_expression" -> ToolPluginId.CALCULATOR
+                    "read_file_slice" -> ToolPluginId.READ_FILES
+                    "read_url" -> ToolPluginId.READ_URL
+                    "device_location" -> ToolPluginId.DEVICE_LOCATION
+                    "web_search" -> ToolPluginId.WEB_SEARCH
+                    "github" -> ToolPluginId.GITHUB
+                    else -> ""
+                }
+                val fallback = when {
+                    resolved.isWebSearchEngine() -> ToolPluginId.WEB_SEARCH
+                    resolved.realToolName == "github" -> ToolPluginId.GITHUB
+                    else -> id
+                }
+                (featureSettings.pluginExecution[id] ?: featureSettings.pluginExecution[fallback])?.let { config -> resolved.copy(tool = ConfiguredPluginTool(resolved.tool, config)) } ?: resolved
+            }
             .sortedBy { it.modelToolName }
     }
 
@@ -298,7 +311,7 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    private suspend fun resolveBinding(binding: AgentToolBindingWithConnection): ResolvedAgentTool? = when (binding.binding.toolName) {
+    private suspend fun resolveBinding(binding: AgentToolBindingWithConnection, featureSettings: AppFeatureSettings): ResolvedAgentTool? = when (binding.binding.toolName) {
         WEB_SEARCH_TOOL -> resolveWebSearch(binding.connection)
 
         BuiltInAgentTool.READ_URL -> if (binding.binding.connectionUid == null) {
@@ -320,7 +333,7 @@ class AgentToolResolver @Inject constructor(
         }
 
         BuiltInAgentTool.CALCULATE_EXPRESSION -> if (binding.binding.connectionUid == null) {
-            CalculatorTool().resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+            CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
         } else {
             null
         }
@@ -342,8 +355,10 @@ class AgentToolResolver @Inject constructor(
             }
         }.orEmpty()
 
+        val features = settingRepository.getFeatureSettings()
         val tool = GitHubTool(
             apiToken = token,
+            featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
             repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) }

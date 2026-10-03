@@ -51,12 +51,12 @@ import kotlin.math.sin
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CustomPaletteEditor() {
+fun CustomPaletteEditor(customizeOnly: Boolean = false) {
     val current = LocalCustomPalette.current
     val theme = LocalThemeViewModel.current
     val saved by theme.themeSetting.collectAsStateWithLifecycle()
     var profileName by rememberSaveable { mutableStateOf("") }
-    var customizing by rememberSaveable { mutableStateOf(false) }
+    var customizing by rememberSaveable { mutableStateOf(customizeOnly) }
     val scheme = MaterialTheme.colorScheme
     val labels = listOf("Accent", "Secondary", "Background", "Cards")
     val initial = listOf(current?.primary ?: scheme.primary.toArgb().toLong(), current?.secondary ?: scheme.secondary.toArgb().toLong(), current?.background ?: scheme.background.toArgb().toLong(), current?.surface ?: scheme.surface.toArgb().toLong())
@@ -70,58 +70,59 @@ fun CustomPaletteEditor() {
         var menuOpen by remember { mutableStateOf(false) }
         val selectedProfile = saved.savedProfiles.firstOrNull { it.palette == current }
             ?: dev.chungjungsoo.gptmobile.data.dto.ThemePresets.profiles.firstOrNull { it.palette == current }
-        Text("Choose your theme", style = MaterialTheme.typography.titleMedium)
-        Box {
-            OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(selectedProfile?.name ?: if (current == null) "Default" else "Custom palette", modifier = Modifier.weight(1f))
-                Text("▾")
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(text = { Text("Default") }, onClick = {
-                    theme.updateCustomPalette(null)
-                    menuOpen = false
-                })
-                Text("Presets", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
-                dev.chungjungsoo.gptmobile.data.dto.ThemePresets.profiles.forEach { preset ->
-                    DropdownMenuItem(text = { Text(preset.name) }, leadingIcon = {
-                        Surface(color = Color(preset.palette.primary), shape = MaterialTheme.shapes.small, modifier = Modifier.size(18.dp)) {}
-                    }, onClick = {
-                        theme.applyProfile(preset)
+        if (!customizeOnly) {
+            Text("Choose your theme", style = MaterialTheme.typography.titleMedium)
+            Box {
+                OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(selectedProfile?.name ?: if (current == null) "Default" else "Custom palette", modifier = Modifier.weight(1f))
+                    Text("▾")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Default") }, onClick = {
+                        theme.updateCustomPalette(null)
                         menuOpen = false
                     })
-                }
-                if (saved.savedProfiles.isNotEmpty()) {
-                    Text("Saved themes", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
-                    saved.savedProfiles.forEach { profile ->
-                        DropdownMenuItem(text = { Text(profile.name) }, leadingIcon = {
-                            Surface(color = Color(profile.palette.primary), shape = MaterialTheme.shapes.small, modifier = Modifier.size(18.dp)) {}
+                    Text("Presets", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
+                    dev.chungjungsoo.gptmobile.data.dto.ThemePresets.profiles.forEach { preset ->
+                        DropdownMenuItem(text = { Text(preset.name) }, leadingIcon = {
+                            Surface(color = Color(preset.palette.primary), shape = MaterialTheme.shapes.small, modifier = Modifier.size(18.dp)) {}
                         }, onClick = {
-                            theme.applyProfile(profile)
+                            theme.applyProfile(preset)
                             menuOpen = false
                         })
                     }
-                }
-            }
-        }
-        Surface(shape = MaterialTheme.shapes.large, color = scheme.surfaceContainerHigh) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("A theme that feels like you", style = MaterialTheme.typography.titleMedium)
-                Text("Preview your chat colours, cards and accents.", color = scheme.onSurfaceVariant)
-                Surface(color = scheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
-                    Text("Your next idea starts here", Modifier.padding(12.dp), color = scheme.onPrimaryContainer)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(scheme.primary, scheme.secondary, scheme.background, scheme.surface).forEach { color ->
-                        Surface(color = color, shape = MaterialTheme.shapes.small, modifier = Modifier.size(28.dp)) {}
+                    if (saved.savedProfiles.isNotEmpty()) {
+                        Text("Saved themes", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
+                        saved.savedProfiles.forEach { profile ->
+                            DropdownMenuItem(text = { Text(profile.name) }, leadingIcon = {
+                                Surface(color = Color(profile.palette.primary), shape = MaterialTheme.shapes.small, modifier = Modifier.size(18.dp)) {}
+                            }, onClick = {
+                                theme.applyProfile(profile)
+                                menuOpen = false
+                            })
+                        }
                     }
                 }
             }
+            Surface(shape = MaterialTheme.shapes.large, color = scheme.surfaceContainerHigh) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("A theme that feels like you", style = MaterialTheme.typography.titleMedium)
+                    Text("Preview your chat colours, cards and accents.", color = scheme.onSurfaceVariant)
+                    Surface(color = scheme.primaryContainer, shape = MaterialTheme.shapes.medium) {
+                        Text("Your next idea starts here", Modifier.padding(12.dp), color = scheme.onPrimaryContainer)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(scheme.primary, scheme.secondary, scheme.background, scheme.surface).forEach { color ->
+                            Surface(color = color, shape = MaterialTheme.shapes.small, modifier = Modifier.size(28.dp)) {}
+                        }
+                    }
+                }
+            }
+            selectedProfile?.takeIf { it in saved.savedProfiles }?.let { profile ->
+                TextButton(onClick = { theme.deleteProfile(profile.name) }) { Text("Delete saved theme ${profile.name}") }
+            }
+            TextButton(onClick = { customizing = !customizing }) { Text(if (customizing) "Hide custom colours" else "Create a theme") }
         }
-        selectedProfile?.takeIf { it in saved.savedProfiles }?.let { profile ->
-            TextButton(onClick = { theme.deleteProfile(profile.name) }) { Text("Delete saved theme ${profile.name}") }
-        }
-        Text("Saved themes are included in Backup and restored with your settings.", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
-        TextButton(onClick = { customizing = !customizing }) { Text(if (customizing) "Hide custom colours" else "Create a theme") }
         if (customizing) {
             Text("Your palette", style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

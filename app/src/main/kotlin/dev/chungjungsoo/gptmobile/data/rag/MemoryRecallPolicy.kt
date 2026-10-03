@@ -27,7 +27,7 @@ internal object MemoryRecallPolicy {
     }
     fun isFollowUp(query: String): Boolean = tokens(query).size <= 10 && Regex("(?i)\\b(?:it|that|those|them|continue|earlier|previous|again)\\b").containsMatchIn(query)
 
-    fun rank(query: String, facts: List<VaultFact>, previousContext: String = ""): List<VaultFact> {
+    fun rank(query: String, facts: List<VaultFact>, previousContext: String = "", useRecency: Boolean = true, useFrequency: Boolean = true, now: Long = System.currentTimeMillis(), semanticScores: Map<String, Double> = emptyMap()): List<VaultFact> {
         val queryTerms = tokens(query)
         val broad = Regex("(?i)\\b(?:remember|know|saved|facts|profile)\\b.*\\b(?:me|my|about me)\\b|\\b(?:my memories|my preferences)\\b").containsMatchIn(query)
         val personal = Regex("(?i)\\b(?:I|me|my|mine)\\b").containsMatchIn(query)
@@ -57,7 +57,14 @@ internal object MemoryRecallPolicy {
             }
             val followUp = if (continuity.isNotEmpty()) continuity.intersect(terms).size.coerceAtMost(3) * 0.6 else 0.0
             val broadProfile = if (broad && fact.fact.entity.id == "user") 3.0 else 0.0
-            val score = exact + related + intent + followUp + broadProfile
+            val similarity = semanticScores[fact.id] ?: 0.0
+            val semantic = if (similarity >= 0.55) (similarity - 0.45) * 10.0 else 0.0
+            val relevance = exact + related + intent + followUp + broadProfile + semantic
+            val ageDays = ((now - fact.lastSeenMillis).coerceAtLeast(0) / 86_400_000.0)
+            val recency = if (useRecency) 0.6 / (1.0 + ageDays / 30.0) else 0.0
+            val frequency = if (useFrequency) ln(1.0 + fact.occurrences.coerceAtLeast(1)) * 0.4 else 0.0
+            // Boost only relevant facts; repetition cannot force unrelated context into a prompt.
+            val score = if (relevance > 0.0) relevance + recency + frequency + fact.confidence * 0.2 else 0.0
             fact to score
         }.filter { it.second > 0.0 }
             .sortedWith(compareByDescending<Pair<VaultFact, Double>> { it.second }.thenByDescending { it.first.pinned }.thenByDescending { it.first.savedAtMillis })

@@ -388,7 +388,7 @@ fun OpponentChatBubble(
                 }
 
                 AssistantChronologicalContent(
-                    timeline = contentTimeline,
+                    animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                     toolEvents = toolEvents,
                     fallbackText = text,
                     fallbackThoughts = visibleThoughts,

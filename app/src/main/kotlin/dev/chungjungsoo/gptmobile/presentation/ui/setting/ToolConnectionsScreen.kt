@@ -34,21 +34,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Cable
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -124,6 +125,14 @@ fun ToolConnectionsScreen(
     onEditConnectionClick: (String) -> Unit,
     onNavigationClick: () -> Unit
 ) {
+    val features by viewModel.features.collectAsStateWithLifecycle()
+    var search by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    var memorySettingsOpen by remember { mutableStateOf(false) }
+    if (memorySettingsOpen) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { memorySettingsOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            FactVaultScreen(hiltViewModel(), onBack = { memorySettingsOpen = false })
+        }
+    }
     var remoteMcpTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var pluginSettings by remember { mutableStateOf<IntegratedPluginUi?>(null) }
     var delegationSettingsOpen by remember { mutableStateOf(false) }
@@ -224,8 +233,11 @@ fun ToolConnectionsScreen(
                 )
             }
 
-            val nativeConnections = uiState.connections.filter { it.type != ToolConnectionType.MCP }
-            val mcpConnections = uiState.connections.filter { it.type == ToolConnectionType.MCP }
+            SettingsHero(if (remoteMcpTab) "Connected services" else "Your toolkit", if (remoteMcpTab) "Remote MCP" else "Plugins", "${uiState.connections.size} connections · ${INTEGRATED_PLUGINS.size} built-in plugins", Modifier.padding(16.dp))
+            OutlinedTextField(search, { search = it }, label = { Text(if (remoteMcpTab) "Find a connection" else "Find a plugin") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            val matchingConnections = uiState.connections.filter { search.isBlank() || "$it".contains(search, true) }
+            val nativeConnections = matchingConnections.filter { it.type != ToolConnectionType.MCP }
+            val mcpConnections = matchingConnections.filter { it.type == ToolConnectionType.MCP }
 
             if (!remoteMcpTab) {
                 ToolInventorySummaryCard(
@@ -248,7 +260,7 @@ fun ToolConnectionsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
                 )
-                INTEGRATED_PLUGINS.forEach { plugin ->
+                INTEGRATED_PLUGINS.filter { search.isBlank() || "${it.name} ${it.description}".contains(search, true) }.forEach { plugin ->
                     val enabled = uiState.pluginStates[plugin.id] ?: true
                     IntegratedPluginCard(
                         plugin = plugin,
@@ -257,11 +269,7 @@ fun ToolConnectionsScreen(
                         onSettings = {
                             when (plugin.id) {
                                 ToolPluginId.MODEL_DELEGATION -> delegationSettingsOpen = true
-                                ToolPluginId.GITHUB -> {
-                                    nativeConnections.firstOrNull { it.type == ToolConnectionType.GITHUB }
-                                        ?.let { onEditConnectionClick(it.connectionUid) }
-                                        ?: onAddConnectionClick()
-                                }
+                                ToolPluginId.LOCAL_MEMORY -> memorySettingsOpen = true
                                 else -> pluginSettings = plugin
                             }
                         }
@@ -280,6 +288,7 @@ fun ToolConnectionsScreen(
                         CollapsibleToolConnectionCard(
                             connection = connection,
                             onEditClick = { onEditConnectionClick(connection.connectionUid) },
+                            onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Default.Tune) },
                             onPermissionsClick = { permissionsConnection = connection },
                             onBrowseClick = { browsingConnection = connection },
                             onOAuthClick = {
@@ -353,6 +362,7 @@ fun ToolConnectionsScreen(
                 mcpConnections.forEach { connection ->
                     CollapsibleToolConnectionCard(
                         connection = connection,
+                        onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Default.Tune) },
                         onEditClick = { onEditConnectionClick(connection.connectionUid) },
                         onPermissionsClick = { permissionsConnection = connection },
                         onBrowseClick = { browsingConnection = connection },
@@ -385,32 +395,16 @@ fun ToolConnectionsScreen(
     }
 
     pluginSettings?.let { plugin ->
-        AlertDialog(
-            onDismissRequest = { pluginSettings = null },
-            title = { Text(plugin.name) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(plugin.description)
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Enabled", modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = uiState.pluginStates[plugin.id] ?: true,
-                            onCheckedChange = { viewModel.setPluginEnabled(plugin.id, it) }
-                        )
-                    }
-                    Text(
-                        "This plugin is integrated into the app and does not require an MCP server. Disabling it removes its tools from model sessions.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        PluginConfigurationDialog(
+            plugin.id,
+            plugin.name,
+            features,
+            viewModel::updateFeature,
+            onSave = { viewModel.configurePlugin(plugin.id, it) },
+            onConnection = {
+                uiState.connections.firstOrNull { it.type == ToolConnectionType.GITHUB }?.let { onEditConnectionClick(it.connectionUid) } ?: onAddConnectionClick()
             },
-            confirmButton = {
-                TextButton(onClick = { pluginSettings = null }) { Text("Done") }
-            }
+            onDismiss = { pluginSettings = null }
         )
     }
 
@@ -482,7 +476,7 @@ private fun IntegratedPluginCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 5.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -606,6 +600,7 @@ private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
 private fun CollapsibleToolConnectionCard(
     connection: ToolConnection,
     onEditClick: () -> Unit,
+    onRuntimeSettings: () -> Unit = {},
     onPermissionsClick: () -> Unit,
     onBrowseClick: () -> Unit,
     onOAuthClick: () -> Unit,
@@ -711,6 +706,7 @@ private fun CollapsibleToolConnectionCard(
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                     if (connection.type == ToolConnectionType.MCP) TextButton(onClick = onBrowseClick) { Text("Resources and prompts") }
+                    TextButton(onClick = onRuntimeSettings) { Text("Execution settings") }
                     if (connection.type == ToolConnectionType.GITHUB) TextButton(onClick = onBrowseClick) { Text("Open GitHub workspace") }
                     if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB)) TextButton(onClick = onPermissionsClick) { Text(stringResource(R.string.tool_policy)) }
                     connection.endpointUrl?.let { url ->

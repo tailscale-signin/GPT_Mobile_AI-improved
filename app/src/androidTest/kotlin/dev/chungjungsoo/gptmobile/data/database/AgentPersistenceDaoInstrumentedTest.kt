@@ -32,7 +32,7 @@ class AgentPersistenceDaoInstrumentedTest {
         database = Room.inMemoryDatabaseBuilder(
             InstrumentationRegistry.getInstrumentation().targetContext,
             ChatDatabaseV2::class.java
-        ).addCallback(ChatDatabaseV2Migrations.AGENT_TOOL_BINDING_CALLBACK).build()
+        ).build()
     }
 
     @After

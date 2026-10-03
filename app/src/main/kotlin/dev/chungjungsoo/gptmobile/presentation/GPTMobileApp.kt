@@ -55,6 +55,9 @@ class GPTMobileApp :
     @Inject
     lateinit var durablePromptQueue: dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
 
+    @Inject
+    lateinit var semanticMemory: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
+
     @Volatile
     var secretMigrationErrors: List<SecretMigrationError> = emptyList()
         private set
@@ -126,6 +129,7 @@ class GPTMobileApp :
         applicationScope.launch {
             while (isActive) {
                 delay(60_000L)
+                semanticMemory.releaseWhenIdle()
                 val idleMinutes = startupDependencies().settingRepository().getFeatureSettings().localIdleMinutes.coerceIn(0, 60)
                 if (idleMinutes > 0) startupDependencies().localRuntime().unloadIfIdle(idleMinutes * 60_000L)
             }
@@ -136,6 +140,8 @@ class GPTMobileApp :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        applicationScope.launch { semanticMemory.releaseWhenIdle(0) }
+        dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
         val hasActiveRuns = runCatching {
             startupDependencies().agentRunCoordinator().activeRuns.value.isNotEmpty()
         }.getOrDefault(false)

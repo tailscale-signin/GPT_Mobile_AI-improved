@@ -24,7 +24,10 @@ data class PendingPrompt(
     val paused: Boolean = false,
     val userMessageId: Int? = null
 ) {
-    fun details(): PendingPromptPayload = Json { ignoreUnknownKeys = true }.decodeFromString(payload)
+    fun details(): PendingPromptPayload = payloadJson.decodeFromString(payload)
+    companion object {
+        private val payloadJson = Json { ignoreUnknownKeys = true }
+    }
 }
 
 @Serializable

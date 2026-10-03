@@ -220,11 +220,11 @@ class MultiEngineSearchToolTest {
         assertFalse(result.isError)
     }
 
-    @Test fun `private search and unsupported schemas are never broadcast targets`() {
+    @Test fun `explicit web search descriptions are eligible even with a nonstandard name`() {
         val web = engine("web") { _, _ -> error("not executed") }
         assertTrue(web.isWebSearchEngine())
-        assertFalse(web.copy(realToolName = "slack_search").isWebSearchEngine())
-        assertFalse(web.copy(realToolName = "github_search_code").isWebSearchEngine())
+        assertTrue(web.copy(realToolName = "slack_search").isWebSearchEngine())
+        assertTrue(web.copy(realToolName = "github_search_code").isWebSearchEngine())
         assertTrue(web.copy(realToolName = "brave_web_search").isWebSearchEngine())
         assertEquals(listOf("web_search"), aggregateWebSearch(listOf(web)).map { it.modelToolName })
     }

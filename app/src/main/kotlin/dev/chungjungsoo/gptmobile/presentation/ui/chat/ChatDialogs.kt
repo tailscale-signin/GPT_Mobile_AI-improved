@@ -74,6 +74,7 @@ fun ChatModelDialog(
     platformApiUrls: Map<String, String> = emptyMap(),
     downloadedLocalModels: List<DownloadedLocalModelOption> = emptyList(),
     ollamaModels: List<UnifiedModelOption.Ollama> = emptyList(),
+    initialSelectedProfile: String = "",
     initialCreativity: Float = 0.5f,
     locationToolsEnabled: Boolean = false,
     webSearchToolsEnabled: Boolean = false,
@@ -91,6 +92,8 @@ fun ChatModelDialog(
     delegationSettings: ModelDelegationSettings = ModelDelegationSettings(),
     delegationProfiles: List<PlatformV2> = emptyList(),
     usesDefaultDelegation: Boolean = true,
+    initialReasoning: Boolean = false,
+    onReasoningChanged: (Boolean) -> Unit = {},
     onDelegationChanged: (ConversationDelegationSettings?) -> Unit = {},
     onDismissRequest: () -> Unit,
     onConfirmRequest: (Map<String, String>, Float) -> Unit
@@ -105,9 +108,8 @@ fun ChatModelDialog(
     var activeUnifiedPickerPlatformUid by remember { mutableStateOf<String?>(null) }
     var activeCloudPickerUid by remember { mutableStateOf<String?>(null) }
     var activeLlamaPickerPlatformUid by remember { mutableStateOf<String?>(null) }
-    var section by rememberSaveable { mutableStateOf("Options") }
-    var modelSearch by rememberSaveable { mutableStateOf("") }
-    var selectedProfile by rememberSaveable(platformOrder) { mutableStateOf(platformOrder.firstOrNull().orEmpty()) }
+    var section by rememberSaveable { mutableStateOf("Models") }
+    var selectedProfile by rememberSaveable(platformOrder) { mutableStateOf(initialSelectedProfile.takeIf { it in platformOrder } ?: platformOrder.firstOrNull { it in activePlatformUids && it !in disabledPlatformUids } ?: platformOrder.firstOrNull().orEmpty()) }
     var profileMenuOpen by remember { mutableStateOf(false) }
     var creativity by rememberSaveable(initialCreativity) { mutableStateOf(initialCreativity.coerceIn(0f, 2f)) }
 
@@ -119,7 +121,7 @@ fun ChatModelDialog(
         title = { Text("Conversation settings") },
         text = {
             Column {
-                val sections = listOf("Options", "Models")
+                val sections = listOf("Models", "Options")
                 TabRow(selectedTabIndex = sections.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.surface) {
                     sections.forEach { label ->
                         Tab(selected = section == label, onClick = { section = label }, text = { Text(label) })
@@ -134,16 +136,7 @@ fun ChatModelDialog(
                             onChange = onDelegationChanged
                         )
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        OutlinedTextField(
-                            value = modelSearch,
-                            onValueChange = { modelSearch = it },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                            label = { Text("Filter profiles") },
-                            singleLine = true
-                        )
-                        val filteredProfiles = platformOrder.filter { uid ->
-                            modelSearch.isBlank() || platformNames[uid].orEmpty().contains(modelSearch, true) || models[uid].orEmpty().contains(modelSearch, true)
-                        }
+                        val filteredProfiles = platformOrder
                         val displayedProfile = selectedProfile.takeIf { it in filteredProfiles } ?: filteredProfiles.firstOrNull()
                         Box(Modifier.fillMaxWidth()) {
                             TextButton(onClick = { profileMenuOpen = true }, enabled = filteredProfiles.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
@@ -223,9 +216,6 @@ fun ChatModelDialog(
                                                 contentDescription = stringResource(R.string.unified_model_picker)
                                             )
                                         }
-                                    },
-                                    supportingText = {
-                                        Text(stringResource(R.string.model_supporting))
                                     }
                                 )
                             } else if (clientType == ClientType.LLAMA) {
@@ -247,9 +237,6 @@ fun ChatModelDialog(
                                                 contentDescription = stringResource(R.string.llama_select_router_model)
                                             )
                                         }
-                                    },
-                                    supportingText = {
-                                        Text(stringResource(R.string.model_supporting))
                                     }
                                 )
                             } else {
@@ -267,15 +254,16 @@ fun ChatModelDialog(
                                         IconButton(onClick = { activeCloudPickerUid = platformUid }) {
                                             Icon(Icons.Default.ArrowDropDown, contentDescription = "Browse provider models")
                                         }
-                                    },
-                                    supportingText = {
-                                        Text(stringResource(R.string.model_supporting))
                                     }
                                 )
                             }
                         }
                     }
                     if (section == "Options") {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Reasoning", Modifier.weight(1f))
+                            Switch(initialReasoning, onReasoningChanged)
+                        }
                         Text("Applies immediately to this conversation", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Location tools", modifier = Modifier.weight(1f))

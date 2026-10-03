@@ -62,7 +62,8 @@ data class GitHubWorkspaceState(
 class GitHubWorkspaceViewModel @Inject constructor(
     private val connections: ToolConnectionRepository,
     private val vault: SecretVault,
-    private val store: GitHubWorkspaceStore
+    private val store: GitHubWorkspaceStore,
+    private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(GitHubWorkspaceState())
     val state = _state.asStateFlow()
@@ -81,8 +82,9 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 bytes?.fill(0)
             }
             require(token.isNotBlank()) { "Edit this GitHub connection and add a token first." }
-            client = GitHubWorkspaceClient(token)
-            tool = GitHubTool(token)
+            val features = settings.getFeatureSettings()
+            client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15)
+            tool = GitHubTool(token, featureSettings = features)
             val account = api("get_account").jsonObject
             _state.update { it.copy(connection = current, login = account.text("login")) }
             loadRepositories(1)

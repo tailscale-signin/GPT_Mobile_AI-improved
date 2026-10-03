@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.BatteryManager
 import com.example.gptmobileai.debug.ToolMetricsCollector
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
@@ -35,6 +36,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.isResearchPageReader
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.agent.tool.preferNativeGitHubForTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
+import dev.chungjungsoo.gptmobile.data.agent.tool.selectionId
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
@@ -65,6 +67,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
@@ -189,7 +192,8 @@ class ChatRepositoryImpl(
     private val knowledge: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
-    private val delegationRecovery: DelegationRecoveryInteractions? = null
+    private val delegationRecovery: DelegationRecoveryInteractions? = null,
+    private val pendingPromptDao: dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao? = null
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
@@ -1057,7 +1061,9 @@ class ChatRepositoryImpl(
                 runOverride = effectiveMaxTools,
                 maxRoundsOverride = effectiveMaxTools
             )
-            val budgetSettings = settingRepository.getFeatureSettings().tokenBudget.normalized()
+            val runFeatures = settingRepository.getFeatureSettings()
+            val behavior = runFeatures.profileBehavior[platform.uid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+            val budgetSettings = runFeatures.tokenBudget.normalized()
             val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
             val limits = if (platform.compatibleType == ClientType.FREE && FreeAiProvider.requireFor(platform) == FreeAiProvider.POLLINATIONS) {
                 // The legacy GET endpoint accepts a small prompt in its URL.
@@ -1067,7 +1073,7 @@ class ChatRepositoryImpl(
             }
             val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
-                val defaults = settingRepository.getFeatureSettings().delegation
+                val defaults = settingRepository.getFeatureSettings().delegationFor(platform.uid)
                 return chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
             }
             val localDelegation = LocalDelegationCoordinator(
@@ -1254,7 +1260,8 @@ class ChatRepositoryImpl(
                 )
             )
             val boundedTools = taskRoutedTools.filter { resolved ->
-                resolved in connectedMemoryTools ||
+                (behavior.crawlersEnabled && resolved.selectionId() in behavior.crawlerToolIds) ||
+                    resolved in connectedMemoryTools ||
                     (localResearch && (processingOwnership < 35 || resolved.isWebSearchEngine() || resolved.isResearchPageReader())) ||
                     contextPlan.tools.any { it.name == resolved.modelToolName || (it.name == "web_search" && resolved.isWebSearchEngine()) }
             }.map { resolved ->
@@ -1268,7 +1275,59 @@ class ChatRepositoryImpl(
                     }
                 )
             }
-            val aggregatedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(boundedTools)
+            val crawlSettings = effectiveDelegationSettings()
+            val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
+            val crawlStage = if (behavior.crawlersEnabled) {
+                dev.chungjungsoo.gptmobile.data.agent.tool.SearchCrawlStage(
+                    selectedCrawlers,
+                    behavior.maxCrawlPages,
+                    crawlSettings.enabled && crawlSettings.reviewerEnabled
+                ) { tools, task ->
+                    val profiles = settingRepository.fetchPlatformV2s()
+                    val delegateModel = profiles.firstOrNull { it.uid == crawlSettings.targetProfileUid }?.model
+                    val reviewer = profiles.firstOrNull {
+                        it.uid == crawlSettings.reviewerProfileUid &&
+                            it.enabled &&
+                            it.uid != platform.uid &&
+                            it.uid != crawlSettings.targetProfileUid &&
+                            !it.disableAllTools &&
+                            !it.excludesMemory() &&
+                            !it.model.trim().equals(delegateModel?.trim(), true) &&
+                            !(platform.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM) &&
+                            (it.isPrivateDestination() || crawlSettings.remoteWorkersAllowed())
+                    }
+                    if (reviewer == null) {
+                        null
+                    } else {
+                        delegateToProfile(
+                            reviewer, task, crawlSettings.reviewerOutputTokens, runId, turnKey,
+                            maxInputTokens = crawlSettings.effectiveLocalInputTokens(),
+                            chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(),
+                            traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = tools
+                        )
+                    }
+                }
+            } else {
+                null
+            }
+            val searchStageTools = if (crawlStage != null) {
+                boundedTools.filterNot {
+                    it in selectedCrawlers ||
+                        (
+                            crawlSettings.enabled &&
+                                crawlSettings.reviewerEnabled &&
+                                dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.realToolName, it.tool.definition.description)
+                            )
+                }
+            } else {
+                boundedTools
+            }
+            val aggregatedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(
+                searchStageTools,
+                runFeatures.parallelSearch,
+                runFeatures.deduplicateSearch,
+                afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } }
+            )
             delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }
             // The model calls the aggregate name, while local workers can call individual
             // engines. Preserve both snapshots, preferring aggregate metadata on a name collision.
@@ -1381,23 +1440,55 @@ class ChatRepositoryImpl(
                     "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=${effectiveOutputCap ?: -1} · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
                 )
             }
-            val session = when (platform.compatibleType) {
-                ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+            suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>): AgentProviderSession = when (platform.compatibleType) {
+                ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, requestConstraints)
 
                 ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                    openAICompatibleAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+                    openAICompatibleAdapter.openSession(turns, requestPlatform, requestConstraints)
 
-                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, requestPlatform, requestConstraints)
 
-                ClientType.GOOGLE -> geminiAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+                ClientType.GOOGLE -> geminiAdapter.openSession(turns, requestPlatform, requestConstraints)
 
                 ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                    contextPlan.turns,
+                    turns,
                     requestPlatform,
                     effectiveTools.map { it.tool },
                     requestConstraints,
                     fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
                 )
+            }
+            val session = object : AgentProviderSession {
+                private var active: AgentProviderSession? = null
+                private var currentTurns = contextPlan.turns
+                private var acceptedCharacters = 0
+                private var acceptedTokens = 0
+                override val handlesToolsInternally: Boolean get() = platform.compatibleType == ClientType.LITERT_LM
+                override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> = flow {
+                    val features = settingRepository.getFeatureSettings()
+                    val canFollowUp = features.queuedFollowUps &&
+                        pendingPromptDao != null &&
+                        effectiveDelegationSettings().enabled &&
+                        platform.compatibleType !in setOf(ClientType.LITERT_LM, ClientType.FREE) &&
+                        latestUser != null
+                    if (canFollowUp && latestUser != null && platform.uid !in context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE).getStringSet("paused_${latestUser.chatId}", emptySet()).orEmpty()) {
+                        val allowance = if (limits.contextTokens == Int.MAX_VALUE) {
+                            8000 - acceptedCharacters
+                        } else {
+                            minOf(8000 - acceptedCharacters, (limits.contextTokens.toLong() - contextPlan.promptTokens - acceptedTokens - dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(exchanges.joinToString()) - (effectiveOutputCap ?: 2048) - 2048).coerceIn(0, 8000).toInt() / 2)
+                        }
+                        val suffix = pendingPromptDao?.consumeFollowUp(latestUser.chatId, latestUser.id, runId, platform.uid, platform.model, (allowance - 32).coerceAtLeast(0), chatToolConfig ?: ChatMcpToolConfig())
+                        if (suffix != null) {
+                            currentTurns = currentTurns.map { turn -> if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = turn.userMessage.content + suffix)) else turn }
+                            acceptedCharacters += suffix.length
+                            acceptedTokens += dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(suffix)
+                            active = null
+                            emit(ProviderEvent.Notice("Queued message added as a follow-up to this response.", persistent = false))
+                        }
+                    }
+                    val current = active ?: openPrimarySession(currentTurns).also { active = it }
+                    current.streamRound(tools, exchanges).collect { emit(it) }
+                }
             }
             val accountedSession = invocationLedger?.wrap(
                 session, runId, turnKey, platform.compatibleType.name, platform.model,

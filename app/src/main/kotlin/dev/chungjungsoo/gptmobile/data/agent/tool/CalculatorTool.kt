@@ -30,7 +30,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-class CalculatorTool : AgentTool {
+class CalculatorTool(private val decimalPlaces: Int = 8) : AgentTool {
     override val definition = AgentToolDefinition(
         name = BuiltInAgentTool.CALCULATE_EXPRESSION,
         description = "Evaluates a mathematical expression safely and accurately. Supports arithmetic (+, -, *, /, %, ^), standard functions (sqrt, cbrt, sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, log, ln, log2, abs, round, floor, ceil, min, max, pow), and constants (pi, e).",
@@ -77,7 +77,7 @@ class CalculatorTool : AgentTool {
             val formatted = if (result % 1.0 == 0.0 && !result.isInfinite() && result >= Long.MIN_VALUE && result <= Long.MAX_VALUE) {
                 result.toLong().toString()
             } else {
-                result.toString()
+                if (result.isFinite()) java.math.BigDecimal.valueOf(result).setScale(decimalPlaces.coerceIn(0, 15), java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() else result.toString()
             }
             AgentToolResult(
                 callId = callId,

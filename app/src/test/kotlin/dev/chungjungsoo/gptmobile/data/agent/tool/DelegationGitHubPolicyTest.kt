@@ -12,9 +12,19 @@ import org.junit.Test
 
 class DelegationGitHubPolicyTest {
     @Test
-    fun `local first keeps native and MCP GitHub available for primary recovery`() {
-        val tools = listOf(tool("delegate_to_model"), tool("github__work", "github"), tool("mcp__github__create_pull_request"), tool("calculate_expression"))
-        assertEquals(tools.take(3), primaryDelegationTools(tools, true, 0))
+    fun `local first keeps aggregate web search and GitHub available for primary recovery`() {
+        val delegate = tool("delegate_to_model")
+        val aggregateWeb = tool("web_search")
+        val directEngine = tool("mcp__brave__web_search", "brave_web_search")
+        val githubNative = tool("github__work", "github")
+        val githubMcp = tool("mcp__github__create_pull_request")
+        val calculator = tool("calculate_expression")
+        val tools = listOf(delegate, aggregateWeb, directEngine, githubNative, githubMcp, calculator)
+
+        assertEquals(
+            listOf(delegate, aggregateWeb, githubNative, githubMcp),
+            primaryDelegationTools(tools, true, 0)
+        )
         assertEquals(tools, primaryDelegationTools(tools, false, 0))
         assertEquals(tools, primaryDelegationTools(tools, true, 100))
     }

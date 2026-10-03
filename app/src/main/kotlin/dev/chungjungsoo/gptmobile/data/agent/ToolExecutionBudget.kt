@@ -38,9 +38,11 @@ class ToolExecutionBudget(
                     "Tool-call limit blocked execution · tool=${tool.definition.name} · call=$callId · used=${calls.get()} · executableLimit=$executionLimit · configured=${limits.maxToolCalls} · reserved=${limits.finalResponseToolCallReserve}",
                     "W"
                 )
-                return failure(message).copy(
-                    traceContent = ToolResultContent.Text(message),
-                    toolCallBudgetExhausted = true
+                return withBudgetState(
+                    failure(message).copy(
+                        traceContent = ToolResultContent.Text(message),
+                        toolCallBudgetExhausted = true
+                    )
                 )
             }
             if (remainingBytes.get() <= 0) {
@@ -50,9 +52,11 @@ class ToolExecutionBudget(
                     "Tool-result byte budget blocked execution · tool=${tool.definition.name} · call=$callId · configuredBytes=${limits.maxToolOutputBytes}",
                     "W"
                 )
-                return failure(message).copy(
-                    traceContent = ToolResultContent.Text(message),
-                    outputBudgetExhausted = true
+                return withBudgetState(
+                    failure(message).copy(
+                        traceContent = ToolResultContent.Text(message),
+                        outputBudgetExhausted = true
+                    )
                 )
             }
             if (!authorize(callId, arguments)) return bounded(failure("Tool permission was denied or this action was already dispatched."))
@@ -146,12 +150,14 @@ class ToolExecutionBudget(
         // and a zero payload allowance must still let the model finish the turn.
         if (available == 0) {
             val message = outputBudgetMessage()
-            return result.copy(
-                content = ToolResultContent.Text(message),
-                traceContent = ToolResultContent.Text(message),
-                isError = true,
-                outputBudgetExhausted = true,
-                toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
+            return withBudgetState(
+                result.copy(
+                    content = ToolResultContent.Text(message),
+                    traceContent = ToolResultContent.Text(message),
+                    isError = true,
+                    outputBudgetExhausted = true,
+                    toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
+                )
             )
         }
         val checkpointBytes = checkpoint.toByteArray(Charsets.UTF_8).size
@@ -184,11 +190,30 @@ class ToolExecutionBudget(
         } else {
             result.traceContent
         }
+        return withBudgetState(
+            result.copy(
+                content = if (changed) ToolResultContent.Text(safeText) else result.content,
+                traceContent = trace,
+                outputBudgetExhausted = result.outputBudgetExhausted || size >= sharedAvailable,
+                toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
+            )
+        )
+    }
+
+    private fun withBudgetState(result: AgentToolResult): AgentToolResult {
+        val configuredCalls = limits.maxToolCalls.takeUnless { it == Int.MAX_VALUE }
+        val callLimit = executionLimit.takeUnless { it == Int.MAX_VALUE }
+        val resultByteLimit = limits.maxToolOutputBytes.takeUnless { it == Int.MAX_VALUE }
+        val resultBytesUsed = resultByteLimit?.let { limit ->
+            (limit.toLong() - remainingBytes.get().toLong()).coerceIn(0L, limit.toLong()).toInt()
+        }
         return result.copy(
-            content = if (changed) ToolResultContent.Text(safeText) else result.content,
-            traceContent = trace,
-            outputBudgetExhausted = result.outputBudgetExhausted || size >= sharedAvailable,
-            toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
+            toolCallBudgetUsed = calls.get(),
+            toolCallBudgetLimit = callLimit,
+            toolCallBudgetConfigured = configuredCalls,
+            toolCallBudgetReserved = configuredCalls?.let { limits.finalResponseToolCallReserve.coerceAtLeast(0) },
+            toolResultBudgetUsedBytes = resultBytesUsed,
+            toolResultBudgetLimitBytes = resultByteLimit
         )
     }
 

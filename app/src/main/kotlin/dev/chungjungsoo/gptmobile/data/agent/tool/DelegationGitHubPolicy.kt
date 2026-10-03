@@ -44,6 +44,7 @@ internal fun primaryDelegationTools(
         !localResearch || tool.isGitHubTool() -> true
         tool.realToolName == "delegate_to_model" -> true
         tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true
+        tool.realToolName == "read_url" -> true
         processingOwnership < 35 -> false
         else -> !tool.isWebSearchEngine() && !tool.isResearchPageReader()
     }

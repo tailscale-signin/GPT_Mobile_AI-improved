@@ -991,6 +991,10 @@ internal fun ChatDebugDiagnosticsCard(
                 Text(if (running) "Live diagnostics" else "Response diagnostics", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
                 TextButton(onClick = { clipboard.setText(AnnotatedString(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(report))) }) { Text("Copy") }
             }
+            val requests = invocations.distinctBy { it.id }
+            if (settings.debugShowTokenComparison && requests.isNotEmpty()) {
+                TokenComparisonPanel(requests)
+            }
             if (invocations.isEmpty()) {
                 agentRun?.let { run ->
                     dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine("Run Status", run.status.lowercase())
@@ -1021,6 +1025,34 @@ internal fun ChatDebugDiagnosticsCard(
             if (settings.debugShowRuntime) notices.filterNot(::isContextDiagnostic).distinct().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (settings.debugShowHardware) hardware?.let { dev.chungjungsoo.gptmobile.presentation.ui.setting.HardwareDiagnostic(it, showNetwork = settings.debugShowNetwork) }
             agentRun?.terminalError?.let { Text(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+@Composable
+private fun TokenComparisonPanel(
+    requests: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>
+) {
+    val totalInput = requests.sumOf { it.inputTokens.toLong() }
+    val totalOutput = requests.sumOf { it.outputTokens.toLong() }
+    val totalTokens = totalInput + totalOutput
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("Token Comparison", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
+            "All Requests",
+            "${requests.size} · $totalInput input / $totalOutput output / $totalTokens total"
+        )
+        requests.sortedBy { it.startedAt }.forEach { request ->
+            val requestTotal = request.inputTokens.toLong() + request.outputTokens.toLong()
+            val share = if (totalTokens > 0L) requestTotal * 100.0 / totalTokens else 0.0
+            val source = request.kind
+                .replace('_', ' ')
+                .replaceFirstChar { it.uppercase() }
+            val estimate = if (request.estimated) " · estimated" else ""
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
+                "$source · ${request.model}",
+                "${request.inputTokens} in / ${request.outputTokens} out / $requestTotal total · ${"%.1f".format(share)}%$estimate"
+            )
         }
     }
 }

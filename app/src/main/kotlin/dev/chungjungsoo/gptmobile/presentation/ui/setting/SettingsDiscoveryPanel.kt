@@ -40,7 +40,7 @@ internal fun SettingsDiscoveryPanel(
     var inspect by remember { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(query, { query = it }, label = { Text("Search all settings") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(query, { query = it }, label = { Text("Search All Settings") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (query.isNotBlank()) {
             val features = AppFeature.entries.filter { "${it.title} ${it.description}".contains(query, true) }
             val sections = if (query.isBlank()) emptyMap() else destinations.filterKeys { it.contains(query, true) }

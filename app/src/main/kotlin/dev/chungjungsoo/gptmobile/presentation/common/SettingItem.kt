@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.presentation.common
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.CircleShape
@@ -117,13 +119,13 @@ fun SettingsHelpIcon(
     var open by remember { mutableStateOf(false) }
     Surface(
         onClick = { open = true },
-        modifier = modifier,
+        modifier = modifier.size(22.dp),
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             Text("?", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)

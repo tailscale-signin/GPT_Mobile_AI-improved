@@ -131,6 +131,8 @@ class ToolProgressAndBudgetTest {
 
         assertFalse(result.isError)
         assertTrue(result.outputBudgetExhausted)
+        assertEquals(16, result.toolResultBudgetUsedBytes)
+        assertEquals(16, result.toolResultBudgetLimitBytes)
         assertTrue((result.content as ToolResultContent.Text).text.contains("grounded research summary"))
     }
 
@@ -152,11 +154,17 @@ class ToolProgressAndBudgetTest {
         assertFalse(lastAllowed.isError)
         assertTrue(lastAllowed.toolCallBudgetExhausted)
         assertFalse(lastAllowed.outputBudgetExhausted)
+        assertEquals(2, lastAllowed.toolCallBudgetUsed)
+        assertEquals(2, lastAllowed.toolCallBudgetLimit)
+        assertEquals(3, lastAllowed.toolCallBudgetConfigured)
+        assertEquals(1, lastAllowed.toolCallBudgetReserved)
 
         val blocked = tool.execute("3", buildJsonObject {})
         assertTrue(blocked.isError)
         assertTrue(blocked.toolCallBudgetExhausted)
         assertFalse(blocked.outputBudgetExhausted)
+        assertEquals(2, blocked.toolCallBudgetUsed)
+        assertEquals(2, blocked.toolCallBudgetLimit)
         assertTrue((blocked.content as ToolResultContent.Text).text.contains("2/2 executable calls used"))
         assertEquals(2, executions)
     }

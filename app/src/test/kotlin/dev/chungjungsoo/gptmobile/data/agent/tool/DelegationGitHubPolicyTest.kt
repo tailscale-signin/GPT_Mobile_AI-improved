@@ -16,12 +16,13 @@ class DelegationGitHubPolicyTest {
         val delegate = tool("delegate_to_model")
         val aggregateWeb = tool("web_search")
         val readUrl = tool("read_url")
+        val remoteReadUrl = tool("mcp__reader__read_url", "read_url", connectionUid = "remote-reader")
         val directEngine = tool("mcp__brave__web_search", "brave_web_search")
         val extraReader = tool("mcp__firecrawl__scrape", "firecrawl_scrape")
         val githubNative = tool("github__work", "github")
         val githubMcp = tool("mcp__github__create_pull_request")
         val calculator = tool("calculate_expression")
-        val tools = listOf(delegate, aggregateWeb, readUrl, directEngine, extraReader, githubNative, githubMcp, calculator)
+        val tools = listOf(delegate, aggregateWeb, readUrl, remoteReadUrl, directEngine, extraReader, githubNative, githubMcp, calculator)
 
         assertEquals(
             listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp),
@@ -69,12 +70,13 @@ class DelegationGitHubPolicyTest {
     private fun tool(
         name: String,
         realName: String = name,
-        connectionName: String? = null
+        connectionName: String? = null,
+        connectionUid: String? = null
     ): ResolvedAgentTool {
         val agent = object : AgentTool {
             override val definition = AgentToolDefinition(name, "Test tool", JsonObject(emptyMap()))
             override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("ok"), false)
         }
-        return ResolvedAgentTool(agent, null, connectionName, realName, name)
+        return ResolvedAgentTool(agent, connectionUid, connectionName, realName, name)
     }
 }

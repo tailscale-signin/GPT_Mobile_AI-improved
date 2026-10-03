@@ -5,7 +5,9 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DelegatedChildResultTest {
@@ -71,16 +73,28 @@ class DelegatedChildResultTest {
     }
 
     @Test
-    fun `provider failure wins over partial content`() {
+    fun `usable content survives a trailing provider failure`() {
         val result = resolveDelegatedChildResult(
-            rawText = "partial content",
+            rawText = "completed content",
             toolFallbacks = emptyList(),
             extractionFailed = false,
-            providerFailure = "provider failed"
+            providerFailure = "stream reset after payload"
         )
 
-        assertEquals(DelegatedChildStatus.FAILED, result.status)
-        assertEquals("partial content", result.text)
+        assertEquals(DelegatedChildStatus.COMPLETED, result.status)
+        assertEquals("completed content", result.text)
+    }
+
+    @Test
+    fun `exact cap with unfinished text is treated as likely truncation`() {
+        assertTrue(isLikelyDelegatedTruncation("The answer continues with", true))
+        assertTrue(isLikelyDelegatedTruncation("Code:\n" + "\u0060\u0060\u0060" + "kotlin\nval x = 1", true))
+    }
+
+    @Test
+    fun `natural ending or unused cap is not treated as truncation`() {
+        assertFalse(isLikelyDelegatedTruncation("The answer is complete.", true))
+        assertFalse(isLikelyDelegatedTruncation("The answer continues with", false))
     }
 
     @Test

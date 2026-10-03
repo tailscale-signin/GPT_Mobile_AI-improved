@@ -22,6 +22,32 @@ import org.junit.Test
 
 class AgentRunnerTest {
     @Test
+    fun `GitHub resource and permission failures do not disable later valid operations`() = runBlocking {
+        var executions = 0
+        val github = tool("github__github_api") { id, _ ->
+            executions++
+            AgentToolResult(
+                id,
+                ToolResultContent.Text(
+                    if (executions <= 3) "GITHUB_NOT_FOUND_OR_HIDDEN: invalid path" else "Found valid resource"
+                ),
+                executions <= 3
+            )
+        }
+        AgentRunner(AgentRunLimits(maxRounds = 8)).run(
+            session { tools, exchanges ->
+                flow {
+                    assertTrue(tools.any { it.name == "github__github_api" })
+                    if (exchanges.size < 4) emit(toolCall("github-${exchanges.size}", "github__github_api"))
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(github)
+        ).toList()
+        assertEquals(4, executions)
+    }
+
+    @Test
     fun `primary executes GitHub after delegate reports missing capabilities`() = runBlocking {
         var writes = 0
         val delegate = tool("delegate_to_model") { id, _ ->
@@ -173,7 +199,7 @@ class AgentRunnerTest {
             when (providerCalls.getAndIncrement()) {
                 0 -> flow {
                     repeat(6) { index ->
-                        emit(toolCall("call_$index", "lookup", buildJsonObject { put("index", index) }))
+                        emit(toolCall("call_$index", "lookup_$index", buildJsonObject { put("index", index) }))
                     }
                     emit(ProviderEvent.Completed)
                 }
@@ -186,21 +212,80 @@ class AgentRunnerTest {
                 }
             }
         }
-        val tool = tool("lookup") { callId, _ ->
-            val current = active.incrementAndGet()
-            maxActive.updateAndGet { maxOf(it, current) }
-            delay(30)
-            active.decrementAndGet()
-            AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
+        val tools = (0 until 6).map { index ->
+            tool("lookup_$index") { callId, _ ->
+                val current = active.incrementAndGet()
+                maxActive.updateAndGet { maxOf(it, current) }
+                delay(30)
+                active.decrementAndGet()
+                AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
+            }
         }
 
         val events = AgentRunner(
             limits = AgentRunLimits(maxConcurrentTools = 4)
-        ).run(session, listOf(tool)).toList()
+        ).run(session, tools).toList()
 
         assertEquals(4, maxActive.get())
         assertEquals(6, events.filterIsInstance<AgentRunEvent.ToolFinished>().size)
         assertTrue(events.contains(AgentRunEvent.Provider(ProviderEvent.TextDelta("done"))))
+    }
+
+    @Test
+    fun `same tool queue does not consume concurrency slots needed by other tools`() = runBlocking {
+        val independentFinished = CompletableDeferred<Unit>()
+        val active = AtomicInteger()
+        val maximum = AtomicInteger()
+        val slow = tool("slow") { id, _ ->
+            val count = active.incrementAndGet()
+            maximum.updateAndGet { maxOf(it, count) }
+            independentFinished.await()
+            active.decrementAndGet()
+            AgentToolResult(id, ToolResultContent.Text("ok"), false)
+        }
+        val independent = tool("independent") { id, _ ->
+            independentFinished.complete(Unit)
+            AgentToolResult(id, ToolResultContent.Text("ok"), false)
+        }
+        val events = AgentRunner(AgentRunLimits(maxConcurrentTools = 2, toolTimeoutMillis = 1000)).run(
+            session { _, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        repeat(4) { emit(toolCall("slow-$it", "slow")) }
+                        emit(toolCall("independent", "independent"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(slow, independent)
+        ).toList()
+        assertEquals(1, maximum.get())
+        assertEquals(5, events.filterIsInstance<AgentRunEvent.ToolFinished>().size)
+        assertFalse(events.filterIsInstance<AgentRunEvent.ToolFinished>().any { it.result.isError })
+    }
+
+    @Test
+    fun `parallel failure burst counts once per round instead of once per invocation`() = runBlocking {
+        var executions = 0
+        val failing = tool("lookup") { id, _ ->
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("network unavailable"), true)
+        }
+        var round = 0
+        AgentRunner(AgentRunLimits(maxRounds = 8, maxToolCalls = 20)).run(
+            session { tools, _ ->
+                flow {
+                    if (tools.isNotEmpty()) {
+                        repeat(4) { emit(toolCall("$round-$it", "lookup")) }
+                        round++
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(failing)
+        ).toList()
+        assertEquals(3, round)
+        assertEquals(12, executions)
     }
 
     @Test
@@ -420,6 +505,7 @@ class AgentRunnerTest {
         assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.TextDelta })
         assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
     }
+
     @Test
     fun `tool output is bounded before persistence and provider replay`() = runBlocking {
         val providerCalls = AtomicInteger()

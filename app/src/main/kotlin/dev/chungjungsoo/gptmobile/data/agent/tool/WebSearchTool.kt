@@ -118,11 +118,20 @@ class WebSearchTool(
 
     private suspend fun executeConfiguredProvider(callId: String, request: WebSearchRequest): AgentToolResult {
         return try {
+            if (config.bearerToken.isBlank()) {
+                val provider = when (config.provider) {
+                    WebSearchProvider.FIRECRAWL -> "Firecrawl"
+                    WebSearchProvider.PERPLEXITY -> "Perplexity"
+                    WebSearchProvider.EXA -> "Exa"
+                    WebSearchProvider.BRAVE -> "Brave Search"
+                    WebSearchProvider.AUTO -> "Web search"
+                }
+                return error(callId, "Add a $provider API key in Settings → Tool Connections before using this search provider.")
+            }
             if (config.provider == WebSearchProvider.PERPLEXITY && clock.millis() < authenticationBlockedUntilMs.get()) {
                 return error(callId, "Perplexity web search is temporarily disabled after an authentication failure. Update its API key in Settings → Tool Connections before retrying.")
             }
             val response = if (config.provider == WebSearchProvider.BRAVE) {
-                if (config.bearerToken.isBlank()) return error(callId, "Add a Brave Search API key in Settings → Tool Connections.")
                 networkClient().get(config.endpointUrl) {
                     timeout { requestTimeoutMillis = 30_000 }
                     header("X-Subscription-Token", config.bearerToken.trim())

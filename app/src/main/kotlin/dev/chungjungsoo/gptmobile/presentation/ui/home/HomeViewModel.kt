@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
+import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -33,6 +34,22 @@ enum class HomeTab {
     FAVORITES
 }
 
+internal fun automaticArchiveTargets(
+    chats: List<ChatRoomV2>,
+    activeIds: Set<Int>,
+    maxVisible: Int = 20
+): List<ChatRoomV2> {
+    val overflow = (chats.size - maxVisible).coerceAtLeast(0)
+    if (overflow == 0) return emptyList()
+
+    return chats
+        .filter { !it.isFavorite && it.id !in activeIds }
+        .sortedWith(compareBy<ChatRoomV2> { it.updatedAt }.thenBy { it.id })
+        .take(overflow * 2)
+        .filterIndexed { index, _ -> index % 2 == 0 }
+        .take(overflow)
+}
+
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -40,11 +57,13 @@ class HomeViewModel @Inject constructor(
     private val settingRepository: SettingRepository,
     private val agentRunCoordinator: AgentRunCoordinator,
     private val managePlatformsUseCase: ManagePlatformsUseCase,
-    private val conversationReadStateStore: dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore
+    private val conversationReadStateStore: dev.chungjungsoo.gptmobile.data.chat.ConversationReadStateStore,
+    private val completionStore: GenerationCompletionStore
 ) : ViewModel() {
 
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
+        private const val MAX_MAIN_CHAT_COUNT = 20
         const val GROUP_ALL = "All"
         private const val FAVORITE_GROUPS_INITIALIZED = "__favorite_groups_initialized__"
         private const val SELECTED_GROUP_PREFIX = "__selected_favorite_group__:"
@@ -111,6 +130,7 @@ class HomeViewModel @Inject constructor(
     private val _activeChatIds = MutableStateFlow<Set<Int>>(emptySet())
     val activeChatIds = _activeChatIds.asStateFlow()
     val unreadChatIds = conversationReadStateStore.unreadChatIds
+    val completedGenerations = completionStore.items
 
     private fun sortChats(chats: List<ChatRoomV2>, activeIds: Set<Int> = _activeChatIds.value): List<ChatRoomV2> =
         chats.sortedWith(
@@ -361,10 +381,16 @@ class HomeViewModel @Inject constructor(
 
     fun markChatViewed(chatId: Int) {
         conversationReadStateStore.markViewed(chatId)
+        completionStore.clearChat(chatId)
+    }
+
+    fun consumeCompletedGeneration(runId: String) {
+        completionStore.consume(runId)
     }
 
     fun deleteChat(chatRoom: ChatRoomV2) {
         conversationReadStateStore.remove(chatRoom.id)
+        completionStore.clearChat(chatRoom.id)
         viewModelScope.launch {
             agentRunCoordinator.withChatGate(chatRoom.id) {
                 agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
@@ -392,6 +418,7 @@ class HomeViewModel @Inject constructor(
 
     fun deleteArchivedChat(chatRoom: ChatRoomV2) {
         conversationReadStateStore.remove(chatRoom.id)
+        completionStore.clearChat(chatRoom.id)
         viewModelScope.launch {
             agentRunCoordinator.withChatGate(chatRoom.id) {
                 agentRunCoordinator.cancelChatAndJoin(chatRoom.id)
@@ -451,9 +478,25 @@ class HomeViewModel @Inject constructor(
 
     fun fetchChats() {
         viewModelScope.launch {
-            val rawChats = chatRepository.fetchChatListV2()
-            val sorted = sortChats(rawChats)
+            var rawChats = chatRepository.fetchChatListV2()
 
+            // Keep the main screen manageable without aggressively hiding history.
+            // Once more than 20 chats are visible, archive alternating oldest eligible
+            // conversations until the visible count returns to 20. Pinned/favorite and
+            // actively generating chats are never selected for automatic archival.
+            if (rawChats.size > MAX_MAIN_CHAT_COUNT) {
+                val archiveTargets = automaticArchiveTargets(
+                    chats = rawChats,
+                    activeIds = _activeChatIds.value,
+                    maxVisible = MAX_MAIN_CHAT_COUNT
+                )
+                archiveTargets.forEach { chatRepository.setChatArchived(it.id, isArchived = true) }
+                if (archiveTargets.isNotEmpty()) {
+                    rawChats = chatRepository.fetchChatListV2()
+                }
+            }
+
+            val sorted = sortChats(rawChats)
             _chatListState.update {
                 it.copy(
                     chats = sorted,

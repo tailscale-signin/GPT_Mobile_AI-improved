@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.backup
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.room.Room
@@ -28,6 +31,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
+data class RecentBackup(
+    val uri: String,
+    val displayName: String,
+    val savedAtEpochMs: Long,
+    val folderKey: String
+)
+
 @Singleton
 class CompleteBackupManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -47,8 +57,77 @@ class CompleteBackupManager @Inject constructor(
     private fun files() = CompleteBackupFiles(mapOf("internal" to context.filesDir, "external" to (context.getExternalFilesDir(null) ?: context.filesDir)))
     fun getBackupStatus() = legacy.getBackupStatus()
 
+    fun recentBackups(): List<RecentBackup> {
+        val prefs = context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
+        val entries = (0 until RECENT_BACKUP_HISTORY_LIMIT).mapNotNull { index ->
+            val uri = prefs.getString("recent_${index}_uri", null) ?: return@mapNotNull null
+            RecentBackup(
+                uri = uri,
+                displayName = prefs.getString("recent_${index}_name", null).orEmpty().ifBlank { "GPT Mobile backup" },
+                savedAtEpochMs = prefs.getLong("recent_${index}_time", 0L),
+                folderKey = prefs.getString("recent_${index}_folder", null).orEmpty()
+            )
+        }.sortedByDescending { it.savedAtEpochMs }
+        val latestFolder = entries.firstOrNull()?.folderKey.orEmpty()
+        return entries
+            .filter { latestFolder.isBlank() || it.folderKey == latestFolder }
+            .take(3)
+    }
+
+    private fun recordRecentBackup(uri: Uri) {
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
+        val displayName = runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { rows ->
+                if (rows.moveToFirst()) rows.getString(0) else null
+            }
+        }.getOrNull().orEmpty().ifBlank { uri.lastPathSegment ?: "GPT Mobile backup" }
+        val folderKey = runCatching {
+            if (DocumentsContract.isDocumentUri(context, uri)) {
+                val documentId = DocumentsContract.getDocumentId(uri)
+                val parent = documentId.substringBeforeLast('/', missingDelimiterValue = documentId.substringBeforeLast(':', documentId))
+                "${uri.authority.orEmpty()}|$parent"
+            } else {
+                uri.buildUpon().path(uri.path?.substringBeforeLast('/')).build().toString()
+            }
+        }.getOrDefault(uri.authority.orEmpty())
+
+        val now = System.currentTimeMillis()
+        val prefs = context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
+        val existing = (0 until RECENT_BACKUP_HISTORY_LIMIT).mapNotNull { index ->
+            val value = prefs.getString("recent_${index}_uri", null) ?: return@mapNotNull null
+            RecentBackup(
+                uri = value,
+                displayName = prefs.getString("recent_${index}_name", null).orEmpty(),
+                savedAtEpochMs = prefs.getLong("recent_${index}_time", 0L),
+                folderKey = prefs.getString("recent_${index}_folder", null).orEmpty()
+            )
+        }
+        val updated = (listOf(RecentBackup(uri.toString(), displayName, now, folderKey)) + existing.filterNot { it.uri == uri.toString() })
+            .sortedByDescending { it.savedAtEpochMs }
+            .take(RECENT_BACKUP_HISTORY_LIMIT)
+        val editor = prefs.edit()
+        repeat(RECENT_BACKUP_HISTORY_LIMIT) { index ->
+            editor.remove("recent_${index}_uri")
+                .remove("recent_${index}_name")
+                .remove("recent_${index}_time")
+                .remove("recent_${index}_folder")
+        }
+        updated.forEachIndexed { index, entry ->
+            editor.putString("recent_${index}_uri", entry.uri)
+                .putString("recent_${index}_name", entry.displayName)
+                .putLong("recent_${index}_time", entry.savedAtEpochMs)
+                .putString("recent_${index}_folder", entry.folderKey)
+        }
+        check(editor.commit()) { "Could not save recent backup history." }
+    }
+
     fun savedSelection(): CompleteBackupSelection {
-        val raw = context.getSharedPreferences("complete_backup_ui_v1", Context.MODE_PRIVATE)
+        val raw = context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
             .getStringSet("sections", null)
             ?: return CompleteBackupSelection()
         val sections = raw.mapNotNull { runCatching { CompleteBackupSection.valueOf(it) }.getOrNull() }.toSet()
@@ -58,7 +137,7 @@ class CompleteBackupManager @Inject constructor(
     fun saveSelection(selection: CompleteBackupSelection) {
         val names = selection.normalized().sections.mapTo(mutableSetOf()) { it.name }
         check(
-            context.getSharedPreferences("complete_backup_ui_v1", Context.MODE_PRIVATE)
+            context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putStringSet("sections", names)
                 .commit()
@@ -70,7 +149,7 @@ class CompleteBackupManager @Inject constructor(
             val bytes = secretVault.read(BACKUP_PASSWORD_REF)
             try {
                 BackupProtection(
-                    context.getSharedPreferences("complete_backup_ui_v1", Context.MODE_PRIVATE).getBoolean("encrypt", false),
+                    context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE).getBoolean("encrypt", false),
                     bytes?.decodeToString().orEmpty()
                 )
             } finally {
@@ -88,7 +167,7 @@ class CompleteBackupManager @Inject constructor(
                 bytes.fill(0)
             }
             check(
-                context.getSharedPreferences("complete_backup_ui_v1", Context.MODE_PRIVATE)
+                context.getSharedPreferences(BACKUP_UI_PREFS, Context.MODE_PRIVATE)
                     .edit().putBoolean("encrypt", protection.enabled).commit()
             ) { "Could not save backup encryption settings." }
         }
@@ -188,6 +267,7 @@ class CompleteBackupManager @Inject constructor(
         }
 
         legacy.recordBackupMetadata()
+        recordRecentBackup(uri)
         BackupRestoreResult(
             true,
             if (!encrypt) {
@@ -691,6 +771,8 @@ class CompleteBackupManager @Inject constructor(
         const val RESERVE = 16L * 1024 * 1024
         const val BACKUP_KEY_BYTES = 32
         const val BACKUP_PASSWORD_REF = "complete_backup_password_v1"
+        const val BACKUP_UI_PREFS = "complete_backup_ui_v1"
+        const val RECENT_BACKUP_HISTORY_LIMIT = 12
 
         // Restore-only compatibility for retired GPTFULL2 backups. New backups never use this key.
         const val BACKUP_KEY_REF = "complete_backup_master_v2"

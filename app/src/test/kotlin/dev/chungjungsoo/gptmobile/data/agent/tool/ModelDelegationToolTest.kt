@@ -20,6 +20,24 @@ class ModelDelegationToolTest {
     private val task = buildJsonObject { put("task", "Summarize this text") }
 
     @Test
+    fun gitHubCapabilityRefusalAllowsDifferentEligibleHelper() = runTest {
+        val fallback = target.copy(uid = "github-capable")
+        val dispatched = mutableListOf<String>()
+        val tool = ModelDelegationTool(source, { enabled }, { listOf(target, fallback) }) { profile, _, _ ->
+            dispatched += profile.uid
+            if (profile.uid == target.uid) {
+                "No GitHub integration or remote repository write tools are enabled."
+            } else {
+                "Draft PR created."
+            }
+        }
+        val arguments = buildJsonObject { put("task", "Create a draft PR in the repository") }
+        assertTrue(tool.execute("refusal", arguments).isError)
+        assertFalse(tool.execute("fallback", arguments).isError)
+        assertEquals(listOf(target.uid, fallback.uid), dispatched)
+    }
+
+    @Test
     fun gitHubCapabilityRefusalIsAnErrorAndStopsRepeatedHelperCalls() = runTest {
         var calls = 0
         val tool = ModelDelegationTool(source, { enabled }, { listOf(target) }) { _, _, _ ->
@@ -149,10 +167,19 @@ class ModelDelegationToolTest {
     fun timesOutAndPropagatesParentCancellation() = runTest {
         val slow = ModelDelegationTool(
             source,
-            { enabled.copy(timeoutSeconds = 5, maxLocalModelCalls = 1) },
+            {
+                enabled.copy(
+                    timeoutSeconds = 5,
+                    maxDelegateRuntimeSeconds = 5,
+                    maxLocalModelCalls = 1
+                )
+            },
             { listOf(target) }
         ) { _, _, _ ->
-            delay(60_000)
+            // Make the per-attempt hard runtime explicit. The production coordinator
+            // intentionally allows active tool work to continue up to that hard ceiling,
+            // so a short legacy timeout alone must not shrink the mandatory retry window.
+            delay(600_000)
             "late"
         }
         assertTrue(slow.execute("1", task).isError)
@@ -175,7 +202,7 @@ class ModelDelegationToolTest {
     }
 
     @Test
-    fun terminalNoResultOpensPerTurnCircuitAndStopsRetryStorms() = runTest {
+    fun terminalNoResultStopsSameTaskRetriesWhileAllowingSmallerSubtasks() = runTest {
         var attempts = 0
         val tool = ModelDelegationTool(
             source,
@@ -189,6 +216,8 @@ class ModelDelegationToolTest {
         assertTrue(tool.execute("first", task).isError)
         assertTrue(tool.execute("second", task).isError)
         assertEquals(1, attempts)
+        assertTrue(tool.execute("smaller", buildJsonObject { put("task", "Read only the missing paragraph") }).isError)
+        assertEquals(2, attempts)
     }
 
     @Test
@@ -200,6 +229,7 @@ class ModelDelegationToolTest {
         val result = tool.execute("primary-only", task)
         assertTrue(result.isError)
     }
+
     @Test
     fun localFirstOwnershipRaisesExplicitDelegationAllowance() = runTest {
         var attempts = 0

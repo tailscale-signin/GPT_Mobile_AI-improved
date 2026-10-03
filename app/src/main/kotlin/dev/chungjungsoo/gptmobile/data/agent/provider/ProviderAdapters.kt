@@ -67,6 +67,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -441,75 +442,108 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var lastFinishReason: String? = null
 
                         if (isOllama) {
-                            // Ollama platform timeout resilience:
-                            // Never fail because of timeout. Continue retrying over and over for up to 5 minutes.
-                            // If still nothing after 5 minutes, wrap up and emit an incomplete AI response.
-                            val maxRetryDurationMs = 5 * 60 * 1000L
-                            val startTime = System.currentTimeMillis()
+                            // Keep retries inside a real wall-clock budget. Previously the
+                            // 5-minute loop could start another 180-second request near its
+                            // deadline, stretching a chat beyond eight minutes.
+                            val maxRetryDurationMs = 2 * 60 * 1000L
+                            val startTime = System.nanoTime()
                             var hasReceivedTokens = false
                             var ollamaSucceeded = false
                             var emulatorFallbackTried = false
                             var currentConfig = config
 
-                            while (System.currentTimeMillis() - startTime < maxRetryDurationMs) {
+                            while ((System.nanoTime() - startTime) / 1_000_000 < maxRetryDurationMs) {
                                 var chunkError: String? = null
                                 var caughtThrowable: Throwable? = null
 
-                                // For Ollama streaming during the resilience loop, provide an extended per-chunk timeout (180s)
-                                // if the platform timeout is configured lower (e.g. 0 or 30s), so prompt evaluation on larger models has room.
-                                val effectiveOllamaTimeout = maxOf(platform.timeout, 180)
+                                val elapsedBeforeAttemptMs = (System.nanoTime() - startTime) / 1_000_000
+                                val remainingAttemptMs = (maxRetryDurationMs - elapsedBeforeAttemptMs).coerceAtLeast(1L)
+                                val remainingAttemptSeconds = ((remainingAttemptMs + 999L) / 1000L).toInt().coerceAtLeast(1)
+                                // Each request is bounded by the remaining global deadline,
+                                // so a late retry cannot overshoot the recovery window.
+                                val configuredAttemptSeconds = platform.timeout.takeIf { it > 0 } ?: 60
+                                val effectiveOllamaTimeout = minOf(maxOf(configuredAttemptSeconds, 30), 60, remainingAttemptSeconds)
 
-                                openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig)
-                                    .catch { error ->
-                                        if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
-                                        caughtThrowable = error
+                                var downstreamFailure: Throwable? = null
+                                suspend fun publishOllama(event: ProviderEvent) {
+                                    try {
+                                        emit(event)
+                                    } catch (failure: Throwable) {
+                                        downstreamFailure = failure
+                                        throw failure
                                     }
-                                    .collect { chunk ->
-                                        if (chunk.streamFinished) assembler.finish().forEach { emit(it) }
-                                        chunk.usage?.let { usage ->
-                                            emit(
-                                                ProviderEvent.Usage(
-                                                    inputTokens = usage.promptTokens,
-                                                    outputTokens = usage.completionTokens,
-                                                    totalTokens = usage.totalTokens,
-                                                    decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond
-                                                )
-                                            )
-                                        }
-                                        if (chunk.usage == null) {
-                                            chunk.timings?.decodeTokensPerSecond?.let {
-                                                emit(ProviderEvent.Usage(decodeTokensPerSecond = it))
+                                }
+                                val attemptCompleted = try {
+                                    withTimeoutOrNull(remainingAttemptMs) {
+                                        openAIAPI.streamChatCompletion(request, effectiveOllamaTimeout, currentConfig)
+                                            .catch { error ->
+                                                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                                                caughtThrowable = error
                                             }
-                                        }
-                                        chunk.gatewayMetadata?.let { metadata ->
-                                            if (metadata.jobId != null) {
-                                                capturedGatewayJobId = metadata.jobId
-                                            }
-                                            emit(ProviderEvent.GatewayMetadataCaptured(metadata))
-                                        }
+                                            .collect { chunk ->
+                                                if (chunk.streamFinished) assembler.finish().forEach { publishOllama(it) }
+                                                chunk.usage?.let { usage ->
+                                                    publishOllama(
+                                                        ProviderEvent.Usage(
+                                                            inputTokens = usage.promptTokens,
+                                                            outputTokens = usage.completionTokens,
+                                                            totalTokens = usage.totalTokens,
+                                                            decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond
+                                                        )
+                                                    )
+                                                }
+                                                if (chunk.usage == null) {
+                                                    chunk.timings?.decodeTokensPerSecond?.let {
+                                                        publishOllama(ProviderEvent.Usage(decodeTokensPerSecond = it))
+                                                    }
+                                                }
+                                                chunk.gatewayMetadata?.let { metadata ->
+                                                    if (metadata.jobId != null) {
+                                                        capturedGatewayJobId = metadata.jobId
+                                                    }
+                                                    publishOllama(ProviderEvent.GatewayMetadataCaptured(metadata))
+                                                }
 
-                                        chunk.gatewayProgress?.let { progress ->
-                                            if (progress.jobId != null) {
-                                                capturedGatewayJobId = progress.jobId
-                                            }
-                                            emit(ProviderEvent.GatewayProgressUpdate(progress))
-                                        }
+                                                chunk.gatewayProgress?.let { progress ->
+                                                    if (progress.jobId != null) {
+                                                        capturedGatewayJobId = progress.jobId
+                                                    }
+                                                    publishOllama(ProviderEvent.GatewayProgressUpdate(progress))
+                                                }
 
-                                        chunk.error?.let { err ->
-                                            chunkError = err.message
-                                        } ?: chunk.choices.orEmpty().forEach { choice ->
-                                            hasReceivedTokens = true
-                                            choice.finishReason?.let { lastFinishReason = it }
-                                            assembler.accept(
-                                                content = choice.effectiveDelta.content,
-                                                reasoning = if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null,
-                                                toolCalls = choice.effectiveDelta.toolCalls,
-                                                finishReason = choice.finishReason
-                                            ).forEach { emit(it) }
-                                        }
+                                                chunk.error?.let { err ->
+                                                    chunkError = err.message
+                                                } ?: chunk.choices.orEmpty().forEach { choice ->
+                                                    val delta = choice.effectiveDelta
+                                                    if (!delta.content.isNullOrEmpty() || !delta.effectiveReasoning.isNullOrEmpty() || !delta.toolCalls.isNullOrEmpty()) {
+                                                        hasReceivedTokens = true
+                                                    }
+                                                    choice.finishReason?.let { lastFinishReason = it }
+                                                    assembler.accept(
+                                                        content = choice.effectiveDelta.content,
+                                                        reasoning = if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null,
+                                                        toolCalls = choice.effectiveDelta.toolCalls,
+                                                        finishReason = choice.finishReason
+                                                    ).forEach { publishOllama(it) }
+                                                }
+                                            }
+                                        true
                                     }
+                                } catch (failure: Throwable) {
+                                    // Timeout scopes may recover/wrap stack traces. Preserve
+                                    // the original consumer exception and never classify it
+                                    // as a provider failure or retry the delivered payload.
+                                    throw downstreamFailure ?: failure
+                                }
+                                if (attemptCompleted == null) {
+                                    caughtThrowable = java.net.SocketTimeoutException("Ollama recovery deadline exceeded")
+                                }
 
                                 assembler.discardIncomplete().forEach { emit(it) }
+                                if (attemptCompleted == null) {
+                                    emit(ProviderEvent.Failed("Ollama recovery deadline exceeded after 2 minutes."))
+                                    return@flow
+                                }
                                 val rawError = chunkError ?: caughtThrowable?.message
                                 val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
 
@@ -517,6 +551,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     ollamaSucceeded = true
                                     break
                                 } else if (isTimeoutOrConnection) {
+                                    // Restarting after delivering output or a tool call can duplicate
+                                    // content/actions. Let the parent handle this incomplete attempt.
+                                    if (hasReceivedTokens) {
+                                        emit(ProviderEvent.Failed(rawError ?: "Ollama stream interrupted after output"))
+                                        return@flow
+                                    }
                                     // If connecting to localhost or 127.0.0.1 fails immediately, try switching to 10.0.2.2 for Android emulator
                                     val connectionFailed = caughtThrowable is java.net.ConnectException ||
                                         rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
@@ -532,8 +572,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         }
                                     }
 
-                                    val elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000
-                                    val remainingMs = maxRetryDurationMs - (System.currentTimeMillis() - startTime)
+                                    val elapsedSeconds = ((System.nanoTime() - startTime) / 1_000_000) / 1000
+                                    val remainingMs = maxRetryDurationMs - ((System.nanoTime() - startTime) / 1_000_000)
                                     if (remainingMs > 0) {
                                         emit(ProviderEvent.Notice("Ollama response timed out. Retrying (elapsed: ${elapsedSeconds}s)..."))
                                         delay(minOf(2000L, remainingMs))
@@ -561,15 +601,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 emit(ProviderEvent.Completed)
                                 return@flow
                             } else {
-                                // 5 minutes elapsed with timeouts / network glitches:
-                                // Cleanly wrap up with incomplete response notice and completed event
-                                val wrapUpNotice = if (hasReceivedTokens) {
-                                    "\n\n[Response incomplete: Ollama server timed out after 5 minutes]"
-                                } else {
-                                    "[Response incomplete: Ollama server timed out after 5 minutes with no response]"
-                                }
-                                emit(ProviderEvent.TextDelta(wrapUpNotice))
-                                emit(ProviderEvent.Completed)
+                                // The bounded recovery deadline elapsed. Preserve any
+                                // partial output, but never hold the conversation indefinitely.
+                                emit(ProviderEvent.Failed("Ollama recovery deadline exceeded after 2 minutes."))
                                 return@flow
                             }
                         }

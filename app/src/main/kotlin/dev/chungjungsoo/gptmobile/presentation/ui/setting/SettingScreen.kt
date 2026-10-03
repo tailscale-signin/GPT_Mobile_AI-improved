@@ -19,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BugReport
@@ -265,6 +264,7 @@ fun SettingScreen(
                     }
                 }
             },
+            onRecentRestore = settingViewModel::restoreRecentBackup,
             onSectionChange = settingViewModel::updateBackupSection,
             onPasswordProtectionChange = settingViewModel::updateBackupPasswordProtection,
             onPasswordChange = settingViewModel::updateBackupPassword
@@ -396,11 +396,6 @@ private fun SettingsDestination(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.weight(1f)
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary
         )
     }
 }

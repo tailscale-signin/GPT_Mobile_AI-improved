@@ -27,7 +27,8 @@ class ModelDelegationSettingsTest {
             maxPageCharacters = 999999,
             handoffTokens = 999999,
             compactionThresholdCharacters = 999999,
-            localRetryLimit = 99
+            localRetryLimit = 99,
+            reviewerOutputTokens = 9999
         ).normalized()
 
         assertEquals(300, normalized.timeoutSeconds)
@@ -50,7 +51,8 @@ class ModelDelegationSettingsTest {
         assertEquals(96000, normalized.maxPageCharacters)
         assertEquals(8192, normalized.handoffTokens)
         assertEquals(48000, normalized.compactionThresholdCharacters)
-        assertEquals(1, normalized.localRetryLimit)
+        assertEquals(10, normalized.localRetryLimit)
+        assertEquals(1024, normalized.reviewerOutputTokens)
         assertEquals(15, normalized.lowBatteryThresholdPercent)
         assertEquals(256, normalized.remoteSynthesisOutputTokens)
     }
@@ -171,7 +173,10 @@ class ModelDelegationSettingsTest {
         assertEquals(false, defaults.allowRemoteWorkers)
         assertEquals(1, defaults.maxDelegationDepth)
         assertEquals(500, defaults.compactionThresholdCharacters)
-        assertEquals(0, defaults.localRetryLimit)
+        assertEquals(5, defaults.localRetryLimit)
+        assertEquals(false, defaults.reviewerEnabled)
+        assertEquals("", defaults.reviewerProfileUid)
+        assertEquals(384, defaults.reviewerOutputTokens)
         assertEquals(15, defaults.lowBatteryThresholdPercent)
         assertEquals(256, defaults.remoteSynthesisOutputTokens)
         assertEquals(4000, defaults.primaryReplayTokens)

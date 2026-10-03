@@ -8,11 +8,12 @@ object MemoryCapturePolicy {
         val explicitlyRequested = MemoryLearning.hasExplicitRequest(context) || Regex("(?i)\\b(?:remember|always|important|favorite)\\b").containsMatchIn(context)
         val importance = when {
             explicitlyRequested -> 100
-            fact.relation.relationType in setOf("PREFERS", "AVOIDS", "LOCATED_IN", "CONTRIBUTES_TO", "NAMED", "TIMEZONE", "PRONOUNS", "OCCUPATION", "RESPONSE_LANGUAGE", "PROFILE") -> 85
-            fact.relation.relationType in setOf("USES", "OWNS") -> 65
-            fact.relation.relationType == "WORKING_ON" -> 60
-            fact.relation.relationType == "GOAL" -> 20
-            else -> 10
+            fact.relation.relationType in setOf("PREFERS", "AVOIDS", "LOCATED_IN", "CONTRIBUTES_TO", "NAMED", "TIMEZONE", "PRONOUNS", "OCCUPATION", "RESPONSE_LANGUAGE", "PROFILE") -> 95
+            fact.relation.relationType in setOf("USES", "OWNS") -> 88
+            fact.relation.relationType == "WORKING_ON" -> 84
+            fact.relation.relationType == "GOAL" -> 78
+            fact.relation.relationType == "REMEMBERS" -> 92
+            else -> 58
         }
         return importance >= 100 - level
     }

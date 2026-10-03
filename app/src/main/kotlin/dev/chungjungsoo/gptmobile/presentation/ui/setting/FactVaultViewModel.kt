@@ -44,6 +44,24 @@ class FactVaultViewModel @Inject constructor(
     }
     fun updateSettings(settings: FactVaultSettings) = perform { repository.updateSettings(settings) }
     fun setEnabled(enabled: Boolean) = perform { repository.setEnabled(enabled) }
+    fun applyRecommendedControls() = perform {
+        val current = repository.state.value.settings
+        repository.updateSettings(
+            current.copy(
+                learningEnabled = true,
+                recallEnabled = true,
+                learnPreferences = true,
+                learnRelationships = true,
+                localModelLearning = true,
+                rotateAutomaticFacts = true,
+                captureSensitivity = 65,
+                maxCapturePerMessage = 12,
+                maxRecall = 8,
+                recallTokens = 1536,
+                alwaysRecallPinned = true
+            )
+        )
+    }
     fun setFactEnabled(id: String, enabled: Boolean) = perform { repository.setFactEnabled(id, enabled) }
     fun pin(id: String, pinned: Boolean) = perform { repository.pin(id, pinned) }
     fun delete(id: String) = perform { repository.deleteFact(id) }

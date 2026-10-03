@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
+import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
@@ -93,7 +94,8 @@ class AgentRunCoordinator @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val chatRepository: ChatRepository,
     private val gatewayAPI: GatewayAPI,
-    private val settingRepository: SettingRepository
+    private val settingRepository: SettingRepository,
+    private val completionStore: GenerationCompletionStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -296,12 +298,10 @@ class AgentRunCoordinator @Inject constructor(
                 val result = gatewayAPI.getJobResult(jobId, ProviderRequestConfig(baseUrl, token)) ?: continue
                 if (result.jobId != jobId || !result.status.equals("COMPLETED", ignoreCase = true)) continue
                 val content = result.content ?: continue
-                chatRepository.restoreGatewayAnswer(
-                    run.runId,
-                    jobId,
-                    content,
-                    result.completedAt ?: currentEpochSeconds()
-                )
+                val completedAt = result.completedAt ?: currentEpochSeconds()
+                if (chatRepository.restoreGatewayAnswer(run.runId, jobId, content, completedAt)) {
+                    completionStore.record(run.runId, run.chatId, run.assistantMessageId, completedAt)
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
@@ -364,7 +364,7 @@ class AgentRunCoordinator @Inject constructor(
             val terminal = outcome.toTerminalUpdate()
             val completedAt = currentEpochSeconds()
             val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error, completedAt)
-            commitTerminalAgentRun(
+            val committed = commitTerminalAgentRun(
                 finishRun = {
                     chatRepository.finishAgentRun(
                         request.runId,
@@ -375,6 +375,9 @@ class AgentRunCoordinator @Inject constructor(
                 },
                 persistMessage = { chatRepository.updateAgentMessage(terminalMessage) }
             )
+            if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
+                completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
+            }
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
                 val completedAt = currentEpochSeconds()

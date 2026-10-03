@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
-import android.os.PowerManager
 import dev.chungjungsoo.gptmobile.BuildConfig
 
 /**
@@ -42,20 +41,12 @@ object DiagnosticsTelemetryProvider {
         val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
         val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
 
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null) {
-            when (powerManager.currentThermalStatus) {
-                PowerManager.THERMAL_STATUS_NONE -> "Nominal"
-                PowerManager.THERMAL_STATUS_LIGHT -> "Light"
-                PowerManager.THERMAL_STATUS_MODERATE -> "Moderate"
-                PowerManager.THERMAL_STATUS_SEVERE -> "Severe Throttling"
-                PowerManager.THERMAL_STATUS_CRITICAL -> "Critical Throttling"
-                PowerManager.THERMAL_STATUS_EMERGENCY -> "Emergency"
-                PowerManager.THERMAL_STATUS_SHUTDOWN -> "Shutdown"
-                else -> "Unknown"
-            }
-        } else {
-            if (hwState.isThrottlingRequired) "Throttled" else "Nominal"
+        val thermalStatus = when (hwState.thermalState) {
+            DeviceThermalState.NORMAL -> "Nominal"
+            DeviceThermalState.LIGHT -> "Light"
+            DeviceThermalState.MODERATE -> "Moderate"
+            DeviceThermalState.SEVERE -> "Severe Throttling"
+            DeviceThermalState.CRITICAL -> "Critical Throttling"
         }
 
         val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

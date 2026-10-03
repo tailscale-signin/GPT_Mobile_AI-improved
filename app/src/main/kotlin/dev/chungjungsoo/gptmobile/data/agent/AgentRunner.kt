@@ -91,6 +91,16 @@ class AgentRunner(
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
 
+        fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
+            if (!result.isError || result.outputBudgetExhausted) return false
+            val text = when (val content = result.content) {
+                is ToolResultContent.Text -> content.text
+                is ToolResultContent.Json -> content.value.toString()
+                is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
+            }.lowercase()
+            return CONTROL_FAILURE_MARKERS.none(text::contains)
+        }
+
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit) {
                 exposedDefinitions = emptyList()
@@ -272,11 +282,21 @@ class AgentRunner(
             executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
             val semaphore = Semaphore(limits.maxConcurrentTools)
+            val perToolSemaphores = executableCalls
+                .map { it.name }
+                .distinct()
+                .associateWith { Semaphore(1) }
             val executedResults = coroutineScope {
                 executableCalls.map { call ->
                     async {
-                        semaphore.withPermit {
-                            executeBounded(call, executableToolByName[call.name])
+                        perToolSemaphores.getValue(call.name).withPermit {
+                            // Calls to different tools can run in parallel, but repeated
+                            // calls to the same provider/tool are serialized. This avoids
+                            // bursts that hammer one API, duplicate writes, or trip its
+                            // rate/circuit protection simultaneously.
+                            semaphore.withPermit {
+                                executeBounded(call, executableToolByName[call.name])
+                            }
                         }
                     }
                 }.awaitAll()
@@ -284,11 +304,20 @@ class AgentRunner(
             toolCallCount += executableCalls.size
 
             val newlyBlockedTools = mutableSetOf<String>()
-            executableCalls.zip(executedResults).forEach { (call, result) ->
-                val failures = if (result.isError) (consecutiveToolFailures[call.name] ?: 0) + 1 else 0
-                consecutiveToolFailures[call.name] = failures
-                if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) newlyBlockedTools += call.name
-            }
+            // Count reliability once per tool per model round, not once per parallel
+            // invocation. A single burst of four searches must not consume four
+            // "consecutive failure" slots and instantly poison the tool for the turn.
+            executableCalls.zip(executedResults)
+                .groupBy(keySelector = { it.first.name }, valueTransform = { it.second })
+                .forEach { (toolName, roundResults) ->
+                    val failures = when {
+                        roundResults.any { !it.isError } -> 0
+                        roundResults.none(::countsTowardToolFailureCircuit) -> consecutiveToolFailures[toolName] ?: 0
+                        else -> (consecutiveToolFailures[toolName] ?: 0) + 1
+                    }
+                    consecutiveToolFailures[toolName] = failures
+                    if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) newlyBlockedTools += toolName
+                }
             if (newlyBlockedTools.isNotEmpty()) {
                 executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
                 exposedDefinitions = exposedDefinitions.filterNot { it.name in newlyBlockedTools }
@@ -453,6 +482,21 @@ class AgentRunner(
     companion object {
         private const val MAX_SAME_TOOL_CALLS_PER_RUN = 24
         private const val MAX_CONSECUTIVE_TOOL_FAILURES = 3
+        private val CONTROL_FAILURE_MARKERS = listOf(
+            "tool-call allowance is exhausted",
+            "tool result budget exhausted",
+            "tool permission was denied",
+            "permission was denied",
+            "github_write_blocked",
+            "github_not_found_or_hidden",
+            "a github token is required",
+            "reached the per-response repeat limit",
+            "do not retry this call in the same response",
+            "delegation was canceled for this turn",
+            "delegation was canceled. continue this turn",
+            "canceled by parent",
+            "cancelled by parent"
+        )
         const val TOOLS_UNAVAILABLE_MESSAGE = "Tools unavailable for this model."
         const val FINAL_RESPONSE_NOTICE = "Tool-call limit is approaching; generating a final response."
         const val ROUND_LIMIT_FINAL_RESPONSE_NOTICE =

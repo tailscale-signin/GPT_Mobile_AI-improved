@@ -31,12 +31,14 @@ fun DelegateModelDropdown(
     selectedProfileUid: String,
     enabled: Boolean,
     onSelected: (PlatformV2?) -> Unit,
-    automaticLabel: String = "Automatic"
+    automaticLabel: String = "Automatic",
+    roleLabel: String = "Delegate model",
+    scores: Map<String, Int> = emptyMap()
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selected = profiles.firstOrNull { it.uid == selectedProfileUid }
     Column {
-        Text("Delegate model", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(roleLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Box(Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = { expanded = true },
@@ -45,9 +47,17 @@ fun DelegateModelDropdown(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(selected?.name ?: if (selectedProfileUid.isBlank()) automaticLabel else "Selected model unavailable")
-                    selected?.let { Text(it.model, style = MaterialTheme.typography.bodySmall) }
+                    selected?.let {
+                        Text(
+                            buildString {
+                                append(it.model)
+                                scores[it.uid]?.let { score -> append(" · Score $score/100") }
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
-                Icon(Icons.Default.ArrowDropDown, "Choose delegate model")
+                Icon(Icons.Default.ArrowDropDown, "Choose $roleLabel")
             }
             DropdownMenu(
                 expanded = expanded && enabled,
@@ -66,7 +76,14 @@ fun DelegateModelDropdown(
                         text = {
                             Column {
                                 Text(profile.name)
-                                Text(profile.model, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    buildString {
+                                        append(profile.model)
+                                        scores[profile.uid]?.let { score -> append(" · Score $score/100") }
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         },
                         leadingIcon = { Icon(if (profile.isPrivateDestination()) Icons.Default.Memory else Icons.Default.Cloud, if (profile.isPrivateDestination()) "Local or private model" else "Online model") },

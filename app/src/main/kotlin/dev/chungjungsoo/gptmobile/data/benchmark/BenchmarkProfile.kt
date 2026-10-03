@@ -36,7 +36,9 @@ internal fun benchmarkProfile(profile: PlatformV2, allowTools: Boolean): Platfor
     }
     return profile.copy(
         model = benchmarkModel,
-        reasoning = false, disableAllTools = !allowTools, temperature = 0f, maxTokens = 512, stream = true,
+        // Preserve the profile's reasoning preference. Some providers expose models whose
+        // endpoints require reasoning and reject an explicit "off" override.
+        disableAllTools = !allowTools, temperature = 0f, maxTokens = 512, stream = true,
         openRouterRouting = openRouter, ollamaOptions = ollama, batchMode = false,
         systemPrompt = "Follow the benchmark instruction exactly. Use only the provided fixture tool when requested."
     )

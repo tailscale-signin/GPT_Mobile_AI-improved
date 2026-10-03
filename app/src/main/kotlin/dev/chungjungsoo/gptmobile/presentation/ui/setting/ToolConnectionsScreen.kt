@@ -33,12 +33,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storefront
@@ -71,8 +78,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -447,19 +457,20 @@ fun ToolConnectionsScreen(
 private data class IntegratedPluginUi(
     val id: String,
     val name: String,
-    val description: String
+    val description: String,
+    val icon: ImageVector
 )
 
 private val INTEGRATED_PLUGINS = listOf(
-    IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured helper model."),
-    IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context."),
-    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & time", "Provides current date context without a remote MCP server."),
-    IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally."),
-    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read files", "Reads bounded slices of files made available to the app."),
-    IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack."),
-    IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes."),
-    IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server."),
-    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device location", "Provides device location only when the app and profile permissions allow it.")
+    IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured delegate model.", Icons.Default.Psychology),
+    IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context.", Icons.Default.Memory),
+    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & time", "Provides current date context without a remote MCP server.", Icons.Default.Schedule),
+    IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally.", Icons.Default.Calculate),
+    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read files", "Reads bounded slices of files made available to the app.", Icons.Default.FolderOpen),
+    IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Default.Language),
+    IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Default.Code),
+    IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Default.Search),
+    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device location", "Provides device location only when the app and profile permissions allow it.", Icons.Default.LocationOn)
 )
 
 @Composable
@@ -475,7 +486,8 @@ private fun IntegratedPluginCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                IntegratedPluginIcon(plugin)
                 Column(Modifier.weight(1f)) {
                     Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -489,6 +501,52 @@ private fun IntegratedPluginCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onSettings) { Text("Settings") }
             }
+        }
+    }
+}
+
+@Composable
+private fun IntegratedPluginIcon(plugin: IntegratedPluginUi) {
+    val colors = MaterialTheme.colorScheme
+    val gradient = when (plugin.id) {
+        ToolPluginId.MODEL_DELEGATION -> listOf(colors.primaryContainer, colors.tertiaryContainer)
+        ToolPluginId.LOCAL_MEMORY -> listOf(colors.secondaryContainer, colors.primaryContainer)
+        ToolPluginId.GITHUB -> listOf(colors.surfaceVariant, colors.primaryContainer)
+        ToolPluginId.WEB_SEARCH -> listOf(colors.tertiaryContainer, colors.secondaryContainer)
+        ToolPluginId.DEVICE_LOCATION -> listOf(colors.primaryContainer, colors.secondaryContainer)
+        else -> listOf(colors.surfaceContainerHighest, colors.primaryContainer)
+    }
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Brush.linearGradient(gradient)),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(13.dp),
+            color = colors.surface.copy(alpha = 0.72f),
+            contentColor = colors.primary,
+            tonalElevation = 4.dp
+        ) {
+            Icon(
+                plugin.icon,
+                contentDescription = null,
+                modifier = Modifier.padding(9.dp).size(25.dp)
+            )
+        }
+        Surface(
+            shape = CircleShape,
+            color = colors.primary,
+            contentColor = colors.onPrimary,
+            shadowElevation = 3.dp,
+            modifier = Modifier.align(Alignment.BottomEnd).size(18.dp)
+        ) {
+            Icon(
+                Icons.Default.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.padding(4.dp)
+            )
         }
     }
 }

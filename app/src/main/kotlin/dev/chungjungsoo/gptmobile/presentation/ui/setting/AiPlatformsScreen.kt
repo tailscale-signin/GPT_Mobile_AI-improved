@@ -20,7 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
@@ -36,13 +36,16 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Tab
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -78,7 +81,8 @@ fun AiPlatformsScreen(
 ) {
     val platforms by settingViewModel.platformState.collectAsStateWithLifecycle()
     val providerConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
-    var freeExpanded by rememberSaveable { mutableStateOf(false) }
+    var selectedPlatformTab by rememberSaveable { mutableIntStateOf(0) }
+    var freeExpanded by rememberSaveable { mutableStateOf(true) }
     var remoteExpanded by rememberSaveable { mutableStateOf(true) }
     var localExpanded by rememberSaveable { mutableStateOf(true) }
     var deletingProvider by remember { mutableStateOf<ProviderConnection?>(null) }
@@ -133,6 +137,28 @@ fun AiPlatformsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                PrimaryTabRow(selectedTabIndex = selectedPlatformTab) {
+                    Tab(
+                        selected = selectedPlatformTab == 0,
+                        onClick = { selectedPlatformTab = 0 },
+                        text = { Text("Remote") },
+                        icon = { Icon(Icons.Default.Cloud, null, tint = MaterialTheme.colorScheme.primary) }
+                    )
+                    Tab(
+                        selected = selectedPlatformTab == 1,
+                        onClick = { selectedPlatformTab = 1 },
+                        text = { Text("Local") },
+                        icon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) }
+                    )
+                    Tab(
+                        selected = selectedPlatformTab == 2,
+                        onClick = { selectedPlatformTab = 2 },
+                        text = { Text("Free") },
+                        icon = { Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) }
+                    )
+                }
+            }
             if (platforms.isEmpty() && providerConnections.isEmpty()) {
                 item {
                     Card(
@@ -162,7 +188,7 @@ fun AiPlatformsScreen(
             } else {
                 val freeConnections = providerConnections.filter { it.compatibleType == ClientType.FREE }
                 val freeStandalone = platforms.filter { it.compatibleType == ClientType.FREE && it.providerConnectionUid == null }
-                if (freeConnections.isNotEmpty() || freeStandalone.isNotEmpty()) {
+                if (selectedPlatformTab == 2 && (freeConnections.isNotEmpty() || freeStandalone.isNotEmpty())) {
                     item {
                         Card(onClick = { freeExpanded = !freeExpanded }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -202,7 +228,7 @@ fun AiPlatformsScreen(
                 val localStandalone = platforms.filter { it.providerConnectionUid == null && it.compatibleType in localTypes }
                 val remoteStandalone = platforms.filter { it.providerConnectionUid == null && it.compatibleType != ClientType.FREE && it.compatibleType !in localTypes }
 
-                if (remoteConnections.isNotEmpty() || remoteStandalone.isNotEmpty()) {
+                if (selectedPlatformTab == 0 && (remoteConnections.isNotEmpty() || remoteStandalone.isNotEmpty())) {
                     item {
                         ProviderCategoryHeader(
                             title = "Remote",
@@ -231,7 +257,7 @@ fun AiPlatformsScreen(
                     }
                 }
 
-                if (localConnections.isNotEmpty() || localStandalone.isNotEmpty()) {
+                if (selectedPlatformTab == 1 && (localConnections.isNotEmpty() || localStandalone.isNotEmpty())) {
                     item {
                         ProviderCategoryHeader(
                             title = "Local",
@@ -486,7 +512,6 @@ private fun PlatformItemCard(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(if (platform.enabled) "Active" else "Disabled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Icon(Icons.Default.ChevronRight, contentDescription = "Profile settings")
             }
         }
     }

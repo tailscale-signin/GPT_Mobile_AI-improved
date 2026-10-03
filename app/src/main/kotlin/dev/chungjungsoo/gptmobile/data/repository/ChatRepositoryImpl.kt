@@ -135,8 +135,12 @@ internal fun resolveDelegatedChildResult(
     val recovered = toolFallbacks.distinct().joinToString("\n\n").takeIf { it.length >= MIN_DELEGATED_USEFUL_CHARS }
     val usable = direct ?: recovered
     val status = when {
-        providerFailure != null -> DelegatedChildStatus.FAILED
+        // Usable output wins over a trailing provider failure. Streaming providers can
+        // emit a valid final/tool result and then surface a transport reset while the
+        // connection is closing; discarding completed work turns success into a false
+        // tool error and causes duplicate retries.
         usable != null -> DelegatedChildStatus.COMPLETED
+        providerFailure != null -> DelegatedChildStatus.FAILED
         extractionFailed -> DelegatedChildStatus.PARSE_FAILED
         else -> DelegatedChildStatus.COMPLETED_EMPTY
     }
@@ -287,7 +291,7 @@ class ChatRepositoryImpl(
         tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentTool>,
         runId: String
     ): dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
-        val constraints = RequestConstraints(maxOutputTokens = 512, allowTools = tools.isNotEmpty(), allowReasoning = false)
+        val constraints = RequestConstraints(maxOutputTokens = 512, allowTools = tools.isNotEmpty(), allowReasoning = true)
         val target = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkProfile(platform, tools.isNotEmpty())
         val session = when (target.compatibleType) {
             ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, target, constraints)
@@ -316,6 +320,7 @@ class ChatRepositoryImpl(
         val eligible = profiles.filter {
             it.enabled &&
                 it.uid != platform.uid &&
+                (!config.reviewerEnabled || it.uid != config.reviewerProfileUid) &&
                 !it.excludesMemory() &&
                 (config.allowRemoteWorkers || it.isPrivateDestination()) &&
                 !(platform.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM)
@@ -323,6 +328,19 @@ class ChatRepositoryImpl(
         val target = eligible.firstOrNull { it.uid == config.targetProfileUid }
             ?: error("The selected delegate is unavailable or ineligible. Choose an enabled helper; benchmarks never switch to another profile.")
         validateBenchmarkProfile(target)
+        val reviewer = if (config.reviewerEnabled) {
+            val candidate = profiles.firstOrNull { it.uid == config.reviewerProfileUid }
+                ?: error("Choose an enabled Reviewer profile before running a delegation benchmark.")
+            check(candidate.enabled && !candidate.excludesMemory()) { "The Reviewer profile is disabled or cannot receive delegated context." }
+            check(candidate.uid != platform.uid && candidate.uid != target.uid) { "Reviewer must be a different profile from both the primary and delegate." }
+            check(!candidate.model.trim().equals(target.model.trim(), ignoreCase = true)) { "Reviewer must use a different model from the delegate." }
+            check(config.remoteWorkersAllowed() || candidate.isPrivateDestination()) { "Reviewer is blocked by the private-destination-only setting." }
+            check(!(platform.compatibleType == ClientType.LITERT_LM && candidate.compatibleType == ClientType.LITERT_LM)) { "The on-device primary cannot use another on-device LiteRT model as Reviewer during the same response." }
+            validateBenchmarkProfile(candidate)
+            candidate
+        } else {
+            null
+        }
         var calls = 0
         var input = 0L
         var output = 0L
@@ -349,11 +367,11 @@ class ChatRepositoryImpl(
             }
             AppLogRecorder.record("DelegationBenchmark", "$type · $message", logLevel)
         }
-        benchmarkEvent("BENCHMARK_START", "primary=${platform.uid} worker=${target.uid} model=${target.model} case=${test.id}")
+        benchmarkEvent("BENCHMARK_START", "primary=${platform.uid} worker=${target.uid} model=${target.model} reviewer=${reviewer?.uid ?: "off"} case=${test.id}")
         val features = settingRepository.getFeatureSettings()
         val workerEnvironment = "${settingRepository.getLocalRuntimeBackend()}|${features.localCpuThreads}|${features.localModelCache}|${features.qnnAutomaticFallback}|" +
             "${features.localSpeculativeDecoding}|${features.localNativeMetrics}|${dev.chungjungsoo.gptmobile.BuildConfig.LITERT_LM_VERSION}"
-        val pinnedProfiles = listOf(platform, target)
+        val pinnedProfiles = listOfNotNull(platform, target, reviewer).distinctBy { it.uid }
         val runner = dev.chungjungsoo.gptmobile.data.benchmark.DelegationBenchmarkRunner(
             createCoordinator = { fixtures ->
                 suspend fun generate(targetProfile: PlatformV2, task: String, cap: Int, inputCap: Int, progress: (DelegateProgress) -> Unit, allowTools: Boolean): String {
@@ -600,16 +618,31 @@ class ChatRepositoryImpl(
             }
     }
 
-    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null): String {
+    private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool>? = null, finalizationRepairAttempted: Boolean = false): String {
         // Delegated runs are real child agent runs: they receive the target profile's
         // authorized tools, but never receive delegate_to_model itself. This enables
         // local -> remote tool use and remote -> local tool use without recursion.
+        val inheritedTools = authorizedTools.orEmpty()
+            .filterNot { it.realToolName == "delegate_to_model" }
+            .distinctBy { it.modelToolName }
         val childTools: MutableList<AgentTool> = if (!allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled) {
             mutableListOf()
         } else if (fixtureTools != null) {
             fixtureTools.toMutableList()
+        } else if (authorizedTools != null) {
+            // Delegated agents are children of the current run. Reuse the parent's
+            // already-authorized and already-budgeted tool snapshot instead of resolving
+            // a second catalog from the helper profile. This preserves chat-level
+            // permissions, native GitHub/MCP access, shared budgets and approval state.
+            inheritedTools.map { it.tool }.toMutableList()
         } else {
             resolveDelegatedTools(target, parentRunId, chatToolConfig, task).toMutableList()
+        }
+        val childToolSource = when {
+            !allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled -> "disabled"
+            fixtureTools != null -> "fixture"
+            authorizedTools != null -> "parent-authorized"
+            else -> "target-fallback"
         }
         val discoveredChildToolCount = childTools.size
         val boundedSystemPrompt =
@@ -629,7 +662,7 @@ class ChatRepositoryImpl(
         }
         AppLogRecorder.record(
             "Delegation",
-            "Child tool catalog · target=${target.uid} · discovered=$discoveredChildToolCount · kept=${childTools.size} · names=${childTools.joinToString { it.definition.name }} · maxInputTokens=$maxInputTokens"
+            "Child tool catalog · target=${target.uid} · source=$childToolSource · discovered=$discoveredChildToolCount · kept=${childTools.size} · names=${childTools.joinToString { it.definition.name }} · maxInputTokens=$maxInputTokens"
         )
         val estimatedRequestInputTokens = baseInputTokens + estimatedToolTokens()
         if (estimatedRequestInputTokens > maxInputTokens) {
@@ -644,23 +677,24 @@ class ChatRepositoryImpl(
         // Keep fixtures/text transforms isolated and never override chat exclusions.
         val allowGatewayLocalTools = allowTools &&
             fixtureTools == null &&
-            isGitHubTask(task) &&
             target.compatibleType == ClientType.LLAMA &&
             !target.disableAllTools &&
-            !target.disableRemoteTools &&
+            !target.disableLocalTools &&
             !chatToolConfig.allToolsDisabled &&
             chatToolConfig.allowAllByDefault &&
             chatToolConfig.disabledToolIds.isEmpty()
         val constraints = RequestConstraints(
             maxOutputTokens = maxTokens,
             allowTools = childTools.isNotEmpty() || allowGatewayLocalTools,
-            allowReasoning = false,
+            // Do not prohibit reasoning at the transport layer. Some endpoints require it;
+            // the worker prompt still asks for a concise visible final answer.
+            allowReasoning = true,
             allowGatewayLocalTools = allowGatewayLocalTools
         )
         val bounded = target.copy(
             batchMode = false,
             model = if (target.compatibleType == ClientType.OPENROUTER) target.model.removeSuffix(":batch") else target.model,
-            reasoning = false,
+            reasoning = target.reasoning,
             disableAllTools = childTools.isEmpty() && !allowGatewayLocalTools,
             systemPrompt = boundedSystemPrompt
         )
@@ -812,6 +846,8 @@ class ChatRepositoryImpl(
         val recoveredToolChars = if (directUsableChars == 0) usableText?.length ?: 0 else 0
         val effectiveCap = effectiveProviderOutputCap ?: constraints.outputLimit(target.maxTokens)
         val outputCapMismatch = sawUsage && effectiveCap != null && maxRoundOutput > effectiveCap
+        val outputCapReached = sawUsage && effectiveCap != null && maxRoundOutput >= effectiveCap
+        val likelyTruncated = isLikelyDelegatedTruncation(rawText, outputCapReached)
 
         if (outputCapMismatch) {
             AppLogRecorder.record(
@@ -829,12 +865,70 @@ class ChatRepositoryImpl(
         )
         AppLogRecorder.record(
             "Delegation",
-            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=${if (sawUsage) usageInputTokens else -1} · usageOutput=${if (sawUsage) usageOutputTokens else -1} · usageTotal=${if (sawUsage) usageTotalTokens else -1} · unusableTokens=${if (usableText == null && sawUsage) usageTotalTokens else 0} · outputCapMismatch=$outputCapMismatch"
+            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=${if (sawUsage) usageInputTokens else -1} · usageOutput=${if (sawUsage) usageOutputTokens else -1} · usageTotal=${if (sawUsage) usageTotalTokens else -1} · unusableTokens=${if (usableText == null && sawUsage) usageTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
         )
 
-        providerFailure?.let { error("DELEGATION_FAILED: $it") }
+        if (usableText != null && likelyTruncated && !finalizationRepairAttempted) {
+            val repairDraft = dev.chungjungsoo.gptmobile.data.agent.truncateUtf8(usableText, 6_000)
+            AppLogRecorder.record(
+                "Delegation",
+                "Output-cap completion repair · parentRun=$parentRunId · target=${target.uid} · cap=$effectiveCap · outputTokens=$maxRoundOutput · draftChars=${repairDraft.length}",
+                "W"
+            )
+            return delegateToProfile(
+                target = target,
+                task = task + "\n\nA previous draft reached the output cap and may be truncated. Rewrite it into a complete, concise final answer within the same token budget. Preserve exact facts/source IDs and do not invent anything.\n\nDraft:\n" + repairDraft,
+                maxTokens = maxTokens,
+                parentRunId = parentRunId,
+                turnKey = turnKey,
+                maxInputTokens = maxInputTokens,
+                onProgress = onProgress,
+                allowTools = false,
+                fixtureTools = emptyList(),
+                chatToolConfig = chatToolConfig,
+                traceSequences = traceSequences,
+                onToolTrace = onToolTrace,
+                authorizedTools = emptyList(),
+                finalizationRepairAttempted = true
+            )
+        }
+
+        if (reasoningOnly && !finalizationRepairAttempted) {
+            val repairCap = maxTokens
+            AppLogRecorder.record(
+                "Delegation",
+                "Reasoning-only completion repair · parentRun=$parentRunId · target=${target.uid} · firstCap=$maxTokens · repairCap=$repairCap · reasoningChars=$reasoningChars",
+                "W"
+            )
+            return delegateToProfile(
+                target = target,
+                task = task + "\n\nThe previous attempt used its response budget without producing a final answer. Do not expose internal reasoning. Return only the concise final answer or the required tool call now.",
+                maxTokens = repairCap,
+                parentRunId = parentRunId,
+                turnKey = turnKey,
+                maxInputTokens = maxInputTokens,
+                onProgress = onProgress,
+                allowTools = false,
+                fixtureTools = emptyList(),
+                chatToolConfig = chatToolConfig,
+                traceSequences = traceSequences,
+                onToolTrace = onToolTrace,
+                authorizedTools = emptyList(),
+                finalizationRepairAttempted = true
+            )
+        }
+        if (status == DelegatedChildStatus.FAILED) {
+            providerFailure?.let { error("DELEGATION_FAILED: $it") }
+        }
         if (reasoningOnly) {
-            error("REASONING_ONLY_RESPONSE: delegated provider produced reasoning tokens but no usable final answer.")
+            error("REASONING_ONLY_RESPONSE: delegated provider produced reasoning tokens but no usable final answer after one final-answer repair attempt.")
+        }
+        if (status == DelegatedChildStatus.COMPLETED && providerFailure != null) {
+            AppLogRecorder.record(
+                "Delegation",
+                "Recovered usable child result despite trailing provider failure · parentRun=$parentRunId · target=${target.uid} · message=${providerFailure.orEmpty().take(180)}",
+                "W"
+            )
         }
         return when (status) {
             DelegatedChildStatus.COMPLETED -> requireNotNull(usableText)
@@ -854,6 +948,7 @@ class ChatRepositoryImpl(
         suspend fun emit(state: ApiState) = send(state)
         val activity = AtomicReference("Preparing response")
         val traceSequences = java.util.concurrent.atomic.AtomicInteger()
+        var delegatedTools = emptyList<ResolvedAgentTool>()
         suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
             when (state) {
                 is ApiState.Success -> activity.set("Writing response")
@@ -915,7 +1010,7 @@ class ChatRepositoryImpl(
                         delegateText.append(it)
                         trySend(ApiState.DelegationText(invocation, target.name, delegateText.toString(), !target.isPrivateDestination()))
                     }
-                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) })
+                }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools else emptyList())
             } finally {
                 // A final suspending snapshot recovers any intermediate UI update
                 // skipped while the channel was busy. It is never the primary answer.
@@ -971,7 +1066,6 @@ class ChatRepositoryImpl(
                 profileBudget
             }
             val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
-            var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
                 val defaults = settingRepository.getFeatureSettings().delegation
                 return chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
@@ -1051,13 +1145,22 @@ class ChatRepositoryImpl(
                 )
             }
             val recalled = try {
-                if (latestUser == null || platform.excludesMemory() || platform.disableAllTools || platform.disableLocalTools) {
+                if (latestUser == null || platform.excludesMemory()) {
                     FactRecall()
                 } else {
-                    val recall = factVault?.prepareTurn(latestUser.content, latestUser.chatId, latestUser.id, isLocal = platform.isPrivateDestination(), previousContext = userMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }) ?: FactRecall()
-                    if (taskRoutedTools.any { it.realToolName == "delegate_to_model" }) {
+                    // Automatic local memory capture/recall is independent from the
+                    // profile's ordinary tool-call switches. Disabling tools should not
+                    // silently disable the user's Memory setting.
+                    val recall = factVault?.prepareTurn(
+                        latestUser.content,
+                        latestUser.chatId,
+                        latestUser.id,
+                        isLocal = platform.isPrivateDestination(),
+                        previousContext = userMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
+                    ) ?: FactRecall()
+                    if (factVault?.state?.value?.settings?.localModelLearning == true) {
                         try {
-                            factVault?.enrichTurn(latestUser, localDelegation::memoryObservations)
+                            factVault.enrichTurn(latestUser, localDelegation::memoryObservations)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -1213,7 +1316,26 @@ class ChatRepositoryImpl(
                 val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })
                 val event = trace.start(call)
                 emit(ApiState.ToolCall(event.sequence))
-                val research = localDelegation.prepare(latestUser.content, delegatedTools, call.callId, automatic = true)
+                val research = try {
+                    localDelegation.prepare(latestUser.content, delegatedTools, call.callId, automatic = true)
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) {
+                        trace.finish(
+                            call,
+                            AgentToolResult(
+                                call.callId,
+                                ToolResultContent.Text("Delegated preparation canceled by the parent run."),
+                                true
+                            )
+                        )
+                    }
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Automatic preparation canceled · run=$runId · call=${call.callId} · terminalTraceRecorded=true",
+                        "W"
+                    )
+                    throw cancelled
+                }
                 val content = ToolResultContent.Text(research.handoff.ifBlank { "No external research was needed for this task." })
                 val preparationFailed = research.outcome in setOf(
                     dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.FAILED,
@@ -1820,6 +1942,16 @@ class ChatRepositoryImpl(
     }
 
     private fun contextString(resId: Int, fallback: String): String = runCatching { context.getString(resId) }.getOrDefault(fallback)
+}
+
+internal fun isLikelyDelegatedTruncation(text: String, outputCapReached: Boolean): Boolean {
+    if (!outputCapReached || text.isBlank()) return false
+    val trimmed = text.trimEnd()
+    val fence = "\u0060\u0060\u0060"
+    val unclosedFence = trimmed.windowed(fence.length, 1).count { it == fence } % 2 != 0
+    val finalCharacter = trimmed.lastOrNull()
+    val hasNaturalEnding = finalCharacter != null && finalCharacter in ".!?)]}\\\"'"
+    return unclosedFence || !hasNaturalEnding
 }
 
 internal fun MessageV2.sendableAssistantContent(): String {

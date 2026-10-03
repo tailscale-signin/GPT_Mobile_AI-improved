@@ -49,11 +49,15 @@ internal object MemoryRecallPolicy {
                     relation == "NAMED" && "name" in queryTerms -> 5.0
                     relation == "OCCUPATION" && queryTerms.any { it in setOf("job", "work", "occupation", "profession") } -> 5.0
                     relation == "WORKING_ON" && queryTerms.any { it in setOf("project", "working", "building", "learning") } -> 4.0
+                    relation == "GOAL" && queryTerms.any { it in setOf("goal", "trying", "plan", "planning", "objective") } -> 4.0
+                    relation in setOf("OWNS", "USES") &&
+                        queryTerms.any { it in setOf("phone", "computer", "laptop", "device", "tool", "tools", "use", "uses", "own", "owns") } -> 4.0
                     else -> 0.0
                 }
             }
             val followUp = if (continuity.isNotEmpty()) continuity.intersect(terms).size.coerceAtMost(3) * 0.6 else 0.0
-            val score = exact + related + intent + followUp + if (broad && fact.fact.entity.id == "user") 0.5 else 0.0
+            val broadProfile = if (broad && fact.fact.entity.id == "user") 3.0 else 0.0
+            val score = exact + related + intent + followUp + broadProfile
             fact to score
         }.filter { it.second > 0.0 }
             .sortedWith(compareByDescending<Pair<VaultFact, Double>> { it.second }.thenByDescending { it.first.pinned }.thenByDescending { it.first.savedAtMillis })

@@ -172,7 +172,7 @@ fun InlineExecutionTrace(events: List<ToolEvent>, timeline: List<AssistantTimeli
                             }
                             val mediaLinks = Regex("gptmobile://media/[a-f0-9-]{36}\\.(?:png|jpg|webp|mp3|wav|ogg)").findAll(event.result.orEmpty()).map { it.value }.distinct().take(8).toList()
                             mediaLinks.forEach { link -> ChatMarkdown("[Open media result]($link)") }
-                            if (debugMode && isDelegation && !event.result.isNullOrBlank()) {
+                            if (expanded && debugMode && isDelegation && !event.result.isNullOrBlank()) {
                                 Text(
                                     event.result
                                         .orEmpty()

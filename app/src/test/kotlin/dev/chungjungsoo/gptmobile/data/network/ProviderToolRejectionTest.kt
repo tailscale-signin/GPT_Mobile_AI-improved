@@ -43,6 +43,44 @@ class ProviderToolRejectionTest {
     private val schema = buildJsonObject { put("type", "object") }
 
     @Test
+    fun `gemini collector failure remains transparent and is never retried`() {
+        var requests = 0
+        withServer(
+            200,
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+            "text/event-stream",
+            onRequest = { requests++ }
+        ) { baseUrl ->
+            val failure = IllegalStateException("consumer stopped")
+            val caught = assertThrows(IllegalStateException::class.java) {
+                runBlocking {
+                    GoogleAPIImpl(NetworkClient(CIO))
+                        .streamGenerateContent(geminiRequest(false), "model", 5, config(baseUrl))
+                        .collect { throw failure }
+                }
+            }
+            assertEquals(failure.message, caught.message)
+            assertTrue(generateSequence<Throwable>(caught) { it.cause }.any { it === failure })
+            assertEquals(1, requests)
+        }
+    }
+
+    @Test
+    fun `gemini skips malformed frame and preserves subsequent valid response`() = withServer(
+        200,
+        "data: {invalid}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+        "text/event-stream"
+    ) { baseUrl ->
+        val responses = runBlocking {
+            GoogleAPIImpl(NetworkClient(CIO))
+                .streamGenerateContent(geminiRequest(false), "model", 5, config(baseUrl)).toList()
+        }
+        assertEquals(1, responses.size)
+        assertEquals("STOP", responses.single().candidates?.single()?.finishReason)
+        assertEquals(null, responses.single().error)
+    }
+
+    @Test
     fun `anthropic error collector exception remains transparent`() = withServer(400, anthropicValidationError()) { baseUrl ->
         val failure = IllegalStateException("consumer stopped")
         val caught = assertThrows(IllegalStateException::class.java) {

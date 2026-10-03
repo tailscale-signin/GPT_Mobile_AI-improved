@@ -30,6 +30,8 @@ data class DelegationBenchmarkRating(
     val primaryInputTokens: Long,
     val primaryOutputTokens: Long,
     val outputCapViolations: Int,
+    val reviewerScore: Int?,
+    val reviewerEvaluations: Int,
     val estimated: Boolean,
     val diagnosticEvents: Int,
     val warningEvents: Int,
@@ -66,6 +68,11 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
     fun accuracy(id: String) = samples.filter { it.testId == id }.takeIf { it.isNotEmpty() }
         ?.let { 100.0 * it.count { sample -> sample.outcome == BenchmarkOutcome.PASSED } / it.size }
     val successRate = samples.takeIf { it.isNotEmpty() }?.let { 100.0 * passed / it.size }
+    val reviewerValues = metrics.mapNotNull { it.reviewerScore }
+    val reviewerScore = reviewerValues.takeIf { it.isNotEmpty() }?.let {
+        (it.average().coerceIn(0.0, 100.0) + 0.5).toInt()
+    }
+    val reviewerEvaluations = metrics.sumOf { it.reviewerEvaluations }
     val dimensions = listOf(
         BenchmarkDimension("Task reliability", successRate, 20, "Passed delegation cases / attempted cases; errors and timeouts fail"),
         BenchmarkDimension("Tool usability", toolUsability, 25, "70% tool-task success + 30% valid fixture-call success"),
@@ -73,7 +80,8 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
         BenchmarkDimension("First-response latency", first?.let { (100.0 * 1000.0 / it.coerceAtLeast(1)).coerceIn(0.0, 100.0) }, 15, "100 at 1 second to first usable text"),
         BenchmarkDimension("End-to-end latency", latency?.let { (100.0 * 5000.0 / it.coerceAtLeast(1)).coerceIn(0.0, 100.0) }, 10, "100 at 5 seconds per successful delegation case"),
         BenchmarkDimension("Evidence accuracy", accuracy("delegation-compact"), 5, "Preserves the random evidence code"),
-        BenchmarkDimension("Research and handoff", accuracy("delegation-research"), 5, "Reads evidence, preserves the code and source, and survives primary synthesis")
+        BenchmarkDimension("Research and handoff", accuracy("delegation-research"), 5, "Reads evidence, preserves the code and source, and survives primary synthesis"),
+        BenchmarkDimension("Reviewer quality", reviewerScore?.toDouble(), 20, "Independent reviewer score for the delegate context; measured only when Reviewer mode is enabled")
     )
     val measured = dimensions.filter { it.score != null }
     val weight = measured.sumOf { it.weight }
@@ -89,7 +97,8 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
         latency, percentile(successful.map { it.durationMs }, .95), first, speed,
         metrics.sumOf { it.workerInputTokens }, metrics.sumOf { it.workerOutputTokens },
         metrics.sumOf { it.primaryInputTokens }, metrics.sumOf { it.primaryOutputTokens },
-        metrics.sumOf { it.outputCapViolations }, metrics.any { it.workerEstimated || it.primaryEstimated },
+        metrics.sumOf { it.outputCapViolations }, reviewerScore, reviewerEvaluations,
+        metrics.any { it.workerEstimated || it.primaryEstimated },
         events.size, events.count { it.level == "WARN" }, events.count { it.level == "ERROR" }, dimensions
     )
 }

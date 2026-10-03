@@ -1,5 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.common
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +24,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
@@ -41,6 +50,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.PlatformSettingViewMod
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ProviderConnectionSettingsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingViewModelV2
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsTypographyScope
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionEditorScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
@@ -52,18 +62,107 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupViewModelV2
 import dev.chungjungsoo.gptmobile.presentation.ui.startscreen.StartScreen
 import dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterSettingsViewModel
 
+private const val PAGE_ENTER_DURATION_MS = 280
+private const val PAGE_EXIT_DURATION_MS = 240
+private const val PAGE_FADE_DURATION_MS = 180
+
 @Composable
 fun SetupNavGraph(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
     onLaunchOAuth: (String) -> Unit = {}
 ) {
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val navHost: @Composable () -> Unit = {
+        AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth)
+    }
+    if (isSettingsDestination(currentEntry?.destination?.route)) {
+        SettingsTypographyScope(content = navHost)
+    } else {
+        navHost()
+    }
+}
+
+@Composable
+private fun AppNavHost(
+    navController: NavHostController,
+    toolConnectionsViewModel: ToolConnectionsViewModel,
+    onLaunchOAuth: (String) -> Unit
+) {
     NavHost(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
         navController = navController,
-        startDestination = Route.CHAT_LIST
+        startDestination = Route.CHAT_LIST,
+        enterTransition = {
+            slideInHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_ENTER_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                initialOffsetX = { width -> width / 9 }
+            ) +
+                fadeIn(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleIn(
+                    initialScale = 0.992f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_ENTER_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_EXIT_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                targetOffsetX = { width -> -width / 28 }
+            ) +
+                fadeOut(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleOut(
+                    targetScale = 0.996f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_EXIT_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_EXIT_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                initialOffsetX = { width -> -width / 28 }
+            ) +
+                fadeIn(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleIn(
+                    initialScale = 0.996f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_EXIT_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                animationSpec = tween(
+                    durationMillis = PAGE_ENTER_DURATION_MS,
+                    easing = FastOutSlowInEasing
+                ),
+                targetOffsetX = { width -> width / 9 }
+            ) +
+                fadeOut(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
+                scaleOut(
+                    targetScale = 0.992f,
+                    animationSpec = tween(
+                        durationMillis = PAGE_ENTER_DURATION_MS,
+                        easing = FastOutSlowInEasing
+                    )
+                )
+        }
     ) {
         homeScreenNavigation(navController)
         migrationScreenNavigation(navController)
@@ -72,6 +171,25 @@ fun SetupNavGraph(
         settingNavigation(navController, toolConnectionsViewModel, onLaunchOAuth)
         chatScreenNavigation(navController)
     }
+}
+
+private fun isSettingsDestination(route: String?): Boolean {
+    if (route == null) return false
+    return route == Route.SETTINGS ||
+        route == Route.AI_PLATFORMS ||
+        route == Route.ADD_PLATFORM ||
+        route == Route.OPENROUTER_SETTINGS ||
+        route == Route.FACT_VAULT ||
+        route == Route.ADVANCED_SETTINGS ||
+        route == Route.USAGE_STATISTICS ||
+        route == Route.DEBUG_DIAGNOSTICS ||
+        route == Route.ABOUT_PAGE ||
+        route == Route.LICENSE ||
+        route.startsWith(Route.LOCAL_MODELS) ||
+        route.startsWith("profile_benchmarks") ||
+        route.startsWith("tool_connections") ||
+        route.startsWith("platform_settings/") ||
+        route.startsWith("provider_settings/")
 }
 
 fun NavGraphBuilder.migrationScreenNavigation(navController: NavHostController) {

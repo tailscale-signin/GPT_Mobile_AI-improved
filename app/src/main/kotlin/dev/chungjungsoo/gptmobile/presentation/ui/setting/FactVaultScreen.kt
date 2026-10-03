@@ -76,6 +76,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
     var draft by remember { mutableStateOf("") }
     var deleting by remember { mutableStateOf<String?>(null) }
     var clearing by remember { mutableStateOf(false) }
+    var advancedControls by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings = vault.settings
@@ -212,60 +213,84 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                     item {
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("Learning & privacy", style = MaterialTheme.typography.titleMedium)
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Memory controls", style = MaterialTheme.typography.titleMedium)
+                                        Text("Capture durable facts automatically, then recall only what is useful.", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    TextButton(onClick = viewModel::applyRecommendedControls, enabled = !busy) { Text("Recommended") }
+                                }
                                 var sensitivity by remember(settings.captureSensitivity) { mutableStateOf(settings.captureSensitivity.toFloat()) }
-                                Text("Memory sensitivity · ${sensitivity.toInt()}%", style = MaterialTheme.typography.titleSmall)
+                                Text("Automatic capture strength · ${sensitivity.toInt()}%", style = MaterialTheme.typography.titleSmall)
                                 Slider(
                                     value = sensitivity,
                                     onValueChange = { sensitivity = it },
                                     onValueChangeFinished = { viewModel.updateSettings(settings.copy(captureSensitivity = sensitivity.toInt())) },
                                     valueRange = 0f..100f,
                                     enabled = !busy && vault.enabled && settings.learningEnabled,
-                                    modifier = Modifier.semantics { contentDescription = "Memory sensitivity" }
+                                    modifier = Modifier.semantics { contentDescription = "Automatic memory capture strength" }
                                 )
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("Only key facts", style = MaterialTheme.typography.labelSmall)
                                     Text("More details", style = MaterialTheme.typography.labelSmall)
                                 }
-                                Text("Lower values keep stronger preferences and lasting facts. Higher values also capture stated projects, learning goals and needs. Existing memories and explicit save requests are unchanged.", style = MaterialTheme.typography.bodySmall)
+                                Text("Balanced (65%) now keeps preferences, owned/used tools and devices, locations, ongoing projects and stated goals. Explicit “remember” requests are always strongest.", style = MaterialTheme.typography.bodySmall)
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(40 to "Selective", 65 to "Balanced", 85 to "Detailed").forEach { (value, label) ->
+                                        FilterChip(
+                                            selected = settings.captureSensitivity == value,
+                                            onClick = { viewModel.updateSettings(settings.copy(captureSensitivity = value)) },
+                                            label = { Text(label) },
+                                            enabled = !busy && vault.enabled && settings.learningEnabled
+                                        )
+                                    }
+                                }
 
                                 VaultToggle("Learn from new messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
                                 VaultToggle("Recall saved memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
+                                VaultToggle("Always include pinned memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
                                 VaultToggle("Allow recall in cloud requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
                                 VaultToggle("Recall only within the original chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
                                 VaultToggle("Review new memories before use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
                                 VaultToggle("Learn preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
                                 VaultToggle("Learn relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
                                 VaultToggle("Use local model for richer learning", settings.localModelLearning, !busy) { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
-                                Text("Uses the private helper selected in Local models → Delegation when delegation is enabled. It selects exact user statements, with a text-only fallback when no helper is available.", style = MaterialTheme.typography.bodySmall)
+                                Text("Uses an available private local delegate profile for richer extraction even when ordinary tool calls are off. It only selects exact user statements; deterministic text capture remains the fallback.", style = MaterialTheme.typography.bodySmall)
                                 VaultToggle("Make room for new automatic memories", settings.rotateAutomaticFacts, !busy) { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
                                 Text("Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.", style = MaterialTheme.typography.bodySmall)
                                 VaultLimit("New facts per message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
                                 VaultLimit("Recall token budget · estimate", settings.recallTokens, 128..4096, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
                                 VaultLimit("Memories per response", settings.maxRecall, 1..20, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
-                                VaultLimit("Memory capacity", settings.maxFacts, 16..2048, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
-                                VaultLimit("Retention days · 0 keeps memories", settings.retentionDays, 0..365, !busy) { viewModel.updateSettings(settings.copy(retentionDays = it)) }
+                                TextButton(onClick = { advancedControls = !advancedControls }) {
+                                    Text(if (advancedControls) "Hide advanced memory controls" else "Show advanced memory controls")
+                                }
+                                if (advancedControls) {
+                                    VaultLimit("Memory capacity", settings.maxFacts, 16..2048, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
+                                    VaultLimit("Retention days · 0 keeps memories", settings.retentionDays, 0..365, !busy) { viewModel.updateSettings(settings.copy(retentionDays = it)) }
+                                }
                             }
                         }
                     }
-                    item {
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("Connected memory", style = MaterialTheme.typography.titleMedium)
-                                VaultToggle("Automatically recall from selected MCPs", settings.externalRecallEnabled, !busy) { viewModel.updateSettings(settings.copy(externalRecallEnabled = it)) }
-                                Text("Add Mem0, Supermemory or your Graphiti server from the marketplace and enable its memory search tool in the AI profile. Selected servers receive up to 500 characters from the current question. Local saved memories and chat history are not uploaded. Remote saving uses the provider's ordinary tools and permissions.", style = MaterialTheme.typography.bodySmall)
-                                if (!settings.allowCloudRecall || settings.sameChatOnly || settings.reviewBeforeRecall) Text("Automatic connected recall is paused by cloud recall, original-chat-only or review-before-use controls.", style = MaterialTheme.typography.bodySmall)
-                                if (connections.isEmpty()) Text("No MCP connections configured yet.")
-                                connections.forEach { connection ->
-                                    val selected = connection.connectionUid in settings.externalMemoryConnections
-                                    VaultToggle(connection.name, selected, !busy) { enabled ->
-                                        val ids = if (enabled) settings.externalMemoryConnections + connection.connectionUid else settings.externalMemoryConnections - connection.connectionUid
-                                        viewModel.updateSettings(settings.copy(externalMemoryConnections = ids))
-                                    }
-                                    if (selected) {
-                                        var memoryScope by remember(connection.connectionUid, settings.externalMemoryScopes) { mutableStateOf(settings.externalMemoryScopes[connection.connectionUid].orEmpty()) }
-                                        OutlinedTextField(memoryScope, { memoryScope = it.take(200) }, label = { Text("User ID / group ID / space key") }, supportingText = { Text("Blank uses the server's authorized default scope.") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
-                                        TextButton(onClick = { viewModel.updateSettings(settings.copy(externalMemoryScopes = settings.externalMemoryScopes + (connection.connectionUid to memoryScope.trim()))) }, enabled = !busy) { Text("Save scope") }
+                    if (advancedControls) {
+                        item {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Connected memory · advanced", style = MaterialTheme.typography.titleMedium)
+                                    VaultToggle("Automatically recall from selected MCPs", settings.externalRecallEnabled, !busy) { viewModel.updateSettings(settings.copy(externalRecallEnabled = it)) }
+                                    Text("Add Mem0, Supermemory or your Graphiti server from the marketplace and enable its memory search tool in the AI profile. Selected servers receive up to 500 characters from the current question. Local saved memories and chat history are not uploaded. Remote saving uses the provider's ordinary tools and permissions.", style = MaterialTheme.typography.bodySmall)
+                                    if (!settings.allowCloudRecall || settings.sameChatOnly || settings.reviewBeforeRecall) Text("Automatic connected recall is paused by cloud recall, original-chat-only or review-before-use controls.", style = MaterialTheme.typography.bodySmall)
+                                    if (connections.isEmpty()) Text("No MCP connections configured yet.")
+                                    connections.forEach { connection ->
+                                        val selected = connection.connectionUid in settings.externalMemoryConnections
+                                        VaultToggle(connection.name, selected, !busy) { enabled ->
+                                            val ids = if (enabled) settings.externalMemoryConnections + connection.connectionUid else settings.externalMemoryConnections - connection.connectionUid
+                                            viewModel.updateSettings(settings.copy(externalMemoryConnections = ids))
+                                        }
+                                        if (selected) {
+                                            var memoryScope by remember(connection.connectionUid, settings.externalMemoryScopes) { mutableStateOf(settings.externalMemoryScopes[connection.connectionUid].orEmpty()) }
+                                            OutlinedTextField(memoryScope, { memoryScope = it.take(200) }, label = { Text("User ID / group ID / space key") }, supportingText = { Text("Blank uses the server's authorized default scope.") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                                            TextButton(onClick = { viewModel.updateSettings(settings.copy(externalMemoryScopes = settings.externalMemoryScopes + (connection.connectionUid to memoryScope.trim()))) }, enabled = !busy) { Text("Save scope") }
+                                        }
                                     }
                                 }
                             }

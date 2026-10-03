@@ -55,6 +55,10 @@ internal object MemoryLearning {
             Regex("(?iu)^my pronouns are $target$") to "PRONOUNS",
             Regex("(?iu)^(?:I (?:avoid|dislike)|I cannot eat|I can't eat) $target$") to "AVOIDS",
             Regex("(?iu)^(?:I own|my (?:phone|computer|laptop) is) $target$") to "OWNS",
+            Regex("(?iu)^(?:I live in|I am based in|I'm based in|I’m based in) $target$") to "LOCATED_IN",
+            Regex("(?iu)^(?:I prefer|I like|my favorite(?: [^.!?;]{1,60})? is) $target$") to "PREFERS",
+            Regex("(?iu)^(?:I use|I mainly use|I primarily use) $target$") to "USES",
+            Regex("(?iu)^(?:my goal is|I am trying to|I'm trying to|I’m trying to) $target$") to "GOAL",
             Regex("(?iu)^(?:I (?:prefer replies|prefer responses|prefer answers) in|please (?:reply|respond|answer) in) $target$") to "RESPONSE_LANGUAGE"
         ) + if (sensitivity >= 40) listOf(Regex("(?iu)^(?:I am|I'm|I’m) (?:working on|building|developing|learning|studying) $target$") to "WORKING_ON") else emptyList()
         patterns.forEach { (pattern, relation) ->

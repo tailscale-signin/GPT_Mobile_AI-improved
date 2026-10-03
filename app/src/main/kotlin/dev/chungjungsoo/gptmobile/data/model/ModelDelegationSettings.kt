@@ -10,6 +10,16 @@ data class ModelDelegationSettings(
     /** 0 = local-first, 50 = shared concurrent-capable, 100 = remote-first. */
     val processingOwnership: Int = 20,
     val targetProfileUid: String = "",
+    /** Optional second model that independently reviews delegate output before it reaches the primary model. */
+    val reviewerEnabled: Boolean = false,
+    val reviewerProfileUid: String = "",
+    val reviewerOutputTokens: Int = 384,
+    /** Minimum reviewer confidence accepted without a second review attempt. */
+    val reviewerMinimumScore: Int = 70,
+    /** Reviewer-only retries; delegate failover retries remain controlled separately. */
+    val reviewerRetryLimit: Int = 2,
+    /** Allow the reviewer to replace unsupported delegate context with corrected context. */
+    val reviewerAutoCorrect: Boolean = true,
     val fallbackToAnotherProfile: Boolean = true,
     val localPlatformsOnly: Boolean = true,
     /** Allow enabled remote profiles to receive delegated worker tasks. */
@@ -51,8 +61,8 @@ data class ModelDelegationSettings(
     val maxPageCharacters: Int = 37200,
     val handoffTokens: Int = 512,
     val compactionThresholdCharacters: Int = 500,
-    /** Maximum local retry attempts after the initial delegation attempt. */
-    val localRetryLimit: Int = 0,
+    /** Same-delegate retry attempts after the initial delegation attempt. Five is the enforced minimum before failover. */
+    val localRetryLimit: Int = 5,
     /** Pause aggressive local research at or below this battery percentage. */
     val lowBatteryThresholdPercent: Int = 15,
     /** Legacy saved preference; final answers now follow the primary profile output budget. */
@@ -173,6 +183,9 @@ data class ModelDelegationSettings(
             localPlatformsOnly = !remoteWorkersAllowed(),
             strategy = strategy.coerceIn(0, 100),
             processingOwnership = processingOwnership.coerceIn(0, 100),
+            reviewerOutputTokens = reviewerOutputTokens.coerceIn(128, 1024),
+            reviewerMinimumScore = reviewerMinimumScore.coerceIn(0, 100),
+            reviewerRetryLimit = reviewerRetryLimit.coerceIn(0, 5),
             maxDelegationDepth = maxDelegationDepth.coerceIn(1, 2),
             maxInputCharacters = maxInputCharacters.coerceIn(1000, 64000),
             maxInputTokensPerDelegate = normalizedInputCap,
@@ -196,7 +209,7 @@ data class ModelDelegationSettings(
             maxPageCharacters = maxPageCharacters.coerceIn(1000, 96000),
             handoffTokens = handoffTokens.coerceIn(128, 8192),
             compactionThresholdCharacters = compactionThresholdCharacters.coerceIn(256, 48000),
-            localRetryLimit = localRetryLimit.coerceIn(0, 1),
+            localRetryLimit = localRetryLimit.coerceIn(5, 10),
             lowBatteryThresholdPercent = lowBatteryThresholdPercent.coerceIn(0, 50),
             remoteSynthesisOutputTokens = remoteSynthesisOutputTokens.coerceIn(256, 4096),
             primaryReplayTokens = primaryReplayTokens.coerceIn(1024, 16000),

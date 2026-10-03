@@ -3,6 +3,11 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
+import dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRating
+import dev.chungjungsoo.gptmobile.data.benchmark.delegationBenchmarkRating
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import javax.inject.Inject
@@ -15,7 +20,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class LocalToolsViewModel @Inject constructor(private val settings: SettingRepository) : ViewModel() {
+class LocalToolsViewModel @Inject constructor(
+    private val settings: SettingRepository,
+    private val benchmarkStore: BenchmarkStore
+) : ViewModel() {
     val delegation = settings.observeFeatureSettings().map { it.delegation.normalized() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ModelDelegationSettings())
     val tokenBudget = settings.observeFeatureSettings().map { it.tokenBudget.normalized() }
@@ -27,10 +35,41 @@ class LocalToolsViewModel @Inject constructor(private val settings: SettingRepos
         }
     }
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val modelScores = kotlinx.coroutines.flow.combine(benchmarkStore.history, profiles) { history, profileList ->
+        profileList.mapNotNull { profile ->
+            val delegationRuns = history
+                .filter { run ->
+                    run.mode == BenchmarkMode.DELEGATION &&
+                        run.finished &&
+                        !run.canceled &&
+                        run.samples.any { sample -> sample.delegation?.workerUid == profile.uid }
+                }
+                .sortedByDescending { it.startedAt }
+                .take(5)
+            val delegationScore = delegationBenchmarkRating(delegationRuns).score
+            val standardMode = if (history.any { it.profileUid == profile.uid && it.mode == BenchmarkMode.FULL }) {
+                BenchmarkMode.FULL
+            } else {
+                BenchmarkMode.QUICK
+            }
+            val standardRuns = history
+                .filter { it.profileUid == profile.uid && it.mode == standardMode && it.finished && !it.canceled }
+                .sortedByDescending { it.startedAt }
+                .take(5)
+            val standardScore = benchmarkRating(standardRuns, profile.compatibleType == ClientType.LITERT_LM).score
+            (delegationScore ?: standardScore)?.let { profile.uid to it }
+        }.toMap()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            runCatching { benchmarkStore.load() }
+        }
+    }
 
     fun resetDelegationDefaults() {
         update { current ->

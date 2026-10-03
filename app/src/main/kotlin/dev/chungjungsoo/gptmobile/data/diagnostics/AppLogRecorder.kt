@@ -93,6 +93,7 @@ object AppLogRecorder {
                 running.inputStream.bufferedReader().use { stream ->
                     while (isActive && mutableEnabled.value) {
                         val line = stream.readLine() ?: break
+                        if (isKnownAndroidDiagnosticNoise(line)) continue
                         val level = line.firstOrNull()?.toString()?.takeIf { it in setOf("V", "D", "I", "W", "E", "F") } ?: "I"
                         record("Android", line, level)
                     }
@@ -154,6 +155,24 @@ object AppLogRecorder {
         current.appendText(line + "\n")
     }
 }
+
+internal fun isKnownAndroidDiagnosticNoise(line: String): Boolean {
+    val normalized = line.lowercase()
+    return KNOWN_ANDROID_NOISE.any(normalized::contains)
+}
+
+private val KNOWN_ANDROID_NOISE = listOf(
+    "windowonbackdispatcher",
+    "sendcancelifrunning",
+    "imetracker",
+    "image decoding logging dropped",
+    "frame time is",
+    "in the future",
+    "unrecognized profile/level",
+    "nosupport [codec.profilelevel",
+    "unsupported profile",
+    "codec2client query -- param skipped"
+)
 
 internal fun redactLogMessage(message: String): String {
     var text = DiagnosticRedactor.redact(message)

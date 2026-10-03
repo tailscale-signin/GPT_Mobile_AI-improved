@@ -7,7 +7,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DelegationBenchmarkRatingTest {
-    private fun run(worker: String, toolPassed: Boolean = true, speed: Double = 50.0, duration: Long = 1000, key: String = "worker-config") = BenchmarkRun(
+    private fun run(
+        worker: String,
+        toolPassed: Boolean = true,
+        speed: Double = 50.0,
+        duration: Long = 1000,
+        key: String = "worker-config",
+        reviewerScore: Int? = null
+    ) = BenchmarkRun(
         worker, "primary", "Primary", "OPENAI", "primary-model", "primary-config", false, BenchmarkMode.DELEGATION, 1,
         suiteVersion = 2,
         delegationSettings = ModelDelegationSettings(targetProfileUid = worker),
@@ -23,7 +30,9 @@ class DelegationBenchmarkRatingTest {
                     if (test.id == "delegation-tools" && toolPassed) 1 else 0,
                     if (test.id == "delegation-tools" && toolPassed) 1 else 0,
                     workerModel = "model", workerConfigKey = key, workerFirstTextMs = 100,
-                    workerDecodeTokensPerSecond = speed
+                    workerDecodeTokensPerSecond = speed,
+                    reviewerScore = reviewerScore,
+                    reviewerEvaluations = if (reviewerScore == null) 0 else 1
                 )
             )
         }
@@ -99,5 +108,25 @@ class DelegationBenchmarkRatingTest {
         assertEquals(300L, result.workerInputTokens)
         assertEquals(60L, result.workerOutputTokens)
         assertTrue(result.estimated)
+    }
+
+    @Test fun `reviewer score is exposed and influences delegation score`() {
+        val strong = delegationBenchmarkRating(listOf(run("strong-review", reviewerScore = 100)))
+        val weak = delegationBenchmarkRating(listOf(run("weak-review", reviewerScore = 0)))
+
+        assertEquals(100, strong.reviewerScore)
+        assertEquals(3, strong.reviewerEvaluations)
+        assertEquals(0, weak.reviewerScore)
+        assertEquals(3, weak.reviewerEvaluations)
+        assertTrue(strong.score!! > weak.score!!)
+        assertTrue(strong.dimensions.any { it.label == "Reviewer quality" && it.score == 100.0 })
+    }
+
+    @Test fun `reviewer disabled leaves reviewer score unmeasured instead of treating it as zero`() {
+        val result = delegationBenchmarkRating(listOf(run("no-reviewer")))
+
+        assertNull(result.reviewerScore)
+        assertEquals(0, result.reviewerEvaluations)
+        assertTrue(result.dimensions.any { it.label == "Reviewer quality" && it.score == null })
     }
 }

@@ -53,6 +53,7 @@ fun CompleteBackupDialog(
     backupStatus: BackupStatus,
     onBackup: () -> Unit,
     onRestore: () -> Unit,
+    onRecentRestore: (String) -> Unit = {},
     onSectionChange: (CompleteBackupSection, Boolean) -> Unit = { _, _ -> },
     onPasswordProtectionChange: (Boolean) -> Unit = {},
     onPasswordChange: (String) -> Unit = {},
@@ -85,6 +86,43 @@ fun CompleteBackupDialog(
                     } ?: stringResource(R.string.complete_backup_none),
                     style = MaterialTheme.typography.bodySmall
                 )
+
+                if (state.recentBackups.isNotEmpty()) {
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Recent backups", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "The three most recent backups remembered from the last backup folder.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            state.recentBackups.take(3).forEach { recent ->
+                                TextButton(
+                                    onClick = { onRecentRestore(recent.uri) },
+                                    enabled = !state.isBusy,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Outlined.Restore, null)
+                                    Column(
+                                        Modifier.weight(1f).padding(start = 10.dp),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Text(recent.displayName, maxLines = 1)
+                                        Text(
+                                            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                                                .format(Date(recent.savedAtEpochMs)),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 Surface(
                     shape = MaterialTheme.shapes.large,

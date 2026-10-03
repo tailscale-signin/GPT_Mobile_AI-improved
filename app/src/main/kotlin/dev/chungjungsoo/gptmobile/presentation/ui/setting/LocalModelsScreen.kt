@@ -45,6 +45,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -87,6 +88,7 @@ fun LocalModelsScreen(
     val requestDownload = rememberLocalModelDownloader(viewModel::onDownloadClick)
     val context = LocalContext.current
     var marketplace by rememberSaveable { mutableStateOf(startInMarketplace) }
+    var marketplaceTab by rememberSaveable { mutableIntStateOf(0) }
     var architecture by rememberSaveable { mutableStateOf("") }
     var selectedTab by rememberSaveable { mutableStateOf(if (startInDelegation) 1 else 0) }
     val runtimeStatus by runtimeViewModel.status.collectAsStateWithLifecycle()
@@ -142,6 +144,11 @@ fun LocalModelsScreen(
                         item(key = "runtime") { LocalRuntimeSettingsCard(runtimeViewModel) }
                     } else if (!marketplace) {
                         item(key = "overview") { LocalModelsOverviewCard(uiState) }
+                        item(key = "import-main") {
+                            CustomModelImportSection(
+                                onImportClick = { openDocumentLauncher.launch(arrayOf("*/*")) }
+                            )
+                        }
                         runtimeStatus?.let { message -> item { Text(message, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) } }
                         item { Text("Your models", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.titleLarge) }
                         val installed = uiState.allItems.filter { it.status == LocalModelItemStatus.READY }
@@ -174,6 +181,23 @@ fun LocalModelsScreen(
                                         FilterChip(selectedArchitecture == label, { architecture = label }, label = { Text(label) })
                                     }
                                 }
+                                androidx.compose.material3.PrimaryTabRow(selectedTabIndex = marketplaceTab) {
+                                    androidx.compose.material3.Tab(
+                                        selected = marketplaceTab == 0,
+                                        onClick = { marketplaceTab = 0 },
+                                        text = { Text("Discover") }
+                                    )
+                                    androidx.compose.material3.Tab(
+                                        selected = marketplaceTab == 1,
+                                        onClick = { marketplaceTab = 1 },
+                                        text = { Text("Browse") }
+                                    )
+                                    androidx.compose.material3.Tab(
+                                        selected = marketplaceTab == 2,
+                                        onClick = { marketplaceTab = 2 },
+                                        text = { Text("Downloads") }
+                                    )
+                                }
                             }
                         }
                         val recommendations = uiState.allItems.filter { item ->
@@ -200,7 +224,7 @@ fun LocalModelsScreen(
                                 backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN && dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(it.entry.supportedAccelerators, it.entry.socToModelFiles, runtimeViewModel.soc)
                             }.thenByDescending { it.entry.capabilities.tools }.thenBy { it.downloadSizeBytes }
                         ).take(3)
-                        if (uiState.searchQuery.isBlank() && recommendations.isNotEmpty()) {
+                        if (marketplaceTab == 0 && uiState.searchQuery.isBlank() && recommendations.isNotEmpty()) {
                             item { Text("Recommended models", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleMedium) }
                             items(recommendations, key = { "recommended-${it.entry.id}" }) { item ->
                                 LocalModelItem(
@@ -215,6 +239,21 @@ fun LocalModelsScreen(
                                 )
                             }
                         }
+                        if (marketplaceTab == 0) {
+                            item {
+                                Card(
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                                ) {
+                                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Explore the full catalog", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                        Text("Search curated and Hugging Face-compatible models, compare accelerators, and filter by download status.", style = MaterialTheme.typography.bodySmall)
+                                        TextButton(onClick = { marketplaceTab = 1 }) { Text("Browse all models") }
+                                    }
+                                }
+                            }
+                        }
+                        if (marketplaceTab == 1) {
                         item(key = "search") {
                             ModelCatalogSearch(
                                 query = uiState.searchQuery,
@@ -235,14 +274,13 @@ fun LocalModelsScreen(
                                 onRemoveToken = viewModel::removeHuggingFaceAccessToken
                             )
                         }
-                        item(key = "import") {
-                            CustomModelImportSection(
-                                onImportClick = {
-                                    openDocumentLauncher.launch(arrayOf("*/*"))
-                                }
-                            )
                         }
-                        if (uiState.items.isEmpty()) {
+                        val marketplaceItems = when (marketplaceTab) {
+                            0 -> emptyList()
+                            2 -> uiState.items.filter { it.status != LocalModelItemStatus.NOT_DOWNLOADED }
+                            else -> uiState.items
+                        }
+                        if (marketplaceTab != 0 && marketplaceItems.isEmpty()) {
                             item(key = "empty") {
                                 Text(
                                     text = stringResource(R.string.local_models_empty),
@@ -264,7 +302,7 @@ fun LocalModelsScreen(
                                 )
                             }
                             items(
-                                items = uiState.items.filter { item ->
+                                items = marketplaceItems.filter { item ->
                                     when (selectedArchitecture) {
                                         "QNN" -> qnnAvailable && dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators.isNpuEligible(item.entry.supportedAccelerators, item.entry.socToModelFiles, runtimeViewModel.soc)
                                         "LiteRT" -> item.entry.supportedAccelerators.any { it.equals("cpu", true) || it.equals("gpu", true) }
@@ -505,7 +543,7 @@ private fun ModelCatalogSearch(
             if (selectedSource == LocalModelSource.HUGGING_FACE) {
                 "Searches Hub repositories for LiteRT-LM GPU exports and matching Qualcomm NPU packages within this phone’s RAM budget. Raw checkpoints and ZIP archives are excluded. Runtime compatibility is checked when loading."
             } else {
-                "Curated downloads include app-tested models and device-specific variants. Use Import model for other validated local files."
+                "Curated downloads include app-tested models and device-specific variants. Custom file import now lives in your Local models Library."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,9 +41,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Tab
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -89,6 +92,8 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val delegates by viewModel.delegates.collectAsStateWithLifecycle()
     val delegate by viewModel.delegate.collectAsStateWithLifecycle()
     val selectedDelegates by viewModel.selectedDelegates.collectAsStateWithLifecycle()
+    val benchmarkCandidates by viewModel.benchmarkCandidates.collectAsStateWithLifecycle()
+    val selectedBenchmarks by viewModel.selectedBenchmarks.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val ready by viewModel.ready.collectAsStateWithLifecycle()
@@ -103,6 +108,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     var performanceOrder by rememberSaveable { mutableStateOf(PerformanceOrder.LATENCY) }
     var detailKey by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var benchmarkOptionsExpanded by rememberSaveable { mutableStateOf(false) }
     val selected = profile
     val local = selected?.compatibleType == ClientType.LITERT_LM
     val tint = benchmarkTint(local)
@@ -123,6 +129,22 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                 Text("Know what your AI can do", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text("Repeatable tests, transparent ratings and real conversation performance.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            item {
+                PrimaryTabRow(selectedTabIndex = if (tab == 4) 1 else 0) {
+                    Tab(
+                        selected = tab != 4,
+                        onClick = { if (tab == 4) tab = 0 },
+                        text = { Text("Benchmark") },
+                        icon = { Icon(Icons.Default.BarChart, null) }
+                    )
+                    Tab(
+                        selected = tab == 4,
+                        onClick = { tab = 4 },
+                        text = { Text("Delegation") },
+                        icon = { Icon(Icons.Default.Cloud, null) }
+                    )
+                }
+            }
             item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {
                 item {
@@ -137,10 +159,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             if (selected == null) {
                 item { BenchmarkPanel("No AI profiles yet") { Text("Create an AI profile in Settings, choose its model, then return here to measure it.") } }
             } else {
-                item {
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Overview", "Everyday", "Compare", "History", "Delegation").forEachIndexed { index, label ->
-                            FilterChip(tab == index, { tab = index }, label = { Text(label) })
+                if (tab != 4) {
+                    item {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Overview", "Everyday", "Compare", "History").forEachIndexed { index, label ->
+                                FilterChip(tab == index, { tab = index }, label = { Text(label) })
+                            }
                         }
                     }
                 }
@@ -195,7 +219,15 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 }
                                 Text("${selectedDelegates.size} selected · no automatic fallback between benchmarked helpers.", style = MaterialTheme.typography.bodySmall)
                                 Text("Ownership ${delegationSettings.processingOwnership}/100 · Worker output ${delegationSettings.maxOutputTokens} tokens · Brief ${delegationSettings.handoffTokens} tokens")
-                                Text("${delegationSettings.effectiveLocalModelCalls()} worker calls per turn · ${delegationSettings.maxDelegateRuntimeSeconds}s runtime · ${delegationSettings.timeToFirstTokenTimeoutSeconds}s first progress · ${delegationSettings.idleTokenTimeoutSeconds}s idle")
+                                val reviewerProfile = profiles.firstOrNull { it.uid == delegationSettings.reviewerProfileUid }
+                                Text(
+                                    if (delegationSettings.reviewerEnabled) {
+                                        "Reviewer: ${reviewerProfile?.name ?: "not selected"} · ${reviewerProfile?.model.orEmpty()} · ${delegationSettings.reviewerOutputTokens} output tokens"
+                                    } else {
+                                        "Reviewer: Off"
+                                    }
+                                )
+                                Text("${delegationSettings.effectiveLocalModelCalls()} worker calls per turn · ${delegationSettings.maxDelegateRuntimeSeconds}s runtime · ${delegationSettings.timeToFirstTokenTimeoutSeconds}s first progress · ${delegationSettings.idleTokenTimeoutSeconds}s idle · ${delegationSettings.localRetryLimit} same-delegate retries")
                                 Text("Each helper runs evidence compaction, a tool-call usability test, and research → handoff → synthesis. The benchmark records token throughput, first-text latency, end-to-end latency, tool success, token usage, and diagnostic events. Each case has a 180-second ceiling.", style = MaterialTheme.typography.bodySmall)
                                 Button(
                                     onClick = { viewModel.start(BenchmarkMode.DELEGATION) },
@@ -208,7 +240,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                         val rankings = delegateRankings(profileHistory, benchmarkConfigKey(selected, localEnvironment), delegationSettings)
                         item {
                             BenchmarkPanel("Delegation scoreboard · best score") {
-                                Text("Same primary and current delegation settings · latest five runs per helper. Delegation score: reliability 20%, tool usability 25%, token throughput 20%, first-response latency 15%, end-to-end latency 10%, evidence accuracy 5%, research/handoff 5%. Overall score is capped by task reliability.", style = MaterialTheme.typography.bodySmall)
+                                Text("Same primary and current delegation settings · latest five runs per helper. Delegation score measures reliability, tool usability, throughput, latency, evidence accuracy, research/handoff, and—when Reviewer mode is enabled—the independent Reviewer Score. Reviewer quality contributes a 20-weight dimension and the overall score remains capped by task reliability.", style = MaterialTheme.typography.bodySmall)
                                 Text("Throughput prefers provider-reported output tokens; character estimates are used only when token usage is unavailable. Diagnostic events are saved with each run to expose stalls, failures, tool activity, cap violations, and handoff behavior.", style = MaterialTheme.typography.bodySmall)
                                 if (rankings.isEmpty()) Text("Benchmark delegates to build the scoreboard.")
                                 rankings.take(10).forEachIndexed { index, row ->
@@ -220,7 +252,11 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                             Text(worker.workerName, fontWeight = FontWeight.SemiBold)
                                             Text("${row.rating.passed}/${row.rating.attempts} passed · ${row.runs} runs · ${row.rating.medianDecodeSpeed?.let { "%.1f tok/s".format(it) } ?: "speed —"} · tools ${percent(row.rating.toolTaskSuccessPercent)} · first ${formatLatency(row.rating.medianFirstTextMs)}", style = MaterialTheme.typography.labelSmall)
                                         }
-                                        Text(row.rating.score?.let { "$it / 100" } ?: "Unrated", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(row.rating.score?.let { "$it / 100" } ?: "Unrated", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                            Text("Reviewer Score", style = MaterialTheme.typography.labelSmall)
+                                            Text(row.rating.reviewerScore?.let { "$it / 100" } ?: "—", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                        }
                                     }
                                 }
                             }
@@ -240,6 +276,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 MetricLine("Worker input / output tokens", "${result.workerInputTokens} / ${result.workerOutputTokens}")
                                 MetricLine("Primary input / output tokens", "${result.primaryInputTokens} / ${result.primaryOutputTokens}")
                                 MetricLine("Output cap violations", result.outputCapViolations.toString())
+                                MetricLine("Reviewer Score", result.reviewerScore?.let { "$it / 100 · ${result.reviewerEvaluations} evaluations" } ?: "Not measured")
                                 MetricLine("Diagnostic events", "${result.diagnosticEvents} total · ${result.warningEvents} warnings · ${result.errorEvents} errors")
                                 if (result.estimated) Text("Token totals include estimates.", style = MaterialTheme.typography.labelSmall)
                                 result.dimensions.forEach { dimension ->
@@ -265,6 +302,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                             MetricLine("Worker time / first text", "${formatLatency(metrics.workerDurationMs)} / ${formatLatency(metrics.workerFirstTextMs)}")
                                             MetricLine("Worker token throughput", metrics.workerDecodeTokensPerSecond?.let { "${if (metrics.workerSpeedUsesReportedTokens) "" else "≈ "}%.1f tok/s".format(it) } ?: "Not observed")
                                             MetricLine("Output cap violations", metrics.outputCapViolations.toString())
+                                            MetricLine("Reviewer Score", metrics.reviewerScore?.let { "$it / 100 · ${metrics.reviewerEvaluations} evaluations" } ?: "Not measured")
                                             Text("Primary tokens: ${metrics.primaryInputTokens} input / ${metrics.primaryOutputTokens} output${if (metrics.primaryEstimated) " (output estimated)" else ""}")
                                             Text("${metrics.searches} searches · ${metrics.pagesRead} pages · ${metrics.rawEvidenceBytes} evidence bytes → ${metrics.handoffCharacters} brief characters")
                                             if (metrics.fixtureCalls > 0) Text("Fixture calls: ${metrics.successfulFixtureCalls}/${metrics.fixtureCalls} successful")
@@ -288,18 +326,68 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                     BenchmarkMode.entries.filter { it != BenchmarkMode.DELEGATION }.forEach { option -> FilterChip(mode == option, { mode = option }, enabled = progress == null, label = { Text(option.label) }) }
                                 }
                                 Text(if (mode == BenchmarkMode.QUICK) "5 tests · speed, instructions, JSON, arithmetic and tools" else "8 tests · adds repeated speed trials and conversation recall", style = MaterialTheme.typography.bodyMedium)
-                                Text("Up to 512 output tokens per request and 90 seconds per test. Tools use a harmless in-memory fixture. ${if (local) "Keep this device cool and idle for comparable results." else "Requests use this profile’s provider and may incur its normal charges."}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Up to 512 output tokens per request and 90 seconds per test. Tools use a harmless in-memory fixture. Reasoning follows each model profile instead of being forcibly disabled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("${selectedBenchmarks.size} of ${benchmarkCandidates.size} models selected", style = MaterialTheme.typography.labelLarge)
+                                    Box {
+                                        IconButton(onClick = { benchmarkOptionsExpanded = true }, enabled = progress == null) {
+                                            Icon(Icons.Default.Tune, "Choose benchmark models", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        DropdownMenu(
+                                            expanded = benchmarkOptionsExpanded,
+                                            onDismissRequest = { benchmarkOptionsExpanded = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Select all models") },
+                                                onClick = { viewModel.selectAllBenchmarks() }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Clear selection") },
+                                                onClick = { viewModel.clearBenchmarks() }
+                                            )
+                                            benchmarkCandidates.forEach { candidate ->
+                                                val checked = selectedBenchmarks.any { it.uid == candidate.uid }
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Column {
+                                                            Text(candidate.name)
+                                                            Text(candidate.model, style = MaterialTheme.typography.labelSmall)
+                                                        }
+                                                    },
+                                                    leadingIcon = {
+                                                        Checkbox(
+                                                            checked = checked,
+                                                            onCheckedChange = null
+                                                        )
+                                                    },
+                                                    onClick = { viewModel.toggleBenchmarkProfile(candidate) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                                 Button(
-                                    onClick = { viewModel.start(mode) },
-                                    enabled = ready && progress == null && !activeRequests,
+                                    onClick = { viewModel.startStandardBatch(mode) },
+                                    enabled = ready && progress == null && !activeRequests && selectedBenchmarks.isNotEmpty(),
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = tint, contentColor = if (tint.luminance() > .5f) Color.Black else Color.White)
                                 ) {
                                     Icon(Icons.Default.PlayArrow, null)
-                                    Text("Run ${mode.label.lowercase()} benchmark", Modifier.padding(start = 8.dp))
+                                    Text(
+                                        "Benchmark ${selectedBenchmarks.size} selected model${if (selectedBenchmarks.size == 1) "" else "s"}",
+                                        Modifier.padding(start = 8.dp)
+                                    )
                                 }
+                                TextButton(
+                                    onClick = { viewModel.start(mode) },
+                                    enabled = ready && progress == null && !activeRequests
+                                ) { Text("Run only ${selected.name}") }
                                 if (activeRequests && progress == null) Text("Waiting for active model requests to finish.", style = MaterialTheme.typography.labelSmall)
-                                Text("Results save after each test. Stop cancels explicitly; rotating the screen keeps the run active.", style = MaterialTheme.typography.labelSmall)
+                                Text("All selected models run sequentially so their provider or local runtime is not contending with another benchmark. Results save after each test.", style = MaterialTheme.typography.labelSmall)
                             }
                         }
                         item { BenchmarkScoreCard(rating, local, matching.size, mode) }
@@ -339,7 +427,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             BenchmarkPanel("Measurement notes") {
                                 MetricLine("p95 first response", formatLatency(rating.p95FirstTextMs))
                                 MetricLine("Median request time", formatLatency(rating.medianDurationMs))
-                                Text("Suite v1 · latest 5 completed ${mode.label.lowercase()} runs with this configuration. Fixed instructions, temperature 0 and reasoning off; profile settings are preserved. Network, model loading and queue time are included in first response. Token estimates use characters ÷ 4 and are marked ≈. One-chunk responses have no measured decode speed.", style = MaterialTheme.typography.bodySmall)
+                                Text("Suite v1 · latest 5 completed ${mode.label.lowercase()} runs with this configuration. Fixed instructions and temperature 0; each profile's reasoning requirement is preserved. Network, model loading and queue time are included in first response. Token estimates use characters ÷ 4 and are marked ≈. One-chunk responses have no measured decode speed.", style = MaterialTheme.typography.bodySmall)
                                 Text("This is an app performance score, not a general intelligence test. Missing measurements are excluded and remaining weights are normalized. Local and remote scores use different speed targets and are ranked separately.", style = MaterialTheme.typography.bodySmall)
                             }
                         }

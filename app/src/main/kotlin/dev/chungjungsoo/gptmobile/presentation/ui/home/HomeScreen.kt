@@ -3,6 +3,11 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 import android.content.ClipData
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -69,6 +74,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -132,6 +138,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.chat.CompletedGeneration
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -170,6 +177,7 @@ fun HomeScreen(
     val platformState by homeViewModel.platformState.collectAsStateWithLifecycle()
     val activeChatIds by homeViewModel.activeChatIds.collectAsStateWithLifecycle()
     val unreadChatIds by homeViewModel.unreadChatIds.collectAsStateWithLifecycle()
+    val completedGenerations by homeViewModel.completedGenerations.collectAsStateWithLifecycle()
     val archivedChats by homeViewModel.archivedChats.collectAsStateWithLifecycle()
     val searchQuery by homeViewModel.searchQuery.collectAsStateWithLifecycle()
     val favoriteMessages by homeViewModel.favoriteMessages.collectAsStateWithLifecycle()
@@ -234,16 +242,38 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                NewChatButton(expanded = listState.isScrollingUp(), onClick = {
-                    val enabledApiTypes = platformState.filter { it.enabled }.map { it.uid }
-                    if (enabledApiTypes.size == 1) {
-                        // Navigate to new chat directly if only one platform is enabled
-                        navigateToNewChat(enabledApiTypes, ConversationMode.STANDARD)
-                    } else {
-                        homeViewModel.openSelectModelDialog()
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (completedGenerations.isNotEmpty()) {
+                    val knownChats = remember(chatListState.chats, archivedChats) {
+                        (chatListState.chats + archivedChats).associateBy { it.id }
                     }
-                })
+                    CompletedGenerationNavigator(
+                        items = completedGenerations,
+                        chatTitles = completedGenerations.associate { item ->
+                            item.chatId to (knownChats[item.chatId]?.title ?: "Conversation ${item.chatId}")
+                        },
+                        onOpen = { item ->
+                            homeViewModel.consumeCompletedGeneration(item.runId)
+                            homeViewModel.getChatRoom(item.chatId) { room ->
+                                if (room != null) onExistingChatClick(room, item.assistantMessageId)
+                            }
+                        }
+                    )
+                }
+                if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                    NewChatButton(expanded = listState.isScrollingUp(), onClick = {
+                        val enabledApiTypes = platformState.filter { it.enabled }.map { it.uid }
+                        if (enabledApiTypes.size == 1) {
+                            // Navigate to new chat directly if only one platform is enabled
+                            navigateToNewChat(enabledApiTypes, ConversationMode.STANDARD)
+                        } else {
+                            homeViewModel.openSelectModelDialog()
+                        }
+                    })
+                }
             }
         },
         bottomBar = {
@@ -533,6 +563,110 @@ fun HomeScreen(
                     homeViewModel.closeDeleteWarningDialog()
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun CompletedGenerationNavigator(
+    items: List<CompletedGeneration>,
+    chatTitles: Map<Int, String>,
+    onOpen: (CompletedGeneration) -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(items.size) {
+        if (items.size <= 1) expanded = false
+    }
+
+    Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AnimatedVisibility(
+            visible = expanded && items.size > 1,
+            enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(),
+            exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut()
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                items.take(8).asReversed().forEach { item ->
+                    Surface(
+                        onClick = { onOpen(item) },
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 8.dp,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.widthIn(min = 210.dp, max = 320.dp)
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ) {
+                                Icon(
+                                    Icons.Filled.ChatBubble,
+                                    contentDescription = null,
+                                    modifier = Modifier.padding(7.dp).size(17.dp)
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    chatTitles[item.chatId] ?: "Conversation ${item.chatId}",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "AI response finished",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Box {
+            FilledIconButton(
+                onClick = {
+                    if (items.size == 1) onOpen(items.first()) else expanded = !expanded
+                },
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                modifier = Modifier.size(52.dp)
+            ) {
+                Icon(
+                    Icons.Filled.ChatBubble,
+                    contentDescription = if (items.size == 1) "Open finished AI response" else "Show ${items.size} finished AI responses",
+                    modifier = Modifier.size(25.dp)
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFFE53935),
+                contentColor = Color.White,
+                shadowElevation = 3.dp,
+                modifier = Modifier.align(Alignment.TopEnd)
+            ) {
+                Text(
+                    text = if (items.size > 99) "99+" else items.size.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
         }
     }
 }

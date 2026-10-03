@@ -412,6 +412,24 @@ class AgentRunner(
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
                 emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
+            } else if (toolCallBudgetExhausted && outputBudgetExhausted) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                finalResponseRequested = true
+                val callUsed = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
+                val callLimit = sharedCallBudgetResult?.toolCallBudgetLimit ?: executionToolCallLimit
+                val configured = sharedCallBudgetResult?.toolCallBudgetConfigured ?: limits.maxToolCalls
+                val reserve = sharedCallBudgetResult?.toolCallBudgetReserved ?: limits.finalResponseToolCallReserve.coerceAtLeast(0)
+                val usedBytes = sharedOutputBudgetResult?.toolResultBudgetUsedBytes ?: limits.maxToolOutputBytes
+                val limitBytes = sharedOutputBudgetResult?.toolResultBudgetLimitBytes ?: limits.maxToolOutputBytes
+                emit(
+                    AgentRunEvent.Notice(
+                        "Shared tool budgets reached: $callUsed/$callLimit executable calls used " +
+                            "($configured configured, $reserve reserved) and $usedBytes/$limitBytes result bytes used. " +
+                            "Finishing with completed results; successful delegated research remains usable.",
+                        persistent = true
+                    )
+                )
             } else if (toolCallBudgetExhausted) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
@@ -454,6 +472,8 @@ class AgentRunner(
                 allResults[allResults.lastIndex] = when {
                     roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
                     contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
+                    outputBudgetExhausted && toolCallBudgetExhausted ->
+                        appendInstruction(allResults.last(), COMBINED_BUDGET_FINAL_RESPONSE_INSTRUCTION)
                     outputBudgetExhausted -> appendInstruction(allResults.last(), OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION)
                     else -> appendFinalResponseInstruction(allResults.last())
                 }
@@ -582,6 +602,11 @@ class AgentRunner(
             "The model/tool work-round allowance is exhausted. Do not request more tools. " +
                 "Use the available findings to answer now. If additional tool work is required, " +
                 "briefly state what remains and ask the user to reply exactly \"continue\"."
+        const val COMBINED_BUDGET_FINAL_RESPONSE_INSTRUCTION =
+            "The shared tool-call and tool-result byte budgets are exhausted for this response. Do not request more tools. " +
+                "Use every successful result already returned, including completed delegated research, to answer the user's request now. " +
+                "Do not claim research failed merely because the shared budgets are exhausted. " +
+                "Ask the user to continue only if essential evidence is still missing."
         const val OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION =
             "The tool-result byte budget is exhausted for this response. Do not request more tool output. " +
                 "Use every successful result already returned, including completed delegated research, to answer the user's request now. " +

@@ -105,7 +105,6 @@ fun SettingItem(
     }
 }
 
-
 @Composable
 fun SettingsHelpIcon(
     description: String,

@@ -15,19 +15,21 @@ class DelegationGitHubPolicyTest {
     fun `local first keeps aggregate web search and GitHub available for primary recovery`() {
         val delegate = tool("delegate_to_model")
         val aggregateWeb = tool("web_search")
+        val readUrl = tool("read_url")
         val directEngine = tool("mcp__brave__web_search", "brave_web_search")
+        val extraReader = tool("mcp__firecrawl__scrape", "firecrawl_scrape")
         val githubNative = tool("github__work", "github")
         val githubMcp = tool("mcp__github__create_pull_request")
         val calculator = tool("calculate_expression")
-        val tools = listOf(delegate, aggregateWeb, directEngine, githubNative, githubMcp, calculator)
+        val tools = listOf(delegate, aggregateWeb, readUrl, directEngine, extraReader, githubNative, githubMcp, calculator)
 
         assertEquals(
-            listOf(delegate, aggregateWeb, githubNative, githubMcp),
+            listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp),
             primaryDelegationTools(tools, true, 0)
         )
         assertEquals(tools, primaryDelegationTools(tools, false, 0))
         assertEquals(
-            listOf(delegate, aggregateWeb, githubNative, githubMcp, calculator),
+            listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp, calculator),
             primaryDelegationTools(tools, true, 100)
         )
     }

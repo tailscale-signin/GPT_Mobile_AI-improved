@@ -276,7 +276,7 @@ private fun ProviderConnectionGroupCard(
                         IconButton(onClick = onProviderSettings) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
-                                contentDescription = "Provider settings",
+                                contentDescription = "Provider Settings",
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -297,7 +297,7 @@ private fun ProviderConnectionGroupCard(
                     )
                 }
             }
-            if (expanded) onSpecialSettings?.let { action -> TextButton(onClick = action) { Text("OpenRouter options") } }
+            if (expanded) onSpecialSettings?.let { action -> TextButton(onClick = action) { Text("OpenRouter Options") } }
             if (expanded && connection.hasCredential) {
                 Text(
                     text = stringResource(R.string.credential_saved),
@@ -390,7 +390,7 @@ private fun PlatformItemCard(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${platform.compatibleType.name} • ${platform.model.ifBlank { "Default model" }}",
+                    text = platform.model.ifBlank { "Default Model" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

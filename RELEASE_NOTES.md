@@ -1,34 +1,49 @@
-# GPT Mobile AI 0.9.27.0
+# GPT Mobile AI 0.9.28.0
 
-## Delegation and GitHub reliability
-- Fixes delegate selection for legacy configurations where cloud helpers had been allowed through the older local-only setting.
-- Prevents delegation from selecting the active primary profile or repeatedly cycling through unavailable helpers.
-- Keeps GitHub repository work on the native GitHub integration and removes POSIX/shell/terminal fallbacks for GitHub tasks.
-- Adds repository write-capability inspection before diagnosing GitHub write failures.
-- Stops treating every HTTP 403 as proof of a read-only token.
-- Reports the exact GitHub permission layer involved, including repository push authority and endpoint-specific requirements such as Contents: write, Pull requests: write, and Actions: write.
-- Preserves GitHub API error messages, rate-limit state, accepted permissions, OAuth scope hints, and SSO details when available.
-- Returns structured GITHUB_WRITE_BLOCKED errors and stops repeated write retries after a confirmed denial.
+## Reliability and delegation
+- Strengthens delegate retry, failover, timeout, and recovery behavior while preserving authorized tool access.
+- Preserves model reasoning requirements during benchmarks and delegated requests instead of forcing reasoning off on endpoints that require it.
+- Keeps delegate-produced debug result text hidden until execution details are expanded.
+- Adds an independent Reviewer tab with a separate model, Reviewer Score, retry threshold, output budget, and optional correction controls.
+- Shows benchmark/delegation scores directly in delegate and reviewer model pickers.
 
-## Tool Connections redesign
-- Splits Tool Connections into a default Plugins tab and a separate Remote MCP tab.
-- Moves built-in and native integrations, including GitHub API, web search, memory, calculator, file reading, URL reading, location, and delegation, under Plugins.
-- Adds persistent per-plugin enable/disable controls and settings.
-- Keeps actual MCP servers isolated under Remote MCP with their connection, health, authentication, resources/prompts, permissions, pairing, and marketplace controls.
-- Ensures disabled plugins are actually removed from model tool catalogs rather than being cosmetic UI toggles.
+## Benchmarks
+- Separates Benchmark and Delegation performance into top-level tabs.
+- Adds sequential multi-model standard benchmarking with a selectable model list and one-click select-all.
+- Keeps Delegation benchmarks on their own scoreboard with tool usability, latency, throughput, reliability, and Reviewer Score measurements.
 
-## GitHub plugin UX
-- Shows the permissions required for repository writes, pull requests, and Actions directly in GitHub Plugin settings.
-- Keeps native GitHub and GitHub MCP clearly separated so the app does not duplicate or confuse the two tool paths.
-- Prevents anonymous GitHub fallback from bypassing a disabled authenticated GitHub plugin.
+## Memory
+- Improves automatic local capture for durable preferences, identity, devices/tools, projects, goals, and explicit remember requests.
+- Adds Selective, Balanced, and Detailed capture presets plus cleaner recommended and advanced controls.
+- Keeps recall relevance-driven and bounded so stronger capture does not crowd responses with unrelated memories.
+- Adds pinned-memory recall and improved local-model-assisted extraction while retaining privacy/tombstone protections.
 
-## Regression coverage
-- Covers legacy delegation migration, strict local-only behavior, plugin gating, GitHub write capability inspection, false read-only 403 diagnosis, and POSIX suppression for GitHub tasks.
+## Settings, models, and plugins
+- Splits AI Platforms into Remote, Local, and Free tabs with themed icons.
+- Moves custom local-model import into the main Local Models library.
+- Redesigns the local-model marketplace into Discover, Browse, and Downloads with improved filtering and device/accelerator guidance.
+- Adds richer layered themed icons for built-in plugins.
+- Increases Settings typography by 2sp across Settings destinations and removes repetitive navigation chevrons.
+
+## Conversation experience
+- Improves the themed back button and page transition animations.
+- Moves conversation content behind the composer with top and bottom edge fades; the lower fade reaches transparency halfway through the input bar.
+- Adds a persistent finished-response navigator with the themed chat icon, red completion count, multi-response expansion, and exact jump-to-response targeting.
+- Automatically keeps the main chat list to 20 visible conversations by archiving alternating oldest eligible chats; pinned and active chats are protected.
+- Keeps the 1-second streaming text fade consistent across punctuation, tables, code blocks, and display math.
+
+## Backup and restore
+- Shows the three most recent dated backups from the most recently used backup folder for quick restore access.
+
+## Diagnostics and validation
+- Improves provider recovery, circuit breaking, MCP renewal, tool failure classification, local-runtime readiness, and diagnostic telemetry.
+- Adds regression coverage for benchmark reasoning, automatic chat archival, streaming punctuation, memory relevance, and completion navigation wiring.
+- Validated with Kotlin lint, unit tests, Android lint, resource/XML preflight, debug/APK builds, Remote diagnostics, and CodeQL.
 
 ## Version
-- Version: 0.9.27.0
-- Version code: 96
+- Version: 0.9.28.0
+- Version code: 97
 
 ## Installation
 - Install the signed Android APK from this release.
-- No gateway script update is required specifically for these client-side delegation, GitHub, and Tool Connections fixes.
+- This release is built and signed by the repository's immutable Publish Signed Release workflow.

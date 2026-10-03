@@ -132,7 +132,7 @@ fun SettingsHelpIcon(
     if (open) {
         AlertDialog(
             onDismissRequest = { open = false },
-            title = { Text(displayTitle) },
+            title = { Text(title) },
             text = { Text(description) },
             confirmButton = {
                 TextButton(onClick = { open = false }) { Text("Close") }

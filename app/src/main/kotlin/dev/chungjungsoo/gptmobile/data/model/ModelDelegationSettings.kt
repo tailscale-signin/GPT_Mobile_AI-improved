@@ -14,9 +14,9 @@ data class ModelDelegationSettings(
     val reviewerEnabled: Boolean = false,
     val reviewerProfileUid: String = "",
     val reviewerOutputTokens: Int = 384,
-    /** Minimum reviewer confidence accepted without a second review attempt. */
+    /** Minimum review score before the handoff is marked below threshold. Low scores are not retried. */
     val reviewerMinimumScore: Int = 70,
-    /** Reviewer-only retries; delegate failover retries remain controlled separately. */
+    /** Retries for malformed or unavailable reviews only; delegate failover retries are separate. */
     val reviewerRetryLimit: Int = 2,
     /** Allow the reviewer to replace unsupported delegate context with corrected context. */
     val reviewerAutoCorrect: Boolean = true,

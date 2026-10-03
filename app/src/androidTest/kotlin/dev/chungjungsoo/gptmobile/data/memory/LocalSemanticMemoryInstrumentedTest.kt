@@ -10,6 +10,9 @@ import dev.chungjungsoo.gptmobile.data.rag.KnowledgeRelation
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,6 +45,15 @@ class LocalSemanticMemoryInstrumentedTest {
             assertTrue(first.containsKey("personal"))
             assertFalse(first.containsKey("project"))
             assertTrue(first.values.all { it.isFinite() })
+            // Force callers to migrate across dispatchers while native readers are repeatedly closed.
+            (1..12).map { index ->
+                async(if (index % 2 == 0) Dispatchers.IO else Dispatchers.Default) {
+                    engine.search("stars", "personal")
+                    engine.releaseWhenIdle(0)
+                    engine.synchronize(facts)
+                }
+            }.awaitAll()
+            assertTrue(engine.status.value.available)
             engine.releaseWhenIdle(0)
             engine = LocalSemanticMemory(context)
             assertTrue(engine.search("bread", "project:private").containsKey("project"))

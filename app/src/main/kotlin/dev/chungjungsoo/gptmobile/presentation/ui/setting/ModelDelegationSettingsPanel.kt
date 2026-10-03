@@ -3,12 +3,13 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cloud
@@ -16,7 +17,6 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -46,9 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
-import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import kotlin.math.roundToInt
 
@@ -243,7 +243,7 @@ internal fun ModelDelegationSettingsContent(
                             0..100,
                             5,
                             !busy,
-                            "Scores below this threshold are reviewed again before handoff when retry attempts remain."
+                            "Scores below this threshold are marked for primary-model verification. A valid low score is kept."
                         ) { value -> onChange { it.copy(reviewerMinimumScore = value) } }
                         DelegationSlider(
                             "Reviewer Retry Attempts",
@@ -251,7 +251,7 @@ internal fun ModelDelegationSettingsContent(
                             0..5,
                             1,
                             !busy,
-                            "Reviewer retries are separate from the delegate's required five failover retries."
+                            "Retries malformed or unavailable assessments with a fresh review request. Valid scores are never retried."
                         ) { value -> onChange { it.copy(reviewerRetryLimit = value) } }
                         LocalToolToggle("Allow Reviewer Corrections", config.reviewerAutoCorrect, !busy) { value ->
                             onChange { it.copy(reviewerAutoCorrect = value) }
@@ -310,7 +310,7 @@ internal fun ModelDelegationSettingsContent(
                         IconButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.testTag("delegation_advanced")) { Icon(if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Toggle advanced controls") }
                     }
                     if (!showAdvanced) {
-                        Text("${config.maxOutputTokens} output tokens per helper call · ${config.maxConcurrentDelegates} concurrent workers. Expand to customize limits.", style = MaterialTheme.typography.bodySmall)
+                        Text("${config.maxOutputTokens} target output tokens per helper call · ${config.maxConcurrentDelegates} concurrent workers. Expand to customize limits.", style = MaterialTheme.typography.bodySmall)
                     }
                     if (showAdvanced) {
                         DelegationSlider("Maximum Worker Delegation Depth", config.maxDelegationDepth, 1..2, 1, !busy) { value -> onChange { it.copy(maxDelegationDepth = value) } }
@@ -327,7 +327,7 @@ internal fun ModelDelegationSettingsContent(
                         DelegationSlider("Max Input Tokens Per Delegate", config.maxInputTokensPerDelegate, 1000..12000, 500, !busy, "Hard preflight cap including the worker prompt and retained tool schemas. Oversized tasks are chunked before inference.") { value -> onChange { it.copy(maxInputTokensPerDelegate = value) } }
                         DelegationSlider("Chunk Size", config.chunkSizeTokens, 1000..12000, 500, !busy, "Large delegated payloads are split near this token size instead of truncating one giant request.") { value -> onChange { it.copy(chunkSizeTokens = value) } }
                         DelegationSlider("Retry Chunk Size", config.retryChunkSizeTokens, 500..6000, 250, !busy, "A failed chunk is retried only as smaller pieces; the original oversized payload is never replayed.") { value -> onChange { it.copy(retryChunkSizeTokens = value) } }
-                        DelegationSlider("Delegate Output Tokens Per Step", config.maxOutputTokens, 64..4096, 64, !busy) { value -> onChange { it.copy(maxOutputTokens = value) } }
+                        DelegationSlider("Delegate Output Tokens Per Step", config.maxOutputTokens, 64..4096, 64, !busy, "Reasoning models reserve at least 2,048 tokens; a repair may use up to 8,192. The model profile limit remains the hard ceiling.") { value -> onChange { it.copy(maxOutputTokens = value) } }
                         DelegationSlider("Delegate Model Calls Per Turn", config.maxLocalModelCalls, 1..48, 1, !busy, "Shared by planning, page summaries and tool-result processing.") { value -> onChange { it.copy(maxLocalModelCalls = value) } }
                         DelegationSlider("Maximum Concurrent Delegates", config.maxConcurrentDelegates, 1..4, 1, !busy, "One is safest for on-device inference. Increase only when the selected backend can run independent workers safely.") { value -> onChange { it.copy(maxConcurrentDelegates = value) } }
                         DelegationSlider("Research Timeout In Seconds", config.timeoutSeconds, 5..300, 5, !busy, "Legacy ceiling. Per-worker adaptive deadlines are also limited by the maximum delegate runtime below.") { value -> onChange { it.copy(timeoutSeconds = value) } }

@@ -786,17 +786,11 @@ class LocalDelegationCoordinatorTest {
             { listOf(target, reviewer) },
             { profile, _, _ ->
                 dispatched += profile.uid
-                if (profile.uid == target.uid) {
-                    "The parcel code is PKG-wrong."
-                } else {
-                    """
-                    REVIEW_SCORE: 92
-                    VERDICT: CORRECTED
-                    FINDINGS: The delegate context contained an unsupported parcel code.
-                    CORRECTED_CONTEXT:
-                    The verified parcel code is PKG-correct.
-                    """.trimIndent()
-                }
+                "The parcel code is PKG-wrong."
+            },
+            generateReviewerWithProgress = { profile, _, _, _, _ ->
+                dispatched += profile.uid
+                """{"review_score":92,"verdict":"CORRECTED","issues":["Unsupported parcel code"],"corrections":"The verified parcel code is PKG-correct."}"""
             }
         )
 
@@ -830,9 +824,100 @@ class LocalDelegationCoordinatorTest {
 
         val result = coordinator.executeTask(target, "Check this answer.", 128).orEmpty()
 
-        assertTrue(result.contains("Reviewer Score: 0/100"))
-        assertTrue(result.contains("REVIEWER_UNAVAILABLE"))
+        assertTrue(result.isEmpty())
+        assertTrue(coordinator.failureReason().orEmpty().contains("REVIEWER_ROLE_RESERVED"))
         assertEquals(0, reviewerCalls)
-        assertEquals(listOf(0), coordinator.reviewerScoresSnapshot())
+        assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
+    }
+
+    @Test fun `direct dispatch cannot bypass reviewer reservation`() = runTest {
+        val reviewer = target.copy(uid = "reserved", model = "review-model")
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> error("Reserved reviewer must not be dispatched") }
+        )
+        assertNull(coordinator.executeTask(reviewer, "Research this", 512))
+        assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
+    }
+
+    @Test fun `reviewer has separate callback and accepts a low score without score shopping`() = runTest {
+        val reviewer = target.copy(uid = "reserved", model = "review-model")
+        var reviews = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> error("No legacy callback") },
+            generateWithProgress = { profile, _, _, _, _ ->
+                assertEquals(target.uid, profile.uid)
+                "Finished delegate evidence"
+            },
+            generateReviewerWithProgress = { profile, prompt, _, _, _ ->
+                reviews++
+                assertEquals(reviewer.uid, profile.uid)
+                assertTrue(prompt.contains("Finished delegate evidence"))
+                """{"review_score":35,"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
+            }
+        )
+        assertTrue(coordinator.executeTask(target, "Check evidence", 512).orEmpty().contains("BELOW_THRESHOLD"))
+        assertEquals(1, reviews)
+        assertEquals(listOf(35), coordinator.reviewerScoresSnapshot())
+    }
+
+    @Test fun `invalid reviews retry statelessly and never record zero quality`() = runTest {
+        val reviewer = target.copy(uid = "reserved", model = "review-model")
+        val prompts = mutableListOf<String>()
+        val caps = mutableListOf<Int>()
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> "Finished evidence" },
+            generateReviewerWithProgress = { _, prompt, cap, _, _ ->
+                prompts += prompt
+                caps += cap
+                "I will do the original research instead."
+            }
+        )
+        assertTrue(coordinator.executeTask(target, "Original task", 512).orEmpty().contains("REVIEW_FAILED"))
+        assertEquals(3, prompts.size)
+        assertEquals(1, prompts.distinct().size)
+        assertTrue(caps[1] > caps[0])
+        assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
+    }
+
+    @Test fun `primary only handoff cancels active review and prevents later reviews`() = runTest {
+        val reviewer = target.copy(uid = "cancel-review", model = "review-model")
+        val fallback = target.copy(uid = "cancel-fallback", model = "fallback-model")
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var reviewCancelled = false
+        var reviews = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid, maxLocalModelCalls = 10, maxConcurrentDelegates = 2) },
+            { listOf(target, reviewer, fallback) },
+            { _, task, _ -> if (task == "fail") error("temporary failure") else "Completed delegate evidence" },
+            generateReviewerWithProgress = { _, _, _, _, _ ->
+                reviews++
+                started.complete(Unit)
+                try {
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    reviewCancelled = true
+                }
+            },
+            onRecoveryRequired = { _, _, _ -> DelegationRecoveryDecision.PrimaryOnly },
+            nowMs = { testScheduler.currentTime }
+        )
+        val review = async { coordinator.executeTask(target, "success", 512) }
+        started.await()
+        assertNull(coordinator.executeTask(target, "fail", 512))
+        assertTrue(review.await().orEmpty().contains("primary model only"))
+        assertTrue(reviewCancelled)
+        assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
+        assertNull(coordinator.executeTask(target, "later", 512))
+        assertEquals(1, reviews)
     }
 }

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -13,6 +14,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 
 data class AgentRunLimits(
     val runTimeoutMillis: Long = Long.MAX_VALUE,
@@ -90,6 +92,15 @@ class AgentRunner(
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
+        val blockedReadScopes = mutableSetOf<String>()
+        fun failureScope(call: ProviderEvent.ToolCall): String {
+            if (call.name == "read_url" || call.name.endsWith("_read_url")) {
+                val url = (call.arguments["url"] as? JsonPrimitive)?.content.orEmpty()
+                val host = runCatching { URI(url).host?.lowercase(java.util.Locale.ROOT) }.getOrNull()
+                return "${call.name}|host=${host ?: "invalid-url"}"
+            }
+            return call.name
+        }
 
         fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
             if (!result.isError || result.outputBudgetExhausted) return false
@@ -264,9 +275,13 @@ class AgentRunner(
             val executableCalls = mutableListOf<ProviderEvent.ToolCall>()
             val deferredCalls = mutableListOf<ProviderEvent.ToolCall>()
             val perToolSuppressedIds = mutableSetOf<String>()
+            val hostSuppressedIds = mutableSetOf<String>()
             calls.take(remainingCalls).forEach { call ->
                 val used = toolCallsByName[call.name] ?: 0
-                if (used >= MAX_SAME_TOOL_CALLS_PER_RUN) {
+                if (failureScope(call) in blockedReadScopes) {
+                    deferredCalls += call
+                    hostSuppressedIds += call.callId
+                } else if (used >= MAX_SAME_TOOL_CALLS_PER_RUN) {
                     deferredCalls += call
                     perToolSuppressedIds += call.callId
                     executableToolByName = executableToolByName - call.name
@@ -308,7 +323,7 @@ class AgentRunner(
             // invocation. A single burst of four searches must not consume four
             // "consecutive failure" slots and instantly poison the tool for the turn.
             executableCalls.zip(executedResults)
-                .groupBy(keySelector = { it.first.name }, valueTransform = { it.second })
+                .groupBy(keySelector = { failureScope(it.first) }, valueTransform = { it.second })
                 .forEach { (toolName, roundResults) ->
                     val failures = when {
                         roundResults.any { !it.isError } -> 0
@@ -316,7 +331,14 @@ class AgentRunner(
                         else -> (consecutiveToolFailures[toolName] ?: 0) + 1
                     }
                     consecutiveToolFailures[toolName] = failures
-                    if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) newlyBlockedTools += toolName
+                    if (failures >= MAX_CONSECUTIVE_TOOL_FAILURES) {
+                        if ("|host=" in toolName) {
+                            blockedReadScopes += toolName
+                            AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · scope=$toolName · failures=$failures · otherHostsAvailable=true", "W")
+                        } else {
+                            newlyBlockedTools += toolName
+                        }
+                    }
                 }
             if (newlyBlockedTools.isNotEmpty()) {
                 executableToolByName = executableToolByName.filterKeys { it !in newlyBlockedTools }
@@ -327,7 +349,9 @@ class AgentRunner(
             }
 
             val deferredResults = deferredCalls.map { call ->
-                val message = if (call.callId in perToolSuppressedIds) {
+                val message = if (call.callId in hostSuppressedIds) {
+                    "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
+                } else if (call.callId in perToolSuppressedIds) {
                     "Tool '${call.name}' reached the per-response repeat limit and is disabled for the remainder of this response. Use results already collected; do not retry it until a new response."
                 } else {
                     FINAL_RESPONSE_INSTRUCTION

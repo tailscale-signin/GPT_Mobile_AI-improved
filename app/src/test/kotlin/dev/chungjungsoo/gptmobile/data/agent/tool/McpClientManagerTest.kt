@@ -28,6 +28,36 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class McpClientManagerTest {
+    @Test fun `initialization 404 is a configuration failure until endpoint changes`() = runBlocking {
+        val calls = AtomicInteger()
+        val missing = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        missing.createContext("/mcp") { exchange ->
+            calls.incrementAndGet()
+            exchange.sendResponseHeaders(404, -1)
+            exchange.close()
+        }
+        missing.start()
+        val client = testClient()
+        val manager = McpClientManager(client)
+        try {
+            val config = McpConnectionConfig("missing-endpoint", "http://localhost:${missing.address.port}/mcp", true)
+            assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpEndpointConfigurationException)
+            val firstCalls = calls.get()
+            repeat(3) {
+                assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpEndpointConfigurationException)
+            }
+            assertEquals(firstCalls, calls.get())
+            assertEquals(Long.MAX_VALUE, manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
+            McpFixtureServer().use { healthy ->
+                assertTrue(manager.listTools(McpConnectionConfig(config.connectionUid, healthy.url, true)).isNotEmpty())
+            }
+        } finally {
+            manager.closeAll()
+            client.close()
+            missing.stop(0)
+        }
+    }
+
     @Test
     fun `stalled initialization has a bounded timeout and releases its in flight slot`() = runBlocking {
         var now = 1_000L
@@ -111,6 +141,7 @@ class McpClientManagerTest {
             client.close()
         }
     }
+
     @Test
     fun `reuses initialized session for discovery and SSE tool call`() = runBlocking {
         McpFixtureServer().use { server ->

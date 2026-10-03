@@ -11,6 +11,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DelegatedChildResultTest {
+    @Test fun `repair jumps to final answer allowance and honors the profile ceiling`() {
+        assertEquals(4096, delegationRepairOutputCap(384, 8192))
+        assertEquals(4096, delegationRepairOutputCap(768, 8192))
+        assertEquals(8192, delegationRepairOutputCap(2048, 8192))
+        assertEquals(1024, delegationRepairOutputCap(768, 1024))
+    }
+
     @Test
     fun `short factual answers are usable instead of counted as empty`() {
         for (answer in listOf("42", "Yes", "OK")) {

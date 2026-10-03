@@ -36,7 +36,7 @@ class McpClientManagerTest {
         SlowInitializeMcpFixtureServer(entered, starts).use { server ->
             val client = testClient()
             try {
-                val manager = McpClientManager(client, sessionConnectTimeoutMs = 50, nowMs = { now })
+                val manager = McpClientManager(client, sessionConnectTimeoutMs = 1_000, nowMs = { now })
                 val config = McpConnectionConfig("slow", server.url, allowCleartext = true)
 
                 val first = withTimeout(3000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
@@ -68,7 +68,7 @@ class McpClientManagerTest {
         val client = testClient()
         try {
             SlowInitializeMcpFixtureServer(entered, starts).use { slow ->
-                val manager = McpClientManager(client, sessionConnectTimeoutMs = 50, nowMs = { now })
+                val manager = McpClientManager(client, sessionConnectTimeoutMs = 1_000, nowMs = { now })
                 val config = McpConnectionConfig("recovering", slow.url, allowCleartext = true)
 
                 val first = runCatching { manager.listTools(config) }.exceptionOrNull()
@@ -346,7 +346,7 @@ class McpClientManagerTest {
                 }
                 if (method == "initialize") {
                     if (startCount.incrementAndGet() == 2) started.complete(Unit)
-                    Thread.sleep(250)
+                    Thread.sleep(2_500)
                     exchange.responseHeaders.add("Mcp-Session-Id", "session-${server.address.port}")
                     respond(exchange, """{"jsonrpc":"2.0","id":${request["id"]},"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}}}""")
                     return

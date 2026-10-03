@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -93,6 +95,7 @@ fun ProviderConnectionSettingsScreen(
     var loaded by remember(connection.uid) { mutableStateOf(false) }
     var saving by remember(connection.uid) { mutableStateOf(false) }
     var status by remember(connection.uid) { mutableStateOf<String?>(null) }
+    var confirmDelete by remember(connection.uid) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(connection.uid) {
         try {
@@ -111,16 +114,7 @@ fun ProviderConnectionSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text(connection.name)
-                        Text(
-                            "${connection.compatibleType.name} provider connection",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
+                title = { Text("Provider Options") },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -143,13 +137,9 @@ fun ProviderConnectionSettingsScreen(
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Icon(Icons.Default.SmartToy, contentDescription = null)
-                            Text("Provider connection", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(connection.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            SettingsHelpIcon("Connection details are shared by every child AI profile. Model behavior stays inside each profile.")
                         }
-                        Text(
-                            "Connection details here are shared by every child AI profile below. Model behavior stays inside each profile.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
@@ -170,11 +160,11 @@ fun ProviderConnectionSettingsScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Connection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Connection Settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
-                            label = { Text("Provider name") },
+                            label = { Text("Provider Name") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -191,14 +181,16 @@ fun ProviderConnectionSettingsScreen(
                             OutlinedTextField(
                                 value = apiUrl,
                                 onValueChange = { apiUrl = it },
-                                label = { Text("API HTTP base URL") },
+                                label = { Text("API HTTP Base URL") },
                                 leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                             )
-                            Text("API keys · round robin", style = MaterialTheme.typography.titleMedium)
-                            Text("New requests rotate through the saved keys. Related tool rounds keep the same account.", style = MaterialTheme.typography.bodySmall)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("API Keys · Round Robin", style = MaterialTheme.typography.titleMedium)
+                                SettingsHelpIcon("New requests rotate through the saved keys. Related tool rounds keep the same account.")
+                            }
                             keys.forEachIndexed { index, key ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     OutlinedTextField(
@@ -246,7 +238,7 @@ fun ProviderConnectionSettingsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Save, contentDescription = null)
-                            Text(if (saving) " Saving…" else " Save provider connection")
+                            Text(if (saving) " Saving…" else " Save Provider Connection")
                         }
                     }
                 }
@@ -254,7 +246,7 @@ fun ProviderConnectionSettingsScreen(
 
             if (childProfiles.isNotEmpty()) {
                 item {
-                    Text("Child AI profiles", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Child AI Profiles", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
                 items(childProfiles, key = { it.uid }) { profile ->
                     Card(
@@ -281,7 +273,45 @@ fun ProviderConnectionSettingsScreen(
                         }
                     }
                 }
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Delete Provider", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Removes this provider, its saved credentials, and linked AI profiles.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        TextButton(onClick = { confirmDelete = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
             }
         }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete ${connection.name}?") },
+            text = { Text("This removes the provider, its saved credentials, and ${childProfiles.size} linked AI profile${if (childProfiles.size == 1) "" else "s"}. Conversation history is kept.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    settingViewModel.deleteProviderConnection(connection)
+                    onNavigationClick()
+                }) { Text("Delete Provider", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
+        )
+    }
     }
 }
+
+

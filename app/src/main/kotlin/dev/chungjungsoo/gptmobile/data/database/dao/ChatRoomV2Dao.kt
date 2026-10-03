@@ -56,8 +56,8 @@ interface ChatRoomV2Dao {
     @Query("UPDATE chats_v2 SET last_share_token = :token WHERE chat_id = :chatId")
     suspend fun markShareDelivered(chatId: Int, token: String)
 
-    @Query("UPDATE chats_v2 SET title = :title, is_title_customized = :isCustomized, updated_at = :updatedAt WHERE chat_id = :chatId")
-    suspend fun updateTitle(chatId: Int, title: String, isCustomized: Boolean, updatedAt: Long = System.currentTimeMillis() / 1000)
+    @Query("UPDATE chats_v2 SET title = :title, is_title_customized = :isCustomized WHERE chat_id = :chatId")
+    suspend fun updateTitle(chatId: Int, title: String, isCustomized: Boolean)
 
     @Query("SELECT * FROM chats_v2 WHERE is_temporary = 1")
     suspend fun temporaryChats(): List<ChatRoomV2>

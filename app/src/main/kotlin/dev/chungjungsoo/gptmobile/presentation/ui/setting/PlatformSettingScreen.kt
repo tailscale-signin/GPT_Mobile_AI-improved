@@ -842,8 +842,11 @@ fun PlatformSettingScreen(
 
 @Composable
 private fun ProfileSectionTitle(title: String) {
+    val displayTitle = title.split(Regex("\\s+")).joinToString(" ") { word ->
+        word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
+    }
     Text(
-        text = title,
+        text = displayTitle,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp)

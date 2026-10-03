@@ -103,7 +103,7 @@ class AgentRunner(
         }
 
         fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
-            if (!result.isError || result.outputBudgetExhausted) return false
+            if (!result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
             val text = when (val content = result.content) {
                 is ToolResultContent.Text -> content.text
                 is ToolResultContent.Json -> content.value.toString()
@@ -118,12 +118,25 @@ class AgentRunner(
                 executableToolByName = emptyMap()
                 if (!finalResponseRequested) {
                     finalResponseRequested = true
-                    emit(AgentRunEvent.Notice(FINAL_RESPONSE_NOTICE, persistent = false))
+                    val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)
+                    emit(
+                        AgentRunEvent.Notice(
+                            "Tool-call limit reached ($toolCallCount/$executionToolCallLimit executable calls; " +
+                                "${limits.maxToolCalls} configured, $reserve reserved). Generating a final response with completed results.",
+                            persistent = true
+                        )
+                    )
                 }
             } else if (ToolBudgetPolicy.shouldEmitWrapUpNotice(executionToolCallLimit, limits, toolCallCount, wrapUpNoticeEmitted)) {
                 wrapUpNoticeEmitted = true
                 val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
-                emit(AgentRunEvent.Notice("Approaching tool limit ($remainingAllowance remaining). Wrapping up.", persistent = false))
+                emit(
+                    AgentRunEvent.Notice(
+                        "Approaching tool limit ($toolCallCount/$executionToolCallLimit executable calls used; " +
+                            "$remainingAllowance remaining; ${limits.maxToolCalls} configured).",
+                        persistent = false
+                    )
+                )
             }
             if (limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds) {
                 if (!roundLimitFinalizationAttempted) {
@@ -372,6 +385,7 @@ class AgentRunner(
                 )
             }.toMutableList()
             val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
+            val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
             val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
             replayTokens = ToolExchangeCompactor.estimateTokens(
                 ToolExchangeCompactor.compact(
@@ -385,17 +399,42 @@ class AgentRunner(
             val mustFinalize = roundLimitReached ||
                 contextNearLimit ||
                 outputBudgetExhausted ||
+                toolCallBudgetExhausted ||
                 (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
             if (roundLimitReached) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
                 emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
-            } else if (outputBudgetExhausted || contextNearLimit) {
+            } else if (toolCallBudgetExhausted) {
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
-                emit(AgentRunEvent.Notice("Response limit approaching. Finishing with the results already available.", persistent = false))
+                val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)
+                emit(
+                    AgentRunEvent.Notice(
+                        "Shared tool-call limit reached: $toolCallCount/$executionToolCallLimit executable calls used " +
+                            "(${limits.maxToolCalls} configured, $reserve reserved). Finishing with completed results. " +
+                            "Increase Maximum Tool Calls on the active AI profile if more research is required.",
+                        persistent = true
+                    )
+                )
+            } else if (outputBudgetExhausted) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                finalResponseRequested = true
+                emit(
+                    AgentRunEvent.Notice(
+                        "Tool-result byte budget reached (${limits.maxToolOutputBytes} bytes configured). " +
+                            "Finishing with completed results; successful delegated research remains usable.",
+                        persistent = true
+                    )
+                )
+            } else if (contextNearLimit) {
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                finalResponseRequested = true
+                emit(AgentRunEvent.Notice("Context limit approaching. Finishing with the results already available.", persistent = false))
             }
             val remainingAllowance = ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
             val shouldInjectWrapUp = ToolBudgetPolicy.shouldInjectWrapUpPrompt(executionToolCallLimit, limits, toolCallCount)
@@ -509,6 +548,8 @@ class AgentRunner(
         private val CONTROL_FAILURE_MARKERS = listOf(
             "tool-call allowance is exhausted",
             "tool result budget exhausted",
+            "tool-result byte budget exhausted",
+            "tool-call limit reached",
             "tool permission was denied",
             "permission was denied",
             "github_write_blocked",
@@ -530,8 +571,9 @@ class AgentRunner(
                 "Use the available findings to answer now. If additional tool work is required, " +
                 "briefly state what remains and ask the user to reply exactly \"continue\"."
         const val FINAL_RESPONSE_INSTRUCTION =
-            "Tool-call allowance is exhausted. Do not request more tools in this response. " +
-                "Finish with a concise summary of what was completed and what remains. " +
-                "If more tool work is required, ask the user to reply exactly \"continue\" so a new response can continue with a fresh tool-call allowance."
+            "The tool-call allowance is exhausted for this response. Do not request more tools. " +
+                "Use every successful result already returned, including completed delegated research, to answer the user's request now. " +
+                "Do not claim research failed merely because no further calls are available. " +
+                "Ask the user to continue only if essential evidence is still missing."
     }
 }

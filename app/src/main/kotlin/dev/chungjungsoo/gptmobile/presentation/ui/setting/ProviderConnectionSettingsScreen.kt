@@ -260,19 +260,16 @@ fun ProviderConnectionSettingsScreen(
                             Column(Modifier.weight(1f)) {
                                 Text(profile.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    profile.model.ifBlank { "Default model" },
+                                    profile.model.ifBlank { "Default Model" },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Text(
-                                if (profile.enabled) "Active" else "Disabled",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (profile.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                     }
                 }
+            }
+
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -294,8 +291,9 @@ fun ProviderConnectionSettingsScreen(
                     }
                 }
             }
-            }
         }
+    }
+
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -311,7 +309,4 @@ fun ProviderConnectionSettingsScreen(
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
         )
     }
-    }
 }
-
-

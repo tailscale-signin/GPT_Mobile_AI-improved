@@ -301,7 +301,8 @@ internal fun ModelDelegationSettingsContent(
                         )
                     }
                     Text(
-                        "Research shares the active AI profile's Maximum Tool Calls limit. Multi-engine searches can consume several calls per query.",
+                        "Research shares the active AI profile's Maximum Tool Calls limit. Multi-engine searches can consume several calls per query. " +
+                            "A separate context-derived tool-result byte budget also applies; if it is reached, chat shows the exact byte limit and preserves any completed delegate brief.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

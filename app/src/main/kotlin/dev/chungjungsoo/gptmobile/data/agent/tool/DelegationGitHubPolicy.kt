@@ -42,7 +42,9 @@ internal fun primaryDelegationTools(
 ): List<ResolvedAgentTool> = tools.filter { tool ->
     when {
         !localResearch || tool.isGitHubTool() -> true
-        processingOwnership < 35 -> tool.realToolName == "delegate_to_model"
+        tool.realToolName == "delegate_to_model" -> true
+        tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true
+        processingOwnership < 35 -> false
         else -> !tool.isWebSearchEngine() && !tool.isResearchPageReader()
     }
 }

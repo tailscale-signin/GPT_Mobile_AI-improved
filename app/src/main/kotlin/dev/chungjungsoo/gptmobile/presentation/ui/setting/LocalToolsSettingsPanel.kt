@@ -39,6 +39,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
 @Composable
 fun LocalToolsSettingsPanel(
@@ -112,9 +113,20 @@ fun LocalToolConfigurationDialog(section: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-internal fun LocalToolToggle(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+internal fun LocalToolToggle(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean,
+    description: String? = null,
+    onChange: (Boolean) -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+        description?.let { SettingsHelpIcon(it) }
         Switch(checked, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = label })
     }
 }

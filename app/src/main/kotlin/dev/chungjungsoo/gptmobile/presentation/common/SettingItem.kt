@@ -53,6 +53,9 @@ fun SettingItem(
             .padding(horizontal = 8.dp)
     }
     val colors = ListItemDefaults.colors()
+    val displayTitle = title.split(Regex("\\s+")).joinToString(" ") { word ->
+        word.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() }
+    }
     val compactDescription = description?.takeIf { it.length <= 72 }
 
     val trailingContentComposable: @Composable () -> Unit = {
@@ -76,7 +79,7 @@ fun SettingItem(
     if (showLeadingIcon) {
         ListItem(
             modifier = clickableModifier,
-            headlineContent = { Text(title, overflow = TextOverflow.Ellipsis) },
+            headlineContent = { Text(displayTitle, overflow = TextOverflow.Ellipsis) },
             supportingContent = {
                 compactDescription?.let { Text(it, overflow = TextOverflow.Ellipsis) }
             },
@@ -91,7 +94,7 @@ fun SettingItem(
     } else {
         ListItem(
             modifier = clickableModifier,
-            headlineContent = { Text(title) },
+            headlineContent = { Text(displayTitle) },
             supportingContent = {
                 compactDescription?.let { Text(it) }
             },
@@ -129,7 +132,7 @@ fun SettingsHelpIcon(
     if (open) {
         AlertDialog(
             onDismissRequest = { open = false },
-            title = { Text(title) },
+            title = { Text(displayTitle) },
             text = { Text(description) },
             confirmButton = {
                 TextButton(onClick = { open = false }) { Text("Close") }

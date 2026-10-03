@@ -22,13 +22,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -82,25 +81,6 @@ fun AiPlatformsScreen(
     val platforms by settingViewModel.platformState.collectAsStateWithLifecycle()
     val providerConnections by settingViewModel.providerConnections.collectAsStateWithLifecycle()
     var selectedPlatformTab by rememberSaveable { mutableIntStateOf(0) }
-    var freeExpanded by rememberSaveable { mutableStateOf(true) }
-    var remoteExpanded by rememberSaveable { mutableStateOf(true) }
-    var localExpanded by rememberSaveable { mutableStateOf(true) }
-    var deletingProvider by remember { mutableStateOf<ProviderConnection?>(null) }
-    deletingProvider?.let { connection ->
-        val linked = platforms.filter { it.providerConnectionUid == connection.uid }
-        AlertDialog(
-            onDismissRequest = { deletingProvider = null },
-            title = { Text("Delete ${connection.name}?") },
-            text = { Text("This removes the provider, its saved API keys and ${linked.size} AI profiles${if (linked.isEmpty()) "" else ": " + linked.joinToString { it.name }}. Existing conversation history is kept.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    deletingProvider = null
-                    settingViewModel.deleteProviderConnection(connection)
-                }) { Text("Delete provider", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = { TextButton(onClick = { deletingProvider = null }) { Text("Cancel") } }
-        )
-    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -188,38 +168,24 @@ fun AiPlatformsScreen(
             } else {
                 val freeConnections = providerConnections.filter { it.compatibleType == ClientType.FREE }
                 val freeStandalone = platforms.filter { it.compatibleType == ClientType.FREE && it.providerConnectionUid == null }
-                if (selectedPlatformTab == 2 && (freeConnections.isNotEmpty() || freeStandalone.isNotEmpty())) {
-                    item {
-                        Card(onClick = { freeExpanded = !freeExpanded }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(stringResource(R.string.free_ai), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text("No account required · ${freeConnections.size + freeStandalone.size} connections", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Icon(if (freeExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (freeExpanded) "Collapse free AI" else "Expand free AI")
-                            }
-                        }
+                if (selectedPlatformTab == 2) {
+                    items(freeConnections, key = { "connection:${it.uid}" }) { connection ->
+                        ProviderConnectionGroupCard(
+                            modifier = Modifier.animateItem(),
+                            connection = connection,
+                            profiles = platforms.filter { it.providerConnectionUid == connection.uid },
+                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
+                            onEdit = { onNavigateToPlatformSetting(it.uid) },
+                            onProviderSettings = { onNavigateToProviderSettings(connection.uid) }
+                        )
                     }
-                    if (freeExpanded) {
-                        items(freeConnections, key = { "connection:${it.uid}" }) { connection ->
-                            ProviderConnectionGroupCard(
-                                modifier = Modifier.animateItem(),
-                                connection = connection,
-                                onDelete = { deletingProvider = connection },
-                                profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                                onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
-                                onEdit = { onNavigateToPlatformSetting(it.uid) },
-                                onProviderSettings = { onNavigateToProviderSettings(connection.uid) }
-                            )
-                        }
-                        items(freeStandalone, key = { "profile:${it.id}" }) { platform ->
-                            PlatformItemCard(
-                                modifier = Modifier.animateItem(),
-                                platform = platform,
-                                onToggleFavorite = { settingViewModel.togglePlatformFavorite(platform.id) },
-                                onEdit = { onNavigateToPlatformSetting(platform.uid) }
-                            )
-                        }
+                    items(freeStandalone, key = { "profile:${it.id}" }) { platform ->
+                        PlatformItemCard(
+                            modifier = Modifier.animateItem(),
+                            platform = platform,
+                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(platform.id) },
+                            onEdit = { onNavigateToPlatformSetting(platform.uid) }
+                        )
                     }
                 }
                 val localTypes = setOf(ClientType.LITERT_LM, ClientType.LLAMA, ClientType.OLLAMA)
@@ -228,91 +194,39 @@ fun AiPlatformsScreen(
                 val localStandalone = platforms.filter { it.providerConnectionUid == null && it.compatibleType in localTypes }
                 val remoteStandalone = platforms.filter { it.providerConnectionUid == null && it.compatibleType != ClientType.FREE && it.compatibleType !in localTypes }
 
-                if (selectedPlatformTab == 0 && (remoteConnections.isNotEmpty() || remoteStandalone.isNotEmpty())) {
-                    item {
-                        ProviderCategoryHeader(
-                            title = "Remote",
-                            count = remoteConnections.size + remoteStandalone.size,
-                            expanded = remoteExpanded,
-                            icon = Icons.Default.Cloud,
-                            onClick = { remoteExpanded = !remoteExpanded }
+                if (selectedPlatformTab == 0) {
+                    items(remoteConnections, key = { "remote-connection:${it.uid}" }) { connection ->
+                        ProviderConnectionGroupCard(
+                            modifier = Modifier.animateItem(),
+                            connection = connection,
+                            profiles = platforms.filter { it.providerConnectionUid == connection.uid },
+                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
+                            onEdit = { onNavigateToPlatformSetting(it.uid) },
+                            onProviderSettings = { onNavigateToProviderSettings(connection.uid) },
+                            onSpecialSettings = if (connection.compatibleType == ClientType.OPENROUTER) onNavigateToOpenRouterSettings else null
                         )
                     }
-                    if (remoteExpanded) {
-                        items(remoteConnections, key = { "remote-connection:${it.uid}" }) { connection ->
-                            ProviderConnectionGroupCard(
-                                modifier = Modifier.animateItem(),
-                                connection = connection,
-                                onDelete = { deletingProvider = connection },
-                                profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                                onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
-                                onEdit = { onNavigateToPlatformSetting(it.uid) },
-                                onProviderSettings = { onNavigateToProviderSettings(connection.uid) },
-                                onSpecialSettings = if (connection.compatibleType == ClientType.OPENROUTER) onNavigateToOpenRouterSettings else null
-                            )
-                        }
-                        items(remoteStandalone, key = { "remote-profile:${it.id}" }) { platform ->
-                            PlatformItemCard(platform, { settingViewModel.togglePlatformFavorite(platform.id) }, { onNavigateToPlatformSetting(platform.uid) }, modifier = Modifier.animateItem())
-                        }
+                    items(remoteStandalone, key = { "remote-profile:${it.id}" }) { platform ->
+                        PlatformItemCard(platform, { settingViewModel.togglePlatformFavorite(platform.id) }, { onNavigateToPlatformSetting(platform.uid) }, modifier = Modifier.animateItem())
                     }
                 }
 
-                if (selectedPlatformTab == 1 && (localConnections.isNotEmpty() || localStandalone.isNotEmpty())) {
-                    item {
-                        ProviderCategoryHeader(
-                            title = "Local",
-                            count = localConnections.size + localStandalone.size,
-                            expanded = localExpanded,
-                            icon = Icons.Default.Dns,
-                            onClick = { localExpanded = !localExpanded }
+                if (selectedPlatformTab == 1) {
+                    items(localConnections, key = { "local-connection:${it.uid}" }) { connection ->
+                        ProviderConnectionGroupCard(
+                            modifier = Modifier.animateItem(),
+                            connection = connection,
+                            profiles = platforms.filter { it.providerConnectionUid == connection.uid },
+                            onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
+                            onEdit = { onNavigateToPlatformSetting(it.uid) },
+                            onProviderSettings = { onNavigateToProviderSettings(connection.uid) }
                         )
                     }
-                    if (localExpanded) {
-                        items(localConnections, key = { "local-connection:${it.uid}" }) { connection ->
-                            ProviderConnectionGroupCard(
-                                modifier = Modifier.animateItem(),
-                                connection = connection,
-                                onDelete = { deletingProvider = connection },
-                                profiles = platforms.filter { it.providerConnectionUid == connection.uid },
-                                onToggleFavorite = { settingViewModel.togglePlatformFavorite(it.id) },
-                                onEdit = { onNavigateToPlatformSetting(it.uid) },
-                                onProviderSettings = { onNavigateToProviderSettings(connection.uid) }
-                            )
-                        }
-                        items(localStandalone, key = { "local-profile:${it.id}" }) { platform ->
-                            PlatformItemCard(platform, { settingViewModel.togglePlatformFavorite(platform.id) }, { onNavigateToPlatformSetting(platform.uid) }, modifier = Modifier.animateItem())
-                        }
+                    items(localStandalone, key = { "local-profile:${it.id}" }) { platform ->
+                        PlatformItemCard(platform, { settingViewModel.togglePlatformFavorite(platform.id) }, { onNavigateToPlatformSetting(platform.uid) }, modifier = Modifier.animateItem())
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ProviderCategoryHeader(
-    title: String,
-    count: Int,
-    expanded: Boolean,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("$count configured", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse $title providers" else "Expand $title providers")
         }
     }
 }
@@ -322,7 +236,6 @@ private fun ProviderConnectionGroupCard(
     connection: ProviderConnection,
     profiles: List<PlatformV2>,
     onToggleFavorite: (PlatformV2) -> Unit,
-    onDelete: () -> Unit,
     onEdit: (PlatformV2) -> Unit,
     onProviderSettings: (() -> Unit)? = null,
     onSpecialSettings: (() -> Unit)? = null,
@@ -345,23 +258,6 @@ private fun ProviderConnectionGroupCard(
                         text = connection.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = if (connection.compatibleType == ClientType.FREE) {
-                            "${FreeAiProvider.fromApiUrl(connection.apiUrl)?.displayName ?: "Free"} · No account · Memory off"
-                        } else {
-                            buildString {
-                                append(connection.compatibleType.name)
-                                connection.apiUrl.takeIf(String::isNotBlank)?.let {
-                                    append(" • ")
-                                    append(it)
-                                }
-                            }
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -387,13 +283,18 @@ private fun ProviderConnectionGroupCard(
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { expanded = !expanded }) {
-                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Hide profiles" else "Show profiles")
-                }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, "Delete provider ${connection.name}", tint = MaterialTheme.colorScheme.error)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(56.dp)) {
+                    Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        if (expanded) "Hide Profiles" else "Show Profiles",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(44.dp)
+                    )
                 }
             }
             if (expanded) onSpecialSettings?.let { action -> TextButton(onClick = action) { Text("OpenRouter options") } }
@@ -446,6 +347,7 @@ private fun PlatformItemCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer { alpha = if (platform.enabled) 1f else 0.4f }
             .combinedClickable(
                 onClick = onEdit,
                 onLongClick = {
@@ -507,12 +409,6 @@ private fun PlatformItemCard(
                 }
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(if (platform.enabled) "Active" else "Disabled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
         }
     }
 }

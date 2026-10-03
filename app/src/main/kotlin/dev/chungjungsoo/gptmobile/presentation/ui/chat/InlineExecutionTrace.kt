@@ -101,10 +101,12 @@ fun InlineExecutionTrace(
                 event.toolName.contains("delegate_to_model", true) ||
                     event.modelToolName.contains("delegate_to_model", true)
             val isRemoteDelegation = isDelegation && (remoteDelegation || event.result.orEmpty().startsWith("<!-- delegation:remote -->"))
-            val isReviewerResult = isDelegation && (
-                event.result.orEmpty().contains("[Reviewer Score:", ignoreCase = true) ||
-                    event.result.orEmpty().contains("Reviewer findings:", ignoreCase = true)
-                )
+            val isReviewerResult =
+                isDelegation &&
+                    (
+                        event.result.orEmpty().contains("[Reviewer Score:", ignoreCase = true) ||
+                            event.result.orEmpty().contains("Reviewer findings:", ignoreCase = true)
+                    )
             var dots by androidx.compose.runtime.remember(event.eventId) { mutableStateOf(1) }
             LaunchedEffect(running) {
                 while (running) {

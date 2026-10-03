@@ -876,6 +876,15 @@ private fun SearchBackendDialog(
             selection !in discoveredSearchSelections &&
                 dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(selection.toolName, "")
         }.toSet()
+        val discoveredConnectionUids = discoveredSearchTools.map { it.connectionUid }.toSet()
+        val unavailableSelectedConnectionUids = unavailableSearchSelections.map { it.connectionUid }.toSet()
+        val unavailableSearchConnections = toolBindingState.mcpConnections.filter { connection ->
+            connection.connectionUid !in discoveredConnectionUids &&
+                connection.connectionUid !in unavailableSelectedConnectionUids &&
+                listOf(connection.name, connection.alias, connection.approvedReadTools)
+                    .joinToString(" ")
+                    .contains(Regex("""(?i)\b(brave|search|exa|perplexity|firecrawl)\b"""))
+        }
 
         AlertDialog(
             icon = { Icon(dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"), null, tint = MaterialTheme.colorScheme.primary) },
@@ -939,6 +948,17 @@ private fun SearchBackendDialog(
                             onCheckedChange = { enabled ->
                                 if (!enabled) selectedTools = selectedTools - selection
                             }
+                        )
+                    }
+
+                    unavailableSearchConnections.forEach { connection ->
+                        PreferenceListSwitch(
+                            title = connection.name,
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = "MCP Search Engine · Currently Unavailable",
+                            enabled = false,
+                            isChecked = false,
+                            onCheckedChange = {}
                         )
                     }
 

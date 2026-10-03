@@ -32,6 +32,10 @@ data class AppFeatureSettings(
     val debugShowRuntime: Boolean = true,
     val debugShowHardware: Boolean = true,
     val debugShowNetwork: Boolean = false,
+    val debugShowDelegationTrace: Boolean = true,
+    val debugShowReviewerTrace: Boolean = true,
+    val debugShowMemoryRecall: Boolean = true,
+    val debugShowTokenComparison: Boolean = true,
     val openRouterBatchProcessing: Boolean = false,
     val qnnAutomaticFallback: Boolean = true,
     val localCpuThreads: Int = 0,
@@ -90,6 +94,10 @@ data class AppFeatureSettings(
         DebugMetric.RUNTIME -> copy(debugShowRuntime = enabled)
         DebugMetric.HARDWARE -> copy(debugShowHardware = enabled)
         DebugMetric.NETWORK -> copy(debugShowNetwork = enabled)
+        DebugMetric.DELEGATION_TRACE -> copy(debugShowDelegationTrace = enabled)
+        DebugMetric.REVIEWER_TRACE -> copy(debugShowReviewerTrace = enabled)
+        DebugMetric.MEMORY_RECALL -> copy(debugShowMemoryRecall = enabled)
+        DebugMetric.TOKEN_COMPARISON -> copy(debugShowTokenComparison = enabled)
     }
 }
 
@@ -107,72 +115,76 @@ enum class DebugMetric(val title: String, val description: String) {
     TIME_TO_FIRST_TOKEN("Time to first token", "Show latency before the first generated token."),
     RUNTIME("Runtime", "Show active provider, model, local backend and fallback state."),
     HARDWARE("Hardware", "Show memory, thermal and accelerator information."),
-    NETWORK("Network", "Show provider latency and connection diagnostics.")
+    NETWORK("Network", "Show provider latency and connection diagnostics."),
+    DELEGATION_TRACE("Delegation Trace", "Show delegated model output in green inside expanded response details."),
+    REVIEWER_TRACE("Reviewer Trace", "Show reviewer output in bright yellow inside expanded response details."),
+    MEMORY_RECALL("Memory Recall", "Show recalled memory references in pink inside expanded response details."),
+    TOKEN_COMPARISON("Token Comparison", "Compare input, output, total tokens and share across every model request in a response.")
 }
 
 enum class AppFeature(
     val title: String,
     val description: String
 ) {
-    SMOOTH_STREAMING("Follow streaming responses", "Keep the latest text visible until you scroll up."),
-    CENTER_UNREAD("Center unread responses", "Open new replies at their beginning, in the middle of the screen."),
-    RESPONSE_ANIMATION("Response fade-in", "Animate newly generated text."),
-    EDGE_FADES("Conversation edge fades", "Blend conversation content beneath the header and composer."),
-    MESSAGE_TIMESTAMPS("Message timestamps", "Display sent and received times."),
-    QUEUED_FOLLOW_UPS("Live follow-up messages", "Add queued text to a delegated turn at its next safe model boundary."),
-    PARALLEL_SEARCH("Parallel search engines", "Query selected engines concurrently."),
-    DEDUPLICATE_SEARCH("Deduplicate search results", "Combine matching URLs across engines."),
-    GITHUB_CONDITIONAL_READS("GitHub conditional requests", "Reuse unchanged responses with ETag validation."),
-    GITHUB_BLOB_CACHE("GitHub immutable file cache", "Reuse source files by their content hash."),
-    LOCAL_MODEL_CACHE("Local compiled-model cache", "Reuse compiled model resources between loads."),
-    LOCAL_NATIVE_METRICS("Native runtime metrics", "Collect detailed LiteRT and QNN execution metrics."),
+    SMOOTH_STREAMING("Follow Streaming Responses", "Keep the latest text visible until you scroll up."),
+    CENTER_UNREAD("Center Unread Responses", "Open new replies at their beginning, in the middle of the screen."),
+    RESPONSE_ANIMATION("Response Fade-In", "Animate newly generated text."),
+    EDGE_FADES("Conversation Edge Fades", "Blend conversation content beneath the header and composer."),
+    MESSAGE_TIMESTAMPS("Message Timestamps", "Display sent and received times."),
+    QUEUED_FOLLOW_UPS("Live Follow-Up Messages", "Add queued text to a delegated turn at its next safe model boundary."),
+    PARALLEL_SEARCH("Parallel Search Engines", "Query selected engines concurrently."),
+    DEDUPLICATE_SEARCH("Deduplicate Search Results", "Combine matching URLs across engines."),
+    GITHUB_CONDITIONAL_READS("GitHub Conditional Requests", "Reuse unchanged responses with ETag validation."),
+    GITHUB_BLOB_CACHE("GitHub Immutable File Cache", "Reuse source files by their content hash."),
+    LOCAL_MODEL_CACHE("Local Compiled-Model Cache", "Reuse compiled model resources between loads."),
+    LOCAL_NATIVE_METRICS("Native Runtime Metrics", "Collect detailed LiteRT and QNN execution metrics."),
     BACKGROUND_GENERATION(
-        "Background generation",
+        "Background Generation",
         "Keep active AI responses running when the app leaves the foreground."
     ),
     RESPONSE_NOTIFICATIONS(
-        "Response notifications",
+        "Response Notifications",
         "Show a detailed notification when a background AI response finishes."
     ),
     AUTOMATIC_TITLES(
-        "Automatic conversation titles",
-        "Refresh generated titles as the conversation evolves."
+        "Automatic Conversation Titles",
+        "Generate one accurate 4–8 word subject for a conversation, then keep it stable."
     ),
     ARCHIVE_OLDER_REPLIES(
-        "Archive older responses",
+        "Archive Older Responses",
         "Collapse assistant replies older than the latest three into expandable history."
     ),
-    SHOW_REASONING("Show reasoning", "Display the thinking text supplied by an AI, with an expandable panel in conversations."),
+    SHOW_REASONING("Show Reasoning", "Display the thinking text supplied by an AI, with an expandable panel in conversations."),
     SMART_SUGGESTIONS(
-        "Smart response suggestions",
+        "Smart Response Suggestions",
         "Generate contextual suggestion buttons below assistant responses."
     ),
     REMOTE_MCP(
-        "Remote MCP connections",
+        "Remote MCP Connections",
         "Allow profiles to discover and call tools from remote MCP servers."
     ),
     SHARED_TOOL_CALLS(
-        "Shared read-only tool calls",
+        "Shared Read-Only Tool Calls",
         "Reuse identical safe tool results across AIs in the same conversation turn."
     ),
     DEVICE_LOCATION(
-        "Device location tool",
+        "Device Location Tool",
         "Allow profiles with the location tool assigned to request phone location."
     ),
     MODEL_DISCOVERY(
-        "Provider model discovery",
+        "Provider Model Discovery",
         "Index models from supported remote providers for searchable profile model pickers."
     ),
     DIAGNOSTICS(
-        "Diagnostics collection",
+        "Diagnostics Collection",
         "Collect local performance, token, runtime and tool metrics for Debug Mode."
     ),
     OPENROUTER_BATCH(
-        "OpenRouter batch processing",
+        "OpenRouter Batch Processing",
         "Allow asynchronous OpenRouter Batch API jobs for supported workloads."
     ),
     QNN_AUTO_FALLBACK(
-        "QNN automatic fallback",
+        "QNN Automatic Fallback",
         "Automatically switch to LiteRT when Qualcomm QNN cannot load the selected model."
     )
 }

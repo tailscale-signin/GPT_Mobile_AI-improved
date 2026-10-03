@@ -117,7 +117,15 @@ internal fun LocalToolToggle(
     label: String,
     checked: Boolean,
     enabled: Boolean,
-    description: String? = null,
+    onChange: (Boolean) -> Unit
+) = LocalToolToggle(label, checked, enabled, null, onChange)
+
+@Composable
+internal fun LocalToolToggle(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean,
+    description: String?,
     onChange: (Boolean) -> Unit
 ) {
     Row(

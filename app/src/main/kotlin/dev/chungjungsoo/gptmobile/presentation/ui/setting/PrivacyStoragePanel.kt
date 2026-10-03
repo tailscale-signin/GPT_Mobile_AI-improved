@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun PrivacyStoragePanel() {
+internal fun PrivacyStoragePanel(embedded: Boolean = false) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("device_privacy", Context.MODE_PRIVATE) }
     var locked by remember { mutableStateOf(preferences.getBoolean("app_lock", false)) }
@@ -45,9 +45,9 @@ internal fun PrivacyStoragePanel() {
         }
     }
     LaunchedEffect(Unit) { refresh() }
-    Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Privacy & Storage", style = MaterialTheme.typography.titleLarge)
+    val panelContent: @Composable () -> Unit = {
+        Column(Modifier.padding(if (embedded) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (!embedded) Text("Privacy & Storage", style = MaterialTheme.typography.titleLarge)
             Row {
                 Column(Modifier.weight(1f)) {
                     Text("Require Device Unlock")
@@ -74,6 +74,11 @@ internal fun PrivacyStoragePanel() {
             TextButton(onClick = { confirmCleanup = true }) { Text("Clear Attachment Previews") }
             if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
         }
+    }
+    if (embedded) {
+        panelContent()
+    } else {
+        Card { panelContent() }
     }
     if (confirmCleanup) {
         AlertDialog(

@@ -51,6 +51,9 @@ import androidx.compose.material.icons.outlined.Numbers
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -863,63 +866,122 @@ private fun SearchBackendDialog(
         var crawlPages by remember(behavior.maxCrawlPages) { mutableStateOf(behavior.maxCrawlPages.toFloat()) }
         var crawlerIds by remember(behavior.crawlerToolIds) { mutableStateOf(behavior.crawlerToolIds) }
 
+        val discoveredSearchTools = toolBindingState.mcpToolOptions.filter {
+            dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty())
+        }
+        val discoveredSearchSelections = discoveredSearchTools.map {
+            dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName)
+        }.toSet()
+        val unavailableSearchSelections = selectedTools.filter { selection ->
+            selection !in discoveredSearchSelections &&
+                dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(selection.toolName, "")
+        }.toSet()
+
         AlertDialog(
             icon = { Icon(dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"), null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Search engines") },
+            title = { Text("Search Engines") },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Search engines", style = MaterialTheme.typography.titleSmall)
-                    Text("Built-in search is included", style = MaterialTheme.typography.labelSmall)
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"), null, tint = MaterialTheme.colorScheme.primary)
+                            Column(Modifier.weight(1f)) {
+                                Text("Built-In Web Search", style = MaterialTheme.typography.titleMedium)
+                                Text("Always Available", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Icon(Icons.Outlined.Check, contentDescription = "Enabled", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    if (toolBindingState.searchConnections.isNotEmpty() || discoveredSearchTools.isNotEmpty() || unavailableSearchSelections.isNotEmpty()) {
+                        Text("Additional Search Engines", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+
                     toolBindingState.searchConnections.forEach { connection ->
                         PreferenceListSwitch(
                             title = connection.name,
                             icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
-                            description = connection.type.lowercase().replaceFirstChar { it.uppercase() },
+                            description = "Connected Search Engine",
                             isChecked = connection.connectionUid in selected,
-                            onCheckedChange = { enabled -> selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid }
+                            onCheckedChange = { enabled ->
+                                selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid
+                            }
                         )
                     }
-                    toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.forEach { tool ->
+
+                    discoveredSearchTools.forEach { tool ->
                         val selection = dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(tool.connectionUid, tool.toolName)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${tool.connectionName} · ${tool.toolName}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Switch(selection in selectedTools, { checked -> selectedTools = if (checked) selectedTools + selection else selectedTools - selection })
-                        }
+                        PreferenceListSwitch(
+                            title = tool.connectionName,
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = "MCP · ${tool.toolName}",
+                            isChecked = selection in selectedTools,
+                            onCheckedChange = { enabled ->
+                                selectedTools = if (enabled) selectedTools + selection else selectedTools - selection
+                            }
+                        )
                     }
+
+                    unavailableSearchSelections.forEach { selection ->
+                        val connectionName = toolBindingState.mcpConnections.firstOrNull { it.connectionUid == selection.connectionUid }?.name ?: "MCP Search"
+                        PreferenceListSwitch(
+                            title = connectionName,
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = "MCP · ${selection.toolName} · Currently Unavailable",
+                            isChecked = true,
+                            onCheckedChange = { enabled ->
+                                if (!enabled) selectedTools = selectedTools - selection
+                            }
+                        )
+                    }
+
                     androidx.compose.material3.HorizontalDivider()
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Crawlers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                         Switch(crawlerEnabled, { crawlerEnabled = it })
                     }
                     if (crawlerEnabled) {
-                        Text("Pages to read · ${crawlPages.toInt()}", style = MaterialTheme.typography.labelLarge)
+                        Text("Pages To Read · ${crawlPages.toInt()}", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.material3.Slider(crawlPages, { crawlPages = it }, valueRange = 1f..20f, steps = 18)
-                        Text(if (features.delegation.reviewerEnabled && features.delegation.enabled && behavior.delegationEnabled) "Reviewer reads the search result pages" else "Read pages after search", style = MaterialTheme.typography.labelSmall)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Built-in page reader", Modifier.weight(1f))
+                            Text("Built-In Page Reader", Modifier.weight(1f))
                             Switch(":read_url" in crawlerIds, { checked -> crawlerIds = if (checked) crawlerIds + ":read_url" else crawlerIds - ":read_url" })
                         }
-                        toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.toolName, it.description.orEmpty()) && !dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.forEach { tool ->
+                        toolBindingState.mcpToolOptions.filter {
+                            dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.toolName, it.description.orEmpty()) &&
+                                !dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty())
+                        }.forEach { tool ->
                             val id = "${tool.connectionUid}:${tool.toolName}"
                             val selection = dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(tool.connectionUid, tool.toolName)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${tool.connectionName} · ${tool.toolName}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                Switch(id in crawlerIds, { checked ->
+                            PreferenceListSwitch(
+                                title = tool.connectionName,
+                                icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("read_url"),
+                                description = "MCP · ${tool.toolName}",
+                                isChecked = id in crawlerIds,
+                                onCheckedChange = { checked ->
                                     crawlerIds = if (checked) crawlerIds + id else crawlerIds - id
                                     selectedTools = if (checked) selectedTools + selection else selectedTools - selection
-                                })
-                            }
+                                }
+                            )
                         }
                     }
-                    Row {
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
                             selected = toolBindingState.searchConnections.map { it.connectionUid }.toSet()
-                            selectedTools = selectedTools + toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.map { dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName) }
-                        }) { Text("Select all") }
+                            selectedTools = selectedTools + discoveredSearchSelections
+                        }) { Text("Select All") }
                         TextButton(onClick = {
                             selected = emptySet()
-                            selectedTools = selectedTools - toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.map { dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName) }.toSet()
-                        }) { Text("Built-in only") }
+                            selectedTools = selectedTools - discoveredSearchSelections - unavailableSearchSelections
+                        }) { Text("Built-In Only") }
                     }
                     toolBindingState.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
@@ -930,7 +992,7 @@ private fun SearchBackendDialog(
                     settingViewModel.updateProfileBehavior(behavior.copy(crawlersEnabled = crawlerEnabled, crawlerToolIds = crawlerIds, maxCrawlPages = crawlPages.toInt()))
                     if (":read_url" in crawlerIds && crawlerEnabled) settingViewModel.toggleReadUrl(true)
                     settingViewModel.selectSearchBackends(selected, selectedTools)
-                }) { Text("Save engines") }
+                }) { Text("Save Engines") }
             },
             dismissButton = { TextButton(onClick = settingViewModel::closeSearchBackendDialog) { Text("Cancel") } }
         )

@@ -93,19 +93,19 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalAccelerators
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
-import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.data.model.SamplingCreativity
+import dev.chungjungsoo.gptmobile.data.model.parseProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
-import dev.chungjungsoo.gptmobile.R
-import dev.chungjungsoo.gptmobile.util.formatPlatformTimeout
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
+import dev.chungjungsoo.gptmobile.util.formatPlatformTimeout
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
 

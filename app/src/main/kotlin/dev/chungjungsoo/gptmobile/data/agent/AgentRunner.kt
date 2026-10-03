@@ -386,6 +386,12 @@ class AgentRunner(
             }.toMutableList()
             val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
             val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
+            val sharedCallBudgetResult = allResults
+                .filter { it.toolCallBudgetExhausted }
+                .maxByOrNull { it.toolCallBudgetUsed ?: -1 }
+            val sharedOutputBudgetResult = allResults
+                .filter { it.outputBudgetExhausted }
+                .maxByOrNull { it.toolResultBudgetUsedBytes ?: -1 }
             val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
             replayTokens = ToolExchangeCompactor.estimateTokens(
                 ToolExchangeCompactor.compact(
@@ -410,11 +416,14 @@ class AgentRunner(
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
-                val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)
+                val used = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
+                val limit = sharedCallBudgetResult?.toolCallBudgetLimit ?: executionToolCallLimit
+                val configured = sharedCallBudgetResult?.toolCallBudgetConfigured ?: limits.maxToolCalls
+                val reserve = sharedCallBudgetResult?.toolCallBudgetReserved ?: limits.finalResponseToolCallReserve.coerceAtLeast(0)
                 emit(
                     AgentRunEvent.Notice(
-                        "Shared tool-call limit reached: $toolCallCount/$executionToolCallLimit executable calls used " +
-                            "(${limits.maxToolCalls} configured, $reserve reserved). Finishing with completed results. " +
+                        "Shared tool-call limit reached: $used/$limit executable calls used " +
+                            "($configured configured, $reserve reserved). Finishing with completed results. " +
                             "Increase Maximum Tool Calls on the active AI profile if more research is required.",
                         persistent = true
                     )
@@ -423,9 +432,11 @@ class AgentRunner(
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 finalResponseRequested = true
+                val usedBytes = sharedOutputBudgetResult?.toolResultBudgetUsedBytes ?: limits.maxToolOutputBytes
+                val limitBytes = sharedOutputBudgetResult?.toolResultBudgetLimitBytes ?: limits.maxToolOutputBytes
                 emit(
                     AgentRunEvent.Notice(
-                        "Tool-result byte budget reached (${limits.maxToolOutputBytes} bytes configured). " +
+                        "Tool-result byte budget reached: $usedBytes/$limitBytes bytes used. " +
                             "Finishing with completed results; successful delegated research remains usable.",
                         persistent = true
                     )

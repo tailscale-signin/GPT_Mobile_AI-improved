@@ -4,7 +4,7 @@
     <string name="unlimited">Unlimited</string>
     <string name="maximum_tool_calls_dialog_title">Maximum tool calls</string>
     <string name="maximum_tool_calls_label">Tool calls per run</string>
-    <string name="maximum_tool_calls_description">Limit total tool executions during one run, including delegated research engines and page reads. Multi-engine web search can use more than one call per query. Leave blank for no limit.</string>
+    <string name="maximum_tool_calls_description">Limit total tool executions during one run, including delegated research engines and page reads. Multi-engine web search can use more than one call per query. A separate context-derived result-byte budget can also stop tool output and is reported in chat when reached. Leave blank for no call-count limit.</string>
     <string name="maximum_tool_calls_blank_hint">Leave blank for unlimited.</string>
     <string name="maximum_tool_calls_invalid">Enter a whole number greater than zero, or leave blank for unlimited.</string>
 </resources>

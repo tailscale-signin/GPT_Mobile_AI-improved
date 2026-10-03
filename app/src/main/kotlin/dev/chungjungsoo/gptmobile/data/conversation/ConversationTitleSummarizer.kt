@@ -43,7 +43,9 @@ class ConversationTitleSummarizer(
             ClientType.GOOGLE -> summarizeWithGemini(prompt, platform, config)
             else -> null
         }
-        title?.let(::cleanTitle)?.takeIf { it.isNotBlank() }
+        title?.let(::cleanTitle)?.takeIf { cleaned ->
+            cleaned.split(Regex("\\s+")).count { it.isNotBlank() } in 4..8
+        }
     }
 
     private fun buildProviderRequestConfig(platform: PlatformV2): ProviderRequestConfig {

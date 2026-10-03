@@ -46,7 +46,15 @@ internal fun primaryDelegationTools(
         tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true
         tool.connectionUid == null && tool.realToolName == "read_url" -> true
         processingOwnership < 35 -> false
-        else -> !tool.isWebSearchEngine() && !tool.isResearchPageReader()
+        else -> {
+            val description = tool.tool.definition.description
+            val researchLikeByIdentity =
+                isCrawlerTool(tool.realToolName, description) ||
+                    isNamedWebSearch(tool.realToolName, description) ||
+                    isCrawlerTool(tool.modelToolName, description) ||
+                    isNamedWebSearch(tool.modelToolName, description)
+            !researchLikeByIdentity && !tool.isWebSearchEngine() && !tool.isResearchPageReader()
+        }
     }
 }
 

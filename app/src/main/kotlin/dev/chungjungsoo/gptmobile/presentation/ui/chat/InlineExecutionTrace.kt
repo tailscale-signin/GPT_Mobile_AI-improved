@@ -128,9 +128,9 @@ fun InlineExecutionTrace(
                 onClick = { expanded = !expanded },
                 shape = RoundedCornerShape(18.dp),
                 color = when {
-                    debugMode && isReviewerResult && debugSettings.debugShowReviewerTrace ->
+                    debugMode && expanded && isReviewerResult && debugSettings.debugShowReviewerTrace ->
                         androidx.compose.ui.graphics.Color(0xFFFFEA00).copy(alpha = 0.13f)
-                    delegatedTool -> androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.18f)
+                    delegatedTool && expanded -> androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.18f)
                     failed -> MaterialTheme.colorScheme.errorContainer
                     isDelegation -> androidx.compose.ui.graphics.Color(0xFFFFD54F).copy(alpha = 0.10f)
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh
@@ -197,25 +197,33 @@ fun InlineExecutionTrace(
                             }
                             val mediaLinks = Regex("gptmobile://media/[a-f0-9-]{36}\\.(?:png|jpg|webp|mp3|wav|ogg)").findAll(event.result.orEmpty()).map { it.value }.distinct().take(8).toList()
                             mediaLinks.forEach { link -> ChatMarkdown("[Open media result]($link)") }
-                            val showReviewerTrace =
-                                expanded && debugMode && isReviewerResult && debugSettings.debugShowReviewerTrace
-                            val showDelegationTrace =
-                                expanded && debugMode && isDelegation && !isReviewerResult && debugSettings.debugShowDelegationTrace
-                            if ((showReviewerTrace || showDelegationTrace) && !event.result.isNullOrBlank()) {
-                                Text(
-                                    event.result
-                                        .orEmpty()
-                                        .removePrefix("<!-- delegation:remote -->")
-                                        .removePrefix("<!-- delegation:local -->")
-                                        .trimStart(),
-                                    color = if (showReviewerTrace) {
-                                        androidx.compose.ui.graphics.Color(0xFFFFEA00)
-                                    } else {
-                                        androidx.compose.ui.graphics.Color(0xFF4CAF50)
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(top = 6.dp)
-                                )
+                            val debugResult = event.result
+                                .orEmpty()
+                                .removePrefix("<!-- delegation:remote -->")
+                                .removePrefix("<!-- delegation:local -->")
+                                .trimStart()
+                            val reviewerBoundary = if (isReviewerResult) debugResult.indexOf("\n\n") else -1
+                            val reviewerText = if (reviewerBoundary >= 0) debugResult.substring(0, reviewerBoundary).trim() else ""
+                            val delegateText = if (reviewerBoundary >= 0) debugResult.substring(reviewerBoundary).trim() else debugResult
+                            val showReviewerTrace = expanded && debugMode && reviewerText.isNotBlank() && debugSettings.debugShowReviewerTrace
+                            val showDelegationTrace = expanded && debugMode && isDelegation && delegateText.isNotBlank() && debugSettings.debugShowDelegationTrace
+                            if (showReviewerTrace || showDelegationTrace) {
+                                if (showReviewerTrace) {
+                                    Text(
+                                        reviewerText,
+                                        color = androidx.compose.ui.graphics.Color(0xFFFFEA00),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 6.dp)
+                                    )
+                                }
+                                if (showDelegationTrace) {
+                                    Text(
+                                        delegateText,
+                                        color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(top = 6.dp)
+                                    )
+                                }
                             } else {
                                 ToolTraceBlock(events = listOf(event))
                             }

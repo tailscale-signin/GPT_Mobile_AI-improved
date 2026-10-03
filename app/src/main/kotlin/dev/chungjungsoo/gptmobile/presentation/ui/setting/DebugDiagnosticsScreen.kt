@@ -47,7 +47,6 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.DebugMetric
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
-import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -287,12 +287,12 @@ private fun ProviderConnectionGroupCard(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(56.dp)) {
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(64.dp)) {
                     Icon(
                         if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         if (expanded) "Hide Profiles" else "Show Profiles",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(48.dp)
                     )
                 }
             }

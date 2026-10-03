@@ -132,7 +132,7 @@ internal fun LocalToolToggle(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+        Text(label.split(" ").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
         description?.let { SettingsHelpIcon(it) }
         Switch(checked, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = label })
     }
@@ -143,7 +143,7 @@ private fun DelegationNumber(label: String, value: Int, range: IntRange, enabled
     var draft by remember(value) { mutableStateOf(value.toString()) }
     val parsed = draft.toIntOrNull()
     Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(value = draft, onValueChange = { draft = it.take(7) }, label = { Text(label) }, supportingText = { Text("${range.first}–${range.last}") }, isError = parsed == null || parsed !in range, enabled = enabled, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+        OutlinedTextField(value = draft, onValueChange = { draft = it.take(7) }, label = { Text(label.split(" ").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }) }, supportingText = { Text("${range.first}–${range.last}") }, isError = parsed == null || parsed !in range, enabled = enabled, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
         TextButton(enabled = enabled && parsed != null && parsed in range && parsed != value, onClick = { parsed?.let(save) }) { Text(stringResource(R.string.local_tools_settings_panel_label_13)) }
     }
 }

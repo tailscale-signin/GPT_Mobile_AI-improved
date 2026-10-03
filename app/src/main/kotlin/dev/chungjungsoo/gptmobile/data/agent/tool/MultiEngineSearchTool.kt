@@ -163,7 +163,8 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 }
             ),
             isError = responses.all { it.second.isError },
-            outputBudgetExhausted = responses.any { it.second.outputBudgetExhausted }
+            outputBudgetExhausted = responses.any { it.second.outputBudgetExhausted },
+            toolCallBudgetExhausted = responses.any { it.second.toolCallBudgetExhausted }
         )
     }
 }

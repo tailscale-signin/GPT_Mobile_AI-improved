@@ -295,8 +295,16 @@ internal fun ModelDelegationSettingsContent(
                     LocalToolToggle("Compress Large Tool Results", config.compactToolResults, !busy) { value -> onChange { it.copy(compactToolResults = value) } }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Research Tools", style = MaterialTheme.typography.labelLarge)
-                        SettingsHelpIcon("Uses the conversation's enabled tools and permissions. Research sends sources and a compact brief to the main model.")
+                        SettingsHelpIcon(
+                            "Uses the conversation's enabled tools and permissions. Delegated research shares the active AI profile's Maximum Tool Calls limit. " +
+                                "Multi-engine web search counts each enabled engine and page read as a tool execution. Research sends sources and a compact brief to the main model."
+                        )
                     }
+                    Text(
+                        "Research shares the active AI profile's Maximum Tool Calls limit. Multi-engine searches can consume several calls per query.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     TextButton(onClick = { onReset() }, enabled = !busy) {
                         Icon(Icons.Default.RestartAlt, null)
                         Text("Restore Recommended Defaults", Modifier.padding(start = 8.dp))

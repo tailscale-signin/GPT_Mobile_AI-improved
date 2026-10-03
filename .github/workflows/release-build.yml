@@ -116,6 +116,28 @@ jobs:
         run: |
           set -euo pipefail
           APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          normalize_sha256() {
+            tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]'
+          }
+          apk_cert_sha256() {
+            "$APKSIGNER" verify --print-certs "$1" \
+              | sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*([0-9A-Fa-f:]+).*$/\1/p' \
+              | head -n 1 \
+              | normalize_sha256
+          }
+          keytool_cert_sha256() {
+            sed -nE 's/^[[:space:]]*SHA-?256:[[:space:]]*([0-9A-Fa-f:]+).*$/\1/p' \
+              | head -n 1 \
+              | normalize_sha256
+          }
+          require_sha256() {
+            local value="$1"
+            local label="$2"
+            [[ "$value" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "::error title=Certificate fingerprint parse failed::Could not parse a valid SHA-256 fingerprint for $label."
+              exit 1
+            }
+          }
           mkdir -p release-artifacts
           while IFS= read -r apk; do
             NAME=$(basename "$apk")
@@ -133,15 +155,21 @@ jobs:
             gh release download --pattern '*arm64-v8a*.apk' --dir previous-release
             PREVIOUS=$(find previous-release -name '*.apk' -print -quit)
             test -n "$PREVIOUS" || { echo 'Set RELEASE_CERT_SHA256 for a first release'; exit 1; }
-            EXPECTED_CERT_SHA256=$("$APKSIGNER" verify --print-certs "$PREVIOUS" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            EXPECTED_CERT_SHA256=$(apk_cert_sha256 "$PREVIOUS")
           fi
-          EXPECTED_CERT_SHA256=$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ':[:space:]')
+          EXPECTED_CERT_SHA256=$(printf '%s' "$EXPECTED_CERT_SHA256" | normalize_sha256)
+          require_sha256 "$EXPECTED_CERT_SHA256" "expected release signer"
+          KEYSTORE_CERT_SHA256=$(keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" | keytool_cert_sha256)
+          require_sha256 "$KEYSTORE_CERT_SHA256" "configured release keystore"
+          test "$KEYSTORE_CERT_SHA256" = "$EXPECTED_CERT_SHA256" || { echo 'Configured keystore certificate does not match the existing release certificate'; exit 1; }
           for apk in release-artifacts/*.apk; do
-            ACTUAL=$("$APKSIGNER" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-            test "${ACTUAL,,}" = "${EXPECTED_CERT_SHA256,,}" || { echo 'Signing certificate continuity check failed'; exit 1; }
+            ACTUAL=$(apk_cert_sha256 "$apk")
+            require_sha256 "$ACTUAL" "$apk signer"
+            test "$ACTUAL" = "$EXPECTED_CERT_SHA256" || { echo 'Signing certificate continuity check failed'; exit 1; }
           done
-          BUNDLE_CERT=$(keytool -printcert -jarfile release-artifacts/app-release.aab | sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1 | tr -d ':')
-          test "${BUNDLE_CERT,,}" = "${EXPECTED_CERT_SHA256,,}" || { echo 'Bundle certificate continuity check failed'; exit 1; }
+          BUNDLE_CERT=$(keytool -printcert -jarfile release-artifacts/app-release.aab | keytool_cert_sha256)
+          require_sha256 "$BUNDLE_CERT" "AAB signer"
+          test "$BUNDLE_CERT" = "$EXPECTED_CERT_SHA256" || { echo 'Bundle certificate continuity check failed'; exit 1; }
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
           echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $RUNNER_TEMP/bundletool.jar" | sha256sum --check --strict
           BUNDLETOOL_JAR="$RUNNER_TEMP/bundletool.jar" python3 scripts/verify_release_identity.py release-artifacts "$GITHUB_SHA"

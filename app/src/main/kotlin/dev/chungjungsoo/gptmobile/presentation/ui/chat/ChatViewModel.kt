@@ -1951,11 +1951,9 @@ class ChatViewModel @Inject constructor(
         val userTurnCount = grouped.userMessages.size
         if (userTurnCount <= 0) return
 
-        val shouldGenerate = when {
-            lastAutoTitleUserTurnCount == 0 -> userTurnCount >= 1
-            else -> userTurnCount - lastAutoTitleUserTurnCount >= 3
-        }
-        if (!shouldGenerate) return
+        // Automatic subjects are a one-shot operation. Once an AI subject is saved we
+        // mark the room title as finalized so reopening the conversation cannot rename it.
+        if (lastAutoTitleUserTurnCount != 0 || userTurnCount < 1) return
 
         val latestTurnIndex = userTurnCount - 1
         val latestAssistantMessages = grouped.assistantMessages.getOrNull(latestTurnIndex).orEmpty()
@@ -2016,9 +2014,10 @@ class ChatViewModel @Inject constructor(
                     .take(8)
                     .joinToString(" ")
                     .take(64)
-                if (cleaned.isNotBlank()) {
-                    _chatRoom.update { it.copy(title = cleaned) }
-                    chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = false)
+                val wordCount = cleaned.split(Regex("\\s+")).count { it.isNotBlank() }
+                if (wordCount in 4..8) {
+                    _chatRoom.update { it.copy(title = cleaned, isTitleCustomized = true) }
+                    chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = true)
                 }
             }
         }

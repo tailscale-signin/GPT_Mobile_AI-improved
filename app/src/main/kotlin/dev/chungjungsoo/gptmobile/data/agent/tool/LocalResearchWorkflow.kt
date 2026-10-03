@@ -222,12 +222,14 @@ internal class LocalResearchWorkflow(
                                     } catch (_: Exception) {
                                         null
                                     }
-                                    if (response?.toolCallBudgetExhausted == true || response?.outputBudgetExhausted == true) {
-                                        toolsExhausted = true
-                                        notes += if (response.toolCallBudgetExhausted) {
-                                            "The shared tool-call limit was reached."
-                                        } else {
-                                            "The shared tool-result byte budget was reached."
+                                    response?.let { budgeted ->
+                                        if (budgeted.toolCallBudgetExhausted || budgeted.outputBudgetExhausted) {
+                                            toolsExhausted = true
+                                            notes += if (budgeted.toolCallBudgetExhausted) {
+                                                "The shared tool-call limit was reached."
+                                            } else {
+                                                "The shared tool-result byte budget was reached."
+                                            }
                                         }
                                     }
                                     if (response == null || response.isError) continue

@@ -223,6 +223,16 @@ fun InlineExecutionTrace(
                                         modifier = Modifier.padding(top = 6.dp)
                                     )
                                 }
+                            } else if (debugMode && isDelegation) {
+                                Text(
+                                    if (isReviewerResult) {
+                                        "Delegation and reviewer traces are hidden by Debug settings."
+                                    } else {
+                                        "Delegation trace is hidden by Debug settings."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             } else {
                                 ToolTraceBlock(events = listOf(event))
                             }

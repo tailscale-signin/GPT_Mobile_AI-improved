@@ -13,13 +13,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SettingsSuggest
 import androidx.compose.material.icons.filled.Storage
@@ -46,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,16 +57,7 @@ fun AdvancedSettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text("Advanced Settings")
-                        Text(
-                            "Background behavior, automation and experimental integrations",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
+                title = { Text("Advanced Settings") },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -85,10 +73,7 @@ fun AdvancedSettingsScreen(
         ) {
             item { PrivacyStoragePanel() }
             item {
-                SettingsHero("Controls", "Tune your experience", "Conversation, research and runtime preferences")
-            }
-            item {
-                AdvancedGroupCard("Reading & motion", "", Icons.Default.Tune) {
+                AdvancedGroupCard("Reading & Motion", "", Icons.Default.Tune) {
                     FeatureSwitch(AppFeature.SMOOTH_STREAMING, settings.smoothStreaming, Icons.Default.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.CENTER_UNREAD, settings.centerUnread, Icons.Default.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.RESPONSE_ANIMATION, settings.responseAnimation, Icons.Default.Tune, viewModel::updateFeature)
@@ -97,7 +82,7 @@ fun AdvancedSettingsScreen(
                 }
             }
             item {
-                AdvancedGroupCard("Research & efficiency", "", Icons.Default.Tune) {
+                AdvancedGroupCard("Research & Efficiency", "", Icons.Default.Tune) {
                     FeatureSwitch(AppFeature.QUEUED_FOLLOW_UPS, settings.queuedFollowUps, Icons.Default.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.PARALLEL_SEARCH, settings.parallelSearch, Icons.Default.Tune, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.DEDUPLICATE_SEARCH, settings.deduplicateSearch, Icons.Default.Tune, viewModel::updateFeature)
@@ -106,14 +91,8 @@ fun AdvancedSettingsScreen(
                 }
             }
             item {
-                AdvancedGroupCard("Local runtime", "", Icons.Default.Tune) {
-                    FeatureSwitch(AppFeature.LOCAL_MODEL_CACHE, settings.localModelCache, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.LOCAL_NATIVE_METRICS, settings.localNativeMetrics, Icons.Default.Tune, viewModel::updateFeature)
-                }
-            }
-            item {
                 AdvancedGroupCard(
-                    title = "Background & notifications",
+                    title = "Background & Notifications",
                     subtitle = "Control work that can continue outside the foreground.",
                     icon = Icons.Default.Schedule
                 ) {
@@ -133,7 +112,7 @@ fun AdvancedSettingsScreen(
             }
             item {
                 AdvancedGroupCard(
-                    title = "Conversation intelligence",
+                    title = "Conversation Intelligence",
                     subtitle = "Automatic organization and response assistance.",
                     icon = Icons.Default.AutoAwesome
                 ) {
@@ -141,28 +120,6 @@ fun AdvancedSettingsScreen(
                     FeatureSwitch(AppFeature.ARCHIVE_OLDER_REPLIES, settings.archiveOlderAssistantReplies, Icons.Default.Storage, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.SHOW_REASONING, settings.showReasoning, Icons.Default.AutoAwesome, viewModel::updateFeature)
                     FeatureSwitch(AppFeature.SMART_SUGGESTIONS, settings.smartSuggestions, Icons.Default.SettingsSuggest, viewModel::updateFeature)
-                }
-            }
-            item {
-                AdvancedGroupCard(
-                    title = "Tools & discovery",
-                    subtitle = "Network-connected tools and provider metadata.",
-                    icon = Icons.Default.Cloud
-                ) {
-                    FeatureSwitch(AppFeature.REMOTE_MCP, settings.remoteMcpConnections, Icons.Default.Cloud, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.SHARED_TOOL_CALLS, settings.sharedReadOnlyToolCalls, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.DEVICE_LOCATION, settings.deviceLocationTool, Icons.Default.LocationOn, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.MODEL_DISCOVERY, settings.providerModelDiscovery, Icons.Default.Tune, viewModel::updateFeature)
-                }
-            }
-            item {
-                AdvancedGroupCard(
-                    title = "Diagnostics & integrations",
-                    subtitle = "Optional collection and provider features.",
-                    icon = Icons.Default.Memory
-                ) {
-                    FeatureSwitch(AppFeature.DIAGNOSTICS, settings.diagnosticsCollection, Icons.Default.QueryStats, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.OPENROUTER_BATCH, settings.openRouterBatchProcessing, Icons.Default.Cloud, viewModel::updateFeature)
                 }
             }
         }
@@ -188,9 +145,13 @@ private fun AdvancedGroupCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    if (subtitle.isNotBlank()) SettingsHelpIcon(subtitle)
                 }
                 Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse $title" else "Expand $title", tint = MaterialTheme.colorScheme.primary)
             }
@@ -212,9 +173,13 @@ private fun FeatureSwitch(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Column(Modifier.weight(1f)) {
-            Text(feature.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            Text(feature.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(feature.title.split(" ").joinToString(" ") { word -> word.replaceFirstChar { char -> char.uppercase() } }, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            SettingsHelpIcon(feature.description)
         }
         Switch(checked = enabled, onCheckedChange = { onChange(feature, it) })
     }

@@ -362,7 +362,10 @@ fun NavGraphBuilder.settingNavigation(
         composable(
             Route.WORKSPACES,
             arguments = listOf(
-                navArgument("chatId") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("chatId") {
+                    type = NavType.IntType
+                    defaultValue = 0
+                },
                 navArgument("tab") { defaultValue = "GitHub" },
                 navArgument("runId") { defaultValue = "" }
             )

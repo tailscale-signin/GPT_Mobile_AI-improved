@@ -42,11 +42,11 @@ class DelegationSettingsContentTest {
                 }
             }
         }
-        compose.onNodeWithText("Search queries: 9").assertDoesNotExist()
+        compose.onNodeWithText("Search Queries: 9").assertDoesNotExist()
         compose.onNodeWithTag("delegate_model_dropdown").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("delegation_advanced").performScrollTo().performClick()
-        compose.onNodeWithText("Search queries: 9").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Pages to read: 11").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Search Queries: 9").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Pages To Read: 11").performScrollTo().assertIsDisplayed()
     }
 
     @Test

@@ -694,7 +694,7 @@
     <string name="timeline_thinking">Thinking</string>
     <string name="timeline_progress">Progress</string>
     <string name="tool_approval_title">Allow tool action?</string>
-    <string name="tool_approval_body">%1$s on %2$s may change data. Only approve actions you requested. Manage trusted read tools in Settings → Tool connections.</string>
+    <string name="tool_approval_body">%1$s on %2$s may change data. Only approve actions you requested. Manage trusted read tools in Settings → Plugins/Tools.</string>
     <string name="tool_approval_allow">Allow once</string>
     <string name="tool_approval_deny">Deny</string>
     <string name="tool_policy">Tool permissions</string>

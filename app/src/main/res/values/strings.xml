@@ -267,7 +267,7 @@
     <string name="local_model_failed">Download failed. Tap to retry.</string>
 
     <!-- Tool Connections / MCP -->
-    <string name="tool_connections">Tool Connections</string>
+    <string name="tool_connections">Plugins/Tools</string>
     <string name="web_tools_description">Configure external tool connections</string>
     <string name="add_tool_connection">Add Tool Connection</string>
     <string name="edit_tool_connection">Edit Tool Connection</string>

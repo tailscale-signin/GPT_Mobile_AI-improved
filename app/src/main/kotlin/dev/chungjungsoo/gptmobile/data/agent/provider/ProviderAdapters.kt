@@ -708,12 +708,12 @@ class OpenAICompatibleAdapter @Inject constructor(
         if (!isLlama) return config
         val headers = buildMap {
             effectiveOutputTokens?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
-            if (!constraints.allowReasoning) {
-                put("X-Gateway-Reasoning-Effort", "none")
-                if (constraints.maxOutputTokens != null) {
-                    put("X-Gateway-Delegated-Worker", "true")
-                    put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools).toString())
-                }
+            if (!constraints.allowReasoning) put("X-Gateway-Reasoning-Effort", "none")
+            if (constraints.requestRole != null || constraints.maxOutputTokens != null) {
+                put("X-Gateway-Delegated-Worker", "true")
+                put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools && constraints.requestRole != "reviewer").toString())
+                constraints.requestRole?.let { put("X-Gateway-Request-Role", it) }
+                constraints.attemptId?.let { put("X-Gateway-Attempt-ID", it) }
             }
         }
         return if (headers.isEmpty()) config else config.copy(extraHeaders = config.extraHeaders + headers)

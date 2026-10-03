@@ -283,6 +283,7 @@ def _singleflight_metric(
 
 def canonical_chat_request_fingerprint(
     incoming_payload,
+    attempt_id=None,
 ):
     """
     Fingerprint transport-equivalent chat requests.
@@ -307,6 +308,12 @@ def canonical_chat_request_fingerprint(
 
     canonical = {
         "device": current_device.get(),
+        # Same transport attempt may reconnect; a model retry must run fresh inference.
+        "attempt_id": attempt_id,
+        "generation": {key: value for key, value in payload.items()
+                       if not key.startswith("_gateway_")},
+        "worker_policy": {key: value for key, value in payload.get("_gateway_performance", {}).items()
+                          if key in ("delegated_worker", "allow_gateway_local_tools", "reasoning_effort", "intermediate_max_tokens")},
         "model":
             payload.get(
                 "model"
@@ -527,6 +534,7 @@ def cleanup_singleflight_state():
 def resolve_singleflight_job_id(
     incoming_payload,
     proposed_job_id,
+    attempt_id=None,
 ):
     if not SINGLEFLIGHT_ENABLED:
         return (
@@ -539,7 +547,7 @@ def resolve_singleflight_job_id(
 
     fingerprint = (
         canonical_chat_request_fingerprint(
-            incoming_payload
+            incoming_payload, attempt_id
         )
     )
 
@@ -20050,6 +20058,7 @@ async def chat_completions(
     ) = resolve_singleflight_job_id(
         incoming_payload,
         proposed_gateway_job_id,
+        attempt_id=request.headers.get("x-gateway-attempt-id"),
     )
 
     device_store.claim(gateway_job_id)

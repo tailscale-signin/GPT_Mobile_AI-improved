@@ -62,12 +62,11 @@ class ModelDelegationTool(
         val task = (arguments["task"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
         if (task.isBlank() || task.length > config.maxInputCharacters) return error("Task must contain 1–${config.maxInputCharacters} characters.")
         val availableProfiles = profiles()
-        val reviewerModel = availableProfiles.firstOrNull { it.uid == config.reviewerProfileUid }?.model?.trim().orEmpty()
+        val reserved = reservedReviewer(config, availableProfiles, source)
         val eligibleTargets = availableProfiles.filter {
             it.enabled &&
                 it.uid != source.uid &&
-                (!config.reviewerEnabled || it.uid != config.reviewerProfileUid) &&
-                (!config.reviewerEnabled || reviewerModel.isBlank() || !it.model.trim().equals(reviewerModel, ignoreCase = true)) &&
+                !sameDelegationModel(it, reserved) &&
                 !it.excludesMemory() &&
                 (!isGitHubTask(task) || targetKey(it) !in githubUnavailableTargets) &&
                 (config.remoteWorkersAllowed() || it.isPrivateDestination())

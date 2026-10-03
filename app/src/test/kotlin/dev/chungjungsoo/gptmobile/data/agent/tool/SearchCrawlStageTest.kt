@@ -35,29 +35,25 @@ class SearchCrawlStageTest {
     }
     private fun source(url: String) = buildJsonObject { put("url", url) }
 
-    @Test fun `reviewer receives exclusive page tools and cannot expand beyond search results`() = runTest {
+    @Test fun `crawling is app owned and never assigns research to a reviewer`() = runTest {
         val calls = mutableListOf<String>()
-        val stage = SearchCrawlStage(listOf(crawler(calls)), 2, true) { tools, _ ->
-            assertTrue(calls.isEmpty())
-            assertTrue(tools.single().tool.execute("bad", source("https://unsearched.example/")).isError)
-            assertFalse(tools.single().tool.execute("good", source("https://example.org/a")).isError)
-            "Reviewed"
-        }
+        val stage = SearchCrawlStage(listOf(crawler(calls)), 2)
         val result = stage.execute("search", listOf(source("https://example.org/a")))
         assertEquals(listOf("https://example.org/a"), calls)
-        assertEquals(JsonPrimitive("reviewer"), result["owner"])
+        assertEquals(JsonPrimitive("search"), result["owner"])
+        assertFalse(result.containsKey("review"))
     }
 
-    @Test fun `unavailable reviewer never falls back to a primary crawler`() = runTest {
+    @Test fun `disabled crawl stage prevents queued page calls`() = runTest {
         val calls = mutableListOf<String>()
-        val stage = SearchCrawlStage(listOf(crawler(calls)), 5, true) { _, _ -> null }
+        val stage = SearchCrawlStage(listOf(crawler(calls)), 5, stillEnabled = { false })
         stage.execute("search", listOf(source("https://example.org/a")))
         assertTrue(calls.isEmpty())
     }
 
     @Test fun `direct crawling deduplicates and bounds found pages`() = runTest {
         val calls = java.util.Collections.synchronizedList(mutableListOf<String>())
-        val stage = SearchCrawlStage(listOf(crawler(calls)), 1, false) { _, _ -> error("No reviewer expected") }
+        val stage = SearchCrawlStage(listOf(crawler(calls)), 1)
         stage.execute("search", listOf(source("https://example.org/a"), source("https://example.org/a"), source("https://example.org/b")))
         assertEquals(listOf("https://example.org/a"), calls)
     }

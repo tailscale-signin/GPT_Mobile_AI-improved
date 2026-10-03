@@ -21,6 +21,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun `read url circuit pauses only the failing host`() = runBlocking {
+        val executed = mutableListOf<String>()
+        val reader = tool("read_url") { id, args ->
+            val url = (args.getValue("url") as kotlinx.serialization.json.JsonPrimitive).content
+            executed += url
+            AgentToolResult(id, ToolResultContent.Text(if (url.contains("blocked")) "HTTP 403" else "Evidence"), url.contains("blocked"))
+        }
+        val urls = listOf("https://blocked.example/a", "https://blocked.example/b", "https://blocked.example/c", "https://blocked.example/d", "https://healthy.example/a")
+        val events = AgentRunner(AgentRunLimits(maxRounds = 8)).run(
+            session { tools, exchanges ->
+                flow {
+                    assertTrue(tools.any { it.name == "read_url" })
+                    urls.getOrNull(exchanges.size)?.let { url ->
+                        emit(ProviderEvent.ToolCall("read-${exchanges.size}", "read_url", buildJsonObject { put("url", url) }))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(reader)
+        ).toList()
+        assertEquals(urls.take(3) + urls.last(), executed)
+        assertEquals(3, executed.count { "blocked" in it })
+        assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().any { it.result.content.toString().contains("other hosts") })
+    }
+
     @Test
     fun `GitHub resource and permission failures do not disable later valid operations`() = runBlocking {
         var executions = 0

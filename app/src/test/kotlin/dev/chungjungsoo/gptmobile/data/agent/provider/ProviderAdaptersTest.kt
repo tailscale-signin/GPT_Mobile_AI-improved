@@ -76,6 +76,28 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun `reasoning enabled reviewer still sends isolation and unique attempt headers`() = runBlocking {
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(kotlinx.coroutines.flow.emptyFlow())))
+        val constraints = RequestConstraints(
+            maxOutputTokens = 2048,
+            allowTools = false,
+            allowReasoning = true,
+            allowGatewayLocalTools = false,
+            requestRole = "reviewer",
+            attemptId = "fresh-review-attempt"
+        )
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.LLAMA).copy(disableAllTools = true, reasoning = true, maxTokens = 8192), constraints)
+            .streamRound(emptyList(), emptyList()).toList()
+        val headers = api.configs.single().extraHeaders
+        assertEquals("true", headers["X-Gateway-Delegated-Worker"])
+        assertEquals("false", headers["X-Gateway-Allow-Local-Tools"])
+        assertEquals("reviewer", headers["X-Gateway-Request-Role"])
+        assertEquals("fresh-review-attempt", headers["X-Gateway-Attempt-ID"])
+        assertEquals("none", requestJson(api.chatRequests.single())["tool_choice"]?.jsonPrimitive?.content)
+        assertTrue(api.chatRequests.single().tools.isNullOrEmpty())
+    }
+
     @Test
     fun `Ollama recovery deadline terminates a continuously active stream`() = kotlinx.coroutines.test.runTest {
         val api = FakeOpenAIAPI(

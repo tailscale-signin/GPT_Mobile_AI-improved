@@ -16,6 +16,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.PaginatedRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
 import java.net.URI
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -60,6 +61,11 @@ class McpBackoffException(
     val retryAtMs: Long
 ) : IllegalStateException("MCP connection is backing off until $retryAtMs.")
 
+class McpEndpointConfigurationException :
+    IllegalStateException(
+        "MCP endpoint returned HTTP 404 during initialization. Check the server URL/path and running service in Plugins/Tools, then reconnect."
+    )
+
 @Singleton
 class McpClientManager internal constructor(
     private val httpClient: HttpClient,
@@ -77,13 +83,19 @@ class McpClientManager internal constructor(
     private val mutex = Mutex()
 
     // ponytail: one global lock serializes session setup only; use per-connection locks if startup contention becomes measurable.
+    private val configurationFailures = ConcurrentHashMap<String, String>()
     private val sessions = mutableMapOf<String, Session>()
     private val inFlight = mutableMapOf<String, InFlight>()
     private val _health = MutableStateFlow<Map<String, McpConnectionHealth>>(emptyMap())
     val health = _health.asStateFlow()
 
     private suspend fun modernTransport(config: McpConnectionConfig, refresh: Boolean = false): ModernMcpTransport? {
-        config.validatedKey()
+        val key = config.validatedKey()
+        configurationFailures[config.connectionUid]?.let { failedKey ->
+            if (!refresh && failedKey == key) throw McpEndpointConfigurationException()
+            configurationFailures.remove(config.connectionUid, failedKey)
+            resetHealth(config.connectionUid)
+        }
         val transport = modern ?: return null
         return transport.takeIf { it.supports(config, refresh) }
     }
@@ -248,10 +260,10 @@ class McpClientManager internal constructor(
             val failures = previous.consecutiveFailures + 1
             val delay = retryDelayMs(failures)
             updated = previous.copy(
-                state = if (failures >= CIRCUIT_BREAKER_FAILURES) McpConnectionHealthState.UNREACHABLE else McpConnectionHealthState.DEGRADED,
+                state = if (error is McpEndpointConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES) McpConnectionHealthState.UNREACHABLE else McpConnectionHealthState.DEGRADED,
                 lastFailureAtMs = now,
                 consecutiveFailures = failures,
-                nextRetryAtMs = now + delay,
+                nextRetryAtMs = if (error is McpEndpointConfigurationException) Long.MAX_VALUE else now + delay,
                 lastError = error.message ?: error.javaClass.simpleName
             )
             current + (connectionUid to updated)
@@ -394,6 +406,10 @@ class McpClientManager internal constructor(
                 } catch (error: Exception) {
                     AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$sessionConnectTimeoutMs · ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
                     withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
+                    if (generateSequence(error as Throwable) { it.cause }.any { it is StreamableHttpError && it.code == 404 }) {
+                        configurationFailures[config.connectionUid] = key
+                        throw McpEndpointConfigurationException()
+                    }
                     throw error
                 }
             }

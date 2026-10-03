@@ -28,6 +28,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebSearchToolTest {
+    @Test fun `Perplexity auth block survives elapsed cooldown and resets for corrected credentials`() = runBlocking {
+        val server = server("/search", "{}", status = 401)
+        val client = NetworkClient(CIO).also { networkClients += it }
+        val config = WebSearchProviderConfig(WebSearchProvider.PERPLEXITY, "bad-key", server.url("/search"))
+        val args = buildJsonObject { put("query", "test") }
+        WebSearchTool(config, client, clock).execute("first", args)
+        val later = Clock.offset(clock, java.time.Duration.ofDays(1))
+        val blocked = WebSearchTool(config, client, later).execute("second", args)
+        assertTrue(blocked.content.toString().contains("disabled"))
+        val changed = WebSearchTool(config.copy(bearerToken = "corrected-key"), client, later).execute("third", args)
+        assertTrue(changed.content.toString().contains("HTTP 401"))
+    }
+
     @Test
     fun `Brave uses subscription header and GET filters with normalized sources`() = runBlocking {
         val server = server("/web/search", """{"type":"search","web":{"results":[{"title":"Kotlin &amp; Android","url":"https://docs.allowed.example/kotlin","description":"Useful <b>documentation</b>","date":"2026-07-31"}]}}""")

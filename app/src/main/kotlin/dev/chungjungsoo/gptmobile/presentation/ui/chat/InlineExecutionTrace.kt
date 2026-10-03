@@ -106,7 +106,7 @@ fun InlineExecutionTrace(
                     (
                         event.result.orEmpty().contains("[Reviewer Score:", ignoreCase = true) ||
                             event.result.orEmpty().contains("Reviewer findings:", ignoreCase = true)
-                    )
+                        )
             var dots by androidx.compose.runtime.remember(event.eventId) { mutableStateOf(1) }
             LaunchedEffect(running) {
                 while (running) {

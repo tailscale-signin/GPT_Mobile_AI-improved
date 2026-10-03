@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -101,21 +102,23 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Your memory, connected", style = MaterialTheme.typography.titleLarge)
-                                Text("Facts · topics · semantic search · documents", style = MaterialTheme.typography.bodySmall)
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Memory", style = MaterialTheme.typography.titleLarge)
+                                SettingsHelpIcon("Private saved facts, recurring topics, semantic recall, and indexed documents are managed here.")
                             }
                             Switch(vault.enabled, viewModel::setEnabled, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Enable local memory" })
                         }
                         Text("${vault.facts.size} memories · ${documents.size} indexed documents", style = MaterialTheme.typography.labelLarge)
-                        Text(semanticStatus.detail, style = MaterialTheme.typography.bodySmall)
-                        Text("${vault.facts.count { !it.enabled }} awaiting review or disabled · Auto-recall skips Free profiles", style = MaterialTheme.typography.bodySmall)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${vault.facts.count { !it.enabled }} awaiting review or disabled", style = MaterialTheme.typography.bodySmall)
+                            SettingsHelpIcon(semanticStatus.detail + " Auto-recall skips Free profiles.")
+                        }
                     }
                 }
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Memories", "Topics", "Documents", "Projects", "Controls").forEach { label ->
+                    listOf("Memories", "Topics", "Documents", "Controls").forEach { label ->
                         FilterChip(tab == label, {
                             tab = label
                             query = ""
@@ -132,7 +135,6 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
             }
             status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) } }
             when (tab) {
-                "Projects" -> item { ProjectWorkspacePanel(viewModel, onOpenConversation) }
                 "Topics" -> {
                     item { SettingsHero("ON DEVICE", "Recurring interests", "Topics become memories after ${settings.topicRepetitions} different messages.") }
                     val topics = vault.topics.sortedByDescending { it.messageKeys.size }
@@ -263,9 +265,9 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         Card(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text("Memory controls", style = MaterialTheme.typography.titleMedium)
-                                        Text("Capture durable facts automatically, then recall only what is useful.", style = MaterialTheme.typography.bodySmall)
+                                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Memory Controls", style = MaterialTheme.typography.titleMedium)
+                                        SettingsHelpIcon("Capture durable facts automatically, then recall only what is useful.")
                                     }
                                     TextButton(onClick = viewModel::applyRecommendedControls, enabled = !busy) { Text("Recommended") }
                                 }
@@ -283,7 +285,10 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                     Text("Only key facts", style = MaterialTheme.typography.labelSmall)
                                     Text("More details", style = MaterialTheme.typography.labelSmall)
                                 }
-                                Text("Explicit facts and interests are learned locally. Repeated questions build topic evidence.", style = MaterialTheme.typography.bodySmall)
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Capture Policy", style = MaterialTheme.typography.labelSmall)
+                                    SettingsHelpIcon("Explicit facts and interests are learned locally. Repeated questions build topic evidence.")
+                                }
                                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(40 to "Selective", 65 to "Balanced", 85 to "Detailed").forEach { (value, label) ->
                                         FilterChip(
@@ -311,10 +316,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                 VaultToggle("Prioritize recent memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
                                 VaultToggle("Prioritize repeated information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
                                 VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
-                                VaultToggle("Use local model for richer learning", settings.localModelLearning, !busy) { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
-                                Text("Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.", style = MaterialTheme.typography.bodySmall)
-                                VaultToggle("Make room for new automatic memories", settings.rotateAutomaticFacts, !busy) { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
-                                Text("Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.", style = MaterialTheme.typography.bodySmall)
+                                VaultToggle("Use Local Model For Richer Learning", settings.localModelLearning, !busy, "Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.") { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
+                                VaultToggle("Make Room For New Automatic Memories", settings.rotateAutomaticFacts, !busy, "Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.") { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
                                 VaultLimit("New facts per message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
                                 VaultLimit("Recall token budget · estimate", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
                                 VaultLimit("Memories per response", settings.maxRecall, 1..40, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
@@ -332,9 +335,8 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         item {
                             Card(Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text("Connected memory · advanced", style = MaterialTheme.typography.titleMedium)
-                                    VaultToggle("Automatically recall from selected MCPs", settings.externalRecallEnabled, !busy) { viewModel.updateSettings(settings.copy(externalRecallEnabled = it)) }
-                                    Text("Add Mem0, Supermemory or your Graphiti server from the marketplace and enable its memory search tool in the AI profile. Selected servers receive up to 500 characters from the current question. Local saved memories and chat history are not uploaded. Remote saving uses the provider's ordinary tools and permissions.", style = MaterialTheme.typography.bodySmall)
+                                    Text("Connected Memory", style = MaterialTheme.typography.titleMedium)
+                                    VaultToggle("Automatically Recall From Selected MCPs", settings.externalRecallEnabled, !busy, "Add a compatible memory MCP and enable its memory search tool in the AI profile. Selected servers receive up to 500 characters from the current question; local saved memories and chat history are not uploaded.") { viewModel.updateSettings(settings.copy(externalRecallEnabled = it)) }
                                     if (!settings.allowCloudRecall || settings.sameChatOnly || settings.reviewBeforeRecall) Text("Automatic connected recall is paused by cloud recall, original-chat-only or review-before-use controls.", style = MaterialTheme.typography.bodySmall)
                                     if (connections.isEmpty()) Text("No MCP connections configured yet.")
                                     connections.forEach { connection ->
@@ -354,9 +356,10 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                         }
                     }
                     item {
-                        Text("Local memory tools", style = MaterialTheme.typography.titleMedium)
-                        Text("Capture & recall · Search & open nodes · Read graph · Add observations · Forget · Search & read documents", style = MaterialTheme.typography.bodyMedium)
-                        Text("Runs inside the app. No account or remote memory server. Cloud recall sends selected reference text only when enabled. Document indexes use the app's private storage.", style = MaterialTheme.typography.bodySmall)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Local Memory Tools", style = MaterialTheme.typography.titleMedium)
+                            SettingsHelpIcon("Capture and recall, search and open nodes, read the graph, add observations, forget memories, and search indexed documents. These tools run inside the app; cloud recall sends selected reference text only when enabled.")
+                        }
                         TextButton(onClick = { clearing = true }, enabled = !busy) { Text("Clear saved memories") }
                     }
                 }
@@ -426,9 +429,10 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
 }
 
 @Composable
-private fun VaultToggle(title: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun VaultToggle(title: String, checked: Boolean, enabled: Boolean, description: String? = null, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        description?.let { SettingsHelpIcon(it) }
         Switch(checked, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
     }
 }

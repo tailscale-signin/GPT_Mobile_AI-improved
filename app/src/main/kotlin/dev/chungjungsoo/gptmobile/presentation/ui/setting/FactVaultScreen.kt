@@ -447,7 +447,6 @@ private fun VaultLimit(title: String, value: Int, range: IntRange, enabled: Bool
     Slider(value = draft, onValueChange = { draft = it }, onValueChangeFinished = { onChange(draft.toInt()) }, valueRange = range.first.toFloat()..range.last.toFloat(), enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
 }
 
-
 private fun memorySettingTitle(value: String): String =
     value.split(Regex("\\s+")).joinToString(" ") { word ->
         word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }

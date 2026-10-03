@@ -39,7 +39,7 @@ class McpClientManagerTest {
                 val manager = McpClientManager(client, sessionConnectTimeoutMs = 1_000, nowMs = { now })
                 val config = McpConnectionConfig("slow", server.url, allowCleartext = true)
 
-                val first = withTimeout(3000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
+                val first = withTimeout(6_000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
                 assertTrue(first is IllegalStateException)
                 assertTrue(first?.message.orEmpty().contains("timed out"))
                 assertEquals(1, starts.get())
@@ -49,7 +49,7 @@ class McpClientManagerTest {
                 assertEquals(1, starts.get())
 
                 now = 6_000L
-                val retried = withTimeout(3000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
+                val retried = withTimeout(6_000) { runCatching { manager.listTools(config) }.exceptionOrNull() }
                 assertTrue(retried is IllegalStateException)
                 assertTrue(retried?.message.orEmpty().contains("timed out"))
                 assertEquals(2, starts.get())

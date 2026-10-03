@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -364,16 +365,14 @@ private fun SettingsHeroCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("GPT Mobile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
-                "Configure the parts of the app you actually use. Provider connections, AI behavior and tools are kept separate.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("GPT Mobile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                SettingsHelpIcon("Configure the parts of the app you actually use. Provider connections, AI behavior, memory, delegation and tools are kept in focused categories.")
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsStat("$activeProfiles/$totalProfiles", "AI profiles", Modifier.weight(1f))
+                SettingsStat("$activeProfiles/$totalProfiles", "AI Profiles", Modifier.weight(1f))
                 SettingsStat(providerCount.toString(), "Providers", Modifier.weight(1f))
-                SettingsStat(runtime, "Local runtime", Modifier.weight(1f))
+                SettingsStat(runtime, "Local Runtime", Modifier.weight(1f))
             }
         }
     }
@@ -398,7 +397,11 @@ private fun SettingsCategory(
     content: @Composable () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            title.split(Regex("\\s+")).joinToString(" ") { word -> word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() } },
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
         Column(Modifier.fillMaxWidth()) { content() }
     }
 }
@@ -416,7 +419,7 @@ private fun SettingsDestination(
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(14.dp))
         Text(
-            title,
+            title.split(Regex("\\s+")).joinToString(" ") { word -> word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() } },
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.primary,

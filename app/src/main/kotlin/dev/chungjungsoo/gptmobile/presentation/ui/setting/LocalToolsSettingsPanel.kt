@@ -59,8 +59,10 @@ fun LocalToolsSettingsPanel(
         if (settingsOnly) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(stringResource(R.string.local_tools_settings_panel_label_2), style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.local_tools_settings_panel_label_3), style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Context And Usage Limits", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        SettingsHelpIcon(stringResource(R.string.local_tools_settings_panel_label_3))
+                    }
                     LocalToolToggle("No app context limit", budget.contextTokens == Int.MAX_VALUE, true) { enabled -> viewModel.updateBudget { it.copy(contextTokens = if (enabled) Int.MAX_VALUE else 32768) } }
                     if (budget.contextTokens != Int.MAX_VALUE) DelegationNumber("Context window tokens", budget.contextTokens, 2048..1048576, true) { value -> viewModel.updateBudget { it.copy(contextTokens = value) } }
                     LocalToolToggle("No app output-token limit", budget.outputTokens == 0, true) { enabled -> viewModel.updateBudget { it.copy(outputTokens = if (enabled) 0 else 32768) } }
@@ -73,8 +75,13 @@ fun LocalToolsSettingsPanel(
         if (!settingsOnly) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LocalToolToggle("Local memory capture and recall", vault.enabled, !memoryBusy, memory::setEnabled)
-                    Text(stringResource(R.string.local_tools_settings_panel_label_4), style = MaterialTheme.typography.bodySmall)
+                    LocalToolToggle(
+                        "Local Memory Capture And Recall",
+                        vault.enabled,
+                        !memoryBusy,
+                        stringResource(R.string.local_tools_settings_panel_label_4),
+                        memory::setEnabled
+                    )
                     Text(if (vault.settings.allowCloudRecall) "Recall can be included in cloud AI requests. Change this in Configure memory." else "Recall is restricted to local AI platforms.", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { showMemory = true }) { Text("Configure memory · ${vault.facts.size} facts") }
                     memoryError?.let { Text(it, color = MaterialTheme.colorScheme.error) }

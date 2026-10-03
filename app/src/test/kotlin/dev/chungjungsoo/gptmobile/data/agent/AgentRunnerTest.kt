@@ -149,7 +149,10 @@ class AgentRunnerTest {
                         emit(toolCall("search", "web_search"))
                     } else {
                         assertTrue(tools.isEmpty())
-                        assertTrue((exchanges.single().results.single().content as ToolResultContent.Text).text.contains("Useful source"))
+                        val resultText = (exchanges.single().results.single().content as ToolResultContent.Text).text
+                        assertTrue(resultText.contains("Useful source"))
+                        assertTrue(resultText.contains("tool-result byte budget is exhausted"))
+                        assertFalse(resultText.contains("tool-call allowance is exhausted"))
                         emit(ProviderEvent.TextDelta("Answer from the source"))
                     }
                     emit(ProviderEvent.Completed)

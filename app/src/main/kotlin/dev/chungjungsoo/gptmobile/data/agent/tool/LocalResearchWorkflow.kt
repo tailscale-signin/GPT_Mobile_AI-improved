@@ -64,9 +64,13 @@ internal class LocalResearchWorkflow(
             return try {
                 tool.tool.execute("$callId:$suffix", arguments).also { result ->
                     rawBytes += result.content.researchText().toByteArray().size
-                    if (result.outputBudgetExhausted) {
+                    if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) {
                         toolsExhausted = true
-                        notes += "The shared tool budget was reached."
+                        notes += if (result.toolCallBudgetExhausted) {
+                            "The shared tool-call limit was reached."
+                        } else {
+                            "The shared tool-result byte budget was reached."
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -218,8 +222,13 @@ internal class LocalResearchWorkflow(
                                     } catch (_: Exception) {
                                         null
                                     }
-                                    if (response?.outputBudgetExhausted == true) {
+                                    if (response?.toolCallBudgetExhausted == true || response?.outputBudgetExhausted == true) {
                                         toolsExhausted = true
+                                        notes += if (response.toolCallBudgetExhausted) {
+                                            "The shared tool-call limit was reached."
+                                        } else {
+                                            "The shared tool-result byte budget was reached."
+                                        }
                                     }
                                     if (response == null || response.isError) continue
                                     val payload = response.content.researchPayload()
@@ -270,7 +279,9 @@ internal class LocalResearchWorkflow(
                     notes += "Only $successfulReads of $requestedVerifiedPages requested pages could be verified; remaining evidence is search snippets."
                 }
             }
-            if (toolsExhausted) notes += "The shared tool budget was reached."
+            if (toolsExhausted && notes.none { it.startsWith("The shared tool-") }) {
+                notes += "Research stopped after the shared tool budget was reached."
+            }
             if (toolUnavailable && sources.isEmpty()) {
                 brief = ""
                 notes += "Live research could not be verified. Do not answer as if sourced web research succeeded."

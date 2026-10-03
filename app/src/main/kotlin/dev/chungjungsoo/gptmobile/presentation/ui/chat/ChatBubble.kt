@@ -1001,21 +1001,6 @@ internal fun ChatDebugDiagnosticsCard(
                     if (settings.debugShowTotalTokens) dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine("Reported Input / Output", "${run.inputTokens ?: "—"} / ${run.outputTokens ?: "—"}")
                 }
             } else {
-                if (settings.debugShowTokenComparison) {
-                    Text("Token Comparison", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
-                    dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
-                        "All Requests",
-                        "$totalInputTokens input + $totalOutputTokens output = $totalTokens total"
-                    )
-                    uniqueInvocations.forEach { request ->
-                        val requestTotal = request.inputTokens.toLong() + request.outputTokens.toLong()
-                        val share = if (totalTokens > 0L) requestTotal * 100.0 / totalTokens else 0.0
-                        dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
-                            "${request.kind} · ${request.model}",
-                            "${request.inputTokens} in + ${request.outputTokens} out = $requestTotal · ${"%.1f".format(share)}%"
-                        )
-                    }
-                }
                 uniqueInvocations.forEach { request ->
                     dev.chungjungsoo.gptmobile.presentation.ui.setting.RequestDiagnostic(request, now, settings)
                 }

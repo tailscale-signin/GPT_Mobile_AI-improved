@@ -1,0 +1,5 @@
+fastapi==0.142.2
+requests==2.34.2
+uvicorn==0.53.0
+# HTTPX supports the legacy v10 entry point and the FastAPI integration tests.
+httpx

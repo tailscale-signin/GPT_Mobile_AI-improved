@@ -21,7 +21,7 @@ internal object MemoryRecallPolicy {
     private fun tokens(text: String): Set<String> = Regex("[\\p{L}\\p{N}]+", RegexOption.IGNORE_CASE).findAll(text.lowercase(Locale.ROOT))
         .map { it.value }.filter { it.length > 2 && it !in stop }.map { if (it.endsWith("s") && it.length > 4) it.dropLast(1) else it }.toSet()
     private fun expanded(text: String, document: Boolean = false): Set<String> {
-        val terms = tokens(text).toMutableSet()
+        val terms = tokens(text + " " + RecurringTopicLearning.topics(text).joinToString(" ")).toMutableSet()
         if (document && terms.any { it in setOf("kotlin", "python", "typescript", "javascript", "java", "rust") }) terms += "programming"
         return terms + groups.filter { group -> group.any { it in terms } }.flatMap { tokens(it.joinToString(" ")) }
     }

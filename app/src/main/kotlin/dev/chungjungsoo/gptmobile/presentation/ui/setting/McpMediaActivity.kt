@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
@@ -18,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.io.File
 
-class McpMediaActivity : ComponentActivity() {
+class McpMediaActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity() {
     private var player: MediaPlayer? = null
     override fun onStop() {
         player?.pause()

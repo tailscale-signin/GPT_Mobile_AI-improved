@@ -60,7 +60,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
+fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenConversation: (Int, Int?) -> Unit = { _, _ -> }) {
     val vault by viewModel.vault.collectAsStateWithLifecycle()
     val connections by viewModel.connections.collectAsStateWithLifecycle()
     val documents by viewModel.documents.collectAsStateWithLifecycle(emptyList())
@@ -75,6 +75,9 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
     var editing by remember { mutableStateOf<VaultFact?>(null) }
     var adding by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
+    var selectedMemories by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var restructuring by remember { mutableStateOf(false) }
+    var replacementText by remember { mutableStateOf("") }
     var deleting by remember { mutableStateOf<String?>(null) }
     var clearing by remember { mutableStateOf(false) }
     var advancedControls by rememberSaveable { mutableStateOf(false) }
@@ -112,7 +115,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Memories", "Topics", "Documents", "Controls").forEach { label ->
+                    listOf("Memories", "Topics", "Documents", "Projects", "Controls").forEach { label ->
                         FilterChip(tab == label, {
                             tab = label
                             query = ""
@@ -129,6 +132,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
             }
             status?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) } }
             when (tab) {
+                "Projects" -> item { ProjectWorkspacePanel(viewModel, onOpenConversation) }
                 "Topics" -> {
                     item { SettingsHero("ON DEVICE", "Recurring interests", "Topics become memories after ${settings.topicRepetitions} different messages.") }
                     val topics = vault.topics.sortedByDescending { it.messageKeys.size }
@@ -147,6 +151,25 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                             listOf("All", "Pinned", "Review").forEach { label -> FilterChip(filter == label, { filter = label }, label = { Text(label) }) }
                         }
                     }
+                    if (selectedMemories.isNotEmpty()) {
+                        item {
+                            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                                TextButton(onClick = {
+                                    viewModel.reviewFacts(selectedMemories, true)
+                                    selectedMemories = emptySet()
+                                }, enabled = !busy) { Text("Allow selected") }
+                                TextButton(onClick = {
+                                    viewModel.reviewFacts(selectedMemories, false)
+                                    selectedMemories = emptySet()
+                                }, enabled = !busy) { Text("Disable selected") }
+                                TextButton(onClick = {
+                                    replacementText = vault.facts.filter { it.id in selectedMemories }.joinToString("\n") { it.fact.target.name }
+                                    restructuring = true
+                                }, enabled = !busy) { Text("Merge / split") }
+                                TextButton(onClick = { selectedMemories = emptySet() }) { Text("Clear selection") }
+                            }
+                        }
+                    }
                     val shown = vault.facts.filter {
                         "${it.fact.entity.name} ${it.fact.target.name}".contains(query, true) &&
                             (filter != "Pinned" || it.pinned) &&
@@ -158,7 +181,20 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(if (entry.fact.relation.relationType == "REMEMBERS" || entry.source == "local_model_observation") entry.fact.target.name else "${entry.fact.entity.name} ${entry.fact.relation.relationType.lowercase().replace('_', ' ')} ${entry.fact.target.name}", style = MaterialTheme.typography.titleMedium)
                                 Text("${entry.source.replace('_', ' ')} · ${if (entry.sourceChatId > 0) "chat ${entry.sourceChatId}, message ${entry.sourceMessageId}" else "Added by you"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                Text("${entry.scope} · ${entry.occurrences} supporting messages · ${(entry.confidence * 100).toInt()}% extraction confidence", style = MaterialTheme.typography.labelSmall)
+                                entry.supersededBy?.let { replacement ->
+                                    Text("Replaced by a newer memory: ${vault.facts.firstOrNull { it.id == replacement }?.fact?.target?.name ?: "unavailable"}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (entry.previousValues.isNotEmpty()) {
+                                    var historyVisible by remember(entry.id) { mutableStateOf(false) }
+                                    TextButton(onClick = { historyVisible = !historyVisible }) { Text(if (historyVisible) "Hide edit history" else "Edit history · ${entry.previousValues.size}") }
+                                    if (historyVisible) entry.previousValues.asReversed().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                }
+                                if (entry.sourceChatId > 0) TextButton(onClick = { onOpenConversation(entry.sourceChatId, entry.sourceMessageId.takeIf { it > 0 }) }) { Text("View original message") }
+                                Text("Recall factors: ${if (entry.pinned) "pinned priority; " else ""}query terms and aliases, semantic similarity when available, recency and repeated support. Current request and project scope always apply.", style = MaterialTheme.typography.bodySmall)
+                                if (entry.source == "recurring_topic") TextButton(onClick = { deleting = entry.id }) { Text("Wrong topic · forget") }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.Checkbox(entry.id in selectedMemories, { selectedMemories = if (it) selectedMemories + entry.id else selectedMemories - entry.id }, enabled = !busy)
                                     Switch(entry.enabled, { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Recall this memory" })
                                     TextButton(onClick = {
                                         editing = entry
@@ -260,6 +296,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                                 }
 
                                 VaultToggle("Learn from new messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
+                                VaultToggle("Forget memories when their conversation is deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
                                 VaultToggle("Recall saved memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
                                 VaultToggle("Semantic recall · fully on-device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
                                 Text("${semanticStatus.indexed} / ${semanticStatus.total} semantic memories · no server required", style = MaterialTheme.typography.bodySmall)
@@ -275,7 +312,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                                 VaultToggle("Prioritize repeated information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
                                 VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
                                 VaultToggle("Use local model for richer learning", settings.localModelLearning, !busy) { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
-                                Text("Uses an available private local delegate profile for richer extraction even when ordinary tool calls are off. It only selects exact user statements; deterministic text capture remains the fallback.", style = MaterialTheme.typography.bodySmall)
+                                Text("Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.", style = MaterialTheme.typography.bodySmall)
                                 VaultToggle("Make room for new automatic memories", settings.rotateAutomaticFacts, !busy) { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
                                 Text("Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.", style = MaterialTheme.typography.bodySmall)
                                 VaultLimit("New facts per message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
@@ -348,6 +385,20 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit) {
                 }) { Text("Cancel") }
             }
         )
+    }
+    if (restructuring) {
+        AlertDialog(onDismissRequest = { restructuring = false }, title = { Text("Merge or split selected memories") }, text = {
+            Column {
+                Text("One replacement memory per line. Use one line to merge. Scope and correction history are retained.")
+                OutlinedTextField(replacementText, { replacementText = it }, label = { Text("Reviewed memories") }, maxLines = 8)
+            }
+        }, confirmButton = {
+            TextButton(onClick = {
+                viewModel.restructure(selectedMemories, replacementText.lines())
+                selectedMemories = emptySet()
+                restructuring = false
+            }) { Text("Replace selected") }
+        }, dismissButton = { TextButton(onClick = { restructuring = false }) { Text("Cancel") } })
     }
     if (deleting != null || clearing) {
         AlertDialog(

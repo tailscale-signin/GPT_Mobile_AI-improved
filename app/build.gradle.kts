@@ -94,6 +94,14 @@ extensions.configure<ApplicationExtension> {
             )
         }
     }
+    buildTypes.create("benchmark") {
+        initWith(buildTypes.getByName("release"))
+        signingConfig = signingConfigs.getByName("debug")
+        matchingFallbacks += listOf("release")
+        isDebuggable = false
+        isMinifyEnabled = false
+        isShrinkResources = false
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -107,6 +115,7 @@ extensions.configure<ApplicationExtension> {
         unitTests {
             isIncludeAndroidResources = true
             all {
+                it.systemProperty("room.schemas", file("schemas").absolutePath)
                 it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
                 it.testLogging {
                     events("passed", "skipped", "failed", "standardError")
@@ -263,6 +272,7 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 }
 
 dependencies {
+    implementation("androidx.window:window:1.5.1")
     // Local memory only: no model provider, hosted vector store or remote embedding SDK.
     implementation(libs.langchain4j.memory) {
         exclude(group = "org.apache.opennlp", module = "opennlp-tools")

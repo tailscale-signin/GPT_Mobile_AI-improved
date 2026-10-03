@@ -72,6 +72,7 @@ fun SettingScreen(
     onNavigateToDebugDiagnostics: () -> Unit,
     onNavigateToAboutPage: () -> Unit,
     onNavigateToFactVault: () -> Unit = {},
+    onNavigateToWorkspaces: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsState()
@@ -143,6 +144,26 @@ fun SettingScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             item {
+                SettingsDiscoveryPanel(
+                    featureSettings,
+                    platforms,
+                    destinations = mapOf(
+                        "Models · profiles · reasoning · search engines · crawler" to onNavigateToAiPlatforms,
+                        "Tasks · context · research · recipes · GitHub workspace · spending" to onNavigateToWorkspaces,
+                        "Memory · projects · semantic recall · documents" to onNavigateToFactVault,
+                        "Plugins · remote MCP · GitHub settings" to onNavigateToToolConnections,
+                        "Theme · appearance · colors" to settingViewModel::openThemeDialog,
+                        "Privacy · storage · runtime · advanced" to onNavigateToAdvancedSettings,
+                        "Debug · statistics · benchmarks" to onNavigateToDebugDiagnostics,
+                        "Backup · restore · encryption" to settingViewModel::openBackupRestoreDialog,
+                        "Local models · LiteRT · QNN" to onNavigateToLocalModels
+                    ),
+                    change = settingViewModel::updateFeature,
+                    preset = settingViewModel::applyExperiencePreset,
+                    resetOverrides = settingViewModel::resetConversationOverrides
+                )
+            }
+            item {
                 SettingsCategory(
                     title = "AI & models"
                 ) {
@@ -156,6 +177,7 @@ fun SettingScreen(
                         title = "Memory",
                         onClick = onNavigateToFactVault
                     )
+                    SettingsDestination(icon = Icons.Default.Build, title = "Workspaces", onClick = onNavigateToWorkspaces)
                     SettingsDestination(
                         icon = Icons.Default.Storage,
                         title = stringResource(R.string.local_models),

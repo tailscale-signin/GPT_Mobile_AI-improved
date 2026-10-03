@@ -18,6 +18,7 @@ class MemoryGraphRepository @Inject constructor(
     private val dao get() = database.memoryGraphDao()
     private val mutex = Mutex()
     private var ftsAvailable: Boolean? = null
+    private var ftsNeedsRebuild = false
     private var lastVaultFingerprint: String? = null
 
     suspend fun createEntities(
@@ -26,7 +27,7 @@ class MemoryGraphRepository @Inject constructor(
         messageId: Int,
         scope: String = "personal"
     ): List<MemoryGraphEntityRecord> = mutex.withLock {
-        require(scope == "personal" || scope.startsWith("project:"))
+        require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
         val now = System.currentTimeMillis()
         val rows = entities.filter { it.name.isNotBlank() }.take(32).map { input ->
             val normalized = normalize(input.name)
@@ -47,13 +48,23 @@ class MemoryGraphRepository @Inject constructor(
         }.distinctBy { it.id }
         if (rows.isNotEmpty()) {
             dao.upsertEntities(rows)
-            rebuildFtsLocked()
+            rebuildFtsLocked(rows.map { it.id }.toSet())
         }
         rows
     }
 
     suspend fun findEntity(name: String, scope: String = "personal"): MemoryGraphEntityRecord? =
         mutex.withLock { dao.entityByName(scope, normalize(name)) }
+
+    suspend fun releaseChatEntities(chatId: Int) = mutex.withLock {
+        dao.releaseChatEntities(chatId)
+        lastVaultFingerprint = null
+    }
+
+    suspend fun releaseScopeEntities(scope: String) = mutex.withLock {
+        dao.releaseScopeEntities(scope, "$scope:branch:%")
+        lastVaultFingerprint = null
+    }
 
     suspend fun replaceFromVault(facts: List<VaultFact>) = mutex.withLock {
         val fingerprint = vaultFingerprint(facts)
@@ -79,7 +90,7 @@ class MemoryGraphRepository @Inject constructor(
                 sourceKind = SOURCE_VAULT,
                 sourceChatId = entry.sourceChatId,
                 sourceMessageId = entry.sourceMessageId,
-                updatedAt = now
+                updatedAt = entry.lastSeenMillis
             )
             if (
                 entry.fact.target.type.equals("OBSERVATION", true) ||
@@ -95,7 +106,7 @@ class MemoryGraphRepository @Inject constructor(
                     sourceKind = SOURCE_VAULT,
                     sourceChatId = entry.sourceChatId,
                     sourceMessageId = entry.sourceMessageId,
-                    updatedAt = now
+                    updatedAt = entry.lastSeenMillis
                 )
             }
         }
@@ -106,6 +117,7 @@ class MemoryGraphRepository @Inject constructor(
                 row
             } else {
                 row.copy(
+                    updatedAt = existing.updatedAt,
                     standalone = existing.standalone,
                     createdAt = existing.createdAt,
                     sourceChatId = existing.sourceChatId.takeIf { it != 0 } ?: row.sourceChatId,
@@ -114,15 +126,24 @@ class MemoryGraphRepository @Inject constructor(
                 )
             }
         }
+        val oldObservations = dao.observationsBySource(SOURCE_VAULT).associateBy { it.id }
+        val oldRelations = dao.relationsBySource(SOURCE_VAULT).associateBy { it.id }
+        val newObservationIds = observations.map { it.id }.toSet()
+        val newRelationIds = relations.map { it.id }.toSet()
+        val removedObservations = oldObservations.values.filter { it.id !in newObservationIds }
+        val changedEntities = persisted.filter { it != existingEntities[it.id] }
+        val changedObservations = observations.filter { it != oldObservations[it.id] }
+        val changedRelations = relations.filter { it != oldRelations[it.id] }
         database.withTransaction {
-            dao.deleteObservationsBySource(SOURCE_VAULT)
-            dao.deleteRelationsBySource(SOURCE_VAULT)
-            if (persisted.isNotEmpty()) dao.upsertEntities(persisted)
-            if (observations.isNotEmpty()) dao.upsertObservations(observations)
-            if (relations.isNotEmpty()) dao.upsertRelations(relations)
+            removedObservations.map { it.id }.chunked(400).forEach { dao.deleteObservationIds(it) }
+            (oldRelations.keys - newRelationIds).chunked(400).forEach { dao.deleteRelationIds(it) }
+            if (changedEntities.isNotEmpty()) dao.upsertEntities(changedEntities)
+            if (changedObservations.isNotEmpty()) dao.upsertObservations(changedObservations)
+            if (changedRelations.isNotEmpty()) dao.upsertRelations(changedRelations)
             dao.pruneUnreferencedEntities()
         }
-        rebuildFtsLocked()
+        val removedEntities = existingEntities.keys - dao.allEntities().map { it.id }.toSet()
+        rebuildFtsLocked((changedEntities.map { it.id } + changedObservations.map { it.entityId } + removedObservations.map { it.entityId } + removedEntities).toSet())
         lastVaultFingerprint = fingerprint
     }
 
@@ -234,6 +255,7 @@ class MemoryGraphRepository @Inject constructor(
     private fun ensureFtsLocked(): Boolean {
         ftsAvailable?.let { return it }
         val available = runCatching {
+            ftsNeedsRebuild = !database.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE name = 'memory_graph_fts'").use { it.moveToFirst() }
             database.openHelper.writableDatabase.execSQL(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS memory_graph_fts USING fts5(entity_id UNINDEXED, scope UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')"
             )
@@ -242,17 +264,22 @@ class MemoryGraphRepository @Inject constructor(
         return available
     }
 
-    private suspend fun rebuildFtsLocked() {
+    private suspend fun rebuildFtsLocked(changed: Set<String>) {
         if (!ensureFtsLocked()) return
         // Read through Room before taking the raw SQLite transaction. Suspending
         // DAO calls inside a SupportSQLiteDatabase transaction can switch threads.
-        val entities = dao.allEntities()
+        if (changed.isEmpty() && !ftsNeedsRebuild) return
+        val entities = if (ftsNeedsRebuild) dao.allEntities() else changed.chunked(400).flatMap { dao.entitiesByIds(it) }
         val observations = entities.map { it.id }.chunked(400).flatMap { dao.observationsFor(it) }
         val db = database.openHelper.writableDatabase
         runCatching {
             db.beginTransaction()
             try {
-                db.execSQL("DELETE FROM memory_graph_fts")
+                if (ftsNeedsRebuild) {
+                    db.execSQL("DELETE FROM memory_graph_fts")
+                } else {
+                    changed.forEach { db.execSQL("DELETE FROM memory_graph_fts WHERE entity_id = ?", arrayOf(it)) }
+                }
                 entities.forEach { entity ->
                     db.execSQL(
                         "INSERT INTO memory_graph_fts(entity_id, scope, text) VALUES (?, ?, ?)",
@@ -266,6 +293,7 @@ class MemoryGraphRepository @Inject constructor(
                     )
                 }
                 db.setTransactionSuccessful()
+                ftsNeedsRebuild = false
             } finally {
                 db.endTransaction()
             }

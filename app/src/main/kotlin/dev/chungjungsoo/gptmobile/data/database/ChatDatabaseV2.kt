@@ -33,6 +33,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 @Database(
     entities = [
         ChatRoomV2::class,
+        dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord::class,
         MessageV2::class,
         dev.chungjungsoo.gptmobile.data.database.entity.MessageSearch::class,
         PlatformV2::class,
@@ -55,7 +56,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 32,
+    version = 33,
     exportSchema = true
 )
 @TypeConverters(
@@ -66,6 +67,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
     CombinedModelResponseListConverter::class
 )
 abstract class ChatDatabaseV2 : RoomDatabase() {
+    abstract fun workspaceDao(): dev.chungjungsoo.gptmobile.data.workspace.WorkspaceDao
     abstract fun memoryGraphDao(): dev.chungjungsoo.gptmobile.data.memory.MemoryGraphDao
     abstract fun toolApprovalDao(): dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalDao
     abstract fun invocationDao(): dev.chungjungsoo.gptmobile.data.accounting.InvocationDao

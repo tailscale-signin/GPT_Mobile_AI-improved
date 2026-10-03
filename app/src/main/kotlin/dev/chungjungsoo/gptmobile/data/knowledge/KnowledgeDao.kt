@@ -24,11 +24,29 @@ interface KnowledgeDao {
     @Query("SELECT * FROM knowledge_project_chats")
     fun chatLinks(): Flow<List<KnowledgeProjectChat>>
 
+    @Query("SELECT * FROM knowledge_documents WHERE chatId = :chatId")
+    suspend fun chatDocuments(chatId: Int): List<KnowledgeDocument>
+
+    @Query("SELECT * FROM knowledge_documents WHERE projectId = :id")
+    suspend fun projectDocuments(id: String): List<KnowledgeDocument>
+
     @Query("DELETE FROM knowledge_projects WHERE id = :id")
     suspend fun deleteProject(id: String)
 
-    @Query("SELECT * FROM knowledge_documents WHERE deleted = 0 AND chatId IS NOT NULL ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM knowledge_documents WHERE deleted = 0 ORDER BY updatedAt DESC")
     fun documents(): Flow<List<KnowledgeDocument>>
+
+    @Query("SELECT c.* FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.documentId WHERE d.deleted = 0 AND (d.chatId = :chatId OR (:projectId IS NOT NULL AND d.projectId = :projectId)) ORDER BY c.chunkIndex, c.documentId LIMIT 64")
+    suspend fun previewChunks(chatId: Int, projectId: String?): List<KnowledgeChunk>
+
+    @Query("SELECT COUNT(*) FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.documentId WHERE d.deleted = 0 AND (d.chatId = :chatId OR (:projectId IS NOT NULL AND d.projectId = :projectId))")
+    suspend fun scopedChunkCount(chatId: Int, projectId: String?): Int
+
+    @Query("SELECT c.* FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.documentId WHERE d.deleted = 0 AND (d.chatId = :chatId OR (:projectId IS NOT NULL AND d.projectId = :projectId)) ORDER BY c.documentId, c.chunkIndex LIMIT 1 OFFSET :offset")
+    suspend fun sampledChunk(chatId: Int, projectId: String?, offset: Int): KnowledgeChunk?
+
+    @Query("SELECT * FROM knowledge_chunks WHERE id IN (:ids)")
+    suspend fun chunksByIds(ids: List<String>): List<KnowledgeChunk>
 
     @Query("SELECT * FROM knowledge_documents WHERE id = :id")
     suspend fun document(id: String): KnowledgeDocument?

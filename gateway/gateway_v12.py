@@ -25,6 +25,7 @@ import uvicorn
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from gateway_security import DeviceAuthentication, current_device, device_store
 
 
 # ============================================================
@@ -305,6 +306,7 @@ def canonical_chat_request_fingerprint(
         )
 
     canonical = {
+        "device": current_device.get(),
         "model":
             payload.get(
                 "model"
@@ -1968,6 +1970,8 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
     if explicit:
         explicit = str(explicit)
         if ensure_gateway_job_loaded(explicit) is not None:
+            if not device_store.owns(explicit):
+                raise HTTPException(status_code=404, detail="Unknown gateway job")
             return explicit
 
     messages = incoming_payload.get("messages", [])
@@ -1978,7 +1982,7 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
         if entry:
             candidate = entry.get("job_id")
             with job_registry_lock:
-                if candidate in job_registry:
+                if candidate in job_registry and device_store.owns(candidate):
                     return candidate
 
     try:
@@ -1994,6 +1998,7 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
                 for job_id, job in job_registry.items()
                 if (
                     job.get("task_key") == task_key
+                    and device_store.owns(job_id)
                     and job.get("status")
                     in {"running", "waiting_for_client_tool"}
                 )
@@ -2202,13 +2207,13 @@ def invalidate_global_safe_read_cache(
 # ============================================================
 # VISIBLE PROGRESS HELPERS
 # ============================================================
-LLAMA_BASE = "http://127.0.0.1:8080"
-MEMORY_BASE = "http://127.0.0.1:8765"
+LLAMA_BASE = os.getenv("LLAMA_BASE", "http://127.0.0.1:8080").rstrip("/")
+MEMORY_BASE = os.getenv("MEMORY_BASE", "http://127.0.0.1:8765").rstrip("/")
 
-MCP_CONFIG_PATH = Path(r"D:\llama.cpp\mcp.json")
+MCP_CONFIG_PATH = Path(os.getenv("MCP_CONFIG_PATH", r"D:\llama.cpp\mcp.json"))
 
-GATEWAY_HOST = "0.0.0.0"
-GATEWAY_PORT = 8090
+GATEWAY_HOST = os.getenv("GATEWAY_HOST", "127.0.0.1")
+GATEWAY_PORT = int(os.getenv("GATEWAY_PORT", "8090"))
 
 HTTP_TIMEOUT = 3600
 
@@ -2413,7 +2418,7 @@ SINGLEFLIGHT_MAX_REQUEST_KEYS = 256
 # v7.5 REMOTE-CLIENT CONTINUITY + RESUMABLE PROGRESS
 # ------------------------------------------------------------
 
-GATEWAY_VERSION = "12.1.2"
+GATEWAY_VERSION = "12.2.0"
 GATEWAY_PROGRESS_PROTOCOL = "gpt-mobile-gateway-progress/2"
 
 V9_0_1_PATCH_APPLIED = True
@@ -3979,6 +3984,7 @@ app = FastAPI(
     openapi_url="/gateway/openapi.json",
     lifespan=gateway_lifespan,
 )
+app.add_middleware(DeviceAuthentication)
 
 
 # ============================================================
@@ -19114,6 +19120,7 @@ def gateway_jobs():
             )
             for job
             in job_registry.values()
+            if device_store.owns(job["job_id"])
         ]
 
     jobs.sort(
@@ -20045,6 +20052,8 @@ async def chat_completions(
         proposed_gateway_job_id,
     )
 
+    device_store.claim(gateway_job_id)
+
     incoming_payload.pop(
         "gateway_job_id",
         None,
@@ -20416,6 +20425,9 @@ def build_proxy_headers(
             "host",
             "content-length",
             "connection",
+            "authorization",
+            "proxy-authorization",
+            "cookie",
         }:
             continue
 

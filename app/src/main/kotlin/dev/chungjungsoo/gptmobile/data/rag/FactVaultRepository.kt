@@ -36,7 +36,8 @@ data class VaultFact(
     val lastSeenMillis: Long = savedAtMillis,
     val lastSourceKey: String = "",
     val evidenceSources: Set<String> = emptySet(),
-    val supersededBy: String? = null
+    val supersededBy: String? = null,
+    val previousValues: List<String> = emptyList()
 )
 
 /** References only: fact text stays encrypted in the vault, not copied into message metadata. */
@@ -66,6 +67,7 @@ data class FactVaultSettings(
     val maxCapturePerMessage: Int = 12,
     val recallTokens: Int = 1536,
     val alwaysRecallPinned: Boolean = true,
+    val forgetWithConversation: Boolean = false,
     val externalRecallEnabled: Boolean = false,
     val externalMemoryConnections: Set<String> = emptySet(),
     val externalMemoryScopes: Map<String, String> = emptyMap()
@@ -82,6 +84,7 @@ data class FactVaultSnapshot(
     val suppressedIds: Set<String> = emptySet(),
     val suppressedEvidence: Set<String> = emptySet(),
     val suppressedMessages: Set<String> = emptySet(),
+    val suppressedChats: Set<Int> = emptySet(),
     val settings: FactVaultSettings = FactVaultSettings()
 )
 
@@ -104,15 +107,19 @@ class FactVaultRepository @Inject constructor(
     private val graph: KnowledgeGraphEngine,
     private val preferences: FactVaultPreferenceStore? = null,
     private val persistentGraph: MemoryGraphRepository? = null,
-    private val semantic: LocalSemanticMemory? = null
+    private val semantic: LocalSemanticMemory? = null,
+    private val scopes: dev.chungjungsoo.gptmobile.data.knowledge.MemoryScopeResolver? = null
 ) {
     private val mutex = Mutex()
     private val enrichmentMutex = Mutex()
     private val enrichedMessages = linkedSetOf<String>()
     private var hasLoaded = false
+    private var indexedFacts: List<VaultFact>? = null
     private val json = Json { ignoreUnknownKeys = true }
     private val _state = MutableStateFlow(FactVaultSnapshot())
     val state = _state.asStateFlow()
+
+    suspend fun scopeForChat(chatId: Int) = scopes?.resolve(chatId) ?: dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope()
 
     suspend fun load() = mutex.withLock { loadLocked() }
 
@@ -152,6 +159,34 @@ class FactVaultRepository @Inject constructor(
         )
     }
 
+    suspend fun forgetChat(chatId: Int, preventFutureCapture: Boolean = false) = mutex.withLock {
+        loadLocked()
+        persistentGraph?.releaseChatEntities(chatId)
+        indexedFacts = null
+        val current = _state.value
+        val removed = current.facts.filter { it.sourceChatId == chatId || it.evidenceSources.any { key -> key.startsWith("$chatId:") } }
+        val sourceKeys = scopes?.messageKeys(chatId).orEmpty() + removed.flatMap { it.evidenceSources + "${it.sourceChatId}:${it.sourceMessageId}" }
+        val scope = scopeForChat(chatId).key
+        persist(
+            current.copy(
+                facts = current.facts - removed.toSet(),
+                topics = current.topics.map { it.copy(messageKeys = it.messageKeys.filterNot { key -> key.startsWith("$chatId:") }.toSet()) }.filter { it.messageKeys.isNotEmpty() },
+                suppressedIds = current.suppressedIds + removed.map { it.id },
+                suppressedMessages = current.suppressedMessages + sourceKeys.map { "$scope:$it" } + removed.map { "${it.scope}:${it.sourceChatId}:${it.sourceMessageId}" },
+                suppressedChats = if (preventFutureCapture) current.suppressedChats + chatId else current.suppressedChats
+            )
+        )
+    }
+
+    suspend fun forgetScope(scope: String) = mutex.withLock {
+        loadLocked()
+        persistentGraph?.releaseScopeEntities(scope)
+        indexedFacts = null
+        val current = _state.value
+        val removed = current.facts.filter { it.scope == scope || it.scope.startsWith("$scope:branch:") }
+        persist(current.copy(facts = current.facts - removed.toSet(), topics = current.topics.filterNot { it.scope == scope || it.scope.startsWith("$scope:branch:") }, suppressedIds = current.suppressedIds + removed.map { it.id }, suppressedEvidence = current.suppressedEvidence + removed.filter { it.evidenceHash.isNotBlank() }.map { "$scope:${it.evidenceHash}" }))
+    }
+
     suspend fun clear() = mutex.withLock {
         // Clearing must work even when the existing payload cannot be decoded.
         persist(FactVaultSnapshot(enabled = false), allowUnreadablePrevious = true)
@@ -160,16 +195,21 @@ class FactVaultRepository @Inject constructor(
         enrichedMessages.clear()
     }
 
-    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String = "personal", previousContext: String = ""): FactRecall = mutex.withLock {
+    suspend fun prepareTurn(query: String, chatId: Int, messageId: Int, isLocal: Boolean = false, capture: Boolean = true, scope: String? = null, previousContext: String = ""): FactRecall = mutex.withLock {
+        val boundary = scopeForChat(chatId)
+        if (boundary.isTemporary) return@withLock FactRecall()
+        val scope = scope ?: boundary.key
+        require(scopes == null || scope == boundary.key) { "The supplied scope must match the conversation." }
+        val recallBoundary = if (scopes == null) boundary.copy(key = scope) else boundary
         loadLocked()
         if (!_state.value.enabled) return@withLock FactRecall()
-        require(scope == "personal" || scope.startsWith("project:"))
+        require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
         val original = _state.value
         val settings = original.settings.normalized()
         val now = System.currentTimeMillis()
         val cutoff = if (settings.retentionDays > 0) now - settings.retentionDays * 86_400_000L else 0L
         var current = original.copy(facts = original.facts.filter { it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff })
-        if (capture && settings.learningEnabled) {
+        if (capture && settings.learningEnabled && chatId !in current.suppressedChats) {
             val automatic = MemoryLearning.extract(query.take(MAX_QUERY_CHARS), settings.captureSensitivity)
             if (settings.learnRecurringTopics) {
                 // Explicitly extracted facts already carry reinforcement. Do not create
@@ -191,7 +231,8 @@ class FactVaultRepository @Inject constructor(
         if (!settings.recallEnabled || (!isLocal && !settings.allowCloudRecall)) return@withLock FactRecall()
         val candidates = current.facts.filter {
             it.enabled &&
-                (it.scope == "personal" || it.scope == scope) &&
+                boundary.acceptsSource(it) &&
+                recallBoundary.accepts(it.scope) &&
                 (!settings.sameChatOnly || it.sourceChatId == chatId) &&
                 !(messageId > 0 && it.sourceChatId == chatId && it.sourceMessageId == messageId)
         }
@@ -202,7 +243,7 @@ class FactVaultRepository @Inject constructor(
                 if (FactRecall(selected + entry).prefix().toByteArray().size <= settings.recallTokens * 3) selected += entry
             }
         }
-        val semanticScores = if (settings.semanticRecall) semantic?.search(query.take(MAX_QUERY_CHARS), scope).orEmpty() else emptyMap()
+        val semanticScores = if (settings.semanticRecall) semantic?.search(query.take(MAX_QUERY_CHARS), scope, includePersonal = boundary.includePersonal).orEmpty() else emptyMap()
         for (entry in MemoryRecallPolicy.rank(query.take(MAX_QUERY_CHARS), candidates, previousContext, settings.rankByRecency, settings.rankByFrequency, now, semanticScores)) {
             if (selected.any { it.id == entry.id }) continue
             if (selected.size >= settings.maxRecall) break
@@ -213,11 +254,14 @@ class FactVaultRepository @Inject constructor(
 
     /** Serializes enrichment across parallel AI profiles and rechecks settings after inference. */
     suspend fun enrichTurn(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, extract: suspend (String) -> JsonObject?) = enrichmentMutex.withLock enrichment@{
-        val key = "${message.chatId}:${message.id}:${evidenceHash(message.content)}"
+        val boundary = scopeForChat(message.chatId)
+        if (boundary.isTemporary) return@enrichment
+        val scope = boundary.key
+        val key = "$scope:${message.chatId}:${message.id}:${evidenceHash(message.content)}"
         val input = mutex.withLock {
             loadLocked()
             val state = _state.value
-            if (!state.enabled || !state.settings.learningEnabled || !state.settings.localModelLearning || key in enrichedMessages || "personal:${sourceKey(message.chatId, message.id)}" in state.suppressedMessages) return@withLock ""
+            if (!state.enabled || message.chatId in state.suppressedChats || !state.settings.learningEnabled || !state.settings.localModelLearning || key in enrichedMessages || "$scope:${sourceKey(message.chatId, message.id)}" in state.suppressedMessages) return@withLock ""
             MemoryLearning.statements(message.content.take(MAX_QUERY_CHARS)).joinToString(".\n")
         }
         if (input.isBlank()) return@enrichment
@@ -226,8 +270,9 @@ class FactVaultRepository @Inject constructor(
             loadLocked()
             val current = _state.value
             if (!current.enabled || !current.settings.learningEnabled || !current.settings.localModelLearning) return@withLock
+            if (scopeForChat(message.chatId) != boundary) return@withLock
             val facts = MemoryLearning.modelObservations(input, response, current.settings.captureSensitivity)
-            val merged = mergeAutomatic(current, facts, message.chatId, message.id, "personal", "local_model_observation", System.currentTimeMillis())
+            val merged = mergeAutomatic(current, facts, message.chatId, message.id, scope, "local_model_observation", System.currentTimeMillis())
             if (merged != current) persist(merged)
             enrichedMessages += key
             while (enrichedMessages.size > 128) enrichedMessages.remove(enrichedMessages.first())
@@ -235,7 +280,7 @@ class FactVaultRepository @Inject constructor(
     }
 
     private suspend fun mergeAutomatic(current: FactVaultSnapshot, candidates: List<KnowledgeFact>, chatId: Int, messageId: Int, scope: String, source: String, now: Long): FactVaultSnapshot {
-        if ("$scope:${sourceKey(chatId, messageId)}" in current.suppressedMessages) return current
+        if (chatId in current.suppressedChats || "$scope:${sourceKey(chatId, messageId)}" in current.suppressedMessages) return current
         val config = current.settings.normalized()
         val facts = current.facts.toMutableList()
         var admitted = if (messageId > 0) facts.count { it.sourceChatId == chatId && it.sourceMessageId == messageId && it.scope == scope && it.source in setOf("user_message", "local_model_observation", "recurring_topic") } else 0
@@ -293,17 +338,19 @@ class FactVaultRepository @Inject constructor(
     suspend fun saveManual(text: String, id: String? = null, scope: String = "personal") = mutex.withLock {
         loadLocked()
         require(text.isNotBlank() && text.length <= 1000) { "Use 1–1000 characters for a memory." }
-        require(scope == "personal" || scope.startsWith("project:"))
+        require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
         val old = _state.value.facts.firstOrNull { it.id == id }
         val fact = KnowledgeFact(
             KnowledgeEntity("user", "User", "PERSON"),
             KnowledgeRelation("user", "REMEMBERS", text.trim().lowercase(Locale.ROOT), 1f, ""),
             KnowledgeEntity(text.trim().lowercase(Locale.ROOT), text.trim(), "FACT")
         )
+        val effectiveScope = old?.scope ?: scope
         val entry = VaultFact(
-            scopedFactId(fact, scope), fact, enabled = old?.enabled ?: true,
+            scopedFactId(fact, effectiveScope), fact, enabled = old?.enabled ?: true,
             sourceChatId = old?.sourceChatId ?: 0, sourceMessageId = old?.sourceMessageId ?: 0,
-            savedAtMillis = System.currentTimeMillis(), source = "manual", confidence = 1f, scope = scope, pinned = old?.pinned ?: false
+            savedAtMillis = System.currentTimeMillis(), source = "manual", confidence = 1f, scope = effectiveScope, pinned = old?.pinned ?: false,
+            previousValues = ((old?.previousValues.orEmpty()) + listOfNotNull(old?.fact?.target?.name?.takeIf { it != text.trim() })).takeLast(12)
         )
         val retained = _state.value.facts.filterNot { it.id == id || it.id == entry.id }
         require(retained.size < _state.value.settings.maxFacts) { "Memory is full." }
@@ -315,7 +362,47 @@ class FactVaultRepository @Inject constructor(
         )
     }
 
+    /** One atomic user-reviewed replacement, preserving scope and correction provenance. */
+    suspend fun restructure(ids: Set<String>, replacements: List<String>) = mutex.withLock {
+        loadLocked()
+        val current = _state.value
+        val selected = current.facts.filter { it.id in ids }
+        require(selected.size == ids.size && selected.isNotEmpty()) { "Select existing memories." }
+        require(selected.map { it.scope }.distinct().size == 1) { "Memories in different projects cannot be merged." }
+        val texts = replacements.map(String::trim).filter(String::isNotBlank).distinct()
+        require(texts.size in 1..16 && texts.all { it.length <= 1000 }) { "Enter 1–16 memories, each at most 1,000 characters." }
+        val template = selected.first()
+        val created = texts.map { text ->
+            val fact = MemoryLearning.observation(text)
+            VaultFact(
+                scopedFactId(fact, template.scope), fact, sourceChatId = template.sourceChatId, sourceMessageId = template.sourceMessageId,
+                source = "manual", scope = template.scope, pinned = selected.any { it.pinned }, savedAtMillis = System.currentTimeMillis(), confidence = 1f,
+                evidenceSources = selected.flatMap { it.evidenceSources }.toSet(),
+                previousValues = selected.flatMap { it.previousValues + it.fact.target.name }.distinct().takeLast(12)
+            )
+        }
+        val replacementIds = created.map { it.id }.toSet()
+        val retained = current.facts.filterNot { it.id in ids || it.id in replacementIds }
+        require(retained.size + created.size <= current.settings.maxFacts) { "Memory capacity reached." }
+        persist(
+            current.copy(
+                facts = retained + created,
+                suppressedIds = (current.suppressedIds + ids) - replacementIds,
+                topics = current.topics.filterNot { scopedFactId(topicFact(it.label), it.scope) in ids },
+                suppressedEvidence = current.suppressedEvidence + selected.filter { it.evidenceHash.isNotBlank() }.map { "${it.scope}:${it.evidenceHash}" }
+            )
+        )
+    }
+
+    suspend fun reviewFacts(ids: Set<String>, enabled: Boolean) = mutex.withLock {
+        loadLocked()
+        persist(_state.value.copy(facts = _state.value.facts.map { if (it.id in ids) it.copy(enabled = enabled, supersededBy = if (enabled) null else it.supersededBy) else it }))
+    }
+
     suspend fun rememberUserText(text: String, message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2): String = mutex.withLock {
+        val boundary = scopeForChat(message.chatId)
+        require(!boundary.isTemporary) { "Temporary conversations do not save memory." }
+        val scope = boundary.key
         loadLocked()
         require(_state.value.enabled && _state.value.settings.learningEnabled) { "Memory learning is disabled." }
         val quote = text.trim()
@@ -325,9 +412,9 @@ class FactVaultRepository @Inject constructor(
             KnowledgeRelation("user", "REMEMBERS", quote.lowercase(Locale.ROOT)),
             KnowledgeEntity(quote.lowercase(Locale.ROOT), quote, "OBSERVATION")
         )
-        val id = factId(fact)
+        val id = scopedFactId(fact, scope)
         val current = _state.value
-        require(id !in current.suppressedIds && "personal:${evidenceHash(quote)}" !in current.suppressedEvidence && "personal:${sourceKey(message.chatId, message.id)}" !in current.suppressedMessages) { "This memory was deleted. Restore it manually in Memory settings." }
+        require(id !in current.suppressedIds && "$scope:${evidenceHash(quote)}" !in current.suppressedEvidence && "$scope:${sourceKey(message.chatId, message.id)}" !in current.suppressedMessages) { "This memory was deleted. Restore it manually in Memory settings." }
         if (current.facts.none { it.id == id }) {
             require(current.facts.size < current.settings.maxFacts) { "Memory capacity reached. Review saved memories." }
             persist(
@@ -340,7 +427,8 @@ class FactVaultRepository @Inject constructor(
                         sourceMessageId = message.id,
                         savedAtMillis = System.currentTimeMillis(),
                         source = "user_observation",
-                        confidence = 1f
+                        confidence = 1f,
+                        scope = scope
                     )
                 )
             )
@@ -355,12 +443,16 @@ class FactVaultRepository @Inject constructor(
         targetName: String,
         targetType: String,
         message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2,
-        scope: String = "personal"
+        scope: String? = null
     ): String = mutex.withLock {
+        val boundary = scopeForChat(message.chatId)
+        require(!boundary.isTemporary) { "Temporary conversations do not save memory." }
+        val scope = scope ?: boundary.key
+        require(scopes == null || scope == boundary.key) { "Memory writes must stay in the current project." }
         loadLocked()
         val current = _state.value
         require(current.enabled && current.settings.learningEnabled) { "Memory learning is disabled." }
-        require(scope == "personal" || scope.startsWith("project:"))
+        require(scope == "personal" || scope.startsWith("project:") || scope.startsWith("personal:branch:"))
         val relation = relationType.trim().uppercase(Locale.ROOT)
             .replace(Regex("[^A-Z0-9_]+"), "_")
             .trim('_')
@@ -433,11 +525,13 @@ class FactVaultRepository @Inject constructor(
     }
 
     suspend fun visibleFacts(chatId: Int, isLocal: Boolean): List<VaultFact> = mutex.withLock {
+        val boundary = scopeForChat(chatId)
+        if (boundary.isTemporary) return@withLock emptyList()
         loadLocked()
         val current = _state.value
         if (!current.enabled || !current.settings.recallEnabled || (!isLocal && !current.settings.allowCloudRecall)) return@withLock emptyList()
         val cutoff = if (current.settings.retentionDays > 0) System.currentTimeMillis() - current.settings.retentionDays * 86_400_000L else 0L
-        current.facts.filter { it.enabled && it.scope == "personal" && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
+        current.facts.filter { it.enabled && boundary.acceptsSource(it) && boundary.accepts(it.scope) && (!current.settings.sameChatOnly || it.sourceChatId == chatId) && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff) }
     }
 
     private suspend fun loadLocked() {
@@ -556,8 +650,10 @@ class FactVaultRepository @Inject constructor(
     }
 
     private suspend fun rebuildGraph(snapshot: FactVaultSnapshot) {
-        graph.clear()
         if (!snapshot.enabled) {
+            if (indexedFacts == emptyList<VaultFact>()) return
+            graph.clear()
+            indexedFacts = emptyList()
             persistentGraph?.replaceFromVault(emptyList())
             semantic?.synchronize(emptyList())
             return
@@ -570,6 +666,9 @@ class FactVaultRepository @Inject constructor(
         val visible = snapshot.facts.filter {
             it.enabled && (it.pinned || it.savedAtMillis == 0L || maxOf(it.savedAtMillis, it.lastSeenMillis) >= cutoff)
         }
+        val indexed = if (snapshot.settings.semanticRecall) visible else visible.map { it.copy(evidenceHash = "semantic-disabled") }
+        if (indexed == indexedFacts) return
+        graph.clear()
         visible.forEach {
             graph.addEntity(it.fact.entity)
             graph.addEntity(it.fact.target)
@@ -577,6 +676,7 @@ class FactVaultRepository @Inject constructor(
         }
         persistentGraph?.replaceFromVault(visible)
         semantic?.synchronize(if (snapshot.settings.semanticRecall) visible else emptyList())
+        indexedFacts = indexed
     }
 
     suspend fun rebuildSemanticIndex() {

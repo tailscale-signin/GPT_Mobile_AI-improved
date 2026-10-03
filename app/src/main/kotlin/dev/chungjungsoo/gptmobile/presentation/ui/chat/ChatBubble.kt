@@ -244,6 +244,7 @@ fun OpponentChatBubble(
     onCopyClick: () -> Unit = {},
     onSelectClick: () -> Unit = {},
     onRetryClick: () -> Unit = {},
+    onInspectContext: (() -> Unit)? = null,
     onEditClick: () -> Unit = {},
     onFavoriteClick: () -> Unit = {},
     onFavoriteLongPress: () -> Unit = {},
@@ -445,6 +446,7 @@ fun OpponentChatBubble(
                                         EditTextIcon(onEditClick)
                                     }
                                 }
+                                onInspectContext?.let { inspect -> androidx.compose.material3.TextButton(onClick = inspect) { Text("Context") } }
                                 if (canRetry) {
                                     Spacer(Modifier.width(4.dp))
                                     RetryIcon(onRetryClick)

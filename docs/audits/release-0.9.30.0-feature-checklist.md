@@ -2,6 +2,8 @@
 
 Branch: `v0.9.30.0`. Version code: 98. Review date: 2026-10-03.
 
+This records the initial 20-request implementation at commit `281c38f`. The subsequent [approved roadmap implementation](approved-roadmap-implementation.md) extends it, advances Room to schema 33 and records current validation results. Counts below describe that earlier checkpoint.
+
 | Request | Implementation |
 | --- | --- |
 | 1. Debug, Statistics, Benchmark | Three primary workspaces with their own subtabs, shared visual panels, live diagnostics, model comparisons, and existing benchmark execution/history. |
@@ -27,7 +29,7 @@ Branch: `v0.9.30.0`. Version code: 98. Review date: 2026-10-03.
 
 ## Upgrade compatibility
 
-New settings have serialization defaults. Saved delegation configuration is gated by a new per-profile opt-in. The existing Room schema is unchanged; ObjectBox uses a separately versioned generated model file committed under `app/objectbox-models`. ObjectBox's build preparation task currently cannot be serialized by Gradle's configuration cache, so configuration caching is disabled until the plugin supports Gradle 9. Incremental compilation and build caching remain enabled. Obsolete instrumented tests for unsupported pre-v10 Room migrations were removed; current migration history remains checked against every committed schema export.
+New settings have serialization defaults. Saved delegation configuration is gated by a new per-profile opt-in. The initial implementation retained Room schema 32; the approved roadmap follow-up adds an explicit migration to schema 33; ObjectBox uses a separately versioned generated model file committed under `app/objectbox-models`. ObjectBox's build preparation task currently cannot be serialized by Gradle's configuration cache, so configuration caching is disabled until the plugin supports Gradle 9. Incremental compilation and build caching remain enabled. Obsolete instrumented tests for unsupported pre-v10 Room migrations were removed; current migration history remains checked against every committed schema export.
 
 The native model asset adds approximately 6 MB before APK compression; ObjectBox and MediaPipe also add native libraries. This is the cost of offline semantic inference. Runtime memory and quality claims require device measurements.
 

@@ -1,0 +1,38 @@
+name: Android device validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-device-validation
+  cancel-in-progress: false
+jobs:
+  device:
+    # Trusted, dedicated device runner: never execute fork pull requests here.
+    runs-on: [self-hosted, android-device]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Record device identity
+        run: |
+          adb get-state
+          mkdir -p device-evidence
+          adb shell getprop > device-evidence/getprop.txt
+          adb shell dumpsys thermalservice > device-evidence/thermal-before.txt
+      - name: Instrumented behavior and native memory checks
+        run: ./gradlew :app:connectedDebugAndroidTest
+      - name: Generate Baseline Profile and measure performance
+        run: ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
+      - name: Device evidence
+        if: always()
+        run: |
+          adb shell dumpsys thermalservice > device-evidence/thermal-after.txt
+          adb shell dumpsys meminfo dev.melo.gptmobile.improved > device-evidence/memory.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: physical-device-evidence
+          path: |
+            device-evidence/
+            app/build/reports/androidTests/
+            macrobenchmark/build/outputs/

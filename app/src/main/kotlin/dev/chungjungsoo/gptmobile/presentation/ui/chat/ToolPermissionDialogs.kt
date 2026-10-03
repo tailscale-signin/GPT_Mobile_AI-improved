@@ -44,9 +44,11 @@ internal fun ToolApprovalDialog(
     onDeny: () -> Unit,
     onAllowOnce: () -> Unit,
     onAlwaysAllowTool: () -> Unit,
-    onAlwaysAllowProvider: () -> Unit
+    onAlwaysAllowProvider: () -> Unit,
+    onAllowInConversation: () -> Unit = {}
 ) {
     var allowProvider by remember(approval.id) { mutableStateOf(false) }
+    var advanced by remember(approval.id) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDeny,
         icon = {
@@ -90,27 +92,35 @@ internal fun ToolApprovalDialog(
                         )
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = allowProvider, onCheckedChange = { allowProvider = it })
-                    Column(Modifier.weight(1f)) {
-                        Text("Allow all from this provider", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "Future actions from ${approval.connection} can run without another prompt.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                TextButton(onClick = onAllowInConversation) { Text("Allow here for 1 hour") }
+                Text("Limited to this conversation, action, repository and tool schema.", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = {
+                    advanced = !advanced
+                    allowProvider = false
+                }) { Text(if (advanced) "Hide permanent permissions" else "Permanent permissions…") }
+                if (advanced) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(checked = allowProvider, onCheckedChange = { allowProvider = it })
+                        Column(Modifier.weight(1f)) {
+                            Text("Allow all from this provider", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Future actions from ${approval.connection} can run without another prompt.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                }
-                TextButton(
-                    onClick = onAlwaysAllowTool,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Always allow this tool")
+                    TextButton(
+                        onClick = onAlwaysAllowTool,
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Always allow this tool")
+                    }
                 }
             }
         },

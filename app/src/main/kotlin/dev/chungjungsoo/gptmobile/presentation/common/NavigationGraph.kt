@@ -304,16 +304,27 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
             navArgument("chatRoomId") { type = NavType.IntType },
             navArgument("enabledPlatforms") { defaultValue = "" },
             navArgument("conversationMode") { defaultValue = ConversationMode.STANDARD },
+            navArgument("incomingShare") { defaultValue = "" },
+            navArgument("regenerate") {
+                type = NavType.BoolType
+                defaultValue = false
+            },
             navArgument("targetMessageId") {
                 type = NavType.IntType
                 defaultValue = -1
             }
         )
     ) {
-        ChatScreen(
-            onBackAction = { navController.navigateUp() },
-            onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
-        )
+        val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
+        dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(it.arguments?.getInt("chatRoomId") ?: 0, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
+            ChatScreen(
+                chatViewModel = conversation,
+                onBackAction = { navController.navigateUp() },
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
+                onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") },
+                onInspectContext = { id, run -> navController.navigate("workspaces?chatId=$id&tab=Context&runId=${android.net.Uri.encode(run)}") }
+            )
+        }
     }
 }
 
@@ -336,10 +347,24 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigateToOpenRouterSettings = { navController.navigate(Route.OPENROUTER_SETTINGS) },
                 onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToAdvancedSettings = { navController.navigate(Route.ADVANCED_SETTINGS) },
+                onNavigateToWorkspaces = { navController.navigate("workspaces") },
                 onNavigateToFactVault = { navController.navigate(Route.FACT_VAULT) },
                 onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
             )
+        }
+        composable(
+            Route.WORKSPACES,
+            arguments = listOf(
+                navArgument("chatId") {
+                    type = NavType.IntType
+                    defaultValue = 0
+                },
+                navArgument("tab") { defaultValue = "Tasks" },
+                navArgument("runId") { defaultValue = "" }
+            )
+        ) { entry ->
+            dev.chungjungsoo.gptmobile.presentation.ui.workspace.WorkspaceScreen(onBack = { navController.navigateUp() }, onChat = { navController.navigate("chat_room/$it") }, initialChat = entry.arguments?.getInt("chatId") ?: 0, initialTab = entry.arguments?.getString("tab") ?: "Tasks", initialRun = entry.arguments?.getString("runId").orEmpty())
         }
         composable(Route.OPENROUTER_SETTINGS) {
             val viewModel: OpenRouterSettingsViewModel = hiltViewModel()
@@ -351,7 +376,9 @@ fun NavGraphBuilder.settingNavigation(
 
         composable(Route.FACT_VAULT) {
             val viewModel: FactVaultViewModel = hiltViewModel()
-            FactVaultScreen(viewModel, onBack = { navController.navigateUp() })
+            FactVaultScreen(viewModel, onBack = { navController.navigateUp() }, onOpenConversation = { chatId, messageId ->
+                navController.navigate("chat_room/$chatId?targetMessageId=${messageId ?: -1}")
+            })
         }
 
         composable(Route.ADVANCED_SETTINGS) {
@@ -491,7 +518,7 @@ fun NavGraphBuilder.settingNavigation(
                 navArgument("marketplace") {
                     type = NavType.BoolType
                     defaultValue = false
-                },
+                }
             )
         ) { entry ->
             LocalModelsScreen(

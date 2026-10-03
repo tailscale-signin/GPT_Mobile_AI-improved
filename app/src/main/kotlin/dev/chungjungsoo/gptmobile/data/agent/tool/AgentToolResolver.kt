@@ -530,7 +530,7 @@ private class McpAgentTool(
 
         val initialConfig = config(false, null)
         val result = try {
-            clientManager.callTool(initialConfig, remoteToolName, remoteArguments)
+            clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -538,7 +538,8 @@ private class McpAgentTool(
             clientManager.callTool(
                 config(true, initialConfig.authorizationHeader),
                 remoteToolName,
-                remoteArguments
+                remoteArguments,
+                callId
             )
         }
         if (outputSchema != null && result.isError != true) {

@@ -64,6 +64,9 @@ class LocalMemoryGraphTool(
                 }
             }
 
+            val boundary = repository.scopeForChat(message.chatId)
+            require(!boundary.isTemporary) { "Temporary conversations do not use persistent memory." }
+            val scope = boundary.key
             val scopedChatId = message.chatId.takeIf { state.settings.sameChatOnly }
             val result = when (operation) {
                 "create_entities" -> {
@@ -84,7 +87,7 @@ class LocalMemoryGraphTool(
                     val saved = if (state.settings.reviewBeforeRecall) {
                         emptyList()
                     } else {
-                        memoryGraph.createEntities(inputs, message.chatId, message.id)
+                        memoryGraph.createEntities(inputs, message.chatId, message.id, scope)
                     }
                     var pendingFacts = 0
                     objects.forEach { obj ->
@@ -163,8 +166,8 @@ class LocalMemoryGraphTool(
                     val query = text("query").trim()
                     require(query.isNotBlank()) { "Provide a search query." }
                     val limit = ((arguments["limit"] as? JsonPrimitive)?.intOrNull ?: 20).coerceIn(1, 64)
-                    if (graph != null) {
-                        encodeNodes(graph.searchNodes(query, scopedChatId, limit = limit), referenceDataOnly = true)
+                    if (graph != null && repository.scopeForChat(message.chatId).excludedSources.isEmpty()) {
+                        encodeNodes(graph.searchNodes(query, scopedChatId, scope = scope, limit = limit), referenceDataOnly = true)
                     } else {
                         encodeVaultFacts(MemoryRecallPolicy.rank(query, repository.visibleFacts(message.chatId, isLocal)).take(limit))
                     }
@@ -172,8 +175,8 @@ class LocalMemoryGraphTool(
 
                 "read_graph" -> {
                     val limit = ((arguments["limit"] as? JsonPrimitive)?.intOrNull ?: 32).coerceIn(1, 64)
-                    if (graph != null) {
-                        val (total, nodes) = graph.readGraph(scopedChatId, offset = offset, limit = limit)
+                    if (graph != null && repository.scopeForChat(message.chatId).excludedSources.isEmpty()) {
+                        val (total, nodes) = graph.readGraph(scopedChatId, scope = scope, offset = offset, limit = limit)
                         buildJsonObject {
                             put("total", total)
                             put("offset", offset)
@@ -189,8 +192,8 @@ class LocalMemoryGraphTool(
                 "open_nodes" -> {
                     val names = arguments.stringArray("names")
                     require(names.isNotEmpty()) { "Provide entity names." }
-                    if (graph != null) {
-                        encodeNodes(graph.openNodes(names, scopedChatId), referenceDataOnly = true)
+                    if (graph != null && repository.scopeForChat(message.chatId).excludedSources.isEmpty()) {
+                        encodeNodes(graph.openNodes(names, scopedChatId, scope = scope), referenceDataOnly = true)
                     } else {
                         val facts = repository.visibleFacts(message.chatId, isLocal).filter { entry ->
                             names.any { it.equals(entry.fact.entity.name, true) || it.equals(entry.fact.target.name, true) }
@@ -216,14 +219,12 @@ class LocalMemoryGraphTool(
                     val source = requireNotNull(documents) { "Document memory is unavailable." }
                     if (operation == "search_documents") {
                         require(text("query").isNotBlank()) { "Provide a search query." }
-                        source.search(text("query"), scopedChatId)
+                        source.search(text("query"), message.chatId)
                     } else {
                         val document = source.dao.document(text("id"))
                         require(
                             document != null &&
-                                !document.deleted &&
-                                document.chatId != null &&
-                                (!state.settings.sameChatOnly || document.chatId == message.chatId)
+                                boundary.accepts(document, message.chatId)
                         ) { "Document unavailable under current memory permissions." }
                         val limit = ((arguments["limit"] as? JsonPrimitive)?.intOrNull ?: 4000).coerceIn(1, 6000)
                         val content = source.dao.chunks(document.id).joinToString("\n") { it.text }

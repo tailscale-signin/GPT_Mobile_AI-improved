@@ -83,6 +83,7 @@ fun AdvancedSettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item { PrivacyStoragePanel() }
             item {
                 SettingsHero("Controls", "Tune your experience", "Conversation, research and runtime preferences")
             }

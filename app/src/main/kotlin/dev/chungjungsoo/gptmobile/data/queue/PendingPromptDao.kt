@@ -26,6 +26,9 @@ interface PendingPromptDao {
     @Query("DELETE FROM pending_prompts WHERE id = :id AND userMessageId IS NULL")
     suspend fun delete(id: String)
 
+    @Query("DELETE FROM pending_prompts WHERE id LIKE :prefix AND userMessageId IS NULL")
+    suspend fun deleteRecipePrompts(prefix: String)
+
     @Query("UPDATE pending_prompts SET text = :text WHERE id = :id AND userMessageId IS NULL")
     suspend fun edit(id: String, text: String)
 

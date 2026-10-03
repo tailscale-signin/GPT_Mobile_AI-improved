@@ -36,7 +36,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         store ?: MyObjectBox.builder()
             .androidContext(context)
             .directory(File(context.noBackupFilesDir, "memory-vectors-use-qa-v1"))
-            .maxSizeInKByte(64 * 1024)
+            .maxSizeInKByte(128 * 1024)
             .build().also { store = it }
         ).boxFor(MemoryVector::class.java)
 
@@ -58,7 +58,7 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         mutex.withLock {
             try {
                 val box = box()
-                val existing = box.all.associateBy { it.factId }
+                val existing = box.all.filterNot { it.factId.startsWith("doc:") }.associateBy { it.factId }
                 val desired = facts.associateBy { it.id }
                 box.remove(*existing.values.filter { it.factId !in desired }.map { it.id }.toLongArray())
                 val changed = facts.filter { existing[it.id]?.fingerprint != fingerprint(it) }
@@ -79,11 +79,11 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         }
     }
 
-    suspend fun search(query: String, scope: String, limit: Int = 80): Map<String, Double> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String, scope: String, limit: Int = 80, includePersonal: Boolean = true): Map<String, Double> = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
                 if (query.isBlank()) return@withLock emptyMap()
-                val allowedScope = MemoryVector_.scope.equal("personal").or(MemoryVector_.scope.equal(scope))
+                val allowedScope = if (includePersonal) MemoryVector_.scope.equal("personal").or(MemoryVector_.scope.equal(scope)) else MemoryVector_.scope.equal(scope)
                 box().query(allowedScope.and(MemoryVector_.embedding.nearestNeighbors(embed(query), limit.coerceIn(1, 256))))
                     .build().use { search -> search.findWithScores().associate { it.get().factId to (1.0 - it.score).coerceIn(-1.0, 1.0) } }
             } catch (cancelled: CancellationException) {
@@ -96,6 +96,45 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                 emptyMap()
             }
         }
+    }
+
+    suspend fun indexDocument(document: dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeDocument, chunks: List<dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeChunk>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            try {
+                val box = box()
+                val prefix = "doc:${document.id}:"
+                val existing = box.query(MemoryVector_.factId.startsWith(prefix)).build().use { it.find() }.associateBy { it.factId }
+                val scope = document.projectId?.let { "document:project:$it" } ?: "document:chat:${document.chatId}"
+                val desired = chunks.map { "doc:${it.id}" }.toSet()
+                box.remove(*existing.values.filter { it.factId !in desired }.map { it.id }.toLongArray())
+                // Yield between chunks; native encoding never runs on the UI thread.
+                chunks.forEach { chunk ->
+                    currentCoroutineContext().ensureActive()
+                    val hash = MessageDigest.getInstance("SHA-256").digest(chunk.text.encodeToByteArray()).joinToString("") { "%02x".format(it) }
+                    val old = existing["doc:${chunk.id}"]
+                    if (old?.fingerprint != hash || old.scope != scope) {
+                        box.put(MemoryVector(old?.id ?: 0, "doc:${chunk.id}", scope, hash, embed(chunk.text)))
+                    }
+                    kotlinx.coroutines.yield()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                unavailable()
+            } catch (_: LinkageError) {
+                unavailable()
+            }
+        }
+    }
+
+    suspend fun removeDocument(id: String) = withContext(Dispatchers.IO) {
+        mutex.withLock { box().query(MemoryVector_.factId.startsWith("doc:$id:")).build().use { it.remove() } }
+    }
+
+    suspend fun searchDocuments(query: String, chatId: Int, projectId: String?): Map<String, Double> {
+        val scopes = listOfNotNull("document:chat:$chatId", projectId?.let { "document:project:$it" })
+        return scopes.flatMap { search(query, it, 48, includePersonal = false).entries }
+            .associate { it.key.removePrefix("doc:") to it.value }
     }
 
     suspend fun clear() = withContext(Dispatchers.IO) {

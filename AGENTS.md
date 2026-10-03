@@ -258,7 +258,7 @@ fun provideChatRepository(...): ChatRepository = ChatRepositoryImpl(...)
 - **Java**: 21
 - **Pattern**: MVVM with Repository layer
 - **DI**: Hilt
-- **Database**: Room (`ChatDatabaseV2`, schema v32) with explicit migrations
+- **Database**: Room (`ChatDatabaseV2`, schema v33) with explicit migrations
 - **Network**: Ktor with OkHttp engine on Android
 - **Serialization**: kotlinx.serialization
 - **UI**: Material 3 with dynamic theming

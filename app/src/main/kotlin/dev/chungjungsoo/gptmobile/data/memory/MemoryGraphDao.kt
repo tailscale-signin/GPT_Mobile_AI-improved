@@ -51,6 +51,18 @@ interface MemoryGraphDao {
     )
     suspend fun searchLike(scope: String, pattern: String, limit: Int): List<MemoryGraphEntityRecord>
 
+    @Query("SELECT * FROM memory_graph_observations WHERE sourceKind = :sourceKind")
+    suspend fun observationsBySource(sourceKind: String): List<MemoryGraphObservationRecord>
+
+    @Query("SELECT * FROM memory_graph_relations WHERE sourceKind = :sourceKind")
+    suspend fun relationsBySource(sourceKind: String): List<MemoryGraphRelationRecord>
+
+    @Query("DELETE FROM memory_graph_observations WHERE id IN (:ids)")
+    suspend fun deleteObservationIds(ids: List<String>)
+
+    @Query("DELETE FROM memory_graph_relations WHERE id IN (:ids)")
+    suspend fun deleteRelationIds(ids: List<String>)
+
     @Query("DELETE FROM memory_graph_observations WHERE sourceKind = :sourceKind")
     suspend fun deleteObservationsBySource(sourceKind: String)
 
@@ -67,6 +79,12 @@ interface MemoryGraphDao {
         """
     )
     suspend fun pruneUnreferencedEntities()
+
+    @Query("UPDATE memory_graph_entities SET standalone = 0 WHERE sourceChatId = :chatId")
+    suspend fun releaseChatEntities(chatId: Int)
+
+    @Query("UPDATE memory_graph_entities SET standalone = 0 WHERE scope = :scope OR scope LIKE :branches")
+    suspend fun releaseScopeEntities(scope: String, branches: String)
 
     @Query("DELETE FROM memory_graph_relations")
     suspend fun clearRelations()

@@ -58,6 +58,8 @@ class GPTMobileApp :
     @Inject
     lateinit var semanticMemory: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
 
+    @Inject lateinit var conversationDatabase: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+
     @Volatile
     var secretMigrationErrors: List<SecretMigrationError> = emptyList()
         private set
@@ -77,6 +79,8 @@ class GPTMobileApp :
 
     @javax.inject.Inject lateinit var toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
 
+    @javax.inject.Inject lateinit var conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion
+
     override fun onCreate() {
         val startupStartTime = SystemClock.elapsedRealtime()
 
@@ -95,6 +99,11 @@ class GPTMobileApp :
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
             val startup = startupDependencies()
+            val temporary = conversationDatabase.chatRoomDao().temporaryChats()
+            if (temporary.isNotEmpty()) {
+                temporary.forEach { androidx.work.WorkManager.getInstance(this@GPTMobileApp).cancelAllWorkByTag("memory-chat-${it.id}") }
+                conversationDeletion.delete(temporary)
+            }
             toolApprovals.recover()
             invocationLedger.dao.recover()
             startup.pendingLocalPlatformActivator().start()

@@ -64,6 +64,7 @@ class ToolConnectionsViewModel @Inject constructor(
         viewModelScope.launch {
             pluginMutex.lock()
             try {
+                dev.chungjungsoo.gptmobile.data.workspace.PluginConfiguration.validate(config)
                 val current = settingRepository.getFeatureSettings()
                 settingRepository.updateFeatureSettings(current.copy(pluginExecution = current.pluginExecution + (id to config.normalized())))
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

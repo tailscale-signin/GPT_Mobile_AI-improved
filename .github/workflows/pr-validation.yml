@@ -19,12 +19,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check Android regex compatibility
-        run: python3 scripts/check_android_regex.py
+        run: |
+          python3 scripts/check_android_regex.py
+          python3 -m unittest discover -s scripts/tests
 
       - name: Validate gateway Python and contract tests
         run: |
+          python3 -m pip install -r gateway/requirements.txt
           python3 -m py_compile gateway/gateway_v12.py
-          python3 gateway/tests/test_gateway_v12.py
+          python3 -m unittest discover -s gateway/tests
+
+      - name: Resource preflight
+        run: bash scripts/validate.sh resources
 
       - name: Setup JDK 21
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -73,6 +79,18 @@ jobs:
           check_name: "Unit Test Results"
           fail_on_failure: false
           require_tests: false
+
+      - name: Build review APK and verify packaged runtime
+        run: |
+          ./gradlew :app:assembleDebug --no-daemon
+          python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
+
+      - name: Upload review APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
       - name: Upload JaCoCo Coverage Report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

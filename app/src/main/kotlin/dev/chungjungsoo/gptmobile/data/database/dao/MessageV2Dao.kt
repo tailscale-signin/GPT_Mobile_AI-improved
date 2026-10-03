@@ -11,9 +11,14 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MessageV2Dao {
+    @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId ORDER BY created_at DESC, message_id DESC LIMIT 120")
+    suspend fun comparisonHistory(chatId: Int): List<MessageV2>
 
     @Query("SELECT * FROM messages_v2 WHERE attachments != '[]' ORDER BY created_at DESC, message_id DESC")
     fun observeAttachments(): Flow<List<MessageV2>>
+
+    @Query("SELECT * FROM messages_v2 WHERE message_id = :id")
+    suspend fun message(id: Int): MessageV2?
 
     @Query("SELECT * FROM messages_v2 WHERE chat_id=:chatInt")
     suspend fun loadMessages(chatInt: Int): List<MessageV2>

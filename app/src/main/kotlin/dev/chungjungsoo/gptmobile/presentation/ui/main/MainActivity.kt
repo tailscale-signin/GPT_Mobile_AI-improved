@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
@@ -37,7 +36,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity() {
 
     private val mainViewModel: MainViewModel by viewModels()
     private val toolConnectionsViewModel: ToolConnectionsViewModel by viewModels()
@@ -129,7 +128,8 @@ class MainActivity : ComponentActivity() {
                         } else {
                             "chat_room/$chatRoomId"
                         }
-                        navigate(route) {
+                        val share = intent.getStringExtra("incomingShare")?.takeIf { it.matches(Regex("[a-f0-9-]{36}")) }
+                        navigate(route + (share?.let { "&incomingShare=$it".let { suffix -> if ('?' in route) suffix else suffix.replaceFirst('&', '?') } } ?: "")) {
                             launchSingleTop = true
                         }
                     }

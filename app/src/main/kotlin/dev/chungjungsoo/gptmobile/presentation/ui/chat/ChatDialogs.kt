@@ -95,6 +95,11 @@ fun ChatModelDialog(
     initialReasoning: Boolean = false,
     onReasoningChanged: (Boolean) -> Unit = {},
     onDelegationChanged: (ConversationDelegationSettings?) -> Unit = {},
+    isTemporary: Boolean = false,
+    onTemporaryChanged: (Boolean) -> Unit = {},
+    onForgetMemories: () -> Unit = {},
+    parentChatId: Int? = null,
+    onOpenParent: (Int) -> Unit = {},
     onDismissRequest: () -> Unit,
     onConfirmRequest: (Map<String, String>, Float) -> Unit
 ) {
@@ -122,6 +127,17 @@ fun ChatModelDialog(
         text = {
             Column {
                 val sections = listOf("Models", "Options")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Temporary conversation", style = MaterialTheme.typography.labelLarge)
+                        if (isTemporary) Text("No memory · deleted from this device when closed", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(isTemporary, onTemporaryChanged)
+                }
+                Row {
+                    TextButton(onClick = onForgetMemories) { Text("Forget learned memories") }
+                    parentChatId?.let { id -> TextButton(onClick = { onOpenParent(id) }) { Text("Original branch") } }
+                }
                 TabRow(selectedTabIndex = sections.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.surface) {
                     sections.forEach { label ->
                         Tab(selected = section == label, onClick = { section = label }, text = { Text(label) })
@@ -516,7 +532,7 @@ fun UserMessageEditDialog(
                     (question != initialQuestion.content || attachments.mapNotNull { it.attachment } != initialQuestion.attachments),
                 onClick = { onConfirmRequest(initialQuestion.copy(content = question)) }
             ) {
-                Text(stringResource(R.string.confirm))
+                Text("Branch & send")
             }
         },
         dismissButton = {

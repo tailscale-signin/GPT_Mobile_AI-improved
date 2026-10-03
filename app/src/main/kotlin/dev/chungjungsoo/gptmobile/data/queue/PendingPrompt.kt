@@ -35,5 +35,7 @@ data class PendingPromptPayload(
     val attachments: List<ChatAttachment> = emptyList(),
     val profileUids: List<String> = emptyList(),
     val models: Map<String, String> = emptyMap(),
-    val tools: ChatMcpToolConfig = ChatMcpToolConfig()
+    val tools: ChatMcpToolConfig = ChatMcpToolConfig(),
+    val localOnly: Boolean = false,
+    val requiresSpendAllowance: Boolean = false
 )

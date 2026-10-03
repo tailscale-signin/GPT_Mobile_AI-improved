@@ -211,6 +211,7 @@ class CompleteBackupManager @Inject constructor(
                         }
                     } else {
                         snapshotDb.execSQL("UPDATE messages_v2 SET attachments = '[]'")
+                        snapshotDb.execSQL("UPDATE chats_v2 SET draft_attachments = '[]'")
                         snapshotDb.query("SELECT id, payload FROM pending_prompts").use { rows ->
                             while (rows.moveToNext()) {
                                 val payload = json.decodeFromString<dev.chungjungsoo.gptmobile.data.queue.PendingPromptPayload>(rows.getString(1))
@@ -415,6 +416,7 @@ class CompleteBackupManager @Inject constructor(
                         }
                     } else {
                         source.execSQL("UPDATE messages_v2 SET attachments = '[]'")
+                        source.execSQL("UPDATE chats_v2 SET draft_attachments = '[]'")
                     }
                 }
 
@@ -575,6 +577,13 @@ class CompleteBackupManager @Inject constructor(
         .build()
 
     private fun rewriteAttachments(db: SupportSQLiteDatabase, transform: (String) -> String) {
+        db.query("SELECT chat_id, draft_attachments FROM chats_v2").use { rows ->
+            while (rows.moveToNext()) {
+                val attachments = json.decodeFromString<List<ChatAttachment>>(rows.getString(1)).map { it.copy(localFilePath = transform(it.localFilePath), preparedFilePath = transform(it.preparedFilePath)) }
+                db.execSQL("UPDATE chats_v2 SET draft_attachments = ? WHERE chat_id = ?", arrayOf<Any>(json.encodeToString(attachments), rows.getInt(0)))
+            }
+        }
+
         db.query("SELECT message_id, attachments FROM messages_v2").use { rows ->
             while (rows.moveToNext()) {
                 val encoded = rows.getString(1).orEmpty().ifBlank { "[]" }
@@ -630,6 +639,8 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
+        reference.startsWith("share-") -> false
+        reference.startsWith("workspace-memory-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference == BACKUP_PASSWORD_REF || reference == BACKUP_KEY_REF || reference.startsWith("backup-recovery-") -> false
         reference == FactVaultRepository.VAULT_REFERENCE || reference.startsWith("memory-part-") -> selection.includes(CompleteBackupSection.MEMORY)
         else -> selection.includes(CompleteBackupSection.CREDENTIALS)

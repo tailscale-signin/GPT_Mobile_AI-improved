@@ -12,7 +12,7 @@ internal object CompleteBackupDatabase {
             copy.execSQL("DROP TABLE IF EXISTS android_metadata")
             copy.beginTransaction()
             try {
-                source.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search_%'").use { cursor ->
+                source.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search_%' AND name NOT LIKE 'knowledge_chunks_fts%' AND name NOT LIKE 'memory_graph_fts%'").use { cursor ->
                     while (cursor.moveToNext()) copy.execSQL(cursor.getString(0))
                 }
                 tables(source, includeMetadata = true).forEach { table ->
@@ -27,6 +27,21 @@ internal object CompleteBackupDatabase {
                 }
                 if (copy.rawQuery("SELECT name FROM sqlite_master WHERE name='messages_search'", null).use { it.moveToFirst() }) copy.execSQL("INSERT INTO messages_search(messages_search) VALUES('rebuild')")
                 copy.version = source.version
+                copy.setTransactionSuccessful()
+            } finally {
+                copy.endTransaction()
+            }
+            // Work on the copy only. FK cascades remove messages, queues, evidence and project links.
+            copy.setForeignKeyConstraintsEnabled(true)
+            copy.beginTransaction()
+            try {
+                if (copy.rawQuery("PRAGMA table_info(chats_v2)", null).use { rows -> generateSequence { if (rows.moveToNext()) rows.getString(1) else null }.any { it == "is_temporary" } }) {
+                    copy.execSQL("DELETE FROM tool_approvals WHERE runId IN (SELECT run_id FROM agent_runs WHERE chat_id IN (SELECT chat_id FROM chats_v2 WHERE is_temporary = 1))")
+                    copy.execSQL("DELETE FROM model_invocations WHERE parentRunId IN (SELECT run_id FROM agent_runs WHERE chat_id IN (SELECT chat_id FROM chats_v2 WHERE is_temporary = 1))")
+                    copy.execSQL("DELETE FROM chats_v2 WHERE is_temporary = 1")
+                    copy.execSQL("UPDATE chats_v2 SET last_share_token = NULL")
+                    if (copy.rawQuery("SELECT name FROM sqlite_master WHERE name='messages_search'", null).use { it.moveToFirst() }) copy.execSQL("INSERT INTO messages_search(messages_search) VALUES('rebuild')")
+                }
                 copy.setTransactionSuccessful()
             } finally {
                 copy.endTransaction()
@@ -152,6 +167,7 @@ internal object CompleteBackupDatabase {
         return buildSet {
             if (CompleteBackupSection.CONVERSATIONS in sections) {
                 add("chats_v2")
+                add("workspace_records")
                 add("pending_prompts")
                 addAll(listOf("knowledge_projects", "knowledge_project_chats", "knowledge_documents", "knowledge_chunks"))
                 add("messages_v2")
@@ -183,7 +199,7 @@ internal object CompleteBackupDatabase {
     }
 
     private fun tables(db: SupportSQLiteDatabase, includeMetadata: Boolean = false): List<String> = db.query(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search%' ORDER BY name"
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'messages_search%' AND name NOT LIKE 'knowledge_chunks_fts%' AND name NOT LIKE 'memory_graph_fts%' ORDER BY name"
     ).use { cursor ->
         buildList {
             while (cursor.moveToNext()) {

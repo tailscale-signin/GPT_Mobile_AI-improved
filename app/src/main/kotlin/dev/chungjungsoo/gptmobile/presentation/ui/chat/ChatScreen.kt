@@ -188,9 +188,19 @@ private fun Modifier.chatViewportEdgeFade(
 fun ChatScreen(
     chatViewModel: ChatViewModel = hiltViewModel(),
     onBackAction: () -> Unit,
-    onNavigateToLocalModels: () -> Unit = {}
+    onNavigateToLocalModels: () -> Unit = {},
+    onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
+    onInspectContext: (Int, String) -> Unit = { _, _ -> }
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
+    val branchNavigation by chatViewModel.branchNavigation.collectAsStateWithLifecycle()
+    LaunchedEffect(branchNavigation) {
+        branchNavigation?.let {
+            chatViewModel.consumeBranchNavigation()
+            onOpenConversation(it, true)
+        }
+    }
+    androidx.activity.compose.BackHandler { chatViewModel.leaveConversation(onBackAction) }
     val delegationRecoveryRequests by chatViewModel.pendingDelegationRecovery.collectAsStateWithLifecycle()
     delegationRecoveryRequests.firstOrNull { it.chatId == chatRoom.id }?.let { request ->
         DelegationRecoveryDialog(
@@ -207,6 +217,7 @@ fun ChatScreen(
             approval = approval,
             onDeny = { chatViewModel.decideToolApproval(approval.id, false) },
             onAllowOnce = { chatViewModel.decideToolApproval(approval.id, true) },
+            onAllowInConversation = { chatViewModel.allowToolInConversation(approval.id) },
             onAlwaysAllowTool = { chatViewModel.alwaysAllowTool(approval.id) },
             onAlwaysAllowProvider = { chatViewModel.alwaysAllowToolProvider(approval.id) }
         )
@@ -279,6 +290,7 @@ fun ChatScreen(
     val needsLocalNetworkAccess by chatViewModel.needsLocalNetworkAccess.collectAsStateWithLifecycle()
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
     val appAllPlatforms by chatViewModel.platformsInApp.collectAsStateWithLifecycle()
+    LaunchedEffect(chatRoom.id, appAllPlatforms, groupedMessages.userMessages.size, groupedMessages.assistantMessages.size) { chatViewModel.resumeBranchIfReady() }
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
@@ -416,7 +428,7 @@ fun ChatScreen(
                 isTitleCustomized = chatRoom.isTitleCustomized,
                 isMenuItemEnabled = chatRoom.id > 0,
                 isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
-                onBackAction = onBackAction,
+                onBackAction = { chatViewModel.leaveConversation(onBackAction) },
                 scrollBehavior = scrollBehavior,
                 onChatTitleItemClick = chatViewModel::openChatTitleDialog,
                 onChatModelItemClick = chatViewModel::openChatModelDialog,
@@ -511,6 +523,7 @@ fun ChatScreen(
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
+                        onInspectContext = { run -> onInspectContext(chatRoom.id, run) },
                         onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
                         onFavoriteLongPress = {
                             Toast.makeText(context, R.string.favorite, Toast.LENGTH_SHORT).show()
@@ -619,6 +632,11 @@ fun ChatScreen(
                 ?.takeIf { it in activePlatformUids && it !in disabledPlatformUids }
                 ?: activePlatformUids.firstOrNull { it !in disabledPlatformUids }.orEmpty()
             ChatModelDialog(
+                isTemporary = chatRoom.isTemporary,
+                onTemporaryChanged = chatViewModel::setTemporary,
+                onForgetMemories = chatViewModel::forgetConversationMemories,
+                parentChatId = chatRoom.parentChatId,
+                onOpenParent = { onOpenConversation(it, false) },
                 initialSelectedProfile = currentProfileUid,
                 platformOrder = dialogPlatformOrder,
                 activePlatformUids = activePlatformUids.toSet(),
@@ -755,6 +773,7 @@ private fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
+    onInspectContext: (String) -> Unit = {},
     onFavoriteClick: () -> Unit,
     onFavoriteLongPress: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
@@ -996,6 +1015,7 @@ private fun ChatMessagePair(
                     onCopyClick = { onCopyText(assistantContent) },
                     onSelectClick = { onSelectText(assistantContent) },
                     onRetryClick = { onRetry(messageIndex, displayPlatformIndex) },
+                    onInspectContext = selectedRunId?.let { id -> { onInspectContext(id) } },
                     onEditClick = { onEditAssistant(messageIndex, displayPlatformIndex) },
                     onFavoriteClick = onFavoriteClick,
                     onFavoriteLongPress = onFavoriteLongPress,

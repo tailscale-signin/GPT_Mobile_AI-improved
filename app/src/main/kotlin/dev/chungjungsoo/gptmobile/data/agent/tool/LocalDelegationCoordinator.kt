@@ -92,7 +92,7 @@ internal class LocalDelegationCoordinator(
     private val delegationCanceledByUser = AtomicBoolean(false)
     private val userSelectedRecoveryProfile = AtomicReference<PlatformV2?>(null)
     private val lastFailure = AtomicReference<String?>(null)
-    private val activeRequests = ConcurrentHashMap.newKeySet<Deferred<String>>()
+    private val activeRequests = ConcurrentHashMap.newKeySet<Deferred<String?>>()
     private val reviewStateLock = Any()
     private val reviewerScores = ConcurrentLinkedQueue<Int>()
     fun failureReason(): String? = lastFailure.get()
@@ -694,7 +694,9 @@ internal class LocalDelegationCoordinator(
             val firstProgressAt = AtomicLong(-1L)
             val lastProgressAt = AtomicLong(startedAt)
             val deferred = async(start = CoroutineStart.LAZY) {
-                if (progressive == null) return@async generate(profile, prompt, outputTokens)
+                if (progressive == null) {
+                    return@async withTimeoutOrNull(runtimeSeconds * 1000L) { generate(profile, prompt, outputTokens) }
+                }
                 progressive(profile, prompt, outputTokens, inputTokenCap) { progress ->
                     val now = nowMs()
                     when (progress.kind) {
@@ -713,6 +715,8 @@ internal class LocalDelegationCoordinator(
             activeRequests.add(deferred)
             try {
                 if (delegationCanceledByUser.get()) deferred.cancel() else deferred.start()
+                // Without progress events, keep the workload deadline and coroutine timeout clock.
+                if (progressive == null) return@coroutineScope deferred.await()
                 while (!deferred.isCompleted) {
                     withTimeoutOrNull(WATCHDOG_POLL_MS) { deferred.join() }
                     if (deferred.isCompleted) break

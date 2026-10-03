@@ -109,6 +109,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
@@ -233,7 +234,7 @@ fun ToolConnectionsScreen(
                 )
             }
 
-            SettingsHero(if (remoteMcpTab) "Connected services" else "Your toolkit", if (remoteMcpTab) "Remote MCP" else "Plugins", "${uiState.connections.size} connections · ${INTEGRATED_PLUGINS.size} built-in plugins", Modifier.padding(16.dp))
+            SettingsHero(if (remoteMcpTab) "Connected Services" else "Your Toolkit", if (remoteMcpTab) "Remote MCP" else "Plugins", "${uiState.connections.size} connections · ${INTEGRATED_PLUGINS.size} built-in plugins", Modifier.padding(16.dp))
             OutlinedTextField(search, { search = it }, label = { Text(if (remoteMcpTab) "Find a connection" else "Find a plugin") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             val matchingConnections = uiState.connections.filter { search.isBlank() || "$it".contains(search, true) }
             val nativeConnections = matchingConnections.filter { it.type != ToolConnectionType.MCP }
@@ -249,17 +250,19 @@ fun ToolConnectionsScreen(
                 )
 
                 Text(
-                    text = "Integrated plugins",
+                    text = "Integrated Plugins",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                 )
-                Text(
-                    text = "Built into the app. Disable any plugin to remove its tools from model sessions.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Built-In Tools", style = MaterialTheme.typography.labelSmall)
+                    SettingsHelpIcon("Built-in plugins are available immediately. Disable a plugin to remove its tools from model sessions.")
+                }
                 INTEGRATED_PLUGINS.filter { search.isBlank() || "${it.name} ${it.description}".contains(search, true) }.forEach { plugin ->
                     val enabled = uiState.pluginStates[plugin.id] ?: true
                     IntegratedPluginCard(
@@ -278,7 +281,7 @@ fun ToolConnectionsScreen(
 
                 if (nativeConnections.isNotEmpty()) {
                     Text(
-                        text = "Configured plugins",
+                        text = "Configured Plugins",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
@@ -317,36 +320,29 @@ fun ToolConnectionsScreen(
                     onEnabledChange = viewModel::setRemoteMcpEnabled
                 )
 
-                ListItem(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    headlineContent = {
-                        Text(
-                            text = "Browse MCP Marketplace",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            text = "Discover remote MCP servers and connect their advertised tools.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    },
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Filled.Storefront,
-                            contentDescription = "MCP Marketplace",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingContent = {
-                        TextButton(onClick = onMarketplaceClick) {
-                            Text("Explore")
+                if (mcpConnections.isEmpty()) {
+                    ListItem(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        headlineContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Browse MCP Marketplace", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                                SettingsHelpIcon("Discover remote MCP servers and connect their advertised tools.")
+                            }
+                        },
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Filled.Storefront,
+                                contentDescription = "MCP Marketplace",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        trailingContent = {
+                            TextButton(onClick = onMarketplaceClick) { Text("Explore") }
                         }
-                    }
-                )
+                    )
+                }
                 TextButton(onClick = { pairingLink = "" }) {
                     Text(stringResource(R.string.pair_server_title))
                 }
@@ -458,13 +454,13 @@ private data class IntegratedPluginUi(
 private val INTEGRATED_PLUGINS = listOf(
     IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured delegate model.", Icons.Default.Psychology),
     IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context.", Icons.Default.Memory),
-    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & time", "Provides current date context without a remote MCP server.", Icons.Default.Schedule),
+    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & Time", "Provides current date context without a remote MCP server.", Icons.Default.Schedule),
     IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally.", Icons.Default.Calculate),
-    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read files", "Reads bounded slices of files made available to the app.", Icons.Default.FolderOpen),
+    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read Files", "Reads bounded slices of files made available to the app.", Icons.Default.FolderOpen),
     IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Default.Language),
     IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Default.Code),
     IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Default.Search),
-    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device location", "Provides device location only when the app and profile permissions allow it.", Icons.Default.LocationOn)
+    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Default.LocationOn)
 )
 
 @Composable
@@ -482,13 +478,13 @@ private fun IntegratedPluginCard(
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 IntegratedPluginIcon(plugin)
-                Column(Modifier.weight(1f)) {
-                    Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        plugin.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    SettingsHelpIcon(plugin.description)
                 }
                 Switch(checked = enabled, onCheckedChange = onEnabledChange)
             }
@@ -559,12 +555,9 @@ private fun RemoteMcpMasterCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("Remote MCP servers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "Allow profiles to discover and call tools hosted by configured MCP servers.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Remote MCP Servers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                SettingsHelpIcon("Allow profiles to discover and call tools hosted by configured MCP servers.")
             }
             Switch(checked = enabled, onCheckedChange = onEnabledChange)
         }

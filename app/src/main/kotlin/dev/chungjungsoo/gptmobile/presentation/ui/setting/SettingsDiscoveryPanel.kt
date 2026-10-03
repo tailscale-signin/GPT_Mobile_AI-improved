@@ -37,19 +37,14 @@ internal fun SettingsDiscoveryPanel(
     resetOverrides: (Int) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    var changedOnly by remember { mutableStateOf(false) }
     var inspect by remember { mutableStateOf(false) }
     var selectedPreset by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(query, { query = it }, label = { Text("Search all settings") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Row {
-            Text("Only changed features", Modifier.weight(1f))
-            Switch(changedOnly, { changedOnly = it })
-        }
-        if (query.isNotBlank() || changedOnly) {
-            val features = AppFeature.entries.filter { "${it.title} ${it.description}".contains(query, true) && (!changedOnly || (settings.withFeature(it, true) == settings) != (AppFeatureSettings().withFeature(it, true) == AppFeatureSettings())) }
+        OutlinedTextField(query, { query = it }, label = { Text("Search All Settings") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        if (query.isNotBlank()) {
+            val features = AppFeature.entries.filter { "${it.title} ${it.description}".contains(query, true) }
             val sections = if (query.isBlank()) emptyMap() else destinations.filterKeys { it.contains(query, true) }
-            if (features.isEmpty() && sections.isEmpty()) Text("No matching settings")
+            if (features.isEmpty() && sections.isEmpty()) Text("No Matching Settings")
             features.forEach { feature ->
                 Card {
                     Row(Modifier.padding(12.dp)) {
@@ -64,14 +59,14 @@ internal fun SettingsDiscoveryPanel(
             sections.forEach { (title, action) -> TextButton(onClick = action) { Text(title) } }
         }
         Row {
-            TextButton(onClick = { inspect = true }) { Text("Effective settings") }
+            TextButton(onClick = { inspect = true }) { Text("Effective Settings") }
             TextButton(onClick = { selectedPreset = "Balanced" }) { Text("Presets") }
         }
     }
     if (inspect) {
         AlertDialog(
             onDismissRequest = { inspect = false },
-            title = { Text("Effective settings") },
+            title = { Text("Effective Settings") },
             text = {
                 LazyColumn(Modifier.heightIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text("Conversation overrides take precedence over profile and global defaults.") }

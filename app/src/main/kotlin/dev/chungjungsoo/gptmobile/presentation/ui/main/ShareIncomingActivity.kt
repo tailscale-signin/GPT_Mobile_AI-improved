@@ -7,11 +7,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -20,8 +20,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,9 +67,6 @@ class ShareIncomingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Pr
                     var share by remember { mutableStateOf<IncomingShare?>(null) }
                     var chats by remember { mutableStateOf<List<ChatRoomV2>>(emptyList()) }
                     var profiles by remember { mutableStateOf<List<PlatformV2>>(emptyList()) }
-                    var projects by remember { mutableStateOf<List<dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProject>>(emptyList()) }
-                    var links by remember { mutableStateOf<List<dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProjectChat>>(emptyList()) }
-                    var selectedProject by remember { mutableStateOf<String?>(null) }
                     var action by remember { mutableStateOf("Ask about") }
                     var selectedChat by remember { mutableStateOf<Int?>(null) }
                     var selectedProfile by remember { mutableStateOf<String?>(null) }
@@ -85,8 +82,6 @@ class ShareIncomingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Pr
                             chats = database.chatRoomDao().getChatRoomsWithFavorites().filterNot { it.isTemporary }
                             profiles = database.platformDao().getPlatforms().filter { it.enabled }
                             selectedProfile = profiles.firstOrNull()?.uid
-                            projects = database.knowledgeDao().projects().first()
-                            links = database.knowledgeDao().chatLinks().first()
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
@@ -110,23 +105,10 @@ class ShareIncomingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Pr
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("Ask about", "Summarize", "Save to knowledge").forEach { label -> FilterChip(action == label, { action = label }, label = { Text(label) }) }
                         }
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selectedProject == null, {
-                                selectedProject = null
-                                selectedChat = null
-                            }, label = { Text("Personal") })
-                            projects.forEach { project ->
-                                FilterChip(selectedProject == project.id, {
-                                    selectedProject = project.id
-                                    selectedChat = null
-                                    selectedProfile = project.defaultProfileUid ?: selectedProfile
-                                }, label = { Text(project.name) })
-                            }
-                        }
                         LazyColumn(Modifier.weight(1f)) {
                             item { FilterChip(selectedChat == null, { selectedChat = null }, label = { Text("New conversation") }) }
                             if (selectedChat == null) items(profiles, key = { it.uid }) { profile -> FilterChip(selectedProfile == profile.uid, { selectedProfile = profile.uid }, label = { Text(profile.name) }) }
-                            items(chats.filter { chat -> if (selectedProject == null) true else links.any { it.chatId == chat.id && it.projectId == selectedProject } }, key = { it.id }) { chat -> FilterChip(selectedChat == chat.id, { selectedChat = chat.id }, label = { Text(chat.title) }) }
+                            items(chats, key = { it.id }) { chat -> FilterChip(selectedChat == chat.id, { selectedChat = chat.id }, label = { Text(chat.title) }) }
                         }
                         Button(enabled = !busy && share != null && (selectedChat != null || selectedProfile != null), onClick = {
                             busy = true
@@ -136,12 +118,12 @@ class ShareIncomingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Pr
                                     val incoming = requireNotNull(share).copy(text = message)
                                     val chatId = selectedChat ?: database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Shared conversation", enabledPlatform = listOf(requireNotNull(selectedProfile)))).toInt()
                                     val prepared = incoming.files.map { requireNotNull(attachments.prepareLocalAttachment(this@ShareIncomingActivity, it)) { "Cannot prepare a shared file." } }
-                                    if (selectedChat == null && selectedProject != null) database.knowledgeDao().attachChat(dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProjectChat(chatId, requireNotNull(selectedProject)))
                                     if (action == "Save to knowledge") {
                                         val texts = prepared.mapNotNull { attachment -> attachment.extractedText?.takeIf(String::isNotBlank)?.let { attachment.resolvedDisplayName to it } } + listOfNotNull(text.takeIf(String::isNotBlank)?.let { "Shared text" to it })
                                         require(texts.isNotEmpty()) { "No extractable text. Open the attachments as a draft instead." }
-                                        val project = selectedProject
-                                        texts.forEach { (title, content) -> documents.index(title, content, chatId = if (project == null) chatId else null, projectId = project, sourceKey = stagedToken, explicitlyRestore = true) }
+                                        texts.forEach { (title, content) ->
+                                            documents.index(title, content, chatId = chatId, projectId = null, sourceKey = stagedToken, explicitlyRestore = true)
+                                        }
                                     }
                                     val token = requireNotNull(stagedToken)
                                     database.withTransaction {

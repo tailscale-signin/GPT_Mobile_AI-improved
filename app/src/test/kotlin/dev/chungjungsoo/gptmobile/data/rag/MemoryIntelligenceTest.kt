@@ -59,11 +59,11 @@ class MemoryIntelligenceTest {
         assertFalse(MemoryConsolidation.canMerge(entry, fact, "project:other", 1.0))
     }
 
-    @Test fun `new memory is local by default and deleting a topic prevents relearning`() = runTest {
+    @Test fun `cloud recall is enabled by default and deleting a topic prevents relearning`() = runTest {
         val memory = repository()
         repeat(3) { memory.prepareTurn("Astrophotography ideas?", 1, it + 1, isLocal = true) }
-        assertFalse(memory.state.value.settings.allowCloudRecall)
-        assertTrue(memory.prepareTurn("Astrophotography", 1, 4, capture = false, isLocal = false).facts.isEmpty())
+        assertTrue(memory.state.value.settings.allowCloudRecall)
+        assertTrue(memory.prepareTurn("Astrophotography", 1, 4, capture = false, isLocal = false).facts.isNotEmpty())
         memory.state.value.facts.toList().forEach { memory.deleteFact(it.id) }
         memory.prepareTurn("Astrophotography ideas?", 1, 5, isLocal = true)
         assertTrue(memory.state.value.facts.isEmpty())

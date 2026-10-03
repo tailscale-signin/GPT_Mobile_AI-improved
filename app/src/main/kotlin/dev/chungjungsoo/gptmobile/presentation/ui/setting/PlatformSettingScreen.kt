@@ -16,27 +16,26 @@
 
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import android.Manifest
 import android.content.pm.PackageManager
+import android.Manifest
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.AllInbox
@@ -46,6 +45,7 @@ import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Numbers
 import androidx.compose.material.icons.outlined.Speed
@@ -71,22 +71,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -103,6 +103,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.formatPlatformTimeout
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
@@ -841,8 +842,11 @@ fun PlatformSettingScreen(
 
 @Composable
 private fun ProfileSectionTitle(title: String) {
+    val displayTitle = title.split(Regex("\\s+")).joinToString(" ") { word ->
+        word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
+    }
     Text(
-        text = title,
+        text = displayTitle,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp)
@@ -863,63 +867,133 @@ private fun SearchBackendDialog(
         var crawlPages by remember(behavior.maxCrawlPages) { mutableStateOf(behavior.maxCrawlPages.toFloat()) }
         var crawlerIds by remember(behavior.crawlerToolIds) { mutableStateOf(behavior.crawlerToolIds) }
 
+        val discoveredSearchTools = toolBindingState.mcpToolOptions.filter {
+            dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty())
+        }
+        val discoveredSearchSelections = discoveredSearchTools.map {
+            dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName)
+        }.toSet()
+        val unavailableSearchSelections = selectedTools.filter { selection ->
+            selection !in discoveredSearchSelections &&
+                dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(selection.toolName, "")
+        }.toSet()
+        val discoveredConnectionUids = discoveredSearchTools.map { it.connectionUid }.toSet()
+        val unavailableSelectedConnectionUids = unavailableSearchSelections.map { it.connectionUid }.toSet()
+        val unavailableSearchConnections = toolBindingState.mcpConnections.filter { connection ->
+            connection.connectionUid !in discoveredConnectionUids &&
+                connection.connectionUid !in unavailableSelectedConnectionUids &&
+                listOf(connection.name, connection.alias, connection.approvedReadTools)
+                    .joinToString(" ")
+                    .contains(Regex("""(?i)\b(brave|search|exa|perplexity|firecrawl)\b"""))
+        }
+
         AlertDialog(
             icon = { Icon(dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"), null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Search engines") },
+            title = { Text("Search Engines") },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Search engines", style = MaterialTheme.typography.titleSmall)
-                    Text("Built-in search is included", style = MaterialTheme.typography.labelSmall)
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PreferenceListSwitch(
+                        title = "Built-In Web Search",
+                        icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                        description = "Default · Always Available",
+                        enabled = true,
+                        isChecked = true,
+                        onCheckedChange = {}
+                    )
+
+                    if (toolBindingState.searchConnections.isNotEmpty() || discoveredSearchTools.isNotEmpty() || unavailableSearchSelections.isNotEmpty()) {
+                        Text("Additional Search Engines", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+
                     toolBindingState.searchConnections.forEach { connection ->
                         PreferenceListSwitch(
                             title = connection.name,
                             icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
-                            description = connection.type.lowercase().replaceFirstChar { it.uppercase() },
+                            description = "Connected Search Engine",
                             isChecked = connection.connectionUid in selected,
-                            onCheckedChange = { enabled -> selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid }
+                            onCheckedChange = { enabled ->
+                                selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid
+                            }
                         )
                     }
-                    toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.forEach { tool ->
+
+                    discoveredSearchTools.forEach { tool ->
                         val selection = dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(tool.connectionUid, tool.toolName)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${tool.connectionName} · ${tool.toolName}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Switch(selection in selectedTools, { checked -> selectedTools = if (checked) selectedTools + selection else selectedTools - selection })
-                        }
+                        PreferenceListSwitch(
+                            title = tool.connectionName,
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = "MCP · ${tool.toolName}",
+                            isChecked = selection in selectedTools,
+                            onCheckedChange = { enabled ->
+                                selectedTools = if (enabled) selectedTools + selection else selectedTools - selection
+                            }
+                        )
                     }
+
+                    unavailableSearchSelections.forEach { selection ->
+                        val connectionName = toolBindingState.mcpConnections.firstOrNull { it.connectionUid == selection.connectionUid }?.name ?: "MCP Search"
+                        PreferenceListSwitch(
+                            title = connectionName,
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = "MCP · ${selection.toolName} · Currently Unavailable",
+                            isChecked = true,
+                            onCheckedChange = { enabled ->
+                                if (!enabled) selectedTools = selectedTools - selection
+                            }
+                        )
+                    }
+
+                    unavailableSearchConnections.forEach { connection ->
+                        PreferenceListSwitch(
+                            title = connection.name,
+                            icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"),
+                            description = "MCP Search Engine · Currently Unavailable",
+                            enabled = false,
+                            isChecked = false,
+                            onCheckedChange = {}
+                        )
+                    }
+
                     androidx.compose.material3.HorizontalDivider()
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Crawlers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                         Switch(crawlerEnabled, { crawlerEnabled = it })
                     }
                     if (crawlerEnabled) {
-                        Text("Pages to read · ${crawlPages.toInt()}", style = MaterialTheme.typography.labelLarge)
+                        Text("Pages To Read · ${crawlPages.toInt()}", style = MaterialTheme.typography.labelLarge)
                         androidx.compose.material3.Slider(crawlPages, { crawlPages = it }, valueRange = 1f..20f, steps = 18)
-                        Text(if (features.delegation.reviewerEnabled && features.delegation.enabled && behavior.delegationEnabled) "Reviewer reads the search result pages" else "Read pages after search", style = MaterialTheme.typography.labelSmall)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Built-in page reader", Modifier.weight(1f))
+                            Text("Built-In Page Reader", Modifier.weight(1f))
                             Switch(":read_url" in crawlerIds, { checked -> crawlerIds = if (checked) crawlerIds + ":read_url" else crawlerIds - ":read_url" })
                         }
-                        toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.toolName, it.description.orEmpty()) && !dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.forEach { tool ->
+                        toolBindingState.mcpToolOptions.filter {
+                            dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.toolName, it.description.orEmpty()) &&
+                                !dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty())
+                        }.forEach { tool ->
                             val id = "${tool.connectionUid}:${tool.toolName}"
                             val selection = dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(tool.connectionUid, tool.toolName)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${tool.connectionName} · ${tool.toolName}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                Switch(id in crawlerIds, { checked ->
+                            PreferenceListSwitch(
+                                title = tool.connectionName,
+                                icon = dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("read_url"),
+                                description = "MCP · ${tool.toolName}",
+                                isChecked = id in crawlerIds,
+                                onCheckedChange = { checked ->
                                     crawlerIds = if (checked) crawlerIds + id else crawlerIds - id
                                     selectedTools = if (checked) selectedTools + selection else selectedTools - selection
-                                })
-                            }
+                                }
+                            )
                         }
                     }
-                    Row {
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
                             selected = toolBindingState.searchConnections.map { it.connectionUid }.toSet()
-                            selectedTools = selectedTools + toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.map { dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName) }
-                        }) { Text("Select all") }
+                            selectedTools = selectedTools + discoveredSearchSelections
+                        }) { Text("Select All") }
                         TextButton(onClick = {
                             selected = emptySet()
-                            selectedTools = selectedTools - toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.map { dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName) }.toSet()
-                        }) { Text("Built-in only") }
+                            selectedTools = selectedTools - discoveredSearchSelections - unavailableSearchSelections
+                        }) { Text("Built-In Only") }
                     }
                     toolBindingState.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
@@ -930,7 +1004,7 @@ private fun SearchBackendDialog(
                     settingViewModel.updateProfileBehavior(behavior.copy(crawlersEnabled = crawlerEnabled, crawlerToolIds = crawlerIds, maxCrawlPages = crawlPages.toInt()))
                     if (":read_url" in crawlerIds && crawlerEnabled) settingViewModel.toggleReadUrl(true)
                     settingViewModel.selectSearchBackends(selected, selectedTools)
-                }) { Text("Save engines") }
+                }) { Text("Save Engines") }
             },
             dismissButton = { TextButton(onClick = settingViewModel::closeSearchBackendDialog) { Text("Cancel") } }
         )
@@ -1124,6 +1198,10 @@ fun PreferenceListSwitch(
     onCheckedChange: (Boolean) -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val displayTitle = title.split(Regex("\\s+")).joinToString(" ") { word ->
+        word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
+    }
+    val compactDescription = description?.takeIf { it.length <= 72 }
 
     ListItem(
         modifier = modifier
@@ -1137,13 +1215,17 @@ fun PreferenceListSwitch(
                 onValueChange = onCheckedChange
             ),
         headlineContent = {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = displayTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                    modifier = Modifier.weight(1f)
+                )
+                if (description != null && compactDescription == null) SettingsHelpIcon(description)
+            }
         },
-        supportingContent = description?.let {
+        supportingContent = compactDescription?.let {
             {
                 Text(
                     text = it,

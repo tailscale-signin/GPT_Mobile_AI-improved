@@ -190,7 +190,7 @@ fun ChatScreen(
     onBackAction: () -> Unit,
     onNavigateToLocalModels: () -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
-    onInspectContext: (Int, String) -> Unit = { _, _ -> }
+    onInspectContext: ((Int, String) -> Unit)? = null
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val branchNavigation by chatViewModel.branchNavigation.collectAsStateWithLifecycle()
@@ -523,7 +523,9 @@ fun ChatScreen(
                         onPlatformLongPress = chatViewModel::togglePlatformDisabled,
                         onSelectText = chatViewModel::openSelectTextSheet,
                         onRetry = chatViewModel::retryChat,
-                        onInspectContext = { run -> onInspectContext(chatRoom.id, run) },
+                        onInspectContext = onInspectContext?.let { inspect ->
+                            { run -> inspect(chatRoom.id, run) }
+                        },
                         onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
                         onFavoriteLongPress = {
                             Toast.makeText(context, R.string.favorite, Toast.LENGTH_SHORT).show()
@@ -773,7 +775,7 @@ private fun ChatMessagePair(
     onPlatformLongPress: (String) -> Unit,
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
-    onInspectContext: (String) -> Unit = {},
+    onInspectContext: ((String) -> Unit)? = null,
     onFavoriteClick: () -> Unit,
     onFavoriteLongPress: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
@@ -1015,7 +1017,9 @@ private fun ChatMessagePair(
                     onCopyClick = { onCopyText(assistantContent) },
                     onSelectClick = { onSelectText(assistantContent) },
                     onRetryClick = { onRetry(messageIndex, displayPlatformIndex) },
-                    onInspectContext = selectedRunId?.let { id -> { onInspectContext(id) } },
+                    onInspectContext = selectedRunId?.let { id ->
+                        onInspectContext?.let { inspect -> { inspect(id) } }
+                    },
                     onEditClick = { onEditAssistant(messageIndex, displayPlatformIndex) },
                     onFavoriteClick = onFavoriteClick,
                     onFavoriteLongPress = onFavoriteLongPress,

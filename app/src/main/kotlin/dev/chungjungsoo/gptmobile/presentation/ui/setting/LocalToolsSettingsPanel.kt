@@ -2,24 +2,25 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,10 +35,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.R
 
 @Composable
@@ -59,8 +59,10 @@ fun LocalToolsSettingsPanel(
         if (settingsOnly) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(stringResource(R.string.local_tools_settings_panel_label_2), style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.local_tools_settings_panel_label_3), style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Context And Usage Limits", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        SettingsHelpIcon(stringResource(R.string.local_tools_settings_panel_label_3))
+                    }
                     LocalToolToggle("No app context limit", budget.contextTokens == Int.MAX_VALUE, true) { enabled -> viewModel.updateBudget { it.copy(contextTokens = if (enabled) Int.MAX_VALUE else 32768) } }
                     if (budget.contextTokens != Int.MAX_VALUE) DelegationNumber("Context window tokens", budget.contextTokens, 2048..1048576, true) { value -> viewModel.updateBudget { it.copy(contextTokens = value) } }
                     LocalToolToggle("No app output-token limit", budget.outputTokens == 0, true) { enabled -> viewModel.updateBudget { it.copy(outputTokens = if (enabled) 0 else 32768) } }
@@ -73,8 +75,13 @@ fun LocalToolsSettingsPanel(
         if (!settingsOnly) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LocalToolToggle("Local memory capture and recall", vault.enabled, !memoryBusy, memory::setEnabled)
-                    Text(stringResource(R.string.local_tools_settings_panel_label_4), style = MaterialTheme.typography.bodySmall)
+                    LocalToolToggle(
+                        "Local Memory Capture And Recall",
+                        vault.enabled,
+                        !memoryBusy,
+                        stringResource(R.string.local_tools_settings_panel_label_4),
+                        memory::setEnabled
+                    )
                     Text(if (vault.settings.allowCloudRecall) "Recall can be included in cloud AI requests. Change this in Configure memory." else "Recall is restricted to local AI platforms.", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { showMemory = true }) { Text("Configure memory · ${vault.facts.size} facts") }
                     memoryError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -112,9 +119,28 @@ fun LocalToolConfigurationDialog(section: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-internal fun LocalToolToggle(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+internal fun LocalToolToggle(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit
+) = LocalToolToggle(label, checked, enabled, null, onChange)
+
+@Composable
+internal fun LocalToolToggle(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean,
+    description: String?,
+    onChange: (Boolean) -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(label.split(" ").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+        description?.let { SettingsHelpIcon(it) }
         Switch(checked, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = label })
     }
 }
@@ -124,7 +150,7 @@ private fun DelegationNumber(label: String, value: Int, range: IntRange, enabled
     var draft by remember(value) { mutableStateOf(value.toString()) }
     val parsed = draft.toIntOrNull()
     Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(value = draft, onValueChange = { draft = it.take(7) }, label = { Text(label) }, supportingText = { Text("${range.first}–${range.last}") }, isError = parsed == null || parsed !in range, enabled = enabled, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+        OutlinedTextField(value = draft, onValueChange = { draft = it.take(7) }, label = { Text(label.split(" ").joinToString(" ") { word -> word.replaceFirstChar { it.uppercase() } }) }, supportingText = { Text("${range.first}–${range.last}") }, isError = parsed == null || parsed !in range, enabled = enabled, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
         TextButton(enabled = enabled && parsed != null && parsed in range && parsed != value, onClick = { parsed?.let(save) }) { Text(stringResource(R.string.local_tools_settings_panel_label_13)) }
     }
 }

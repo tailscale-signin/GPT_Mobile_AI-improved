@@ -396,6 +396,7 @@ fun OpponentChatBubble(
                     contentIdentity = contentIdentity,
                     isLoading = isLoading,
                     debugMode = debugMode,
+                    debugSettings = debugSettings,
                     showReasoning = showReasoning,
                     isError = isError,
                     expanded = activityExpanded,
@@ -473,7 +474,11 @@ fun OpponentChatBubble(
 
                 // Dynamic Action Buttons strip (if assistant proposed choices or options).
                 // Manual typing takes priority and hides the generated suggestions.
-                if (dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading) {
+                AnimatedVisibility(
+                    visible = isLastMessage && dynamicActions.isNotEmpty() && onActionClick != null && !actionDismissed && !isUserTyping && !isLoading,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(500))
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -496,7 +501,7 @@ fun OpponentChatBubble(
                         AssistChip(
                             onClick = {
                                 actionDismissed = true
-                                onActionClick(
+                                onActionClick?.invoke(
                                     buildString {
                                         append("Please do all of the following: ")
                                         append(dynamicActions.joinToString("; ") { it.actionPrompt })
@@ -550,7 +555,7 @@ fun OpponentChatBubble(
                             AssistChip(
                                 onClick = {
                                     actionDismissed = true
-                                    onActionClick(action.actionPrompt)
+                                    onActionClick?.invoke(action.actionPrompt)
                                 },
                                 label = {
                                     Text(
@@ -582,7 +587,7 @@ fun OpponentChatBubble(
                 }
 
                 // Minimal transparent continuation chip & bottom-right aligned timestamp
-                val isContinueVisible = showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping
+                val isContinueVisible = isLastMessage && showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping && !isLoading
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -969,9 +974,14 @@ internal fun ChatDebugDiagnosticsCard(
     val now = dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveClock(running)
     val hardware = if (settings.debugShowHardware) dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveHardware("Device diagnostics", "See Local Model settings", running) else null
     val contextNotices = notices.filter(::isContextDiagnostic).distinct()
+    val uniqueInvocations = invocations.distinctBy { it.id }
+    val totalInputTokens = uniqueInvocations.sumOf { it.inputTokens.toLong() }
+    val totalOutputTokens = uniqueInvocations.sumOf { it.outputTokens.toLong() }
+    val totalTokens = totalInputTokens + totalOutputTokens
     val report = buildString {
         agentRun?.let { appendLine("Run ${it.runId} · ${it.status} · ${it.providerSnapshot} / ${it.modelSnapshot}") }
-        invocations.forEach { appendLine("${it.id} · ${it.kind} · ${it.status} · ${it.durationMs} ms · input ${it.inputTokens} / output ${it.outputTokens}${if (it.estimated) " (estimate)" else ""}") }
+        uniqueInvocations.forEach { appendLine("${it.id} · ${it.kind} · ${it.status} · ${it.durationMs} ms · input ${it.inputTokens} / output ${it.outputTokens} / total ${it.inputTokens + it.outputTokens}${if (it.estimated) " (estimate)" else ""}") }
+        if (uniqueInvocations.isNotEmpty()) appendLine("All requests · input $totalInputTokens / output $totalOutputTokens / total $totalTokens")
         notices.distinct().forEach { appendLine(it) }
         hardware?.let { appendLine(DiagnosticsTelemetryProvider.formatDiagnosticsText(it, telemetryNotice)) }
     }
@@ -981,13 +991,17 @@ internal fun ChatDebugDiagnosticsCard(
                 Text(if (running) "Live diagnostics" else "Response diagnostics", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
                 TextButton(onClick = { clipboard.setText(AnnotatedString(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(report))) }) { Text("Copy") }
             }
+            val requests = invocations.distinctBy { it.id }
+            if (settings.debugShowTokenComparison && requests.isNotEmpty()) {
+                TokenComparisonPanel(requests)
+            }
             if (invocations.isEmpty()) {
                 agentRun?.let { run ->
-                    dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine("Run status", run.status.lowercase())
-                    if (settings.debugShowTotalTokens) dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine("Reported input / output", "${run.inputTokens ?: "—"} / ${run.outputTokens ?: "—"}")
+                    dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine("Run Status", run.status.lowercase())
+                    if (settings.debugShowTotalTokens) dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine("Reported Input / Output", "${run.inputTokens ?: "—"} / ${run.outputTokens ?: "—"}")
                 }
             } else {
-                invocations.distinctBy { it.id }.forEach { request ->
+                uniqueInvocations.forEach { request ->
                     dev.chungjungsoo.gptmobile.presentation.ui.setting.RequestDiagnostic(request, now, settings)
                 }
             }
@@ -996,6 +1010,34 @@ internal fun ChatDebugDiagnosticsCard(
             if (settings.debugShowRuntime) notices.filterNot(::isContextDiagnostic).distinct().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (settings.debugShowHardware) hardware?.let { dev.chungjungsoo.gptmobile.presentation.ui.setting.HardwareDiagnostic(it, showNetwork = settings.debugShowNetwork) }
             agentRun?.terminalError?.let { Text(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+@Composable
+private fun TokenComparisonPanel(
+    requests: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>
+) {
+    val totalInput = requests.sumOf { it.inputTokens.toLong() }
+    val totalOutput = requests.sumOf { it.outputTokens.toLong() }
+    val totalTokens = totalInput + totalOutput
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("Token Comparison", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
+            "All Requests",
+            "${requests.size} · $totalInput input / $totalOutput output / $totalTokens total"
+        )
+        requests.sortedBy { it.startedAt }.forEach { request ->
+            val requestTotal = request.inputTokens.toLong() + request.outputTokens.toLong()
+            val share = if (totalTokens > 0L) requestTotal * 100.0 / totalTokens else 0.0
+            val source = request.kind
+                .replace('_', ' ')
+                .replaceFirstChar { it.uppercase() }
+            val estimate = if (request.estimated) " · estimated" else ""
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
+                "$source · ${request.model}",
+                "${request.inputTokens} in / ${request.outputTokens} out / $requestTotal total · ${"%.1f".format(share)}%$estimate"
+            )
         }
     }
 }

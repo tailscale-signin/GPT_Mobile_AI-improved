@@ -48,7 +48,7 @@ data class RecalledFactRef(val id: String, val label: String)
 data class FactVaultSettings(
     val learningEnabled: Boolean = true,
     val recallEnabled: Boolean = true,
-    val allowCloudRecall: Boolean = false,
+    val allowCloudRecall: Boolean = true,
     val semanticRecall: Boolean = true,
     val sameChatOnly: Boolean = false,
     val learnPreferences: Boolean = true,

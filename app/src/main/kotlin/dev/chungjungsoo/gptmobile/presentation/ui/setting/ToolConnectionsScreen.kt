@@ -15,14 +15,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -50,6 +49,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -71,24 +71,24 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -98,11 +98,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
@@ -110,6 +109,8 @@ import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import dev.chungjungsoo.gptmobile.util.requiresLocalNetworkAccess
@@ -233,33 +234,28 @@ fun ToolConnectionsScreen(
                 )
             }
 
-            SettingsHero(if (remoteMcpTab) "Connected services" else "Your toolkit", if (remoteMcpTab) "Remote MCP" else "Plugins", "${uiState.connections.size} connections · ${INTEGRATED_PLUGINS.size} built-in plugins", Modifier.padding(16.dp))
+            SettingsHero(if (remoteMcpTab) "Connected Services" else "Your Toolkit", if (remoteMcpTab) "Remote MCP" else "Plugins", "${uiState.connections.size} connections · ${INTEGRATED_PLUGINS.size} built-in plugins", Modifier.padding(16.dp))
             OutlinedTextField(search, { search = it }, label = { Text(if (remoteMcpTab) "Find a connection" else "Find a plugin") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             val matchingConnections = uiState.connections.filter { search.isBlank() || "$it".contains(search, true) }
             val nativeConnections = matchingConnections.filter { it.type != ToolConnectionType.MCP }
             val mcpConnections = matchingConnections.filter { it.type == ToolConnectionType.MCP }
+            val hasMcpConnection = uiState.connections.any { it.type == ToolConnectionType.MCP }
 
             if (!remoteMcpTab) {
-                ToolInventorySummaryCard(
-                    installedCount = INTEGRATED_PLUGINS.size + nativeConnections.size,
-                    remoteMcpCount = mcpConnections.size,
-                    onlineMcpCount = uiState.connectionHealth.values.count {
-                        it.status == ToolConnectionHealthStatus.ONLINE
-                    }
-                )
-
                 Text(
-                    text = "Integrated plugins",
+                    text = "Integrated Plugins",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                 )
-                Text(
-                    text = "Built into the app. Disable any plugin to remove its tools from model sessions.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Built-In Tools", style = MaterialTheme.typography.labelSmall)
+                    SettingsHelpIcon("Built-in plugins are available immediately. Disable a plugin to remove its tools from model sessions.")
+                }
                 INTEGRATED_PLUGINS.filter { search.isBlank() || "${it.name} ${it.description}".contains(search, true) }.forEach { plugin ->
                     val enabled = uiState.pluginStates[plugin.id] ?: true
                     IntegratedPluginCard(
@@ -278,7 +274,7 @@ fun ToolConnectionsScreen(
 
                 if (nativeConnections.isNotEmpty()) {
                     Text(
-                        text = "Configured plugins",
+                        text = "Configured Plugins",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
@@ -291,6 +287,8 @@ fun ToolConnectionsScreen(
                             onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Default.Tune) },
                             onPermissionsClick = { permissionsConnection = connection },
                             onBrowseClick = { browsingConnection = connection },
+                            showBrowseAction = connection.type != ToolConnectionType.GITHUB ||
+                                ((uiState.pluginStates[ToolPluginId.GITHUB] ?: true) && (uiState.pluginStates[pluginId] ?: true)),
                             onOAuthClick = {
                                 val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
                                 if (needsPermission &&
@@ -317,36 +315,29 @@ fun ToolConnectionsScreen(
                     onEnabledChange = viewModel::setRemoteMcpEnabled
                 )
 
-                ListItem(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    headlineContent = {
-                        Text(
-                            text = "Browse MCP Marketplace",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            text = "Discover remote MCP servers and connect their advertised tools.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    },
-                    leadingContent = {
-                        Icon(
-                            imageVector = Icons.Filled.Storefront,
-                            contentDescription = "MCP Marketplace",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingContent = {
-                        TextButton(onClick = onMarketplaceClick) {
-                            Text("Explore")
+                if (!hasMcpConnection) {
+                    ListItem(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        headlineContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Browse MCP Marketplace", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                                SettingsHelpIcon("Discover remote MCP servers and connect their advertised tools.")
+                            }
+                        },
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Filled.Storefront,
+                                contentDescription = "MCP Marketplace",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        trailingContent = {
+                            TextButton(onClick = onMarketplaceClick) { Text("Explore") }
                         }
-                    }
-                )
+                    )
+                }
                 TextButton(onClick = { pairingLink = "" }) {
                     Text(stringResource(R.string.pair_server_title))
                 }
@@ -458,13 +449,13 @@ private data class IntegratedPluginUi(
 private val INTEGRATED_PLUGINS = listOf(
     IntegratedPluginUi(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Hands bounded research and processing tasks to a configured delegate model.", Icons.Default.Psychology),
     IntegratedPluginUi(ToolPluginId.LOCAL_MEMORY, "Local Memory", "Recalls and captures private on-device memory and knowledge-graph context.", Icons.Default.Memory),
-    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & time", "Provides current date context without a remote MCP server.", Icons.Default.Schedule),
+    IntegratedPluginUi(ToolPluginId.CURRENT_DATE, "Date & Time", "Provides current date context without a remote MCP server.", Icons.Default.Schedule),
     IntegratedPluginUi(ToolPluginId.CALCULATOR, "Calculator", "Evaluates arithmetic expressions locally.", Icons.Default.Calculate),
-    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read files", "Reads bounded slices of files made available to the app.", Icons.Default.FolderOpen),
+    IntegratedPluginUi(ToolPluginId.READ_FILES, "Read Files", "Reads bounded slices of files made available to the app.", Icons.Default.FolderOpen),
     IntegratedPluginUi(ToolPluginId.READ_URL, "Read URL", "Retrieves web pages through the app's native network stack.", Icons.Default.Language),
     IntegratedPluginUi(ToolPluginId.GITHUB, "GitHub API", "Uses the app's native GitHub REST integration for repository reads and writes.", Icons.Default.Code),
     IntegratedPluginUi(ToolPluginId.WEB_SEARCH, "Web Search", "Uses integrated web-search providers without requiring an MCP server.", Icons.Default.Search),
-    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device location", "Provides device location only when the app and profile permissions allow it.", Icons.Default.LocationOn)
+    IntegratedPluginUi(ToolPluginId.DEVICE_LOCATION, "Device Location", "Provides device location only when the app and profile permissions allow it.", Icons.Default.LocationOn)
 )
 
 @Composable
@@ -482,13 +473,13 @@ private fun IntegratedPluginCard(
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 IntegratedPluginIcon(plugin)
-                Column(Modifier.weight(1f)) {
-                    Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        plugin.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(plugin.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    SettingsHelpIcon(plugin.description)
                 }
                 Switch(checked = enabled, onCheckedChange = onEnabledChange)
             }
@@ -559,12 +550,9 @@ private fun RemoteMcpMasterCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("Remote MCP servers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "Allow profiles to discover and call tools hosted by configured MCP servers.",
-                    style = MaterialTheme.typography.bodySmall
-                )
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Remote MCP Servers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                SettingsHelpIcon("Allow profiles to discover and call tools hosted by configured MCP servers.")
             }
             Switch(checked = enabled, onCheckedChange = onEnabledChange)
         }
@@ -603,6 +591,7 @@ private fun CollapsibleToolConnectionCard(
     onRuntimeSettings: () -> Unit = {},
     onPermissionsClick: () -> Unit,
     onBrowseClick: () -> Unit,
+    showBrowseAction: Boolean = true,
     onOAuthClick: () -> Unit,
     onDeleteClick: () -> Unit,
     health: ToolConnectionHealth?,
@@ -705,9 +694,9 @@ private fun CollapsibleToolConnectionCard(
 
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    if (connection.type == ToolConnectionType.MCP) TextButton(onClick = onBrowseClick) { Text("Resources and prompts") }
-                    TextButton(onClick = onRuntimeSettings) { Text("Execution settings") }
-                    if (connection.type == ToolConnectionType.GITHUB) TextButton(onClick = onBrowseClick) { Text("Open GitHub workspace") }
+                    if (connection.type == ToolConnectionType.MCP && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Resources And Prompts") }
+                    TextButton(onClick = onRuntimeSettings) { Text("Execution Settings") }
+                    if (connection.type == ToolConnectionType.GITHUB && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Open GitHub Workspace") }
                     if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB)) TextButton(onClick = onPermissionsClick) { Text(stringResource(R.string.tool_policy)) }
                     connection.endpointUrl?.let { url ->
                         if (url.isNotBlank()) {
@@ -767,49 +756,6 @@ private fun CollapsibleToolConnectionCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ToolInventorySummaryCard(
-    installedCount: Int,
-    remoteMcpCount: Int,
-    onlineMcpCount: Int
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Tool workspace", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(
-                "Built-in tools are ready immediately; installed connections extend profiles with remote capabilities.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                InventoryBadge("$installedCount installed", Modifier.weight(1f))
-                InventoryBadge("$remoteMcpCount MCP", Modifier.weight(1f))
-                InventoryBadge("$onlineMcpCount online", Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun InventoryBadge(text: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)
-        )
     }
 }
 

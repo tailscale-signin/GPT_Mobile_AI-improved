@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,6 +74,7 @@ fun SettingScreen(
     onNavigateToAboutPage: () -> Unit,
     onNavigateToFactVault: () -> Unit = {},
     onNavigateToWorkspaces: () -> Unit = {},
+    githubWorkspaceEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsState()
@@ -147,59 +149,61 @@ fun SettingScreen(
                 SettingsDiscoveryPanel(
                     featureSettings,
                     platforms,
-                    destinations = mapOf(
-                        "Models · profiles · reasoning · search engines · crawler" to onNavigateToAiPlatforms,
-                        "Tasks · context · research · recipes · GitHub workspace · spending" to onNavigateToWorkspaces,
-                        "Memory · projects · semantic recall · documents" to onNavigateToFactVault,
-                        "Plugins · remote MCP · GitHub settings" to onNavigateToToolConnections,
-                        "Theme · appearance · colors" to settingViewModel::openThemeDialog,
-                        "Privacy · storage · runtime · advanced" to onNavigateToAdvancedSettings,
-                        "Debug · statistics · benchmarks" to onNavigateToDebugDiagnostics,
-                        "Backup · restore · encryption" to settingViewModel::openBackupRestoreDialog,
-                        "Local models · LiteRT · QNN" to onNavigateToLocalModels
-                    ),
+                    destinations = buildMap {
+                        put("Models · profiles · reasoning · search engines · crawler", onNavigateToAiPlatforms)
+                        put("Memory · semantic recall · documents", onNavigateToFactVault)
+                        put("Plugins · remote MCP · GitHub tools", onNavigateToToolConnections)
+                        if (githubWorkspaceEnabled) put("GitHub workspace · repositories · code · pull requests", onNavigateToWorkspaces)
+                        put("Theme · appearance · colors", settingViewModel::openThemeDialog)
+                        put("Privacy · storage · runtime · advanced", onNavigateToAdvancedSettings)
+                        put("Debug · statistics · benchmarks", onNavigateToDebugDiagnostics)
+                        put("Backup · restore · encryption", settingViewModel::openBackupRestoreDialog)
+                        put("Local models · LiteRT · QNN", onNavigateToLocalModels)
+                    },
                     change = settingViewModel::updateFeature,
                     preset = settingViewModel::applyExperiencePreset,
                     resetOverrides = settingViewModel::resetConversationOverrides
                 )
             }
             item {
-                SettingsCategory(
-                    title = "AI & models"
-                ) {
+                SettingsCategory(title = "AI") {
                     SettingsDestination(
                         icon = Icons.Default.SmartToy,
                         title = "AI Platforms & Profiles",
                         onClick = onNavigateToAiPlatforms
                     )
                     SettingsDestination(
-                        icon = Icons.Default.AccountTree,
-                        title = "Memory",
-                        onClick = onNavigateToFactVault
-                    )
-                    SettingsDestination(icon = Icons.Default.Build, title = "Workspaces", onClick = onNavigateToWorkspaces)
-                    SettingsDestination(
                         icon = Icons.Default.Storage,
                         title = stringResource(R.string.local_models),
                         onClick = onNavigateToLocalModels
+                    )
+                }
+            }
+
+            item {
+                SettingsCategory(title = "Plugins/Tools") {
+                    SettingsDestination(
+                        icon = Icons.Default.Build,
+                        title = "Plugins/Tools",
+                        onClick = onNavigateToToolConnections
                     )
                     SettingsDestination(
                         icon = Icons.Default.Psychology,
                         title = "Model Delegation",
                         onClick = { showDelegation = true }
                     )
-                }
-            }
-
-            item {
-                SettingsCategory(
-                    title = "Tools & connectivity"
-                ) {
                     SettingsDestination(
-                        icon = Icons.Default.Build,
-                        title = stringResource(R.string.tool_connections),
-                        onClick = onNavigateToToolConnections
+                        icon = Icons.Default.AccountTree,
+                        title = "Memory",
+                        onClick = onNavigateToFactVault
                     )
+                    if (githubWorkspaceEnabled) {
+                        SettingsDestination(
+                            icon = Icons.Default.Build,
+                            title = "GitHub Workspace",
+                            onClick = onNavigateToWorkspaces
+                        )
+                    }
                 }
             }
 
@@ -222,11 +226,11 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Diagnostics & data"
+                    title = "Diagnostics & Data"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.BugReport,
-                        title = "Debug and Statistics",
+                        title = "Debug & Statistics",
                         onClick = onNavigateToDebugDiagnostics
                     )
 
@@ -361,16 +365,14 @@ private fun SettingsHeroCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("GPT Mobile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
-                "Configure the parts of the app you actually use. Provider connections, AI behavior and tools are kept separate.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("GPT Mobile", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                SettingsHelpIcon("Configure the parts of the app you actually use. Provider connections, AI behavior, memory, delegation and tools are kept in focused categories.")
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SettingsStat("$activeProfiles/$totalProfiles", "AI profiles", Modifier.weight(1f))
+                SettingsStat("$activeProfiles/$totalProfiles", "AI Profiles", Modifier.weight(1f))
                 SettingsStat(providerCount.toString(), "Providers", Modifier.weight(1f))
-                SettingsStat(runtime, "Local runtime", Modifier.weight(1f))
+                SettingsStat(runtime, "Local Runtime", Modifier.weight(1f))
             }
         }
     }
@@ -395,7 +397,11 @@ private fun SettingsCategory(
     content: @Composable () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            title.split(Regex("\\s+")).joinToString(" ") { word -> word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() } },
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
         Column(Modifier.fillMaxWidth()) { content() }
     }
 }
@@ -413,7 +419,7 @@ private fun SettingsDestination(
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(14.dp))
         Text(
-            title,
+            title.split(Regex("\\s+")).joinToString(" ") { word -> word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() } },
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.primary,

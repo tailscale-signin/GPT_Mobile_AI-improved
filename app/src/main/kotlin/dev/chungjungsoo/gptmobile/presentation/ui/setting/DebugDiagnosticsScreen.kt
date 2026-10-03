@@ -46,6 +46,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.QnnEnvironment
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.DebugMetric
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,7 +72,7 @@ fun DebugDiagnosticsScreen(
     val activeRequests = state.invocations.filter { it.status == "RUNNING" }
     val activeTools = state.recentToolEvents.distinctBy { it.eventId }.filter { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
-        TopAppBar(title = { Text("Debug and Statistics") }, navigationIcon = {
+        TopAppBar(title = { Text("Debug & Statistics") }, navigationIcon = {
             IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
         }, actions = {
             if (workspaceTab == 0 && selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause" else "Resume") }
@@ -93,11 +94,9 @@ fun DebugDiagnosticsScreen(
                         0 -> {
                             item {
                                 DebugPanel(if (frozen == null) "Live session" else "Paused snapshot") {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text("Debug in conversations", fontWeight = FontWeight.SemiBold)
-                                            Text("Open response activity to inspect its diagnostics.", style = MaterialTheme.typography.bodySmall)
-                                        }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Debug In Conversations", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                        SettingsHelpIcon("Open response Details to inspect diagnostics, delegation, reviewer, memory recall, and token comparisons.")
                                         Switch(debugEnabled, settingViewModel::updateDebugMode)
                                     }
                                     MetricLine("Active model requests / tools", "${activeRequests.size} / ${activeTools.size}")
@@ -149,11 +148,9 @@ fun DebugDiagnosticsScreen(
                         3 -> item {
                             SettingsPanel("Conversation diagnostics") {
                                 DebugMetric.entries.forEach { metric ->
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text(metric.title, style = MaterialTheme.typography.titleSmall)
-                                            Text(metric.description, style = MaterialTheme.typography.bodySmall)
-                                        }
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(metric.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                        SettingsHelpIcon(metric.description)
                                         Switch(settings.shows(metric), { settingViewModel.updateDebugMetric(metric, it) })
                                     }
                                 }
@@ -216,4 +213,8 @@ internal fun AppFeatureSettings.shows(metric: DebugMetric): Boolean = when (metr
     DebugMetric.RUNTIME -> debugShowRuntime
     DebugMetric.HARDWARE -> debugShowHardware
     DebugMetric.NETWORK -> debugShowNetwork
+    DebugMetric.DELEGATION_TRACE -> debugShowDelegationTrace
+    DebugMetric.REVIEWER_TRACE -> debugShowReviewerTrace
+    DebugMetric.MEMORY_RECALL -> debugShowMemoryRecall
+    DebugMetric.TOKEN_COMPARISON -> debugShowTokenComparison
 }

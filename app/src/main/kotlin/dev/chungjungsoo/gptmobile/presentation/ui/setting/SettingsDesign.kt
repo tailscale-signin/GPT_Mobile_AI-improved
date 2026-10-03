@@ -16,10 +16,12 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 
 /** Shared visual hierarchy across the settings workspaces. */
 @Composable
@@ -33,8 +35,11 @@ internal fun SettingsHero(eyebrow: String, title: String, detail: String, modifi
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(eyebrow.uppercase(), style = MaterialTheme.typography.labelMedium, color = colors.onPrimaryContainer)
-        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = colors.onPrimaryContainer)
-        if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodyMedium, color = colors.onSecondaryContainer)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = colors.onPrimaryContainer, modifier = Modifier.weight(1f))
+            if (detail.length > 72) SettingsHelpIcon(detail)
+        }
+        if (detail.isNotBlank() && detail.length <= 72) Text(detail, style = MaterialTheme.typography.bodyMedium, color = colors.onSecondaryContainer)
     }
 }
 

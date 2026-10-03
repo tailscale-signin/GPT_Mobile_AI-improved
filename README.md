@@ -13,18 +13,17 @@ The release branch adds a connected memory and workspace experience. See the [im
 | --- | --- | --- |
 | Conversations | Streaming, multiple profiles, reasoning controls, queued questions, delegation, non-destructive edits and branch comparisons | Follow-ups join compatible delegation turns at a request boundary; other messages remain queued. No universal mid-stream provider steering. |
 | Navigation | Bottom anchoring, unread-response focus, scroll-up interruption of following, retry after interrupted/error responses, wide-screen list/detail | Fold, rotation, frame-time and sustained streaming behavior require physical-device validation. |
-| Local memory | Explicit facts, repeated topics, review/pins, corrections, merge/split, provenance, project scopes, encrypted fact authority | Rule extraction is immediate. Optional enrichment waits for an idle loaded local model, uses bounded inference and may be deferred. |
+| Local memory | Explicit facts, repeated topics, review/pins, corrections, merge/split, provenance, conversation scopes, encrypted fact authority | Rule extraction is immediate. Optional enrichment waits for an idle loaded local model, uses bounded inference and may be deferred. |
 | Semantic memory | Bundled local encoder with ObjectBox HNSW; Room provenance/graph; LangChain4j complete-turn context windows | Current bundled encoder is English-oriented. Multilingual topic aliases do not establish multilingual semantic parity. Token counts are estimates. |
-| Documents | Persistent lexical + semantic retrieval, shared project documents, source links, scope checks and deletion tombstones | Broad questions use a bounded, explicitly partial sample. Extraction limits apply; scanned-document OCR is not implemented here. |
-| Projects | Instructions, default model/tool profile, linked conversations, shared documents and personal-memory opt-in | Deleting a project removes its memories and shared copies; conversations survive and return to personal scope. |
-| Workspaces | Tasks, context receipts, research evidence, branches, recipes, measured model guidance, spending, GitHub review and plugin configuration | Receipts reflect assembled client requests; provider-side processing is outside the record. Remote results may be unavailable after server expiry. |
+| Documents | Persistent lexical + semantic retrieval, indexed documents, source links, scope checks and deletion tombstones | Broad questions use a bounded, explicitly partial sample. Extraction limits apply; scanned-document OCR is not implemented here. |
+| GitHub workspace | Repository selection, browsing, editing, branches, commits and pull requests when the GitHub API plugin is enabled | The workspace is hidden when GitHub API is unavailable or disabled. |
 | Plugins and MCP | Plugin-specific settings, validated portable options, resources/prompts, form input, scoped expiring grants and catalog-change revocation | Exported setup excludes credentials, active bindings and permission grants. Required connection details must be entered again. |
 | Modern MCP | Explicit 2026-07-28 transport, legacy SDK transport, negotiated durable tasks | Tasks are an optional draft extension. Only supported form inputs are advertised; no sampling, URL elicitation or task notification subscription. |
 | GitHub | Repository tools and a review workspace with SHA-linked checks, complete-file edits, local proposals and expected-head checked commits | Editor: 20 files, 2,000 lines per loaded file. PR file catalogs are live; check results belong to the inspected SHA. |
 | Budgets | Shared token/currency reservations across concurrent delegates; price provenance and expiry; reported-usage reconciliation | Estimates are not invoice limits. Unknown prices block enforced monetary budgets. Tool fees/cache discounts are not priced automatically. |
 | Recipes | Editable recipes, paused manual review, optional WorkManager scheduling through the existing queue | Scheduling is off by default, deferrable, and disables tools/delegation. Local-only is rechecked at dispatch. Remote schedules need spending and output caps. |
-| Settings | Search, changed-feature filter, effective overrides/reset, presets, theme/profile/plugin layouts and Debug / Statistics / Benchmark tabs | Presets disclose changes before applying. Recommendations describe measured runs, not universal speed guarantees. |
-| Share-in | Android text/URL/file sharing and selected text, project/conversation chooser, draft/summarize/local knowledge actions | No provider request or upload on receipt. Imports are bounded to 10 files, 25 MiB each, 50 MiB total and 16,000 shared text characters. |
+| Settings | Search, effective overrides/reset, presets, streamlined AI and Plugins/Tools categories, theme/profile/plugin layouts and Debug / Statistics / Benchmark tabs | Presets disclose changes before applying. Recommendations describe measured runs, not universal speed guarantees. |
+| Share-in | Android text/URL/file sharing and selected text, conversation chooser, draft/summarize/local knowledge actions | No provider request or upload on receipt. Imports are bounded to 10 files, 25 MiB each, 50 MiB total and 16,000 shared text characters. |
 | Privacy | Temporary conversations, optional device-unlock gate, screenshot/recents protection, deletion controls and storage information | Temporary conversations use local persistence while active, then are purged on leave/startup. This is not forensic secure erasure or an encrypted chat database. |
 | Optional gateway | Paired-device authentication, revocation, device-owned durable jobs and explicit network binding | Defaults to loopback. See [gateway setup](gateway/README.md). The gateway is not needed for on-device memory. |
 
@@ -32,7 +31,7 @@ The release branch adds a connected memory and workspace experience. See the [im
 
 | Capability | Network required? |
 | --- | --- |
-| Fact capture, review, lexical retrieval and existing project documents | No |
+| Fact capture, review, lexical retrieval and existing indexed documents | No |
 | Bundled semantic memory encoder/index | No |
 | LiteRT-LM inference and enrichment | No after a compatible model/package has been downloaded |
 | Cloud model profiles, web search, remote MCP, GitHub and connected memory plugins | Yes, to their configured services |

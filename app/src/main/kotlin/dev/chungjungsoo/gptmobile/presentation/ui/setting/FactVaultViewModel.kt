@@ -83,7 +83,7 @@ class FactVaultViewModel @Inject constructor(
                 maxFacts = 4096,
                 semanticRecall = true,
                 learnRecurringTopics = true,
-                allowCloudRecall = false,
+                allowCloudRecall = true,
                 recallTokens = 1536,
                 alwaysRecallPinned = true
             )

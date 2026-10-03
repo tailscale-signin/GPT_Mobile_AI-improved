@@ -333,6 +333,7 @@ class ChatViewModel @Inject constructor(
     private val _disabledPlatformUids = MutableStateFlow<Set<String>>(emptySet())
     val disabledPlatformUids = _disabledPlatformUids.asStateFlow()
     private var lastAutoTitleUserTurnCount = 0
+    private var autoTitleGenerationInFlight = false
     private val combinedSynthesisTurns = mutableSetOf<Int>()
     private var pendingRunDispatches = 0
     private val platformMembershipMutex = Mutex()
@@ -1951,11 +1952,23 @@ class ChatViewModel @Inject constructor(
         val userTurnCount = grouped.userMessages.size
         if (userTurnCount <= 0) return
 
-        val shouldGenerate = when {
-            lastAutoTitleUserTurnCount == 0 -> userTurnCount >= 1
-            else -> userTurnCount - lastAutoTitleUserTurnCount >= 3
+        // Automatic subjects are a one-shot operation. Existing generated/manual subjects
+        // must not be refreshed when the conversation is reopened.
+        if (lastAutoTitleUserTurnCount != 0 || autoTitleGenerationInFlight || userTurnCount < 1) return
+        val initialUserTitle = grouped.userMessages.firstOrNull()?.content
+            ?.replace('\n', ' ')
+            ?.take(50)
+            ?.trim()
+            .orEmpty()
+        val currentTitle = room.title.trim()
+        if (currentTitle.isNotBlank() &&
+            currentTitle != "Untitled Chat" &&
+            initialUserTitle.isNotBlank() &&
+            currentTitle != initialUserTitle
+        ) {
+            lastAutoTitleUserTurnCount = userTurnCount
+            return
         }
-        if (!shouldGenerate) return
 
         val latestTurnIndex = userTurnCount - 1
         val latestAssistantMessages = grouped.assistantMessages.getOrNull(latestTurnIndex).orEmpty()
@@ -2000,26 +2013,40 @@ class ChatViewModel @Inject constructor(
             .takeIf(String::isNotBlank)
             ?: return
 
-        lastAutoTitleUserTurnCount = userTurnCount
+        autoTitleGenerationInFlight = true
         viewModelScope.launch(Dispatchers.IO) {
-            val activeUids = _activePlatformUids.value.toSet()
-            val platform = _platformsInApp.value.firstOrNull { it.uid in activeUids && it.enabled }
-                ?: _platformsInApp.value.firstOrNull()
-                ?: return@launch
+            try {
+                val activeUids = _activePlatformUids.value.toSet()
+                val platform = _platformsInApp.value.firstOrNull { it.uid in activeUids && it.enabled }
+                    ?: _platformsInApp.value.firstOrNull()
+                    ?: return@launch
 
-            val aiTitle = chatRepository.generateAiTitle(userContext, assistantContext, platform)
-            if (!aiTitle.isNullOrBlank() && !_chatRoom.value.isTitleCustomized) {
-                val cleaned = aiTitle
-                    .replace('\n', ' ')
-                    .trim()
-                    .split(Regex("\\s+"))
-                    .take(8)
-                    .joinToString(" ")
-                    .take(64)
-                if (cleaned.isNotBlank()) {
-                    _chatRoom.update { it.copy(title = cleaned) }
-                    chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = false)
+                val aiTitle = chatRepository.generateAiTitle(userContext, assistantContext, platform)
+                val titleWords = buildList<String> {
+                    fun addWords(value: String) {
+                        value.replace('\n', ' ')
+                            .trim()
+                            .split(Regex("\\s+"))
+                            .map { it.trim(',', '.', ':', ';', '-', '–', '—', '"', '\'', '(', ')', '[', ']') }
+                            .filter { it.isNotBlank() }
+                            .forEach { candidate ->
+                                if (size < 8 && none { it.equals(candidate, ignoreCase = true) }) add(candidate)
+                            }
+                    }
+                    addWords(aiTitle.orEmpty())
+                    if (size < 4) addWords(userContext)
+                    listOf("Conversation", "Request", "Discussion", "Details").forEach { filler ->
+                        if (size < 4 && none { it.equals(filler, ignoreCase = true) }) add(filler)
+                    }
+                }.take(8)
+                val cleaned = titleWords.joinToString(" ").take(64)
+                if (titleWords.size in 4..8 && !_chatRoom.value.isTitleCustomized) {
+                    _chatRoom.update { it.copy(title = cleaned, isTitleCustomized = true) }
+                    chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = true)
+                    lastAutoTitleUserTurnCount = userTurnCount
                 }
+            } finally {
+                autoTitleGenerationInFlight = false
             }
         }
     }

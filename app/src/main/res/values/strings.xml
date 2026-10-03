@@ -267,7 +267,7 @@
     <string name="local_model_failed">Download failed. Tap to retry.</string>
 
     <!-- Tool Connections / MCP -->
-    <string name="tool_connections">Tool Connections</string>
+    <string name="tool_connections">Plugins/Tools</string>
     <string name="web_tools_description">Configure external tool connections</string>
     <string name="add_tool_connection">Add Tool Connection</string>
     <string name="edit_tool_connection">Edit Tool Connection</string>
@@ -694,7 +694,7 @@
     <string name="timeline_thinking">Thinking</string>
     <string name="timeline_progress">Progress</string>
     <string name="tool_approval_title">Allow tool action?</string>
-    <string name="tool_approval_body">%1$s on %2$s may change data. Only approve actions you requested. Manage trusted read tools in Settings → Tool connections.</string>
+    <string name="tool_approval_body">%1$s on %2$s may change data. Only approve actions you requested. Manage trusted read tools in Settings → Plugins/Tools.</string>
     <string name="tool_approval_allow">Allow once</string>
     <string name="tool_approval_deny">Deny</string>
     <string name="tool_policy">Tool permissions</string>

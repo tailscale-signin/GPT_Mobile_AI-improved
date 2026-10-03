@@ -241,14 +241,6 @@ fun ToolConnectionsScreen(
             val mcpConnections = matchingConnections.filter { it.type == ToolConnectionType.MCP }
 
             if (!remoteMcpTab) {
-                ToolInventorySummaryCard(
-                    installedCount = INTEGRATED_PLUGINS.size + nativeConnections.size,
-                    remoteMcpCount = mcpConnections.size,
-                    onlineMcpCount = uiState.connectionHealth.values.count {
-                        it.status == ToolConnectionHealthStatus.ONLINE
-                    }
-                )
-
                 Text(
                     text = "Integrated Plugins",
                     style = MaterialTheme.typography.titleMedium,
@@ -760,49 +752,6 @@ private fun CollapsibleToolConnectionCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ToolInventorySummaryCard(
-    installedCount: Int,
-    remoteMcpCount: Int,
-    onlineMcpCount: Int
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Tool workspace", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(
-                "Built-in tools are ready immediately; installed connections extend profiles with remote capabilities.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                InventoryBadge("$installedCount installed", Modifier.weight(1f))
-                InventoryBadge("$remoteMcpCount MCP", Modifier.weight(1f))
-                InventoryBadge("$onlineMcpCount online", Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun InventoryBadge(text: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)
-        )
     }
 }
 

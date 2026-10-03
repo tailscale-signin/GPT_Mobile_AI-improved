@@ -434,7 +434,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
 @Composable
 private fun VaultToggle(title: String, checked: Boolean, enabled: Boolean, description: String? = null, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(memorySettingTitle(title), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         description?.let { SettingsHelpIcon(it) }
         Switch(checked, onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
     }
@@ -443,6 +443,12 @@ private fun VaultToggle(title: String, checked: Boolean, enabled: Boolean, descr
 @Composable
 private fun VaultLimit(title: String, value: Int, range: IntRange, enabled: Boolean, onChange: (Int) -> Unit) {
     var draft by remember(value) { mutableStateOf(value.toFloat().coerceIn(range.first.toFloat(), range.last.toFloat())) }
-    Text("$title: ${draft.toInt()}", style = MaterialTheme.typography.labelLarge)
+    Text("${memorySettingTitle(title)}: ${draft.toInt()}", style = MaterialTheme.typography.labelLarge)
     Slider(value = draft, onValueChange = { draft = it }, onValueChangeFinished = { onChange(draft.toInt()) }, valueRange = range.first.toFloat()..range.last.toFloat(), enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
 }
+
+
+private fun memorySettingTitle(value: String): String =
+    value.split(Regex("\\s+")).joinToString(" ") { word ->
+        word.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
+    }

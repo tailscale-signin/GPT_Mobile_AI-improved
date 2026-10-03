@@ -286,6 +286,11 @@ fun ToolConnectionsScreen(
                             onRuntimeSettings = { pluginSettings = IntegratedPluginUi(ToolPluginId.connection(connection.connectionUid), connection.name, "", Icons.Default.Tune) },
                             onPermissionsClick = { permissionsConnection = connection },
                             onBrowseClick = { browsingConnection = connection },
+                            showBrowseAction = connection.type != ToolConnectionType.GITHUB ||
+                                (
+                                    (uiState.pluginStates[ToolPluginId.GITHUB] ?: true) &&
+                                        (uiState.pluginStates[pluginId] ?: true)
+                                    ),
                             onOAuthClick = {
                                 val needsPermission = connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
                                 if (needsPermission &&
@@ -588,6 +593,7 @@ private fun CollapsibleToolConnectionCard(
     onRuntimeSettings: () -> Unit = {},
     onPermissionsClick: () -> Unit,
     onBrowseClick: () -> Unit,
+    showBrowseAction: Boolean = true,
     onOAuthClick: () -> Unit,
     onDeleteClick: () -> Unit,
     health: ToolConnectionHealth?,
@@ -690,9 +696,9 @@ private fun CollapsibleToolConnectionCard(
 
             AnimatedVisibility(visible = expanded) {
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    if (connection.type == ToolConnectionType.MCP) TextButton(onClick = onBrowseClick) { Text("Resources and prompts") }
-                    TextButton(onClick = onRuntimeSettings) { Text("Execution settings") }
-                    if (connection.type == ToolConnectionType.GITHUB) TextButton(onClick = onBrowseClick) { Text("Open GitHub workspace") }
+                    if (connection.type == ToolConnectionType.MCP && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Resources And Prompts") }
+                    TextButton(onClick = onRuntimeSettings) { Text("Execution Settings") }
+                    if (connection.type == ToolConnectionType.GITHUB && showBrowseAction) TextButton(onClick = onBrowseClick) { Text("Open GitHub Workspace") }
                     if (connection.type in setOf(ToolConnectionType.MCP, ToolConnectionType.GITHUB)) TextButton(onClick = onPermissionsClick) { Text(stringResource(R.string.tool_policy)) }
                     connection.endpointUrl?.let { url ->
                         if (url.isNotBlank()) {

@@ -239,6 +239,7 @@ fun ToolConnectionsScreen(
             val matchingConnections = uiState.connections.filter { search.isBlank() || "$it".contains(search, true) }
             val nativeConnections = matchingConnections.filter { it.type != ToolConnectionType.MCP }
             val mcpConnections = matchingConnections.filter { it.type == ToolConnectionType.MCP }
+            val hasMcpConnection = uiState.connections.any { it.type == ToolConnectionType.MCP }
 
             if (!remoteMcpTab) {
                 Text(
@@ -314,7 +315,7 @@ fun ToolConnectionsScreen(
                     onEnabledChange = viewModel::setRemoteMcpEnabled
                 )
 
-                if (mcpConnections.isEmpty()) {
+                if (!hasMcpConnection) {
                     ListItem(
                         modifier = Modifier
                             .fillMaxWidth()

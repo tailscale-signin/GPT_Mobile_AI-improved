@@ -883,7 +883,7 @@ private fun ChatListItem(
                     text = chatRoom.title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = if (chatRoom.isTitleCustomized) Color(0xFF67E8F9) else Color.Unspecified,
+                    color = Color.Unspecified,
                     fontWeight = if (hasUnreadResponse) FontWeight.Bold else FontWeight.Normal
                 )
             }

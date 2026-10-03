@@ -71,7 +71,15 @@ fun AdvancedSettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item { PrivacyStoragePanel() }
+            item {
+                AdvancedGroupCard(
+                    title = "Privacy & Storage",
+                    subtitle = "Device unlock, screenshot protection, local storage size, and preview cleanup.",
+                    icon = Icons.Default.Storage
+                ) {
+                    PrivacyStoragePanel(embedded = true)
+                }
+            }
             item {
                 AdvancedGroupCard("Reading & Motion", "", Icons.Default.Tune) {
                     FeatureSwitch(AppFeature.SMOOTH_STREAMING, settings.smoothStreaming, Icons.Default.Tune, viewModel::updateFeature)

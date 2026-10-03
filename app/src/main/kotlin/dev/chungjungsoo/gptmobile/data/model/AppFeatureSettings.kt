@@ -109,10 +109,10 @@ enum class SpeculativeDecodingMode(val label: String, val enabled: Boolean?) {
 }
 
 enum class DebugMetric(val title: String, val description: String) {
-    TOOL_CALLS("Tool calls", "Show tool names, durations, status and failures."),
-    TOTAL_TOKENS("Token totals", "Show prompt, completion and combined token counts."),
-    TOKEN_SPEED("Token speed", "Show live and average tokens generated per second."),
-    TIME_TO_FIRST_TOKEN("Time to first token", "Show latency before the first generated token."),
+    TOOL_CALLS("Tool Calls", "Show tool names, durations, status and failures."),
+    TOTAL_TOKENS("Token Totals", "Show prompt, completion and combined token counts."),
+    TOKEN_SPEED("Token Speed", "Show live and average tokens generated per second."),
+    TIME_TO_FIRST_TOKEN("Time To First Token", "Show latency before the first generated token."),
     RUNTIME("Runtime", "Show active provider, model, local backend and fallback state."),
     HARDWARE("Hardware", "Show memory, thermal and accelerator information."),
     NETWORK("Network", "Show provider latency and connection diagnostics."),

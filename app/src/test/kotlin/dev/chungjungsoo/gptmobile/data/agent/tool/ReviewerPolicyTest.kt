@@ -27,8 +27,8 @@ class ReviewerPolicyTest {
     }
 
     @Test fun `automatic reviewer is reserved before selecting workers`() {
-        val primary = PlatformV2(uid = "primary")
-        val worker = PlatformV2(uid = "worker", model = "worker-model", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8080")
+        val primary = PlatformV2(uid = "primary", name = "Primary")
+        val worker = PlatformV2(uid = "worker", name = "Worker", model = "worker-model", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8080")
         val reviewer = worker.copy(uid = "reviewer", model = "reviewer-model")
         val config = ModelDelegationSettings(enabled = true, reviewerEnabled = true, targetProfileUid = worker.uid)
         val reserved = reservedReviewer(config, listOf(primary, worker, reviewer), primary)
@@ -37,7 +37,7 @@ class ReviewerPolicyTest {
     }
 
     @Test fun `reasoning models receive a visible answer allowance within profile limit`() {
-        val model = PlatformV2(model = "deepseek-r1", maxTokens = 8192)
+        val model = PlatformV2(name = "Reasoning Model", model = "deepseek-r1", maxTokens = 8192)
         assertEquals(2048, delegationOutputBudget(model, 384))
         assertEquals(512, delegationOutputBudget(model.copy(maxTokens = 512), 384))
         assertEquals(384, delegationOutputBudget(model.copy(model = "plain-text"), 384))

@@ -26,7 +26,10 @@ class DelegationGitHubPolicyTest {
             primaryDelegationTools(tools, true, 0)
         )
         assertEquals(tools, primaryDelegationTools(tools, false, 0))
-        assertEquals(tools, primaryDelegationTools(tools, true, 100))
+        assertEquals(
+            listOf(delegate, aggregateWeb, githubNative, githubMcp, calculator),
+            primaryDelegationTools(tools, true, 100)
+        )
     }
 
     @Test

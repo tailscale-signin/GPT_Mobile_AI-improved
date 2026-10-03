@@ -13,6 +13,16 @@ For an intentional dependency update, review the official release, artifact orig
 ./gradlew --dependency-verification strict :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :macrobenchmark:assembleBenchmark :app:assembleBenchmark
 ```
 
+Also validate with a fresh Gradle dependency cache before publishing verification changes. A warm cache can hide missing parent POM or Gradle module metadata checksums that a clean CI runner requests. Use a disposable checkout and keep strict verification enabled:
+
+```bash
+verification_cache=$(mktemp -d)
+GRADLE_USER_HOME="$verification_cache" ./gradlew --no-daemon --dependency-verification strict :app:testDebugUnitTest :app:jacocoTestReport
+GRADLE_USER_HOME="$verification_cache" ./gradlew --no-daemon --dependency-verification strict :app:lintDebug :app:assembleDebug
+```
+
+If verification reports a missing checksum, retrieve that exact coordinate from its configured official repository and review the digest before adding it. Investigate checksum mismatches separately; do not replace existing hashes or disable metadata verification to resolve them. Failed PR/CodeQL jobs retain the dependency-verification report as an artifact.
+
 The repository defaults to one worker, sequential projects and in-process Kotlin/KSP compilation. On a memory-constrained builder, run each variant in a separate invocation with `--no-daemon` so compiler/lint state is released between variants. Do not run separate Gradle invocations concurrently.
 
 Gateway dependencies are specified in `gateway/requirements.in`; `requirements.txt` includes all transitive versions and allowed PyPI artifact SHA-256 hashes. Resolve updates in a clean Python 3.12+ environment, review hashes against the official release, install with hash verification, and run both startup/authentication and contract tests:

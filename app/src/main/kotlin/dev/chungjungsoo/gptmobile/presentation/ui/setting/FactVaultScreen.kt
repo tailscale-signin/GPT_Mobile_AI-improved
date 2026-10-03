@@ -106,7 +106,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                 Text("Memory", style = MaterialTheme.typography.titleLarge)
                                 SettingsHelpIcon("Private saved facts, recurring topics, semantic recall, and indexed documents are managed here.")
                             }
-                            Switch(vault.enabled, viewModel::setEnabled, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Enable local memory" })
+                            Switch(vault.enabled, viewModel::setEnabled, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Enable Local Memory" })
                         }
                         Text("${vault.facts.size} memories · ${documents.size} indexed documents", style = MaterialTheme.typography.labelLarge)
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -192,9 +192,12 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                     TextButton(onClick = { historyVisible = !historyVisible }) { Text(if (historyVisible) "Hide edit history" else "Edit history · ${entry.previousValues.size}") }
                                     if (historyVisible) entry.previousValues.asReversed().forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                                 }
-                                if (entry.sourceChatId > 0) TextButton(onClick = { onOpenConversation(entry.sourceChatId, entry.sourceMessageId.takeIf { it > 0 }) }) { Text("View original message") }
-                                Text("Recall factors: ${if (entry.pinned) "pinned priority; " else ""}query terms and aliases, semantic similarity when available, recency and repeated support. Current request and project scope always apply.", style = MaterialTheme.typography.bodySmall)
-                                if (entry.source == "recurring_topic") TextButton(onClick = { deleting = entry.id }) { Text("Wrong topic · forget") }
+                                if (entry.sourceChatId > 0) TextButton(onClick = { onOpenConversation(entry.sourceChatId, entry.sourceMessageId.takeIf { it > 0 }) }) { Text("View Original Message") }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Recall Details", style = MaterialTheme.typography.labelSmall)
+                                    SettingsHelpIcon("Recall uses ${if (entry.pinned) "pinned priority, " else ""}query terms and aliases, semantic similarity when available, recency, and repeated support. The current request scope always applies.")
+                                }
+                                if (entry.source == "recurring_topic") TextButton(onClick = { deleting = entry.id }) { Text("Wrong Topic · Forget") }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     androidx.compose.material3.Checkbox(entry.id in selectedMemories, { selectedMemories = if (it) selectedMemories + entry.id else selectedMemories - entry.id }, enabled = !busy)
                                     Switch(entry.enabled, { viewModel.setFactEnabled(entry.id, it) }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Recall this memory" })
@@ -300,32 +303,32 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                     }
                                 }
 
-                                VaultToggle("Learn from new messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
-                                VaultToggle("Forget memories when their conversation is deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
-                                VaultToggle("Recall saved memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
-                                VaultToggle("Semantic recall · fully on-device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
+                                VaultToggle("Learn From New Messages", settings.learningEnabled, !busy) { viewModel.updateSettings(settings.copy(learningEnabled = it)) }
+                                VaultToggle("Forget Memories When Their Conversation Is Deleted", settings.forgetWithConversation, !busy) { viewModel.updateSettings(settings.copy(forgetWithConversation = it)) }
+                                VaultToggle("Recall Saved Memories", settings.recallEnabled, !busy) { viewModel.updateSettings(settings.copy(recallEnabled = it)) }
+                                VaultToggle("Semantic Recall · Fully On-Device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
                                 Text("${semanticStatus.indexed} / ${semanticStatus.total} semantic memories · no server required", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text("Rebuild semantic index") }
-                                VaultToggle("Always include pinned memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
-                                VaultToggle("Allow recall in cloud requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
-                                VaultToggle("Recall only within the original chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
-                                VaultToggle("Review new memories before use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
-                                VaultToggle("Learn preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
-                                VaultToggle("Learn relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
-                                VaultToggle("Learn recurring topics", settings.learnRecurringTopics, !busy) { viewModel.updateSettings(settings.copy(learnRecurringTopics = it)) }
-                                VaultToggle("Prioritize recent memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
-                                VaultToggle("Prioritize repeated information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
+                                TextButton(onClick = viewModel::rebuildSemanticIndex, enabled = !busy && vault.enabled && settings.semanticRecall) { Text("Rebuild Semantic Index") }
+                                VaultToggle("Always Include Pinned Memories", settings.alwaysRecallPinned, !busy && settings.recallEnabled) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
+                                VaultToggle("Allow Recall In Cloud Requests", settings.allowCloudRecall, !busy) { viewModel.updateSettings(settings.copy(allowCloudRecall = it)) }
+                                VaultToggle("Recall Only Within The Original Chat", settings.sameChatOnly, !busy) { viewModel.updateSettings(settings.copy(sameChatOnly = it)) }
+                                VaultToggle("Review New Memories Before Use", settings.reviewBeforeRecall, !busy) { viewModel.updateSettings(settings.copy(reviewBeforeRecall = it)) }
+                                VaultToggle("Learn Preferences", settings.learnPreferences, !busy) { viewModel.updateSettings(settings.copy(learnPreferences = it)) }
+                                VaultToggle("Learn Relationships", settings.learnRelationships, !busy) { viewModel.updateSettings(settings.copy(learnRelationships = it)) }
+                                VaultToggle("Learn Recurring Topics", settings.learnRecurringTopics, !busy) { viewModel.updateSettings(settings.copy(learnRecurringTopics = it)) }
+                                VaultToggle("Prioritize Recent Memories", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }
+                                VaultToggle("Prioritize Repeated Information", settings.rankByFrequency, !busy) { viewModel.updateSettings(settings.copy(rankByFrequency = it)) }
                                 VaultLimit("Mentions before learning a topic", settings.topicRepetitions, 2..10, !busy) { viewModel.updateSettings(settings.copy(topicRepetitions = it)) }
                                 VaultToggle("Use Local Model For Richer Learning", settings.localModelLearning, !busy, "Uses an idle on-device model in resumable background work. It selects exact user statements; text capture remains active when no model is loaded.") { viewModel.updateSettings(settings.copy(localModelLearning = it)) }
                                 VaultToggle("Make Room For New Automatic Memories", settings.rotateAutomaticFacts, !busy, "Replaces the oldest automatic memories at capacity. Pinned and manually saved memories are kept.") { viewModel.updateSettings(settings.copy(rotateAutomaticFacts = it)) }
-                                VaultLimit("New facts per message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
-                                VaultLimit("Recall token budget · estimate", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
-                                VaultLimit("Memories per response", settings.maxRecall, 1..40, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
+                                VaultLimit("New Facts Per Message", settings.maxCapturePerMessage, 1..16, !busy) { viewModel.updateSettings(settings.copy(maxCapturePerMessage = it)) }
+                                VaultLimit("Recall Token Budget · Estimate", settings.recallTokens, 128..8192, !busy) { viewModel.updateSettings(settings.copy(recallTokens = it)) }
+                                VaultLimit("Memories Per Response", settings.maxRecall, 1..40, !busy) { viewModel.updateSettings(settings.copy(maxRecall = it)) }
                                 TextButton(onClick = { advancedControls = !advancedControls }) {
-                                    Text(if (advancedControls) "Hide advanced memory controls" else "Show advanced memory controls")
+                                    Text(if (advancedControls) "Hide Advanced Memory Controls" else "Show Advanced Memory Controls")
                                 }
                                 if (advancedControls) {
-                                    VaultLimit("Memory capacity", settings.maxFacts, 16..16384, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
+                                    VaultLimit("Memory Capacity", settings.maxFacts, 16..16384, !busy) { viewModel.updateSettings(settings.copy(maxFacts = it)) }
                                     VaultLimit("Retention days · 0 keeps memories", settings.retentionDays, 0..365, !busy) { viewModel.updateSettings(settings.copy(retentionDays = it)) }
                                 }
                             }
@@ -360,7 +363,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                             Text("Local Memory Tools", style = MaterialTheme.typography.titleMedium)
                             SettingsHelpIcon("Capture and recall, search and open nodes, read the graph, add observations, forget memories, and search indexed documents. These tools run inside the app; cloud recall sends selected reference text only when enabled.")
                         }
-                        TextButton(onClick = { clearing = true }, enabled = !busy) { Text("Clear saved memories") }
+                        TextButton(onClick = { clearing = true }, enabled = !busy) { Text("Clear Saved Memories") }
                     }
                 }
             }

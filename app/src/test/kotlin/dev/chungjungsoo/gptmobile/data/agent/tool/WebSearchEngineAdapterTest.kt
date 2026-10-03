@@ -62,9 +62,10 @@ class WebSearchEngineAdapterTest {
     @Test
     fun `private specialized and unsatisfied required schemas stay outside web search`() {
         val schema = Json.parseToJsonElement("""{"properties":{"query":{"type":"string"}},"required":["query"]}""").jsonObject
-        for (name in listOf("slack_search", "github_search_code", "brave_news_search", "web_search_images", "firecrawl_scrape", "search_arxiv", "cloudflare_radar_search")) {
+        for (name in listOf("slack_search", "github_search_code", "brave_news_search", "firecrawl_scrape", "search_arxiv", "cloudflare_radar_search")) {
             assertNull(name, WebSearchEngineAdapter.forTool(name, AgentToolDefinition(name, "Search", schema)))
         }
+        assertTrue(WebSearchEngineAdapter.forTool("web_search_images", AgentToolDefinition("web_search_images", "Search", schema)) != null)
         val scoped = Json.parseToJsonElement("""{"properties":{"query":{"type":"string"},"workspace_id":{"type":"string"}},"required":["query","workspace_id"]}""").jsonObject
         assertNull(WebSearchEngineAdapter.forTool("web_search", AgentToolDefinition("web_search", "Search the web", scoped)))
         val invalidQuery = Json.parseToJsonElement("""{"properties":{"query":{"type":"boolean"}},"required":["query"]}""").jsonObject

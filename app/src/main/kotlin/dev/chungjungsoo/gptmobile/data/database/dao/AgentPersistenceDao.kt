@@ -185,8 +185,13 @@ interface AgentPersistenceDao {
         val chatRoom = if (request.chatRoom.id == 0) {
             request.chatRoom.copy(id = insertChatRoom(request.chatRoom).toInt())
         } else {
-            updateChatRoom(request.chatRoom)
-            request.chatRoom
+            val current = requireNotNull(getChatRoom(request.chatRoom.id))
+            val submittedDraft = request.queuedPromptId == null &&
+                current.draftText.orEmpty() == request.userMessage.content &&
+                runCatching { kotlinx.serialization.json.Json.decodeFromString<List<dev.chungjungsoo.gptmobile.data.model.ChatAttachment>>(current.draftAttachments) }.getOrNull() == request.userMessage.attachments
+            val merged = request.chatRoom.copy(draftText = if (submittedDraft) null else current.draftText, draftAttachments = if (submittedDraft) "[]" else current.draftAttachments, draftUpdatedAt = if (submittedDraft) null else current.draftUpdatedAt, lastShareToken = current.lastShareToken)
+            updateChatRoom(merged)
+            merged
         }
         val userMessage = request.userMessage.copy(chatId = chatRoom.id).let { message ->
             if (message.id == 0) {
@@ -234,7 +239,8 @@ interface AgentPersistenceDao {
         chatPlatformModels: Map<String, String>
     ) {
         require(chatRoom.id > 0)
-        updateChatRoom(chatRoom)
+        val current = requireNotNull(getChatRoom(chatRoom.id))
+        updateChatRoom(chatRoom.copy(draftText = current.draftText, draftAttachments = current.draftAttachments, draftUpdatedAt = current.draftUpdatedAt, lastShareToken = current.lastShareToken))
 
         val incomingIds = messages.asSequence().map(MessageV2::id).filter { it > 0 }.toSet()
         val removedMessages = getMessages(chatRoom.id).filter { it.id !in incomingIds }
@@ -318,11 +324,15 @@ interface AgentPersistenceDao {
     suspend fun duplicateChatWithHistory(
         sourceChatId: Int,
         title: String,
-        timestamp: Long
+        timestamp: Long,
+        editedUser: MessageV2? = null
     ): ChatRoomV2 {
         val sourceChat = requireNotNull(getChatRoom(sourceChatId))
-        val sourceMessages = getMessages(sourceChatId)
-        val completedRuns = getCompletedRuns(sourceChatId)
+        val allMessages = getMessages(sourceChatId)
+        require(editedUser == null || allMessages.any { it.id == editedUser.id && it.platformType == null }) { "The edited source message is unavailable." }
+        val sourceMessages = if (editedUser == null) allMessages else allMessages.takeWhile { it.id != editedUser.id } + editedUser
+        val sourceIds = sourceMessages.map { it.id }.toSet()
+        val completedRuns = getCompletedRuns(sourceChatId).filter { it.userMessageId in sourceIds && it.assistantMessageId in sourceIds }
         val sourceEvents = if (completedRuns.isEmpty()) {
             emptyList()
         } else {
@@ -333,7 +343,13 @@ interface AgentPersistenceDao {
             id = 0,
             title = title,
             createdAt = timestamp,
-            updatedAt = timestamp
+            updatedAt = timestamp,
+            parentChatId = if (editedUser != null) sourceChatId else sourceChat.parentChatId,
+            branchMessageId = editedUser?.id ?: sourceChat.branchMessageId,
+            draftText = null,
+            draftAttachments = "[]",
+            lastShareToken = null,
+            draftUpdatedAt = null
         ).let { it.copy(id = insertChatRoom(it).toInt()) }
 
         val messageIdMap = sourceMessages.associate { source ->
@@ -386,6 +402,11 @@ interface AgentPersistenceDao {
                 model.copy(chatId = duplicate.id, updatedAt = timestamp)
             }
         )
+        if (editedUser != null) {
+            duplicate.activePlatform.forEach { uid ->
+                insertMessage(MessageV2(chatId = duplicate.id, content = "", linkedMessageId = messageIdMap.getValue(editedUser.id), platformType = uid, createdAt = timestamp))
+            }
+        }
         return duplicate
     }
 

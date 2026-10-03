@@ -56,6 +56,7 @@ interface ChatRepository {
     suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean)
     suspend fun searchChatsV2(query: String): List<ChatRoomV2>
     suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
+    suspend fun saveComposerDraft(chatId: Int, text: String?, attachments: String, timestamp: Long?) = updateDraft(chatId, text, timestamp)
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
     suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String>
     suspend fun saveChatPlatformModels(chatId: Int, models: Map<String, String>)
@@ -77,5 +78,8 @@ interface ChatRepository {
     suspend fun generateAiTitle(userMessage: String, assistantMessage: String, platform: PlatformV2): String?
     suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2
     suspend fun duplicateChatV2(chatRoom: ChatRoomV2): ChatRoomV2
+    suspend fun branchChat(chatRoom: ChatRoomV2, editedUser: MessageV2): ChatRoomV2 = error("Conversation branching is unavailable")
+    suspend fun updateTemporary(chatRoom: ChatRoomV2, enabled: Boolean): ChatRoomV2 = chatRoom
+    suspend fun forgetChatMemories(chatId: Int) = Unit
     suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>)
 }

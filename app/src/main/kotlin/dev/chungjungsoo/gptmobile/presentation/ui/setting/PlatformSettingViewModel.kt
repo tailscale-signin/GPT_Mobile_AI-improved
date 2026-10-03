@@ -75,6 +75,21 @@ class PlatformSettingViewModel @Inject constructor(
 
     val platformUid: String = checkNotNull(savedStateHandle["platformUid"])
 
+    val featureSettings = settingRepository.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
+    private val behaviorMutex = kotlinx.coroutines.sync.Mutex()
+
+    fun updateProfileBehavior(value: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings) {
+        viewModelScope.launch {
+            behaviorMutex.lock()
+            try {
+                val current = settingRepository.getFeatureSettings()
+                settingRepository.updateFeatureSettings(current.copy(profileBehavior = current.profileBehavior + (platformUid to value.normalized())))
+            } finally {
+                behaviorMutex.unlock()
+            }
+        }
+    }
+
     val debugMode = settingRepository.observeDebugMode().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val platformState: StateFlow<PlatformV2?> = settingRepository.observePlatformV2ByUid(platformUid)
@@ -695,18 +710,37 @@ class PlatformSettingViewModel @Inject constructor(
 
     fun openSearchBackendDialog() {
         _toolBindingState.update { it.copy(isSearchBackendDialogOpen = true, errorMessage = null) }
+        viewModelScope.launch {
+            val options = coroutineScope {
+                _toolBindingState.value.mcpConnections.map { connection ->
+                    async {
+                        try {
+                            agentToolResolver.discoverMcpTools(connection).map { tool ->
+                                McpToolOption(connection.connectionUid, connection.name, tool.name, namespaceMcpToolName(connection.name, tool.name), tool.description)
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                }.awaitAll().flatten()
+            }
+            _toolBindingState.update { it.copy(mcpToolOptions = options) }
+        }
     }
 
     fun closeSearchBackendDialog() {
         _toolBindingState.update { it.copy(isSearchBackendDialogOpen = false) }
     }
 
-    fun selectSearchBackends(connectionUids: Set<String>) {
+    fun selectSearchBackends(connectionUids: Set<String>, selectedTools: Set<ToolBindingSelection> = _toolBindingState.value.selectedMcpTools) {
         viewModelScope.launch {
             runCatching {
                 toolConnectionRepository.replaceWebSearchBindings(platformUid, connectionUids)
+                toolConnectionRepository.replaceMcpToolBindings(platformUid, selectedTools.toList())
                 _toolBindingState.update {
-                    it.copy(selectedSearchConnectionUids = connectionUids, isSearchBackendDialogOpen = false, errorMessage = null)
+                    it.copy(selectedSearchConnectionUids = connectionUids, selectedMcpTools = selectedTools, isSearchBackendDialogOpen = false, errorMessage = null)
                 }
             }.onFailure(::showToolError)
         }

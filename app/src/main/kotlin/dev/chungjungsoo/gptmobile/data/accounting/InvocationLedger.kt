@@ -40,7 +40,10 @@ data class ModelInvocation(
     val startedAt: Long = System.currentTimeMillis(),
     val durationMs: Long = 0,
     val firstTokenMs: Long? = null,
-    val profileUid: String? = null
+    val profileUid: String? = null,
+    val costMicros: Long? = null,
+    val currency: String? = null,
+    val priceSource: String? = null
 )
 
 class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
@@ -61,14 +64,25 @@ interface InvocationDao {
     @Query("UPDATE model_invocations SET status = 'INTERRUPTED' WHERE status = 'RUNNING'")
     suspend fun recover()
 
-    @Transaction suspend fun reserve(invocation: ModelInvocation, limit: Int) {
+    @Query("SELECT COALESCE(SUM(costMicros), 0) FROM model_invocations WHERE turnKey = :turnKey AND currency = :currency")
+    suspend fun turnCost(turnKey: String, currency: String): Long
+
+    @Query("SELECT COALESCE(SUM(costMicros), 0) FROM model_invocations WHERE startedAt >= :start AND currency = :currency")
+    suspend fun dailyCost(start: Long, currency: String): Long
+
+    @Transaction suspend fun reserve(invocation: ModelInvocation, limit: Int, spend: SpendBudgetSettings = SpendBudgetSettings()) {
         if (limit != Int.MAX_VALUE && committedTokens(invocation.turnKey) + invocation.inputTokens + invocation.outputTokens > limit) throw TokenAllowanceReached()
+        if (spend.enforced && invocation.costMicros == null) throw SpendAllowanceReached("Add a current model price and a finite output cap before using a monetary budget.")
+        val cost = invocation.costMicros ?: 0
+        val start = java.time.LocalDate.now(java.time.ZoneOffset.UTC).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        if (spend.perTurnMicros > 0 && cost > spend.perTurnMicros - turnCost(invocation.turnKey, spend.currency)) throw SpendAllowanceReached("The per-turn spending allowance is reserved or exhausted.")
+        if (spend.perDayMicros > 0 && cost > spend.perDayMicros - dailyCost(start, spend.currency)) throw SpendAllowanceReached("The UTC daily spending allowance is reserved or exhausted.")
         save(invocation)
     }
 }
 
 @Singleton
-class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
+class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null) {
     val dao = database.invocationDao()
     val recent = dao.recent()
     private val liveRequests = MutableStateFlow<Map<String, ModelInvocation>>(emptyMap())
@@ -96,6 +110,12 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                 exchange.calls.sumOf { ContextBudgetService.estimate(it.arguments.toString()) } +
                     exchange.results.sumOf { ContextBudgetService.estimate(it.content.toString()) }
             }
+            val spend = settings?.getFeatureSettings()?.spendBudget ?: SpendBudgetSettings()
+            spend.validate()
+            val configured = spend.prices[profileUid]?.takeIf { it.model == model && System.currentTimeMillis() - it.checkedAt in 0..30L * 86400000 }
+            val price = if (provider == "LITERT_LM") ModelPrice(model, 0, 0, "On-device inference", System.currentTimeMillis()) else configured
+            val estimatedInput = (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val reservedCost = price?.takeIf { provider == "LITERT_LM" || outputLimit > 0 }?.cost(estimatedInput, outputLimit)
             val record = ModelInvocation(
                 java.util.UUID.randomUUID().toString(),
                 parentRunId,
@@ -105,10 +125,15 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                 kind,
                 (inputEstimate.toLong() + replay).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 outputLimit,
-                profileUid = profileUid
+                profileUid = profileUid,
+                costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" }
             )
             try {
-                dao.reserve(record, totalLimit)
+                dao.reserve(record, totalLimit, spend)
+            } catch (error: SpendAllowanceReached) {
+                emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
+                emit(ProviderEvent.Completed)
+                return@flow
             } catch (_: TokenAllowanceReached) {
                 emit(ProviderEvent.TextDelta("\n\nThe response reached its total token allowance. I have paused further model and tool work. Would you like to continue in a new response?"))
                 emit(ProviderEvent.Completed)
@@ -177,6 +202,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2) {
                                 outputTokens = output ?: ((characters + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                                 estimated = input == null || output == null,
                                 status = status,
+                                costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
                                 durationMs = (System.nanoTime() - started) / 1_000_000,
                                 firstTokenMs = first
                             )

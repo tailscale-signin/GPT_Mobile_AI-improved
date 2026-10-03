@@ -226,6 +226,7 @@ class CompleteBackupManagerTest {
             db.execSQL("DROP TABLE messages_search")
             db.execSQL("DROP TABLE tool_approvals")
             db.execSQL("DROP TABLE model_invocations")
+            removeRoadmapColumns(db)
             db.version = 29
         }
         val sources = manifest.files.mapValues { (path, _) -> File(stage, path) }
@@ -255,6 +256,7 @@ class CompleteBackupManagerTest {
             db.execSQL("CREATE TABLE model_invocations (id TEXT NOT NULL PRIMARY KEY, parentRunId TEXT NOT NULL, turnKey TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, inputTokens INTEGER NOT NULL, outputTokens INTEGER NOT NULL, estimated INTEGER NOT NULL, status TEXT NOT NULL, startedAt INTEGER NOT NULL, durationMs INTEGER NOT NULL, firstTokenMs INTEGER)")
             db.execSQL("INSERT INTO model_invocations VALUES ('primary', 'run', 'turn', 'provider', 'model', 'primary', 10, 20, 0, 'COMPLETED', 1000, 1500, 200)")
             db.execSQL("INSERT INTO model_invocations VALUES ('delegate', 'run', 'turn', 'provider', 'model', 'delegate', 10, 20, 0, 'COMPLETED', 1000, 1500, 200)")
+            removeRoadmapColumns(db)
             db.version = 30
         }
         val sources = manifest.files.mapValues { (path, _) -> File(stage, path) }
@@ -454,5 +456,27 @@ class CompleteBackupManagerTest {
             values.remove(secretRef)
         }
         override suspend fun references() = values.keys.toSet()
+    }
+    private fun removeRoadmapColumns(db: android.database.sqlite.SQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS workspace_records")
+        for ((table, columns) in mapOf("chats_v2" to listOf("is_temporary", "parent_chat_id", "branch_message_id", "draft_attachments", "last_share_token"), "knowledge_projects" to listOf("includePersonalMemory", "defaultProfileUid"))) {
+            val definitions = mutableListOf<String>()
+            val names = mutableListOf<String>()
+            db.rawQuery("PRAGMA table_info(`$table`)", null).use { rows ->
+                while (rows.moveToNext()) {
+                    val name = rows.getString(1)
+                    if (name in columns) continue
+                    names += "`$name`"
+                    definitions += "`$name` ${rows.getString(2)}" +
+                        (if (rows.getInt(3) != 0) " NOT NULL" else "") +
+                        (if (rows.getInt(5) != 0) " PRIMARY KEY" else "") +
+                        (rows.getString(4)?.let { " DEFAULT $it" } ?: "")
+                }
+            }
+            db.execSQL("CREATE TABLE roadmap_old_table (${definitions.joinToString()})")
+            db.execSQL("INSERT INTO roadmap_old_table (${names.joinToString()}) SELECT ${names.joinToString()} FROM `$table`")
+            db.execSQL("DROP TABLE `$table`")
+            db.execSQL("ALTER TABLE roadmap_old_table RENAME TO `$table`")
+        }
     }
 }

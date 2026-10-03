@@ -7,7 +7,13 @@ import androidx.room.PrimaryKey
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 
 @Entity(tableName = "knowledge_projects")
-data class KnowledgeProject(@PrimaryKey val id: String, val name: String, val instructions: String = "")
+data class KnowledgeProject(
+    @PrimaryKey val id: String,
+    val name: String,
+    val instructions: String = "",
+    @androidx.room.ColumnInfo(defaultValue = "0") val includePersonalMemory: Boolean = false,
+    val defaultProfileUid: String? = null
+)
 
 @Entity(
     tableName = "knowledge_project_chats",

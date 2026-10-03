@@ -16,6 +16,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -42,27 +46,37 @@ internal fun ConversationDelegationCard(
                 Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
                     Text("Enable delegation", style = MaterialTheme.typography.titleSmall)
-                    Text("A helper for this conversation", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(
                     checked = settings.enabled,
                     onCheckedChange = { enabled ->
-                        onChange(ConversationDelegationSettings(enabled, settings.targetProfileUid, settings.allowRemoteWorkers))
+                        onChange(ConversationDelegationSettings(enabled, settings.targetProfileUid, settings.allowRemoteWorkers, 100 - settings.processingOwnership, settings.strategy))
                     },
                     modifier = Modifier.testTag("conversation_delegation_toggle")
                 )
             }
             if (settings.enabled) {
-                Text("Your main model answers. Your delegate helps with research and longer tasks.", style = MaterialTheme.typography.bodySmall)
                 DelegateModelDropdown(
                     profiles = profiles,
                     selectedProfileUid = settings.targetProfileUid,
                     enabled = true,
                     automaticLabel = "Settings default",
                     onSelected = { profile ->
-                        onChange(ConversationDelegationSettings(true, profile?.uid.orEmpty(), profile?.isPrivateDestination() == false))
+                        onChange(ConversationDelegationSettings(true, profile?.uid.orEmpty(), profile?.isPrivateDestination() == false, 100 - settings.processingOwnership, settings.strategy))
                     }
                 )
+            }
+            if (settings.enabled) {
+                var amount by remember(settings.processingOwnership) { mutableFloatStateOf((100 - settings.processingOwnership).toFloat()) }
+                var depth by remember(settings.strategy) { mutableFloatStateOf(settings.strategy.toFloat()) }
+                Text("Delegation amount · ${amount.toInt()}%", style = MaterialTheme.typography.labelLarge)
+                androidx.compose.material3.Slider(value = amount, valueRange = 0f..100f, onValueChange = { amount = it }, onValueChangeFinished = {
+                    onChange(ConversationDelegationSettings(true, settings.targetProfileUid, settings.allowRemoteWorkers, amount.toInt(), depth.toInt()))
+                })
+                Text("Research depth · ${depth.toInt()}%", style = MaterialTheme.typography.labelLarge)
+                androidx.compose.material3.Slider(value = depth, valueRange = 0f..100f, onValueChange = { depth = it }, onValueChangeFinished = {
+                    onChange(ConversationDelegationSettings(true, settings.targetProfileUid, settings.allowRemoteWorkers, amount.toInt(), depth.toInt()))
+                })
             }
             if (!usesDefaults) {
                 TextButton(onClick = { onChange(null) }) { Text("Use settings defaults") }

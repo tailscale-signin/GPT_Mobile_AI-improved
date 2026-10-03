@@ -101,6 +101,25 @@ class SettingViewModelV2 @Inject constructor(
         }
     }
 
+    fun resetConversationOverrides(id: Int) {
+        viewModelScope.launch {
+            val current = settingRepository.getFeatureSettings()
+            settingRepository.updateFeatureSettings(current.copy(conversationReasoning = current.conversationReasoning - id, conversationDelegation = current.conversationDelegation - id))
+        }
+    }
+
+    fun applyExperiencePreset(name: String) {
+        viewModelScope.launch {
+            val current = settingRepository.getFeatureSettings()
+            val updated = when (name) {
+                "Quiet" -> current.copy(responseNotifications = false, responseAnimation = false, backgroundGeneration = true)
+                "Battery saver" -> current.copy(backgroundGeneration = false, parallelSearch = false, responseAnimation = false, localIdleMinutes = 1)
+                else -> current.copy(smoothStreaming = true, backgroundGeneration = true, responseNotifications = true, parallelSearch = true, localIdleMinutes = 10)
+            }
+            settingRepository.updateFeatureSettings(updated)
+        }
+    }
+
     fun updateFeature(feature: AppFeature, enabled: Boolean) {
         viewModelScope.launch {
             val updated = featureSettings.value.withFeature(feature, enabled)

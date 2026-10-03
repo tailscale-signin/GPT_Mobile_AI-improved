@@ -83,6 +83,34 @@ fun AdvancedSettingsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            item { PrivacyStoragePanel() }
+            item {
+                SettingsHero("Controls", "Tune your experience", "Conversation, research and runtime preferences")
+            }
+            item {
+                AdvancedGroupCard("Reading & motion", "", Icons.Default.Tune) {
+                    FeatureSwitch(AppFeature.SMOOTH_STREAMING, settings.smoothStreaming, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.CENTER_UNREAD, settings.centerUnread, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.RESPONSE_ANIMATION, settings.responseAnimation, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.EDGE_FADES, settings.edgeFades, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.MESSAGE_TIMESTAMPS, settings.messageTimestamps, Icons.Default.Tune, viewModel::updateFeature)
+                }
+            }
+            item {
+                AdvancedGroupCard("Research & efficiency", "", Icons.Default.Tune) {
+                    FeatureSwitch(AppFeature.QUEUED_FOLLOW_UPS, settings.queuedFollowUps, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.PARALLEL_SEARCH, settings.parallelSearch, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.DEDUPLICATE_SEARCH, settings.deduplicateSearch, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.GITHUB_CONDITIONAL_READS, settings.githubConditionalReads, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.GITHUB_BLOB_CACHE, settings.githubBlobCache, Icons.Default.Tune, viewModel::updateFeature)
+                }
+            }
+            item {
+                AdvancedGroupCard("Local runtime", "", Icons.Default.Tune) {
+                    FeatureSwitch(AppFeature.LOCAL_MODEL_CACHE, settings.localModelCache, Icons.Default.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.LOCAL_NATIVE_METRICS, settings.localNativeMetrics, Icons.Default.Tune, viewModel::updateFeature)
+                }
+            }
             item {
                 AdvancedGroupCard(
                     title = "Background & notifications",

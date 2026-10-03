@@ -51,10 +51,11 @@ class GitHubTool(
     private val httpClient: HttpClient = defaultHttpClient,
     private val modelToolName: String = BuiltInAgentTool.GITHUB,
     private val accountName: String? = null,
-    private val repositoryContext: GitHubRepositoryContext? = null
+    private val repositoryContext: GitHubRepositoryContext? = null,
+    private val featureSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
 ) : AgentTool {
 
-    private val workspaceClient by lazy { GitHubWorkspaceClient(apiToken, httpClient) }
+    private val workspaceClient by lazy { GitHubWorkspaceClient(apiToken, httpClient, responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(), conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache, freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15) }
 
     companion object {
         private const val BASE_URL = "https://api.github.com"

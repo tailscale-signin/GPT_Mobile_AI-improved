@@ -27,6 +27,9 @@ work = "2.12.0"
 appauth = "0.11.1"
 litertlm = "0.17.1"
 qnn = "2.50.0" # Must match the packaged QAIRT runtime and model compatibility audit
+objectbox = "5.4.2"
+langchain4j = "1.21.0"
+mediapipeText = "1.0.0"
 playServicesLocation = "21.4.0"
 mockk = "1.14.11"
 mockito = "5.24.0"
@@ -40,6 +43,8 @@ poi = "5.5.1"
 gson = "2.14.0"
 
 [libraries]
+langchain4j-memory = { group = "dev.langchain4j", name = "langchain4j", version.ref = "langchain4j" }
+mediapipe-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeText" }
 material-views = { group = "com.google.android.material", name = "material", version.ref = "materialViews" }
 maplibre = { group = "org.maplibre.gl", name = "android-sdk-opengl", version.ref = "maplibre" }
 pdfbox = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfbox" }
@@ -103,6 +108,8 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 
 [plugins]
+objectbox = { id = "io.objectbox", version.ref = "objectbox" }
+kotlin-kapt = { id = "com.android.legacy-kapt", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 auto-license = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "autoLicense" }

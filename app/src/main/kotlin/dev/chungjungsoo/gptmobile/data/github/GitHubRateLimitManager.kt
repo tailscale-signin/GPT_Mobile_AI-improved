@@ -39,16 +39,19 @@ class GitHubRateLimitManager {
 
     fun shouldBackOff(nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Boolean {
         val state = latest
-        if ((state.retryAfterSeconds ?: 0L) > 0L) return true
+        if (retryAfterRemaining(state, nowEpochSeconds) > 0L) return true
         return state.remaining == 0L && (state.resetEpochSeconds ?: 0L) > nowEpochSeconds
     }
 
     fun retryDelayMillis(nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Long {
         val state = latest
-        state.retryAfterSeconds?.takeIf { it > 0 }?.let { return it * 1000 }
+        retryAfterRemaining(state, nowEpochSeconds).takeIf { it > 0 }?.let { return it * 1000 }
         return ((state.resetEpochSeconds ?: nowEpochSeconds) - nowEpochSeconds)
             .coerceAtLeast(0L) * 1000
     }
+
+    private fun retryAfterRemaining(state: Snapshot, nowEpochSeconds: Long): Long =
+        ((state.observedAtMillis / 1000 + (state.retryAfterSeconds ?: 0)) - nowEpochSeconds).coerceAtLeast(0)
 
     fun toJson(): JsonObject = buildJsonObject {
         val state = latest

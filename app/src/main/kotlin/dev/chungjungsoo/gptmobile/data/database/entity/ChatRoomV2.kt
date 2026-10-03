@@ -56,6 +56,12 @@ data class ChatRoomV2(
     @ColumnInfo(name = "draft_text")
     val draftText: String? = null,
 
+    @ColumnInfo(name = "draft_attachments", defaultValue = "'[]'")
+    val draftAttachments: String = "[]",
+
+    @ColumnInfo(name = "last_share_token")
+    val lastShareToken: String? = null,
+
     @ColumnInfo(name = "draft_updated_at")
     val draftUpdatedAt: Long? = null,
 
@@ -63,7 +69,16 @@ data class ChatRoomV2(
     val isTitleCustomized: Boolean = false,
 
     @ColumnInfo(name = "conversation_mode", defaultValue = "'STANDARD'")
-    val conversationMode: String = ConversationMode.STANDARD
+    val conversationMode: String = ConversationMode.STANDARD,
+
+    @ColumnInfo(name = "is_temporary", defaultValue = "0")
+    val isTemporary: Boolean = false,
+
+    @ColumnInfo(name = "parent_chat_id")
+    val parentChatId: Int? = null,
+
+    @ColumnInfo(name = "branch_message_id")
+    val branchMessageId: Int? = null
 ) : Parcelable
 
 class StringListConverter {
@@ -73,7 +88,6 @@ class StringListConverter {
     @TypeConverter
     fun fromList(value: List<String>): String = if (value.isEmpty()) "" else value.joinToString(",")
 }
-
 
 object ConversationMode {
     const val STANDARD = "STANDARD"

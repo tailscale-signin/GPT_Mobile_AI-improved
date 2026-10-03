@@ -40,6 +40,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.selectRevision
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import dev.chungjungsoo.gptmobile.data.localmodel.LocalModelStatus
 import dev.chungjungsoo.gptmobile.data.model.AvailableChatTool
+import dev.chungjungsoo.gptmobile.data.model.ChatAttachment
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ConversationDelegationSettings
 import dev.chungjungsoo.gptmobile.data.repository.AttachmentUploadCoordinator
@@ -69,6 +70,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -98,8 +100,10 @@ class ChatViewModel @Inject constructor(
     private val durablePromptQueue: dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val mcpInteractions: dev.chungjungsoo.gptmobile.data.agent.tool.McpInteractions? = null,
-    private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null
+    private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
+    private val shareInbox: dev.chungjungsoo.gptmobile.data.sharing.ShareInbox? = null
 ) : ViewModel() {
+    private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
     private var windowStartId = 0
     val olderHistoryAvailable = MutableStateFlow(false)
@@ -131,6 +135,17 @@ class ChatViewModel @Inject constructor(
     val pendingFreeToolConsent = _pendingFreeToolConsent.asStateFlow()
     fun decideToolApproval(id: String, allow: Boolean) {
         viewModelScope.launch { toolApprovals?.decide(id, allow) }
+    }
+    fun allowToolInConversation(id: String) {
+        viewModelScope.launch {
+            try {
+                toolApprovals?.allowInConversation(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not save the scoped permission. Allow once is still available."
+            }
+        }
     }
     fun alwaysAllowTool(id: String) {
         viewModelScope.launch {
@@ -528,6 +543,7 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         AttachmentPayloadCache.clear()
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, false)
         super.onCleared()
     }
 
@@ -651,6 +667,25 @@ class ChatViewModel @Inject constructor(
     }
 
     private val conversationDelegationMutex = Mutex()
+
+    fun setConversationReasoning(enabled: Boolean) {
+        _chatToolConfig.update { it.copy(reasoning = enabled) }
+        val chatId = _chatRoom.value.id
+        if (chatId > 0) {
+            viewModelScope.launch {
+                try {
+                    conversationDelegationMutex.withLock {
+                        val latest = settingRepository.getFeatureSettings()
+                        settingRepository.updateFeatureSettings(latest.copy(conversationReasoning = latest.conversationReasoning + (chatId to enabled)))
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    _attachmentNotice.value = "Could not save reasoning for this conversation. Please try again."
+                }
+            }
+        }
+    }
 
     fun setConversationDelegation(value: ConversationDelegationSettings?) {
         _chatToolConfig.update { it.copy(delegation = value) }
@@ -845,6 +880,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun retryChat(turnIndex: Int, platformIndex: Int) {
+        if (_loadingStates.value.getOrNull(platformIndex) == LoadingState.Loading) return
         if (enabledPlatformsInChat.getOrNull(platformIndex) in _disabledPlatformUids.value) return
         if (turnIndex !in _groupedMessages.value.assistantMessages.indices) return
         if (platformIndex >= enabledPlatformsInChat.size || platformIndex < 0) return
@@ -991,62 +1027,83 @@ class ChatViewModel @Inject constructor(
         _attachmentNotice.update { "Failed to copy attachment." }
     }
 
-    fun saveUserMessageEdit(
-        editedMessage: MessageV2,
-        attachments: List<ChatAttachmentDraft>
-    ): Boolean {
-        if (attachments.any { it.status != ChatAttachmentDraft.Status.Ready }) {
-            _attachmentNotice.update { "Wait for attachments to finish processing before saving." }
+    private val _branchNavigation = MutableStateFlow<Int?>(null)
+    val branchNavigation = _branchNavigation.asStateFlow()
+    private var branching = false
+    val regenerateBranch = savedStateHandle.get<Boolean>("regenerate") ?: false
+    private var branchResumed = false
+
+    fun consumeBranchNavigation() {
+        _branchNavigation.value = null
+    }
+
+    fun resumeBranchIfReady() {
+        if (!modelsRestored || !regenerateBranch || branchResumed || _chatRoom.value.id <= 0 || _platformsInApp.value.isEmpty() || _groupedMessages.value.userMessages.isEmpty()) return
+        val last = _groupedMessages.value.assistantMessages.lastOrNull() ?: return
+        branchResumed = true
+        if (last.any { it.currentRunId != null || it.content.isNotBlank() }) return
+        enabledPlatformsInChat.forEachIndexed { index, uid -> if (uid in _activePlatformUids.value) retryChat(_groupedMessages.value.userMessages.lastIndex, index) }
+    }
+
+    fun saveUserMessageEdit(editedMessage: MessageV2, attachments: List<ChatAttachmentDraft>): Boolean {
+        if (branching || attachments.any { it.status != ChatAttachmentDraft.Status.Ready }) return false
+        if (isGenerationBusy()) {
+            _attachmentNotice.value = "Stop the active response before branching."
             return false
         }
-
-        val userMessages = _groupedMessages.value.userMessages
-        val assistantMessages = _groupedMessages.value.assistantMessages
-
-        // Find the index of the message being edited
-        val messageIndex = userMessages.indexOfFirst { it.id == editedMessage.id }
-        if (messageIndex == -1) return false
-
-        // Update the message content
-        val updatedUserMessages = userMessages.toMutableList()
-        updatedUserMessages[messageIndex] = editedMessage.copy(
-            attachments = attachments.mapNotNull { it.attachment },
-            createdAt = currentTimeStamp
-        )
-
-        // Remove all messages after the edited question (both user and assistant messages)
-        val remainingUserMessages = updatedUserMessages.take(messageIndex + 1)
-        val remainingAssistantMessages = assistantMessages.take(messageIndex)
-
-        // Update the grouped messages
-        _groupedMessages.update {
-            GroupedMessages(
-                userMessages = remainingUserMessages,
-                assistantMessages = remainingAssistantMessages
-            )
+        branching = true
+        viewModelScope.launch {
+            try {
+                val branch = chatRepository.branchChat(_chatRoom.value, editedMessage.copy(attachments = attachments.mapNotNull { it.attachment }))
+                _branchNavigation.value = branch.id
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "The branch could not be saved. Your original conversation is unchanged."
+            } finally {
+                branching = false
+            }
         }
-
-        // Add empty assistant message slots for the edited question
-        _groupedMessages.update {
-            it.copy(
-                assistantMessages = it.assistantMessages + listOf(
-                    enabledPlatformsInChat.map { p -> MessageV2(chatId = chatRoomId, content = "", platformType = p) }
-                )
-            )
-        }
-
-        // Update index states to match the new message count - trim the end part
-        val removedMessagesCount = userMessages.size - remainingUserMessages.size
-        _indexStates.update {
-            val currentStates = it.toMutableList()
-            repeat(removedMessagesCount) { currentStates.removeLastOrNull() }
-            currentStates
-        }
-
-        // Start new conversation from the edited question
-        cancelActiveRuns()
-        completeChat(persistSnapshotFirst = true)
         return true
+    }
+
+    fun setTemporary(enabled: Boolean) {
+        if (isGenerationBusy()) {
+            _attachmentNotice.value = "Stop generation before changing privacy."
+            return
+        }
+        viewModelScope.launch {
+            _chatRoom.value = chatRepository.updateTemporary(_chatRoom.value, enabled)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, enabled)
+        }
+    }
+
+    fun forgetConversationMemories() {
+        viewModelScope.launch {
+            chatRepository.forgetChatMemories(_chatRoom.value.id)
+            _attachmentNotice.value = "Memories learned from this conversation were removed."
+        }
+    }
+
+    fun leaveConversation(done: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                if (_chatRoom.value.isTemporary) {
+                    agentRunCoordinator.cancelChatAndJoin(_chatRoom.value.id)
+                    chatRepository.deleteChatsV2(listOf(_chatRoom.value))
+                } else if (_chatRoom.value.id > 0 && composerRestored) {
+                    draftMutex.withLock {
+                        val encoded = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), _selectedAttachments.value.mapNotNull { it.attachment })
+                        chatRepository.saveComposerDraft(_chatRoom.value.id, question.text.toString(), encoded, System.currentTimeMillis() / 1000)
+                    }
+                }
+                done()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Conversation cleanup or draft saving failed. Try closing again."
+            }
+        }
     }
 
     fun saveAssistantMessageEdit(
@@ -1236,6 +1293,7 @@ class ChatViewModel @Inject constructor(
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
                         val wasNewConversation = _chatRoom.value.id <= 0
                         _chatRoom.update { persisted.chatRoom }
+                        if (wasNewConversation) _chatToolConfig.value.reasoning?.let(::setConversationReasoning)
                         if (wasNewConversation && _chatToolConfig.value.delegation != null) {
                             setConversationDelegation(_chatToolConfig.value.delegation)
                         }
@@ -1532,6 +1590,31 @@ class ChatViewModel @Inject constructor(
         return groupPersistedMessages(messages, enabledPlatformsInChat, chatId)
     }
 
+    private var composerRestored = false
+    private var modelsRestored = false
+    private val draftMutex = Mutex()
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun observeComposerDraft() {
+        viewModelScope.launch {
+            combine(
+                androidx.compose.runtime.snapshotFlow { question.text.toString() },
+                _selectedAttachments
+            ) { text, attachments -> text to attachments }
+                .debounce(250)
+                .collect { (text, attachments) ->
+                    val id = _chatRoom.value.id
+                    if (composerRestored && id > 0 && attachments.none { it.status == ChatAttachmentDraft.Status.Preparing }) {
+                        val encoded = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), attachments.mapNotNull { it.attachment })
+                        draftMutex.withLock {
+                            chatRepository.saveComposerDraft(id, text.takeIf(String::isNotEmpty), encoded, System.currentTimeMillis() / 1000)
+                            _chatRoom.update { it.copy(draftText = text, draftAttachments = encoded) }
+                        }
+                    }
+                }
+        }
+    }
+
     private fun fetchChatRoom() {
         viewModelScope.launch {
             val room = if (chatRoomId == 0) {
@@ -1543,12 +1626,21 @@ class ChatViewModel @Inject constructor(
                     conversationMode = requestedConversationMode
                 )
             } else {
-                chatRepository.fetchChatListV2().first { it.id == chatRoomId }
+                (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).first { it.id == chatRoomId }
             }
             val features = settingRepository.getFeatureSettings()
-            _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id]) }
+            _chatToolConfig.update { it.copy(delegation = features.conversationDelegation[room.id], reasoning = features.conversationReasoning[room.id]) }
             _chatRoom.value = room
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.setPrivateSession(diagnosticPrivacyOwner, room.isTemporary)
             applyChatPlatformState(room)
+            if (!composerRestored) {
+                if (question.text.isEmpty()) question.edit { append(room.draftText.orEmpty()) }
+                val restored = runCatching { kotlinx.serialization.json.Json.decodeFromString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), room.draftAttachments) }.getOrDefault(emptyList())
+                _selectedAttachments.value = restored.map(ChatAttachmentDraft::fromAttachment)
+                composerRestored = true
+                observeComposerDraft()
+            }
+            if (_platformsInApp.value.isNotEmpty()) initializeChatPlatformModels(_platformsInApp.value)
         }
     }
 
@@ -1619,6 +1711,8 @@ class ChatViewModel @Inject constructor(
         }
 
         _chatPlatformModels.update { mergedModels }
+        modelsRestored = _chatRoom.value.id > 0
+        resumeBranchIfReady()
 
         if (chatRoomId != 0 && mergedModels != persistedModels) {
             chatRepository.saveChatPlatformModels(chatRoomId, mergedModels)
@@ -1991,7 +2085,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun resolvePlatformModel(platform: PlatformV2): PlatformV2 = resolvePlatformModel(platform, _chatPlatformModels.value)
+    private fun resolvePlatformModel(platform: PlatformV2): PlatformV2 = resolvePlatformModel(platform, _chatPlatformModels.value).let { it.copy(reasoning = _chatToolConfig.value.reasoning ?: it.reasoning) }
 
     private fun persistCurrentChatSnapshot() {
         viewModelScope.launch {

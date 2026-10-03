@@ -22,7 +22,7 @@ object Route {
     const val OLLAMA_API_ADDRESS = "ollama_api_address"
 
     const val CHAT_LIST = "chat_list"
-    const val CHAT_ROOM = "chat_room/{chatRoomId}?enabled={enabledPlatforms}&mode={conversationMode}&targetMessageId={targetMessageId}"
+    const val CHAT_ROOM = "chat_room/{chatRoomId}?enabled={enabledPlatforms}&mode={conversationMode}&targetMessageId={targetMessageId}&regenerate={regenerate}&incomingShare={incomingShare}"
 
     const val SETTING_ROUTE = "setting_route"
     const val SETTINGS = "settings"
@@ -31,6 +31,7 @@ object Route {
     const val LOCAL_MODELS = "local_models"
     const val OPENROUTER_SETTINGS = "openrouter_settings"
     const val BACKUP_RESTORE = "backup_restore"
+    const val WORKSPACES = "workspaces?chatId={chatId}&tab={tab}&runId={runId}"
     const val FACT_VAULT = "fact_vault"
     const val ADVANCED_SETTINGS = "advanced_settings"
     const val USAGE_STATISTICS = "usage_statistics"

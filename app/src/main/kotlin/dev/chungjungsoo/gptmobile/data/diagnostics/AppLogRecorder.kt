@@ -40,6 +40,21 @@ object AppLogRecorder {
     @Volatile private var process: java.lang.Process? = null
     private val fileLock = Any()
     private val recent = ArrayDeque<AppLogEntry>()
+    private val privateSessions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    @Synchronized fun setPrivateSession(owner: String, active: Boolean) {
+        if (active) {
+            privateSessions.add(owner)
+            process?.destroy()
+            process = null
+            reader?.cancel()
+            reader = null
+            synchronized(fileLock) { while (queue.tryReceive().isSuccess) Unit }
+            if (mutableEnabled.value) mutableError.value = "Logging is paused for a temporary conversation. Toggle tracking after leaving it to restart Android log capture."
+        } else {
+            privateSessions.remove(owner)
+        }
+    }
 
     @Synchronized fun initialize(application: Application) {
         if (app != null) return
@@ -47,7 +62,7 @@ object AppLogRecorder {
         scope.launch {
             for (entry in queue) {
                 synchronized(fileLock) {
-                    if (!mutableEnabled.value) return@synchronized
+                    if (!mutableEnabled.value || privateSessions.isNotEmpty()) return@synchronized
                     recent.addLast(entry)
                     while (recent.size > 500) recent.removeFirst()
                     mutableEntries.value = recent.toList()
@@ -79,12 +94,12 @@ object AppLogRecorder {
             reader = null
             return
         }
-        if (reader?.isActive == true || app == null) return
+        if (reader?.isActive == true || app == null || privateSessions.isNotEmpty()) return
         mutableError.value = null
         reader = scope.launch {
             var running: java.lang.Process? = null
             try {
-                running = ProcessBuilder("logcat", "--pid=${Process.myPid()}", "-v", "brief", "-T", "1").redirectErrorStream(true).start()
+                running = ProcessBuilder("logcat", "--pid=${Process.myPid()}", "-v", "brief", "-T", java.time.LocalDateTime.now().plusNanos(1_000_000).format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS"))).redirectErrorStream(true).start()
                 process = running
                 if (!mutableEnabled.value) {
                     running.destroy()
@@ -112,7 +127,7 @@ object AppLogRecorder {
     }
 
     fun record(tag: String, message: String, level: String = "I") {
-        if (!mutableEnabled.value) return
+        if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
         queue.trySend(AppLogEntry(System.currentTimeMillis(), level, tag.take(64), redactLogMessage(message).take(8000)))
     }
 

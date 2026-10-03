@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.BatteryManager
 import com.example.gptmobileai.debug.ToolMetricsCollector
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
@@ -35,7 +36,9 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.isResearchPageReader
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.agent.tool.preferNativeGitHubForTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
+import dev.chungjungsoo.gptmobile.data.agent.tool.selectionId
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
+import dev.chungjungsoo.gptmobile.data.agent.withRunContext
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ProviderContextPolicy
@@ -65,6 +68,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
+import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
@@ -189,7 +193,11 @@ class ChatRepositoryImpl(
     private val knowledge: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
-    private val delegationRecovery: DelegationRecoveryInteractions? = null
+    private val delegationRecovery: DelegationRecoveryInteractions? = null,
+    private val pendingPromptDao: dev.chungjungsoo.gptmobile.data.queue.PendingPromptDao? = null,
+    private val memoryEnrichment: dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue? = null,
+    private val conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion? = null,
+    private val workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null
 ) : ChatRepository {
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
@@ -608,11 +616,11 @@ class ChatRepositoryImpl(
         return agentToolResolver.resolve(target.uid, chatToolConfig, userMessage = null, delegate = null)
             .sortedWith(compareBy<ResolvedAgentTool> { !(isGitHubTask(task) && it.isGitHubTool()) }.thenBy { delegatedToolPriority(it) }.thenBy { it.modelToolName })
             .map { resolved ->
-                budget.bind(resolved.tool, onFinished = { callId, success ->
+                budget.bind(resolved.tool.withRunContext(parentRunId), onFinished = { callId, success ->
                     toolApprovals?.finish(parentRunId, "$invocation:$callId", success)
                 }) { callId, arguments ->
                     resolved.connectionUid?.let { uid ->
-                        toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments) ?: true
+                        toolApprovals?.authorize(uid, parentRunId, "$invocation:$callId", resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
                     } ?: true
                 }
             }
@@ -1038,8 +1046,9 @@ class ChatRepositoryImpl(
                     emit(ApiState.Notice("Memory is unavailable for this response.", persistent = true))
                 }
             }
+            val exclusions = workspace?.exclusions(userMessages.lastOrNull()?.chatId ?: 0) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
             val contextTurns = withContext(Dispatchers.Default) {
-                buildContextTurns(userMessages, assistantMessages, platform).also { turns ->
+                buildContextTurns(userMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
@@ -1057,7 +1066,9 @@ class ChatRepositoryImpl(
                 runOverride = effectiveMaxTools,
                 maxRoundsOverride = effectiveMaxTools
             )
-            val budgetSettings = settingRepository.getFeatureSettings().tokenBudget.normalized()
+            val runFeatures = settingRepository.getFeatureSettings()
+            val behavior = runFeatures.profileBehavior[platform.uid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+            val budgetSettings = runFeatures.tokenBudget.normalized()
             val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE))
             val limits = if (platform.compatibleType == ClientType.FREE && FreeAiProvider.requireFor(platform) == FreeAiProvider.POLLINATIONS) {
                 // The legacy GET endpoint accepts a small prompt in its URL.
@@ -1067,7 +1078,7 @@ class ChatRepositoryImpl(
             }
             val turnKey = userMessages.lastOrNull()?.takeIf { it.id > 0 }?.let { "${it.chatId}:${it.id}" } ?: runId
             suspend fun effectiveDelegationSettings(): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings {
-                val defaults = settingRepository.getFeatureSettings().delegation
+                val defaults = settingRepository.getFeatureSettings().delegationFor(platform.uid)
                 return chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
             }
             val localDelegation = LocalDelegationCoordinator(
@@ -1099,6 +1110,8 @@ class ChatRepositoryImpl(
                 ClientType.LITERT_LM -> localModelSupportsTools(platform)
                 else -> true
             }
+            val memoryBoundary = userMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
+            val privateConversation = memoryBoundary?.isTemporary == true
             val resolvedTools = if (platform.disableAllTools || !supportsTools) {
                 emptyList()
             } else {
@@ -1106,7 +1119,14 @@ class ChatRepositoryImpl(
                     settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
                 }.getOrDefault(true)
                 val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
-                agentToolResolver.resolve(platform.uid, chatToolConfig, userMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).map { resolved ->
+                agentToolResolver.resolve(platform.uid, chatToolConfig, userMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
+                    privateConversation &&
+                        (
+                            resolved.connectionUid in factVault?.state?.value?.settings?.externalMemoryConnections.orEmpty() ||
+                                resolved.realToolName in setOf("memory", "create_entities", "create_relations", "add_observations", "search_nodes", "read_graph", "open_nodes") ||
+                                Regex("(?i)memory|memories|remember").containsMatchIn(resolved.realToolName + " " + resolved.tool.definition.description)
+                            )
+                }.map { resolved ->
                     resolved.copy(
                         tool = MeasuredAgentTool(
                             sharedToolCallBroker.wrap(
@@ -1160,14 +1180,14 @@ class ChatRepositoryImpl(
                     ) ?: FactRecall()
                     if (factVault?.state?.value?.settings?.localModelLearning == true) {
                         try {
-                            factVault.enrichTurn(latestUser, localDelegation::memoryObservations)
+                            if (!factVault.scopeForChat(latestUser.chatId).isTemporary) memoryEnrichment?.enqueue(latestUser)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
                             emit(ApiState.Notice("Local model memory extraction was unavailable; automatic text capture remains active.", persistent = false))
                         }
                     }
-                    recall
+                    recall.copy(facts = recall.facts.filterNot { it.id in exclusions.facts })
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
@@ -1189,6 +1209,8 @@ class ChatRepositoryImpl(
             var exposedTools = orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools))
                 .let { primaryDelegationTools(it, localResearch, processingOwnership) }
                 .sortedBy { it.realToolName != "delegate_to_model" }
+            val projectInstructions = latestUser?.let { knowledge?.scopeForChat(it.chatId) }
+                ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
             fun baseSystemPrompt(): String {
                 val progressInstruction = if (resolvedTools.isNotEmpty()) {
                     "\nBefore the first tool call and after every 10 completed tool calls, " +
@@ -1210,16 +1232,17 @@ class ChatRepositoryImpl(
                     platform.systemPrompt,
                     exposedTools.map { it.modelToolName },
                     compact = localResearch || limits.contextTokens < 4096
-                ) + progressInstruction + delegationInstruction
+                ) + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction
             }
             val memorySettings = factVault?.state?.value
-            val canRecallDocuments = memorySettings?.enabled == true &&
+            val canRecallDocuments = !privateConversation &&
+                memorySettings?.enabled == true &&
                 memorySettings.settings.recallEnabled &&
                 (platform.isPrivateDestination() || memorySettings.settings.allowCloudRecall) &&
                 !platform.disableAllTools &&
                 !platform.disableLocalTools
             val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
-            val documentContext = if (platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
+            val documentContext = if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) "" else latestUser?.let { knowledge?.context(it.chatId, it.content) }.orEmpty()
             var requestPlatform = platform.copy(
                 systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt()
             )
@@ -1254,21 +1277,74 @@ class ChatRepositoryImpl(
                 )
             )
             val boundedTools = taskRoutedTools.filter { resolved ->
-                resolved in connectedMemoryTools ||
+                (behavior.crawlersEnabled && resolved.selectionId() in behavior.crawlerToolIds) ||
+                    resolved in connectedMemoryTools ||
                     (localResearch && (processingOwnership < 35 || resolved.isWebSearchEngine() || resolved.isResearchPageReader())) ||
                     contextPlan.tools.any { it.name == resolved.modelToolName || (it.name == "web_search" && resolved.isWebSearchEngine()) }
             }.map { resolved ->
                 resolved.copy(
-                    tool = toolBudget.bind(resolved.tool, onFinished = { callId, success ->
+                    tool = toolBudget.bind(resolved.tool.withRunContext(runId), onFinished = { callId, success ->
                         toolApprovals?.finish(runId, callId, success)
                     }) { callId, arguments ->
                         resolved.connectionUid?.let { uid ->
-                            toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments) ?: true
+                            toolApprovals?.authorize(uid, runId, callId, resolved.realToolName, arguments, resolved.tool.definition.inputSchema) ?: true
                         } ?: true
                     }
                 )
             }
-            val aggregatedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(boundedTools)
+            val crawlSettings = effectiveDelegationSettings()
+            val selectedCrawlers = boundedTools.filter { it.selectionId() in behavior.crawlerToolIds }
+            val crawlStage = if (behavior.crawlersEnabled) {
+                dev.chungjungsoo.gptmobile.data.agent.tool.SearchCrawlStage(
+                    selectedCrawlers,
+                    behavior.maxCrawlPages,
+                    crawlSettings.enabled && crawlSettings.reviewerEnabled
+                ) { tools, task ->
+                    val profiles = settingRepository.fetchPlatformV2s()
+                    val delegateModel = profiles.firstOrNull { it.uid == crawlSettings.targetProfileUid }?.model
+                    val reviewer = profiles.firstOrNull {
+                        it.uid == crawlSettings.reviewerProfileUid &&
+                            it.enabled &&
+                            it.uid != platform.uid &&
+                            it.uid != crawlSettings.targetProfileUid &&
+                            !it.disableAllTools &&
+                            !it.excludesMemory() &&
+                            !it.model.trim().equals(delegateModel?.trim(), true) &&
+                            !(platform.compatibleType == ClientType.LITERT_LM && it.compatibleType == ClientType.LITERT_LM) &&
+                            (it.isPrivateDestination() || crawlSettings.remoteWorkersAllowed())
+                    }
+                    if (reviewer == null) {
+                        null
+                    } else {
+                        delegateToProfile(
+                            reviewer, task, crawlSettings.reviewerOutputTokens, runId, turnKey,
+                            maxInputTokens = crawlSettings.effectiveLocalInputTokens(),
+                            chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(),
+                            traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = tools
+                        )
+                    }
+                }
+            } else {
+                null
+            }
+            val searchStageTools = if (crawlStage != null) {
+                boundedTools.filterNot {
+                    it in selectedCrawlers ||
+                        (
+                            crawlSettings.enabled &&
+                                crawlSettings.reviewerEnabled &&
+                                dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.realToolName, it.tool.definition.description)
+                            )
+                }
+            } else {
+                boundedTools
+            }
+            val aggregatedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(
+                searchStageTools,
+                runFeatures.parallelSearch,
+                runFeatures.deduplicateSearch,
+                afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } }
+            )
             delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }
             // The model calls the aggregate name, while local workers can call individual
             // engines. Preserve both snapshots, preferring aggregate metadata on a name collision.
@@ -1381,23 +1457,58 @@ class ChatRepositoryImpl(
                     "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=${effectiveOutputCap ?: -1} · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
                 )
             }
-            val session = when (platform.compatibleType) {
-                ClientType.OPENAI -> openAIResponsesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+            suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>): AgentProviderSession {
+                workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan, turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
+                return when (platform.compatibleType) {
+                    ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, requestConstraints)
 
-                ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                    openAICompatibleAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+                    ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
+                        openAICompatibleAdapter.openSession(turns, requestPlatform, requestConstraints)
 
-                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+                    ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, requestPlatform, requestConstraints)
 
-                ClientType.GOOGLE -> geminiAdapter.openSession(contextPlan.turns, requestPlatform, requestConstraints)
+                    ClientType.GOOGLE -> geminiAdapter.openSession(turns, requestPlatform, requestConstraints)
 
-                ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                    contextPlan.turns,
-                    requestPlatform,
-                    effectiveTools.map { it.tool },
-                    requestConstraints,
-                    fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
-                )
+                    ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
+                        turns,
+                        requestPlatform,
+                        effectiveTools.map { it.tool },
+                        requestConstraints,
+                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
+                    )
+                }
+            }
+            val session = object : AgentProviderSession {
+                private var active: AgentProviderSession? = null
+                private var currentTurns = contextPlan.turns
+                private var acceptedCharacters = 0
+                private var acceptedTokens = 0
+                override val handlesToolsInternally: Boolean get() = platform.compatibleType == ClientType.LITERT_LM
+                override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> = flow {
+                    val features = settingRepository.getFeatureSettings()
+                    val canFollowUp = features.queuedFollowUps &&
+                        pendingPromptDao != null &&
+                        effectiveDelegationSettings().enabled &&
+                        platform.compatibleType !in setOf(ClientType.LITERT_LM, ClientType.FREE) &&
+                        latestUser != null
+                    if (canFollowUp && latestUser != null && platform.uid !in context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE).getStringSet("paused_${latestUser.chatId}", emptySet()).orEmpty()) {
+                        val allowance = if (limits.contextTokens == Int.MAX_VALUE) {
+                            8000 - acceptedCharacters
+                        } else {
+                            minOf(8000 - acceptedCharacters, (limits.contextTokens.toLong() - contextPlan.promptTokens - acceptedTokens - dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(exchanges.joinToString()) - (effectiveOutputCap ?: 2048) - 2048).coerceIn(0, 8000).toInt() / 2)
+                        }
+                        val suffix = pendingPromptDao?.consumeFollowUp(latestUser.chatId, latestUser.id, runId, platform.uid, platform.model, (allowance - 32).coerceAtLeast(0), chatToolConfig ?: ChatMcpToolConfig())
+                        if (suffix != null) {
+                            currentTurns = currentTurns.map { turn -> if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = turn.userMessage.content + suffix)) else turn }
+                            acceptedCharacters += suffix.length
+                            acceptedTokens += dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(suffix)
+                            active = null
+                            emit(ProviderEvent.Notice("Queued message added as a follow-up to this response.", persistent = false))
+                        }
+                    }
+                    val current = active ?: openPrimarySession(currentTurns).also { active = it }
+                    current.streamRound(tools, exchanges).collect { emit(it) }
+                }
             }
             val accountedSession = invocationLedger?.wrap(
                 session, runId, turnKey, platform.compatibleType.name, platform.model,
@@ -1743,6 +1854,8 @@ class ChatRepositoryImpl(
         chatRoomV2Dao.updateFavorite(chatId, isFavorite)
     }
 
+    override suspend fun saveComposerDraft(chatId: Int, text: String?, attachments: String, timestamp: Long?) = chatRoomV2Dao.saveComposerDraft(chatId, text, attachments, timestamp)
+
     override suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?) {
         chatRoomV2Dao.updateDraft(chatId, draftText, timestamp)
     }
@@ -1892,7 +2005,7 @@ class ChatRepositoryImpl(
             updatedAt = System.currentTimeMillis() / 1000
         )
         if (chatRoom.id > 0) {
-            chatRoomV2Dao.editChatRoom(updated)
+            chatRoomV2Dao.updatePlatforms(updated.id, updated.enabledPlatform, updated.activePlatform, updated.updatedAt)
         }
         return updated
     }
@@ -1901,7 +2014,7 @@ class ChatRepositoryImpl(
         userMessage: String,
         assistantMessage: String,
         platform: PlatformV2
-    ): String? = titleSummarizer?.summarize(userMessage, assistantMessage, platform)
+    ): String? = if (settingRepository.getFeatureSettings().spendBudget.enforced) null else titleSummarizer?.summarize(userMessage, assistantMessage, platform)
 
     override suspend fun saveChat(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>): ChatRoomV2 {
         if (chatRoom.id == 0) {
@@ -1937,8 +2050,36 @@ class ChatRepositoryImpl(
         )
     }
 
+    override suspend fun branchChat(chatRoom: ChatRoomV2, editedUser: MessageV2): ChatRoomV2 {
+        val branch = agentPersistenceDao.duplicateChatWithHistory(chatRoom.id, "${chatRoom.title} · branch".take(70), System.currentTimeMillis() / 1000, editedUser)
+        knowledge?.dao?.projectForChat(chatRoom.id)?.let { knowledge.dao.attachChat(dev.chungjungsoo.gptmobile.data.knowledge.KnowledgeProjectChat(branch.id, it.id)) }
+        val features = settingRepository.getFeatureSettings()
+        settingRepository.updateFeatureSettings(
+            features.copy(
+                conversationReasoning = features.conversationReasoning + listOfNotNull(features.conversationReasoning[chatRoom.id]?.let { branch.id to it }).toMap(),
+                conversationDelegation = features.conversationDelegation + listOfNotNull(features.conversationDelegation[chatRoom.id]?.let { branch.id to it }).toMap()
+            )
+        )
+        return branch
+    }
+
+    override suspend fun updateTemporary(chatRoom: ChatRoomV2, enabled: Boolean): ChatRoomV2 {
+        val updated = chatRoom.copy(isTemporary = enabled)
+        if (updated.id > 0) chatRoomV2Dao.updateTemporary(updated.id, enabled)
+        return updated
+    }
+
+    override suspend fun forgetChatMemories(chatId: Int) {
+        factVault?.forgetChat(chatId)
+    }
+
     override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) {
-        chatRoomV2Dao.deleteChatRooms(*chatRooms.toTypedArray())
+        factVault?.load()
+        chatRooms.forEach { room ->
+            memoryEnrichment?.cancelChat(room.id)
+            if ((!room.isTemporary || conversationDeletion == null) && (room.isTemporary || factVault?.state?.value?.settings?.forgetWithConversation == true)) factVault?.forgetChat(room.id, preventFutureCapture = true)
+        }
+        if (conversationDeletion != null) conversationDeletion.delete(chatRooms) else chatRoomV2Dao.deleteChatRooms(*chatRooms.toTypedArray())
     }
 
     private fun contextString(resId: Int, fallback: String): String = runCatching { context.getString(resId) }.getOrDefault(fallback)

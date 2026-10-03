@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -55,6 +56,40 @@ class ToolConnectionsViewModel @Inject constructor(
 ) : ViewModel() {
     fun revokeToolGrants(connectionUid: String) {
         toolTrust?.revoke(connectionUid)
+    }
+
+    val features = settingRepository.observeFeatureSettings().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
+    private val pluginMutex = kotlinx.coroutines.sync.Mutex()
+    fun configurePlugin(id: String, config: dev.chungjungsoo.gptmobile.data.model.PluginExecutionSettings) {
+        viewModelScope.launch {
+            pluginMutex.lock()
+            try {
+                dev.chungjungsoo.gptmobile.data.workspace.PluginConfiguration.validate(config)
+                val current = settingRepository.getFeatureSettings()
+                settingRepository.updateFeatureSettings(current.copy(pluginExecution = current.pluginExecution + (id to config.normalized())))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showError(error)
+            } finally {
+                pluginMutex.unlock()
+            }
+        }
+    }
+    fun updateFeature(feature: dev.chungjungsoo.gptmobile.data.model.AppFeature, enabled: Boolean) {
+        viewModelScope.launch {
+            pluginMutex.lock()
+            try {
+                val current = settingRepository.getFeatureSettings()
+                settingRepository.updateFeatureSettings(current.withFeature(feature, enabled))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showError(error)
+            } finally {
+                pluginMutex.unlock()
+            }
+        }
     }
 
     private val toolConnectionRepository = ToolConnectionRepository(toolConnectionDao, secretVault)

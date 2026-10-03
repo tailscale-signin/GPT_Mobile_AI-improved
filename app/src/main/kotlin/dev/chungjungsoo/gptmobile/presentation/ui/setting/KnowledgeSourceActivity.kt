@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -25,7 +24,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
-class KnowledgeSourceActivity : ComponentActivity() {
+class KnowledgeSourceActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity() {
     @Inject lateinit var repository: MemoryDocumentRepository
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

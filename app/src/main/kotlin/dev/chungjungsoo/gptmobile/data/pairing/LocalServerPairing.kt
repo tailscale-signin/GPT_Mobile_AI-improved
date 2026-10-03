@@ -36,13 +36,14 @@ internal fun validatePairingEndpoint(url: String) {
 }
 
 @Serializable
-data class PairedServer(val version: Int, val name: String, val provider: String, val apiUrl: String, val model: String, val expiresAt: Long) {
+data class PairedServer(val version: Int, val name: String, val provider: String, val apiUrl: String, val model: String, val expiresAt: Long, val token: String? = null) {
     fun profile(now: Long = System.currentTimeMillis() / 1000): PlatformV2 {
         require(version == 1 && expiresAt > now && expiresAt <= now + 600)
         require(name.isNotBlank() && name.length <= 100 && model.isNotBlank() && model.length <= 200)
         val type = ClientType.valueOf(provider)
         require(type in setOf(ClientType.LLAMA, ClientType.OLLAMA, ClientType.CUSTOM))
         validatePairingEndpoint(apiUrl)
-        return PlatformV2(name = name, compatibleType = type, apiUrl = apiUrl, model = model, enabled = false)
+        require(token == null || (token.length in 32..256 && token.none { it.isWhitespace() }))
+        return PlatformV2(name = name, compatibleType = type, apiUrl = apiUrl, model = model, token = token, enabled = false)
     }
 }

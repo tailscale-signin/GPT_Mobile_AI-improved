@@ -29,8 +29,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,11 +41,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.Tab
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -83,7 +81,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: ProfileBenchmarkViewModel = hiltViewModel()) {
+fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: ProfileBenchmarkViewModel = hiltViewModel(), embedded: Boolean = false) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profile by viewModel.selected.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
@@ -117,34 +115,17 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     val rating = remember(matching, local) { benchmarkRating(matching, local) }
     val detail = everyday.firstOrNull { it.key == detailKey }
     Scaffold(topBar = {
-        TopAppBar(title = { Text("AI profile benchmarks") }, navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-        }, actions = {
-            IconButton(onClick = onUsage) { Icon(Icons.Default.BarChart, "Usage") }
-        })
+        if (!embedded) {
+            TopAppBar(title = { Text("AI profile benchmarks") }, navigationIcon = {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            }, actions = {
+                IconButton(onClick = onUsage) { Icon(Icons.Default.BarChart, "Usage") }
+            })
+        }
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item {
-                Text("PERFORMANCE LAB", style = MaterialTheme.typography.labelLarge, color = tint)
-                Text("Know what your AI can do", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                Text("Repeatable tests, transparent ratings and real conversation performance.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            item {
-                PrimaryTabRow(selectedTabIndex = if (tab == 4) 1 else 0) {
-                    Tab(
-                        selected = tab != 4,
-                        onClick = { if (tab == 4) tab = 0 },
-                        text = { Text("Benchmark") },
-                        icon = { Icon(Icons.Default.BarChart, null) }
-                    )
-                    Tab(
-                        selected = tab == 4,
-                        onClick = { tab = 4 },
-                        text = { Text("Delegation") },
-                        icon = { Icon(Icons.Default.Cloud, null) }
-                    )
-                }
-            }
+            item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded tests · ${profiles.size} profiles") }
+            item { SettingsTabs(listOf("Overview", "Everyday", "Compare", "History", "Delegation"), tab) { tab = it } }
             item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (error != null) {
                 item {
@@ -159,15 +140,6 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             if (selected == null) {
                 item { BenchmarkPanel("No AI profiles yet") { Text("Create an AI profile in Settings, choose its model, then return here to measure it.") } }
             } else {
-                if (tab != 4) {
-                    item {
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Overview", "Everyday", "Compare", "History").forEachIndexed { index, label ->
-                                FilterChip(tab == index, { tab = index }, label = { Text(label) })
-                            }
-                        }
-                    }
-                }
                 progress?.let { current ->
                     item {
                         BenchmarkPanel("Running · ${current.profileName}") {

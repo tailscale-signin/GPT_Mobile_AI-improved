@@ -107,13 +107,13 @@ class ChatRepositoryImplTest {
         )
         val approvals = mockk<dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager>(relaxed = true)
         val ids = mutableListOf<String>()
-        coEvery { approvals.authorize("work", "parent", capture(ids), "github", any()) } returns false
+        coEvery { approvals.authorize("work", "parent", capture(ids), "github", any(), any()) } returns false
         val repository = createRepository(agentToolResolver = resolver, toolApprovals = approvals)
         assertTrue(repository.resolveDelegatedTools(customPlatform(), "parent", config.copy(allToolsDisabled = true)).isEmpty())
         val denied = repository.resolveDelegatedTools(customPlatform(), "parent", config).single().execute("same-call", JsonObject(emptyMap()))
         assertTrue(denied.isError)
         assertEquals(0, executions)
-        coEvery { approvals.authorize("work", "parent", capture(ids), "github", any()) } returns true
+        coEvery { approvals.authorize("work", "parent", capture(ids), "github", any(), any()) } returns true
         repeat(2) {
             val bound = repository.resolveDelegatedTools(customPlatform(), "parent", config).single()
             val result = bound.execute("same-call", JsonObject(emptyMap()))
@@ -297,6 +297,7 @@ class ChatRepositoryImplTest {
         }
         val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
         facts.setEnabled(true)
+        facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = true))
         facts.prepareTurn("I prefer Kotlin", 1, 1)
         val api = FakeGroqAPI(emptyFlow())
         val cloud = createRepository(groqAPI = api, factVault = facts)

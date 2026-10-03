@@ -67,10 +67,12 @@ class McpClientManager internal constructor(
     private val interactions: McpInteractions? = null,
     private val transportConnectTimeoutMs: Long = 5_000,
     private val sessionConnectTimeoutMs: Long = 15_000,
-    private val nowMs: () -> Long = System::currentTimeMillis
+    private val nowMs: () -> Long = System::currentTimeMillis,
+    private val modern: ModernMcpTransport? = null,
+    private val trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore? = null
 ) {
     @Inject
-    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions) : this(networkClient(), mediaStore, interactions)
+    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust)
 
     private val mutex = Mutex()
 
@@ -80,7 +82,19 @@ class McpClientManager internal constructor(
     private val _health = MutableStateFlow<Map<String, McpConnectionHealth>>(emptyMap())
     val health = _health.asStateFlow()
 
+    private suspend fun modernTransport(config: McpConnectionConfig, refresh: Boolean = false): ModernMcpTransport? {
+        config.validatedKey()
+        val transport = modern ?: return null
+        return transport.takeIf { it.supports(config, refresh) }
+    }
+
     suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false): List<Tool> {
+        modernTransport(config, forceRefresh)?.let { transport ->
+            return transport.listTools(config).also {
+                recordSuccess(config.connectionUid, availableToolCount = it.size)
+                recordCatalog(config, it)
+            }
+        }
         val result = withSession(config, bypassBackoff = forceRefresh) { session ->
             session.toolCatalogMutex.withLock {
                 val now = nowMs()
@@ -104,54 +118,79 @@ class McpClientManager internal constructor(
             }
         }
         recordSuccess(config.connectionUid, availableToolCount = result.size)
+        recordCatalog(config, result)
         return result
+    }
+
+    private suspend fun recordCatalog(config: McpConnectionConfig, tools: List<Tool>) {
+        val fingerprint = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(tools.sortedBy { it.name }.joinToString { it.toString() })
+        val changed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { trust?.observeCatalog(config.connectionUid, fingerprint) == true }
+        if (changed) _health.value = _health.value + (config.connectionUid to (_health.value[config.connectionUid] ?: McpConnectionHealth()).copy(lastError = "Tool catalog changed; remembered permissions were revoked. Review the updated schemas."))
     }
 
     suspend fun callTool(
         config: McpConnectionConfig,
         toolName: String,
-        arguments: JsonObject
-    ): CallToolResult = withSession(config) { session ->
-        session.client.callTool(toolName, arguments).let { mediaStore?.materialize(it) ?: it }
-    }
-
-    suspend fun browse(config: McpConnectionConfig): McpBrowserData = withSession(config) { session ->
-        val client = session.client
-        val resources = mutableListOf<io.modelcontextprotocol.kotlin.sdk.types.Resource>()
-        val prompts = mutableListOf<io.modelcontextprotocol.kotlin.sdk.types.Prompt>()
-        if (client.serverCapabilities?.resources != null) {
-            var cursor: String? = null
-            val seen = mutableSetOf<String>()
-            do {
-                val page = client.listResources(io.modelcontextprotocol.kotlin.sdk.types.ListResourcesRequest(PaginatedRequestParams(cursor)))
-                resources += page.resources
-                cursor = page.nextCursor
-                check(resources.size <= 500 && (cursor == null || seen.add(cursor)) && seen.size <= 20) { "Resource catalog is too large or repeats pages." }
-            } while (cursor != null)
+        arguments: JsonObject,
+        callId: String? = null
+    ): CallToolResult {
+        modernTransport(config)?.let { transport -> return transport.callTool(config, toolName, arguments, callId).let { mediaStore?.materialize(it) ?: it } }
+        return withSession(config, retryStale = false) { session ->
+            session.client.callTool(toolName, arguments).let { mediaStore?.materialize(it) ?: it }
         }
-        if (client.serverCapabilities?.prompts != null) {
-            var cursor: String? = null
-            val seen = mutableSetOf<String>()
-            do {
-                val page = client.listPrompts(io.modelcontextprotocol.kotlin.sdk.types.ListPromptsRequest(PaginatedRequestParams(cursor)))
-                prompts += page.prompts
-                cursor = page.nextCursor
-                check(prompts.size <= 500 && (cursor == null || seen.add(cursor)) && seen.size <= 20) { "Prompt catalog is too large or repeats pages." }
-            } while (cursor != null)
+    }
+
+    suspend fun refreshTask(config: McpConnectionConfig, record: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord, cancel: Boolean = false, answerInputs: Boolean = false): dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord {
+        config.validatedKey()
+        return requireNotNull(modernTransport(config)) { "This task requires modern MCP." }.refreshTask(config, record, cancel, answerInputs)
+    }
+
+    suspend fun browse(config: McpConnectionConfig): McpBrowserData {
+        modernTransport(config)?.let { return it.browse(config) }
+        return withSession(config) { session ->
+            val client = session.client
+            val resources = mutableListOf<io.modelcontextprotocol.kotlin.sdk.types.Resource>()
+            val prompts = mutableListOf<io.modelcontextprotocol.kotlin.sdk.types.Prompt>()
+            if (client.serverCapabilities?.resources != null) {
+                var cursor: String? = null
+                val seen = mutableSetOf<String>()
+                do {
+                    val page = client.listResources(io.modelcontextprotocol.kotlin.sdk.types.ListResourcesRequest(PaginatedRequestParams(cursor)))
+                    resources += page.resources
+                    cursor = page.nextCursor
+                    check(resources.size <= 500 && (cursor == null || seen.add(cursor)) && seen.size <= 20) { "Resource catalog is too large or repeats pages." }
+                } while (cursor != null)
+            }
+            if (client.serverCapabilities?.prompts != null) {
+                var cursor: String? = null
+                val seen = mutableSetOf<String>()
+                do {
+                    val page = client.listPrompts(io.modelcontextprotocol.kotlin.sdk.types.ListPromptsRequest(PaginatedRequestParams(cursor)))
+                    prompts += page.prompts
+                    cursor = page.nextCursor
+                    check(prompts.size <= 500 && (cursor == null || seen.add(cursor)) && seen.size <= 20) { "Prompt catalog is too large or repeats pages." }
+                } while (cursor != null)
+            }
+            McpBrowserData(resources, prompts, client.serverVersion?.name.orEmpty(), System.currentTimeMillis())
         }
-        McpBrowserData(resources, prompts, client.serverVersion?.name.orEmpty(), System.currentTimeMillis())
     }
 
-    suspend fun readResource(config: McpConnectionConfig, uri: String): String = withSession(config) { session ->
-        val result = session.client.readResource(io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequest(io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequestParams(uri)))
-        result.contents.filterIsInstance<io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents>().joinToString("\n") { it.text.take(32000) }.take(64000)
+    suspend fun readResource(config: McpConnectionConfig, uri: String): String {
+        modernTransport(config)?.let { return it.readResource(config, uri) }
+        return withSession(config) { session ->
+            val result = session.client.readResource(io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequest(io.modelcontextprotocol.kotlin.sdk.types.ReadResourceRequestParams(uri)))
+            result.contents.filterIsInstance<io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents>().joinToString("\n") { it.text.take(32000) }.take(64000)
+        }
     }
 
-    suspend fun getPrompt(config: McpConnectionConfig, name: String, arguments: Map<String, String>): String = withSession(config) { session ->
-        val result = session.client.getPrompt(io.modelcontextprotocol.kotlin.sdk.types.GetPromptRequest(io.modelcontextprotocol.kotlin.sdk.types.GetPromptRequestParams(name, arguments)))
-        result.messages.joinToString("\n\n") { message ->
-            "${message.role}: ${(message.content as? io.modelcontextprotocol.kotlin.sdk.types.TextContent)?.text.orEmpty().take(32000)}"
-        }.take(64000)
+    suspend fun getPrompt(config: McpConnectionConfig, name: String, arguments: Map<String, String>): String {
+        modernTransport(config)?.let { return it.getPrompt(config, name, arguments) }
+        return withSession(config) { session ->
+            val result = session.client.getPrompt(io.modelcontextprotocol.kotlin.sdk.types.GetPromptRequest(io.modelcontextprotocol.kotlin.sdk.types.GetPromptRequestParams(name, arguments)))
+            result.messages.joinToString("\n\n") { message ->
+                "${message.role}: ${(message.content as? io.modelcontextprotocol.kotlin.sdk.types.TextContent)?.text.orEmpty().take(32000)}"
+            }.take(64000)
+        }
     }
 
     fun healthSnapshot(connectionUid: String): McpConnectionHealth =
@@ -239,11 +278,13 @@ class McpClientManager internal constructor(
     }
 
     suspend fun close(connectionUid: String) {
+        modern?.close(connectionUid)
         val session = takeSession(connectionUid) ?: return
         runCatching { session.client.close() }
     }
 
     suspend fun closeAll() {
+        modern?.closeAll()
         mutex.lock()
         val active = try {
             sessions.values.toList().also { sessions.clear() }
@@ -256,6 +297,7 @@ class McpClientManager internal constructor(
     private suspend fun <T> withSession(
         config: McpConnectionConfig,
         bypassBackoff: Boolean = false,
+        retryStale: Boolean = true,
         block: suspend (Session) -> T
     ): T {
         var staleSessionRetries = 0
@@ -272,7 +314,7 @@ class McpClientManager internal constructor(
             } catch (error: Exception) {
                 val staleSession = error.isMcpStaleSession()
                 invalidate(config.connectionUid, session)
-                if (staleSession && staleSessionRetries++ < MAX_STALE_SESSION_RETRIES) {
+                if (retryStale && staleSession && staleSessionRetries++ < MAX_STALE_SESSION_RETRIES) {
                     markRecovering(config.connectionUid)
                     AppLogRecorder.record(
                         "MCP",
@@ -422,7 +464,7 @@ class McpClientManager internal constructor(
 
     private companion object {
         const val CLIENT_NAME = "gpt-mobile"
-        const val CLIENT_VERSION = "0.9.10"
+        const val CLIENT_VERSION = "0.9.30.0"
 
         // Bounded (not Int.MAX_VALUE): remote MCP server responses are untrusted input. Without a
         // finite cap, a misbehaving or malicious server (e.g. a compromised or misconfigured
@@ -459,5 +501,7 @@ data class McpBrowserData(
     val resources: List<io.modelcontextprotocol.kotlin.sdk.types.Resource> = emptyList(),
     val prompts: List<io.modelcontextprotocol.kotlin.sdk.types.Prompt> = emptyList(),
     val serverName: String = "",
-    val verifiedAt: Long = 0
+    val verifiedAt: Long = 0,
+    val protocolVersion: String = "Legacy session",
+    val capabilities: List<String> = emptyList()
 )

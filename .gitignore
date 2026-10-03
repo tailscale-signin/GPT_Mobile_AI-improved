@@ -45,3 +45,8 @@ release.keystore
 
 # Kotlin compiler sessions are local build state
 .kotlin/
+
+# Local gateway state and Python caches
+__pycache__/
+gateway/*.sqlite3*
+gateway/.venv/

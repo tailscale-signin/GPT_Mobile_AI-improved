@@ -44,6 +44,7 @@ internal fun AssistantChronologicalContent(
     fallbackThoughts: String,
     contentIdentity: Any,
     isLoading: Boolean,
+    animateResponse: Boolean = true,
     debugMode: Boolean,
     showReasoning: Boolean,
     expanded: Boolean,
@@ -97,7 +98,7 @@ internal fun AssistantChronologicalContent(
                             if (isError) {
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
-                                ChatMarkdown(content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading, modifier = Modifier.padding(vertical = 8.dp))
+                                ChatMarkdown(content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }

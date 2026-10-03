@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "GPTMobile"
 include(":app")
+include(":macrobenchmark")

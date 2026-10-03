@@ -22,7 +22,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Children must already be bound to the run's shared budget and permission gate. */
-class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC()) : AgentTool {
+class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC(), private val parallel: Boolean = true, private val deduplicate: Boolean = true, private val afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null) : AgentTool {
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         "web_search",
@@ -92,7 +92,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         ) {
             return@coroutineScope AgentToolResult(callId, ToolResultContent.Text("Use valid host names and a recency within the supported calendar range."), true)
         }
-        val permits = Semaphore(4)
+        val permits = Semaphore(if (parallel) 4 else 1)
         val responses = engines.mapIndexed { index, engine ->
             async {
                 permits.withPermit {
@@ -130,7 +130,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 .take(maxResults)
             extracted.forEach { source ->
                 val url = (source["url"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
-                if (seen.add(canonicalSearchUrl(url))) sources += JsonObject(source + ("engine" to JsonPrimitive(label)))
+                if (!deduplicate || seen.add(canonicalSearchUrl(url))) sources += JsonObject(source + ("engine" to JsonPrimitive(label)))
             }
             buildJsonObject {
                 put("engine", label)
@@ -151,6 +151,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 }
             }
         }
+        val crawl = afterSearch?.invoke(callId, sources.filterIsInstance<JsonObject>())
         AgentToolResult(
             callId,
             ToolResultContent.Json(
@@ -158,6 +159,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                     put("query", query)
                     put("engines", JsonArray(statuses))
                     put("results", JsonArray(sources))
+                    crawl?.let { put("pages", it) }
                 }
             ),
             isError = responses.all { it.second.isError },
@@ -176,9 +178,9 @@ internal fun canonicalSearchUrl(url: String): String = runCatching {
 }.getOrDefault(url)
 
 /** Compose only after child authorization/budget wrappers have been installed. */
-internal fun aggregateWebSearch(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> {
+internal fun aggregateWebSearch(tools: List<ResolvedAgentTool>, parallel: Boolean = true, deduplicate: Boolean = true, afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null): List<ResolvedAgentTool> {
     val engines = tools.filter { it.isWebSearchEngine() }
     if (engines.isEmpty()) return tools
-    val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines))
+    val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines, parallel = parallel, deduplicate = deduplicate, afterSearch = afterSearch))
     return tools.filterNot { it in engines } + ResolvedAgentTool(aggregate, null, "Multi-engine search", "web_search", "web_search")
 }

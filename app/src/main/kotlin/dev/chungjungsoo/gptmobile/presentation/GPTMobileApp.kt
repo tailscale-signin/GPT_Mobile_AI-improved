@@ -55,6 +55,11 @@ class GPTMobileApp :
     @Inject
     lateinit var durablePromptQueue: dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
 
+    @Inject
+    lateinit var semanticMemory: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
+
+    @Inject lateinit var conversationDatabase: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+
     @Volatile
     var secretMigrationErrors: List<SecretMigrationError> = emptyList()
         private set
@@ -74,6 +79,8 @@ class GPTMobileApp :
 
     @javax.inject.Inject lateinit var toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
 
+    @javax.inject.Inject lateinit var conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion
+
     override fun onCreate() {
         val startupStartTime = SystemClock.elapsedRealtime()
 
@@ -92,6 +99,11 @@ class GPTMobileApp :
         StartupRecoveryGate.start(applicationScope) {
             val gateStartTime = SystemClock.elapsedRealtime()
             val startup = startupDependencies()
+            val temporary = conversationDatabase.chatRoomDao().temporaryChats()
+            if (temporary.isNotEmpty()) {
+                temporary.forEach { androidx.work.WorkManager.getInstance(this@GPTMobileApp).cancelAllWorkByTag("memory-chat-${it.id}") }
+                conversationDeletion.delete(temporary)
+            }
             toolApprovals.recover()
             invocationLedger.dao.recover()
             startup.pendingLocalPlatformActivator().start()
@@ -126,6 +138,7 @@ class GPTMobileApp :
         applicationScope.launch {
             while (isActive) {
                 delay(60_000L)
+                semanticMemory.releaseWhenIdle()
                 val idleMinutes = startupDependencies().settingRepository().getFeatureSettings().localIdleMinutes.coerceIn(0, 60)
                 if (idleMinutes > 0) startupDependencies().localRuntime().unloadIfIdle(idleMinutes * 60_000L)
             }
@@ -136,6 +149,8 @@ class GPTMobileApp :
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        applicationScope.launch { semanticMemory.releaseWhenIdle(0) }
+        dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
         val hasActiveRuns = runCatching {
             startupDependencies().agentRunCoordinator().activeRuns.value.isNotEmpty()
         }.getOrDefault(false)

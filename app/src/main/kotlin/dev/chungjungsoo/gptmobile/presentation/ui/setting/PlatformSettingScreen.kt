@@ -119,6 +119,9 @@ fun PlatformSettingScreen(
     onNavigateToLocalModels: () -> Unit = {},
     onNavigateToMcpTools: () -> Unit = {}
 ) {
+    val features by settingViewModel.featureSettings.collectAsStateWithLifecycle()
+    val behavior = features.profileBehavior[settingViewModel.platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+    var profileTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
@@ -197,531 +200,547 @@ fun PlatformSettingScreen(
                 val isFreePlatform = platformData.compatibleType == ClientType.FREE
                 val supportsTools = !isFreePlatform || FreeAiProvider.fromApiUrl(platformData.apiUrl)?.supportsTools == true
                 val isOllamaPlatform = platformData.compatibleType == ClientType.OLLAMA
-                PreferenceSwitchWithContainer(
-                    title = stringResource(if (isLocalPlatform) R.string.enable_platform else R.string.enable),
-                    isChecked = platformData.enabled
-                ) { settingViewModel.toggleEnabled() }
-                if (isFreePlatform) {
-                    FreeProviderPicker(
-                        apiUrl = platformData.apiUrl,
-                        onProviderSelected = settingViewModel::selectFreeProvider,
-                        modifier = Modifier.padding(16.dp),
-                        enabled = platformData.enabled
-                    )
+                SettingsHero(platformData.compatibleType.name, platformData.name, platformData.model, Modifier.padding(16.dp))
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsTabs(listOf("Profile", "Tools", "Advanced"), profileTab) { profileTab = it }
                 }
-                if (debugMode) {
-                    ProfileSectionTitle(title = "Debug & performance")
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        FilledTonalButton(onClick = onNavigateToUsage, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.BarChart, null)
-                            Text("Usage", Modifier.padding(start = 8.dp))
-                        }
-                        FilledTonalButton(onClick = onNavigateToBenchmarks, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Outlined.Speed, null)
-                            Text("Benchmarks", Modifier.padding(start = 8.dp))
-                        }
-                    }
-                }
-                ProfileSectionTitle(
-                    title = stringResource(
-                        if (isLocalPlatform) R.string.profile_settings else R.string.connection_settings
-                    )
-                )
-                if (!isLocalPlatform && providerConnection != null) {
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.provider_connection),
-                        description = providerConnection?.name ?: stringResource(R.string.not_set),
-                        enabled = false,
-                        onItemClick = {},
-                        showTrailingIcon = false,
-                        showLeadingIcon = false
-                    )
-                }
-                SettingItem(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.ai_profile_name),
-                    description = platformData.name,
-                    enabled = platformData.enabled,
-                    onItemClick = settingViewModel::openPlatformNameDialog,
-                    showTrailingIcon = false,
-                    showLeadingIcon = true,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Label,
-                            contentDescription = stringResource(R.string.platform_name)
+                if (profileTab == 0) {
+                    PreferenceSwitchWithContainer(
+                        title = stringResource(if (isLocalPlatform) R.string.enable_platform else R.string.enable),
+                        isChecked = platformData.enabled
+                    ) { settingViewModel.toggleEnabled() }
+                    if (isFreePlatform) {
+                        FreeProviderPicker(
+                            apiUrl = platformData.apiUrl,
+                            onProviderSelected = settingViewModel::selectFreeProvider,
+                            modifier = Modifier.padding(16.dp),
+                            enabled = platformData.enabled
                         )
                     }
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            enabled = platformData.enabled,
-                            onClick = settingViewModel::openLabelsDialog
-                        )
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Labels",
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = if (profileLabels.isEmpty()) "Add" else "Manage",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Text(
-                        text = "Reusable colored labels organize profiles and filter the model picker.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                    if (profileLabels.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(top = 8.dp),
-                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-                        ) {
-                            profileLabels.forEach { label ->
-                                BeveledProfileLabel(label = label)
+                    if (debugMode) {
+                        ProfileSectionTitle(title = "Debug & performance")
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            FilledTonalButton(onClick = onNavigateToUsage, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.BarChart, null)
+                                Text("Usage", Modifier.padding(start = 8.dp))
+                            }
+                            FilledTonalButton(onClick = onNavigateToBenchmarks, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Outlined.Speed, null)
+                                Text("Benchmarks", Modifier.padding(start = 8.dp))
                             }
                         }
                     }
-                }
-                // Endpoint and credentials belong to the parent provider connection.
-                // Standalone/legacy profiles keep their own connection fields for compatibility.
-                if (!isLocalPlatform && !isFreePlatform && providerConnection == null) {
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.api_url),
-                        description = platformData.apiUrl,
-                        enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openApiUrlDialog,
-                        showTrailingIcon = false,
-                        showLeadingIcon = true,
-                        leadingIcon = {
-                            Icon(
-                                ImageVector.vectorResource(id = R.drawable.ic_link),
-                                contentDescription = stringResource(R.string.api_url)
-                            )
-                        }
+                    ProfileSectionTitle(
+                        title = stringResource(
+                            if (isLocalPlatform) R.string.profile_settings else R.string.connection_settings
+                        )
                     )
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.api_key),
-                        description = if (platformData.token.isNullOrEmpty()) {
-                            stringResource(R.string.not_set)
-                        } else {
-                            "••••••••"
-                        },
-                        enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openApiTokenDialog,
-                        showTrailingIcon = false,
-                        showLeadingIcon = true,
-                        leadingIcon = {
-                            Icon(
-                                ImageVector.vectorResource(id = R.drawable.ic_key),
-                                contentDescription = stringResource(R.string.api_key)
-                            )
-                        }
-                    )
-                }
-
-                if (isOllamaPlatform) {
-                    OllamaServerCard(
-                        serverUrl = platformData.apiUrl.orEmpty(),
-                        uiState = ollamaServerState,
-                        currentModel = platformData.model,
-                        onTestConnection = settingViewModel::checkOllamaServer,
-                        onSelectModel = settingViewModel::updateApiModel
-                    )
-                }
-
-                if (platformData.compatibleType == ClientType.OPENROUTER && !platformData.token.isNullOrBlank()) {
-                    FancyOpenRouterCreditsCard(
-                        uiState = openRouterCreditsState,
-                        onRefresh = { settingViewModel.refreshOpenRouterCredits(forceRefresh = true) }
-                    )
-                }
-
-                ProfileSectionTitle(title = stringResource(R.string.model_behavior))
-                val modelDescription = downloadedLocalModels
-                    .firstOrNull { it.catalogEntryId == platformData.model }
-                    ?.displayName ?: platformData.model
-                SettingItem(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.api_model),
-                    description = modelDescription,
-                    enabled = platformData.enabled && !isFreePlatform,
-                    onItemClick = settingViewModel::openApiModelDialog,
-                    showTrailingIcon = false,
-                    showLeadingIcon = true,
-                    leadingIcon = {
-                        Icon(
-                            ImageVector.vectorResource(id = R.drawable.ic_model),
-                            contentDescription = stringResource(R.string.api_model)
+                    if (!isLocalPlatform && providerConnection != null) {
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.provider_connection),
+                            description = providerConnection?.name ?: stringResource(R.string.not_set),
+                            enabled = false,
+                            onItemClick = {},
+                            showTrailingIcon = false,
+                            showLeadingIcon = false
                         )
                     }
-                )
-                ProfileSectionTitle(title = stringResource(R.string.advanced_settings))
-                val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
-                val usesNpuSampling = isLocalPlatform && !LocalAccelerators.shouldApplySampler(platformData.accelerator.orEmpty())
-                if (usesNpuSampling) {
-                    Text(
-                        "NPU uses the model’s built-in sampling defaults.",
-                        Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                val notSetText = stringResource(R.string.not_set)
-                var creativityDraft by remember(
-                    platformData.uid,
-                    platformData.temperature,
-                    platformData.topP
-                ) {
-                    mutableFloatStateOf(
-                        SamplingCreativity.fromSampling(
-                            platformData.temperature,
-                            platformData.topP
-                        )
-                    )
-                }
-                CreativitySlider(
-                    value = creativityDraft,
-                    onValueChange = { creativityDraft = it },
-                    onValueChangeFinished = {
-                        settingViewModel.updateCreativity(creativityDraft)
-                    },
-                    enabled = platformData.enabled && !isReasoningDisabled && !usesNpuSampling
-                )
-                if (isLocalPlatform) {
                     SettingItem(
                         modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.top_k),
-                        description = platformData.topK?.toString() ?: notSetText,
-                        enabled = platformData.enabled && !usesNpuSampling,
-                        onItemClick = settingViewModel::openTopKDialog,
-                        showTrailingIcon = false,
-                        showLeadingIcon = true,
-                        leadingIcon = {
-                            Icon(
-                                ImageVector.vectorResource(id = R.drawable.ic_chart),
-                                contentDescription = stringResource(R.string.top_k)
-                            )
-                        }
-                    )
-                    val maxTokensDescription = platformData.maxTokens?.toString()
-                        ?: stringResource(R.string.output_tokens_unlimited)
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.max_tokens),
-                        description = maxTokensDescription,
+                        title = stringResource(R.string.ai_profile_name),
+                        description = platformData.name,
                         enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openMaxTokensDialog,
+                        onItemClick = settingViewModel::openPlatformNameDialog,
                         showTrailingIcon = false,
                         showLeadingIcon = true,
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Outlined.Numbers,
-                                contentDescription = stringResource(R.string.max_tokens)
+                                imageVector = Icons.AutoMirrored.Filled.Label,
+                                contentDescription = stringResource(R.string.platform_name)
                             )
                         }
                     )
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.accelerator),
-                        description = acceleratorLabel(platformData.accelerator),
-                        enabled = platformData.enabled && acceleratorOptions.isNotEmpty(),
-                        onItemClick = settingViewModel::openAcceleratorDialog,
-                        showTrailingIcon = false,
-                        showLeadingIcon = true,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Speed,
-                                contentDescription = stringResource(R.string.accelerator)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                enabled = platformData.enabled,
+                                onClick = settingViewModel::openLabelsDialog
+                            )
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Labels",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = if (profileLabels.isEmpty()) "Add" else "Manage",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
-                    )
-                }
-                SettingItem(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.system_prompt),
-                    description = platformData.systemPrompt,
-                    enabled = platformData.enabled,
-                    onItemClick = settingViewModel::openSystemPromptDialog,
-                    showTrailingIcon = false,
-                    showLeadingIcon = true,
-                    leadingIcon = {
-                        Icon(
-                            ImageVector.vectorResource(id = R.drawable.ic_instructions),
-                            contentDescription = stringResource(R.string.system_prompt)
+                        Text(
+                            text = "Reusable colored labels organize profiles and filter the model picker.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                        if (profileLabels.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(top = 8.dp),
+                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                            ) {
+                                profileLabels.forEach { label ->
+                                    BeveledProfileLabel(label = label)
+                                }
+                            }
+                        }
+                    }
+                    // Endpoint and credentials belong to the parent provider connection.
+                    // Standalone/legacy profiles keep their own connection fields for compatibility.
+                    if (!isLocalPlatform && !isFreePlatform && providerConnection == null) {
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.api_url),
+                            description = platformData.apiUrl,
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openApiUrlDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    ImageVector.vectorResource(id = R.drawable.ic_link),
+                                    contentDescription = stringResource(R.string.api_url)
+                                )
+                            }
+                        )
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.api_key),
+                            description = if (platformData.token.isNullOrEmpty()) {
+                                stringResource(R.string.not_set)
+                            } else {
+                                "••••••••"
+                            },
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openApiTokenDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    ImageVector.vectorResource(id = R.drawable.ic_key),
+                                    contentDescription = stringResource(R.string.api_key)
+                                )
+                            }
                         )
                     }
-                )
-                if (!isLocalPlatform && !isFreePlatform) {
+
+                    if (isOllamaPlatform) {
+                        OllamaServerCard(
+                            serverUrl = platformData.apiUrl.orEmpty(),
+                            uiState = ollamaServerState,
+                            currentModel = platformData.model,
+                            onTestConnection = settingViewModel::checkOllamaServer,
+                            onSelectModel = settingViewModel::updateApiModel
+                        )
+                    }
+
+                    if (platformData.compatibleType == ClientType.OPENROUTER && !platformData.token.isNullOrBlank()) {
+                        FancyOpenRouterCreditsCard(
+                            uiState = openRouterCreditsState,
+                            onRefresh = { settingViewModel.refreshOpenRouterCredits(forceRefresh = true) }
+                        )
+                    }
+
+                    ProfileSectionTitle(title = stringResource(R.string.model_behavior))
+                    val modelDescription = downloadedLocalModels
+                        .firstOrNull { it.catalogEntryId == platformData.model }
+                        ?.displayName ?: platformData.model
                     SettingItem(
                         modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.timeout),
-                        description = formatPlatformTimeout(platformData.timeout, stringResource(R.string.not_set)),
-                        enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openTimeoutDialog,
+                        title = stringResource(R.string.api_model),
+                        description = modelDescription,
+                        enabled = platformData.enabled && !isFreePlatform,
+                        onItemClick = settingViewModel::openApiModelDialog,
                         showTrailingIcon = false,
                         showLeadingIcon = true,
                         leadingIcon = {
                             Icon(
-                                ImageVector.vectorResource(id = R.drawable.ic_info),
-                                contentDescription = stringResource(R.string.timeout)
+                                ImageVector.vectorResource(id = R.drawable.ic_model),
+                                contentDescription = stringResource(R.string.api_model)
                             )
                         }
                     )
-                }
-                if (platformData.compatibleType == ClientType.GOOGLE) {
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.gemini_safety_settings),
-                        description = stringResource(R.string.gemini_safety_settings),
+                    PreferenceListSwitch(
+                        title = "Delegation mode",
+                        description = if (features.delegation.enabled) "Allow this profile to use a delegate" else "Enable delegation in Settings to use helpers",
+                        icon = Icons.Default.Build,
                         enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openGeminiSafetyDialog,
-                        showTrailingIcon = false,
-                        showLeadingIcon = true,
-                        leadingIcon = {
-                            Icon(
-                                ImageVector.vectorResource(id = R.drawable.ic_info),
-                                contentDescription = stringResource(R.string.gemini_safety_settings)
-                            )
-                        }
+                        isChecked = behavior.delegationEnabled,
+                        onCheckedChange = { settingViewModel.updateProfileBehavior(behavior.copy(delegationEnabled = it)) }
                     )
                 }
-                if (platformData.compatibleType == ClientType.OPENROUTER) {
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.openrouter_advanced_settings),
-                        description = if (platformData.openRouterRouting.isNullOrBlank()) {
-                            stringResource(R.string.default_label)
-                        } else {
-                            stringResource(R.string.custom)
+                if (profileTab == 2) {
+                    ProfileSectionTitle(title = stringResource(R.string.advanced_settings))
+                    val isReasoningDisabled = platformData.compatibleType == ClientType.OPENAI && platformData.reasoning
+                    val usesNpuSampling = isLocalPlatform && !LocalAccelerators.shouldApplySampler(platformData.accelerator.orEmpty())
+                    if (usesNpuSampling) {
+                        Text(
+                            "NPU uses the model’s built-in sampling defaults.",
+                            Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    val notSetText = stringResource(R.string.not_set)
+                    var creativityDraft by remember(
+                        platformData.uid,
+                        platformData.temperature,
+                        platformData.topP
+                    ) {
+                        mutableFloatStateOf(
+                            SamplingCreativity.fromSampling(
+                                platformData.temperature,
+                                platformData.topP
+                            )
+                        )
+                    }
+                    CreativitySlider(
+                        value = creativityDraft,
+                        onValueChange = { creativityDraft = it },
+                        onValueChangeFinished = {
+                            settingViewModel.updateCreativity(creativityDraft)
                         },
+                        enabled = platformData.enabled && !isReasoningDisabled && !usesNpuSampling
+                    )
+                    if (isLocalPlatform) {
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.top_k),
+                            description = platformData.topK?.toString() ?: notSetText,
+                            enabled = platformData.enabled && !usesNpuSampling,
+                            onItemClick = settingViewModel::openTopKDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    ImageVector.vectorResource(id = R.drawable.ic_chart),
+                                    contentDescription = stringResource(R.string.top_k)
+                                )
+                            }
+                        )
+                        val maxTokensDescription = platformData.maxTokens?.toString()
+                            ?: stringResource(R.string.output_tokens_unlimited)
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.max_tokens),
+                            description = maxTokensDescription,
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openMaxTokensDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Numbers,
+                                    contentDescription = stringResource(R.string.max_tokens)
+                                )
+                            }
+                        )
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.accelerator),
+                            description = acceleratorLabel(platformData.accelerator),
+                            enabled = platformData.enabled && acceleratorOptions.isNotEmpty(),
+                            onItemClick = settingViewModel::openAcceleratorDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Speed,
+                                    contentDescription = stringResource(R.string.accelerator)
+                                )
+                            }
+                        )
+                    }
+                    SettingItem(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.system_prompt),
+                        description = platformData.systemPrompt,
                         enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openOpenRouterSettingsDialog,
-                        showTrailingIcon = true,
+                        onItemClick = settingViewModel::openSystemPromptDialog,
+                        showTrailingIcon = false,
                         showLeadingIcon = true,
                         leadingIcon = {
                             Icon(
                                 ImageVector.vectorResource(id = R.drawable.ic_instructions),
-                                contentDescription = stringResource(R.string.openrouter_advanced_settings)
+                                contentDescription = stringResource(R.string.system_prompt)
                             )
                         }
                     )
-                }
-                if (platformData.compatibleType == ClientType.OLLAMA) {
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.ollama_advanced_options),
-                        description = if (platformData.ollamaOptions.isNullOrBlank()) {
-                            stringResource(R.string.default_label)
-                        } else {
-                            stringResource(R.string.custom)
-                        },
-                        enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openOllamaAdvancedDialog,
-                        showTrailingIcon = true,
-                        showLeadingIcon = true,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Tune,
-                                contentDescription = stringResource(R.string.ollama_advanced_options)
-                            )
-                        }
-                    )
-                }
-                if (platformData.compatibleType == ClientType.LLAMA) {
-                    SettingItem(
-                        modifier = Modifier.height(64.dp),
-                        title = stringResource(R.string.llama_advanced_settings),
-                        description = stringResource(R.string.llama_advanced_settings_description),
-                        enabled = platformData.enabled,
-                        onItemClick = settingViewModel::openLlamaAdvancedDialog,
-                        showTrailingIcon = true,
-                        showLeadingIcon = true,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Tune,
-                                contentDescription = stringResource(R.string.llama_advanced_settings)
-                            )
-                        }
-                    )
-                }
-                if (!isLocalPlatform && !isFreePlatform) {
-                    ExtendedThinkingSwitch(
-                        modifier = Modifier.height(64.dp),
-                        enabled = platformData.enabled,
-                        isChecked = platformData.reasoning,
-                        onCheckedChange = { settingViewModel.toggleReasoning() }
-                    )
-
-                    // Provider-specific OpenRouter batching lives exclusively in
-                    // OpenRouter Provider Settings. Keep these legacy per-profile controls
-                    // only for providers whose batch configuration is still profile-scoped.
-                    if (platformData.compatibleType == ClientType.OPENAI ||
-                        platformData.compatibleType == ClientType.ANTHROPIC
-                    ) {
-                        PreferenceListSwitch(
+                    if (!isLocalPlatform && !isFreePlatform) {
+                        SettingItem(
                             modifier = Modifier.height(64.dp),
-                            title = stringResource(R.string.batch_mode),
-                            description = stringResource(R.string.batch_mode_description),
-                            icon = Icons.Default.AllInbox,
+                            title = stringResource(R.string.timeout),
+                            description = formatPlatformTimeout(platformData.timeout, stringResource(R.string.not_set)),
                             enabled = platformData.enabled,
-                            isChecked = platformData.batchMode,
-                            onCheckedChange = {
-                                settingViewModel.updatePlatform(platformData.copy(batchMode = it))
+                            onItemClick = settingViewModel::openTimeoutDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    ImageVector.vectorResource(id = R.drawable.ic_info),
+                                    contentDescription = stringResource(R.string.timeout)
+                                )
                             }
                         )
-                        if (platformData.batchMode) {
-                            SettingItem(
+                    }
+                    if (platformData.compatibleType == ClientType.GOOGLE) {
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.gemini_safety_settings),
+                            description = stringResource(R.string.gemini_safety_settings),
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openGeminiSafetyDialog,
+                            showTrailingIcon = false,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    ImageVector.vectorResource(id = R.drawable.ic_info),
+                                    contentDescription = stringResource(R.string.gemini_safety_settings)
+                                )
+                            }
+                        )
+                    }
+                    if (platformData.compatibleType == ClientType.OPENROUTER) {
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.openrouter_advanced_settings),
+                            description = if (platformData.openRouterRouting.isNullOrBlank()) {
+                                stringResource(R.string.default_label)
+                            } else {
+                                stringResource(R.string.custom)
+                            },
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openOpenRouterSettingsDialog,
+                            showTrailingIcon = true,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    ImageVector.vectorResource(id = R.drawable.ic_instructions),
+                                    contentDescription = stringResource(R.string.openrouter_advanced_settings)
+                                )
+                            }
+                        )
+                    }
+                    if (platformData.compatibleType == ClientType.OLLAMA) {
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.ollama_advanced_options),
+                            description = if (platformData.ollamaOptions.isNullOrBlank()) {
+                                stringResource(R.string.default_label)
+                            } else {
+                                stringResource(R.string.custom)
+                            },
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openOllamaAdvancedDialog,
+                            showTrailingIcon = true,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Tune,
+                                    contentDescription = stringResource(R.string.ollama_advanced_options)
+                                )
+                            }
+                        )
+                    }
+                    if (platformData.compatibleType == ClientType.LLAMA) {
+                        SettingItem(
+                            modifier = Modifier.height(64.dp),
+                            title = stringResource(R.string.llama_advanced_settings),
+                            description = stringResource(R.string.llama_advanced_settings_description),
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::openLlamaAdvancedDialog,
+                            showTrailingIcon = true,
+                            showLeadingIcon = true,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Tune,
+                                    contentDescription = stringResource(R.string.llama_advanced_settings)
+                                )
+                            }
+                        )
+                    }
+                    if (!isLocalPlatform && !isFreePlatform) {
+                        ExtendedThinkingSwitch(
+                            modifier = Modifier.height(64.dp),
+                            enabled = platformData.enabled,
+                            isChecked = platformData.reasoning,
+                            onCheckedChange = { settingViewModel.toggleReasoning() }
+                        )
+
+                        // Provider-specific OpenRouter batching lives exclusively in
+                        // OpenRouter Provider Settings. Keep these legacy per-profile controls
+                        // only for providers whose batch configuration is still profile-scoped.
+                        if (platformData.compatibleType == ClientType.OPENAI ||
+                            platformData.compatibleType == ClientType.ANTHROPIC
+                        ) {
+                            PreferenceListSwitch(
                                 modifier = Modifier.height(64.dp),
-                                title = stringResource(R.string.batch_api_url),
-                                description = platformData.batchApiUrl ?: stringResource(R.string.not_set),
+                                title = stringResource(R.string.batch_mode),
+                                description = stringResource(R.string.batch_mode_description),
+                                icon = Icons.Default.AllInbox,
                                 enabled = platformData.enabled,
-                                onItemClick = { showBatchUrlDialog = true },
-                                showTrailingIcon = false,
-                                showLeadingIcon = true,
-                                leadingIcon = {
-                                    Icon(
-                                        ImageVector.vectorResource(id = R.drawable.ic_link),
-                                        contentDescription = stringResource(R.string.batch_api_url)
-                                    )
+                                isChecked = platformData.batchMode,
+                                onCheckedChange = {
+                                    settingViewModel.updatePlatform(platformData.copy(batchMode = it))
                                 }
                             )
-                        }
-                    }
-                }
-
-                ProfileSectionTitle(title = stringResource(R.string.tools_section))
-
-                // Global Master Tool Disablement
-                PreferenceListSwitch(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.disable_all_tools),
-                    description = stringResource(R.string.disable_all_tools_description),
-                    icon = Icons.Default.Build,
-                    enabled = supportsTools && platformData.enabled,
-                    isChecked = platformData.disableAllTools,
-                    onCheckedChange = { settingViewModel.toggleDisableAllTools() }
-                )
-
-                // Granular Remote vs Local Tool Disablement
-                PreferenceListSwitch(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.disable_remote_tools),
-                    description = stringResource(R.string.disable_remote_tools_description),
-                    icon = Icons.Default.Language,
-                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
-                    isChecked = platformData.disableRemoteTools,
-                    onCheckedChange = { settingViewModel.toggleDisableRemoteTools() }
-                )
-
-                PreferenceListSwitch(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.disable_local_tools),
-                    description = stringResource(R.string.disable_local_tools_description),
-                    icon = Icons.Default.Calculate,
-                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
-                    isChecked = platformData.disableLocalTools,
-                    onCheckedChange = { settingViewModel.toggleDisableLocalTools() }
-                )
-
-                SettingItem(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.web_search),
-                    description = "Built-in search + ${toolBindingState.selectedSearchConnectionUids.size} connected engines",
-                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
-                    onItemClick = settingViewModel::openSearchBackendDialog,
-                    showTrailingIcon = true,
-                    showLeadingIcon = false
-                )
-                PreferenceListSwitch(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.tool_trace_tool),
-                    icon = ImageVector.vectorResource(id = R.drawable.ic_link),
-                    enabled = supportsTools && !platformData.disableAllTools && !platformData.disableRemoteTools,
-                    isChecked = toolBindingState.readUrlEnabled,
-                    onCheckedChange = settingViewModel::toggleReadUrl
-                )
-                PreferenceListSwitch(
-                    modifier = Modifier.height(72.dp),
-                    title = "Device location",
-                    description = "Allow this AI profile to request the phone's current GPS location when needed.",
-                    icon = Icons.Default.LocationOn,
-                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableLocalTools,
-                    isChecked = toolBindingState.deviceLocationEnabled,
-                    onCheckedChange = { enabled ->
-                        if (!enabled) {
-                            settingViewModel.toggleDeviceLocation(false)
-                        } else {
-                            val fineGranted = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.ACCESS_FINE_LOCATION
-                            ) == PackageManager.PERMISSION_GRANTED
-                            val coarseGranted = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.ACCESS_COARSE_LOCATION
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (fineGranted || coarseGranted) {
-                                settingViewModel.toggleDeviceLocation(true)
-                            } else {
-                                locationPermissionLauncher.launch(
-                                    arrayOf(
-                                        Manifest.permission.ACCESS_FINE_LOCATION,
-                                        Manifest.permission.ACCESS_COARSE_LOCATION
-                                    )
+                            if (platformData.batchMode) {
+                                SettingItem(
+                                    modifier = Modifier.height(64.dp),
+                                    title = stringResource(R.string.batch_api_url),
+                                    description = platformData.batchApiUrl ?: stringResource(R.string.not_set),
+                                    enabled = platformData.enabled,
+                                    onItemClick = { showBatchUrlDialog = true },
+                                    showTrailingIcon = false,
+                                    showLeadingIcon = true,
+                                    leadingIcon = {
+                                        Icon(
+                                            ImageVector.vectorResource(id = R.drawable.ic_link),
+                                            contentDescription = stringResource(R.string.batch_api_url)
+                                        )
+                                    }
                                 )
                             }
                         }
                     }
-                )
-                SettingItem(
-                    modifier = Modifier.height(64.dp),
-                    title = stringResource(R.string.mcp_tools),
-                    description = "${toolBindingState.selectedMcpTools.size} assigned",
-                    enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
-                    onItemClick = {
-                        val needsPermission = toolBindingState.mcpConnections.any { connection ->
-                            connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
-                        }
-                        if (needsPermission &&
-                            Build.VERSION.SDK_INT >= 37 &&
-                            ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            openMcpToolsAfterPermission = true
-                            localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
-                        } else {
-                            onNavigateToMcpTools()
-                        }
-                    },
-                    showTrailingIcon = true,
-                    showLeadingIcon = false
-                )
 
-                if (isFreePlatform) {
+                    if (supportsTools) PlatformMaxToolCallsSettingHost(settingViewModel)
+                }
+                if (profileTab == 1) {
+                    ProfileSectionTitle(title = stringResource(R.string.tools_section))
+
+                    // Global Master Tool Disablement
+                    PreferenceListSwitch(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.disable_all_tools),
+                        description = stringResource(R.string.disable_all_tools_description),
+                        icon = Icons.Default.Build,
+                        enabled = supportsTools && platformData.enabled,
+                        isChecked = platformData.disableAllTools,
+                        onCheckedChange = { settingViewModel.toggleDisableAllTools() }
+                    )
+
+                    // Granular Remote vs Local Tool Disablement
+                    PreferenceListSwitch(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.disable_remote_tools),
+                        description = stringResource(R.string.disable_remote_tools_description),
+                        icon = Icons.Default.Language,
+                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
+                        isChecked = platformData.disableRemoteTools,
+                        onCheckedChange = { settingViewModel.toggleDisableRemoteTools() }
+                    )
+
+                    PreferenceListSwitch(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.disable_local_tools),
+                        description = stringResource(R.string.disable_local_tools_description),
+                        icon = Icons.Default.Calculate,
+                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
+                        isChecked = platformData.disableLocalTools,
+                        onCheckedChange = { settingViewModel.toggleDisableLocalTools() }
+                    )
+
                     SettingItem(
-                        title = "Reset MCP data-sharing permissions",
-                        description = "Require the slider acknowledgement again for this free profile.",
-                        enabled = true,
-                        onItemClick = settingViewModel::resetFreeToolPermissions,
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.web_search),
+                        description = "Built-in search + ${toolBindingState.selectedSearchConnectionUids.size} connected engines",
+                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
+                        onItemClick = settingViewModel::openSearchBackendDialog,
                         showTrailingIcon = true,
                         showLeadingIcon = false
                     )
-                }
+                    PreferenceListSwitch(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.tool_trace_tool),
+                        icon = ImageVector.vectorResource(id = R.drawable.ic_link),
+                        enabled = supportsTools && !platformData.disableAllTools && !platformData.disableRemoteTools,
+                        isChecked = toolBindingState.readUrlEnabled,
+                        onCheckedChange = settingViewModel::toggleReadUrl
+                    )
+                    PreferenceListSwitch(
+                        modifier = Modifier.height(72.dp),
+                        title = "Device location",
+                        description = "Allow this AI profile to request the phone's current GPS location when needed.",
+                        icon = Icons.Default.LocationOn,
+                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableLocalTools,
+                        isChecked = toolBindingState.deviceLocationEnabled,
+                        onCheckedChange = { enabled ->
+                            if (!enabled) {
+                                settingViewModel.toggleDeviceLocation(false)
+                            } else {
+                                val fineGranted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.ACCESS_FINE_LOCATION
+                                ) == PackageManager.PERMISSION_GRANTED
+                                val coarseGranted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (fineGranted || coarseGranted) {
+                                    settingViewModel.toggleDeviceLocation(true)
+                                } else {
+                                    locationPermissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    SettingItem(
+                        modifier = Modifier.height(64.dp),
+                        title = stringResource(R.string.mcp_tools),
+                        description = "${toolBindingState.selectedMcpTools.size} assigned",
+                        enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableRemoteTools,
+                        onItemClick = {
+                            val needsPermission = toolBindingState.mcpConnections.any { connection ->
+                                connection.endpointUrl?.let(::requiresLocalNetworkAccess) == true
+                            }
+                            if (needsPermission &&
+                                Build.VERSION.SDK_INT >= 37 &&
+                                ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                openMcpToolsAfterPermission = true
+                                localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
+                            } else {
+                                onNavigateToMcpTools()
+                            }
+                        },
+                        showTrailingIcon = true,
+                        showLeadingIcon = false
+                    )
 
-                // Advanced Settings: Maximum Tool Calls
-                if (supportsTools) PlatformMaxToolCallsSettingHost(settingViewModel)
+                    if (isFreePlatform) {
+                        SettingItem(
+                            title = "Reset MCP data-sharing permissions",
+                            description = "Require the slider acknowledgement again for this free profile.",
+                            enabled = true,
+                            onItemClick = settingViewModel::resetFreeToolPermissions,
+                            showTrailingIcon = true,
+                            showLeadingIcon = false
+                        )
+                    }
+                }
 
                 PlatformNameDialog(dialogState, platformData.name, settingViewModel)
                 if (dialogState.isLabelsDialogOpen) {
@@ -837,13 +856,20 @@ private fun SearchBackendDialog(
 ) {
     if (toolBindingState.isSearchBackendDialogOpen) {
         var selected by remember(toolBindingState.selectedSearchConnectionUids) { mutableStateOf(toolBindingState.selectedSearchConnectionUids) }
+        var selectedTools by remember(toolBindingState.selectedMcpTools) { mutableStateOf(toolBindingState.selectedMcpTools) }
+        val features by settingViewModel.featureSettings.collectAsStateWithLifecycle()
+        val behavior = features.profileBehavior[settingViewModel.platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
+        var crawlerEnabled by remember(behavior.crawlersEnabled) { mutableStateOf(behavior.crawlersEnabled) }
+        var crawlPages by remember(behavior.maxCrawlPages) { mutableStateOf(behavior.maxCrawlPages.toFloat()) }
+        var crawlerIds by remember(behavior.crawlerToolIds) { mutableStateOf(behavior.crawlerToolIds) }
+
         AlertDialog(
             icon = { Icon(dev.chungjungsoo.gptmobile.presentation.ui.chat.toolActivityIcon("web_search"), null, tint = MaterialTheme.colorScheme.primary) },
             title = { Text("Search engines") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("One search, more perspectives. Each query searches all enabled engines and combines unique sources.", style = MaterialTheme.typography.bodyMedium)
-                    Text("Built-in web search is included. Selected MCP web-search tools participate automatically; connection permissions still apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Search engines", style = MaterialTheme.typography.titleSmall)
+                    Text("Built-in search is included", style = MaterialTheme.typography.labelSmall)
                     toolBindingState.searchConnections.forEach { connection ->
                         PreferenceListSwitch(
                             title = connection.name,
@@ -853,16 +879,59 @@ private fun SearchBackendDialog(
                             onCheckedChange = { enabled -> selected = if (enabled) selected + connection.connectionUid else selected - connection.connectionUid }
                         )
                     }
-                    if (toolBindingState.searchConnections.isEmpty()) Text("Add Exa, Firecrawl, or Perplexity in Tool connections.")
+                    toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.forEach { tool ->
+                        val selection = dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(tool.connectionUid, tool.toolName)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${tool.connectionName} · ${tool.toolName}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            Switch(selection in selectedTools, { checked -> selectedTools = if (checked) selectedTools + selection else selectedTools - selection })
+                        }
+                    }
+                    androidx.compose.material3.HorizontalDivider()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Crawlers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        Switch(crawlerEnabled, { crawlerEnabled = it })
+                    }
+                    if (crawlerEnabled) {
+                        Text("Pages to read · ${crawlPages.toInt()}", style = MaterialTheme.typography.labelLarge)
+                        androidx.compose.material3.Slider(crawlPages, { crawlPages = it }, valueRange = 1f..20f, steps = 18)
+                        Text(if (features.delegation.reviewerEnabled && features.delegation.enabled && behavior.delegationEnabled) "Reviewer reads the search result pages" else "Read pages after search", style = MaterialTheme.typography.labelSmall)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Built-in page reader", Modifier.weight(1f))
+                            Switch(":read_url" in crawlerIds, { checked -> crawlerIds = if (checked) crawlerIds + ":read_url" else crawlerIds - ":read_url" })
+                        }
+                        toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isCrawlerTool(it.toolName, it.description.orEmpty()) && !dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.forEach { tool ->
+                            val id = "${tool.connectionUid}:${tool.toolName}"
+                            val selection = dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(tool.connectionUid, tool.toolName)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${tool.connectionName} · ${tool.toolName}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                Switch(id in crawlerIds, { checked ->
+                                    crawlerIds = if (checked) crawlerIds + id else crawlerIds - id
+                                    selectedTools = if (checked) selectedTools + selection else selectedTools - selection
+                                })
+                            }
+                        }
+                    }
                     Row {
-                        TextButton(onClick = { selected = toolBindingState.searchConnections.map { it.connectionUid }.toSet() }) { Text("Select all") }
-                        TextButton(onClick = { selected = emptySet() }) { Text("Built-in only") }
+                        TextButton(onClick = {
+                            selected = toolBindingState.searchConnections.map { it.connectionUid }.toSet()
+                            selectedTools = selectedTools + toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.map { dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName) }
+                        }) { Text("Select all") }
+                        TextButton(onClick = {
+                            selected = emptySet()
+                            selectedTools = selectedTools - toolBindingState.mcpToolOptions.filter { dev.chungjungsoo.gptmobile.data.agent.tool.isNamedWebSearch(it.toolName, it.description.orEmpty()) }.map { dev.chungjungsoo.gptmobile.data.repository.ToolBindingSelection(it.connectionUid, it.toolName) }.toSet()
+                        }) { Text("Built-in only") }
                     }
                     toolBindingState.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             onDismissRequest = settingViewModel::closeSearchBackendDialog,
-            confirmButton = { TextButton(onClick = { settingViewModel.selectSearchBackends(selected) }) { Text("Save engines") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    settingViewModel.updateProfileBehavior(behavior.copy(crawlersEnabled = crawlerEnabled, crawlerToolIds = crawlerIds, maxCrawlPages = crawlPages.toInt()))
+                    if (":read_url" in crawlerIds && crawlerEnabled) settingViewModel.toggleReadUrl(true)
+                    settingViewModel.selectSearchBackends(selected, selectedTools)
+                }) { Text("Save engines") }
+            },
             dismissButton = { TextButton(onClick = settingViewModel::closeSearchBackendDialog) { Text("Cancel") } }
         )
     }

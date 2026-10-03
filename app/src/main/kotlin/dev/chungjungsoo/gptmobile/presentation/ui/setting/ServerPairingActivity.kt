@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -39,7 +38,7 @@ import kotlinx.serialization.json.Json
 
 /** Opening a QR/link only previews its destination. Fetch and profile creation each require a tap. */
 @AndroidEntryPoint
-class ServerPairingActivity : ComponentActivity() {
+class ServerPairingActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedActivity() {
     @Inject lateinit var network: NetworkClient
 
     @Inject lateinit var settings: SettingRepository

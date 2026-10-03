@@ -75,7 +75,11 @@ object ChatRepositoryModule {
         knowledge: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository,
         toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager,
         invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger,
-        delegationRecovery: DelegationRecoveryInteractions
+        delegationRecovery: DelegationRecoveryInteractions,
+        database: dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2,
+        memoryEnrichment: dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentQueue,
+        conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion,
+        workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -102,6 +106,10 @@ object ChatRepositoryModule {
         knowledge = knowledge,
         toolApprovals = toolApprovals,
         invocationLedger = invocationLedger,
-        delegationRecovery = delegationRecovery
+        delegationRecovery = delegationRecovery,
+        pendingPromptDao = database.pendingPromptDao(),
+        memoryEnrichment = memoryEnrichment,
+        conversationDeletion = conversationDeletion,
+        workspace = workspace
     )
 }

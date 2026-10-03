@@ -406,7 +406,7 @@ private class FakeAgentPersistenceDao : AgentPersistenceDao {
     override suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult = unused()
     override suspend fun saveChatSnapshot(chatRoom: ChatRoomV2, messages: List<MessageV2>, chatPlatformModels: Map<String, String>) = unused<Unit>()
     override suspend fun persistAgentRetry(request: PersistAgentRetryRequest): PersistAgentRetryResult = unused()
-    override suspend fun duplicateChatWithHistory(sourceChatId: Int, title: String, timestamp: Long): ChatRoomV2 = unused()
+    override suspend fun duplicateChatWithHistory(sourceChatId: Int, title: String, timestamp: Long, editedUser: MessageV2?): ChatRoomV2 = unused()
     override suspend fun updateMessage(message: MessageV2) = unused<Unit>()
     override suspend fun updateRunStatus(
         runId: String,

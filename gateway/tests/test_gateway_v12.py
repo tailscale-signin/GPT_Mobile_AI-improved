@@ -23,7 +23,8 @@ exec(compile(ast.Module(body=[node for node in tree.body if isinstance(node, ast
 
 class GatewayV12Tests(unittest.TestCase):
     def test_versioned_gateway_matches_canonical_implementation(self):
-        self.assertEqual(SOURCE.read_bytes(), SOURCE.with_name('gateway_v12.1.py').read_bytes())
+        self.assertIn('gateway_v12.py', SOURCE.with_name('gateway_v12.1.py').read_text())
+        self.assertLess(SOURCE.with_name('gateway_v12.1.py').stat().st_size, 1024)
 
     def test_delegate_preserves_isolated_client_tools_and_skips_domain_routing(self):
         tool = {'type': 'function', 'function': {'name': 'benchmark_lookup',

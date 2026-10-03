@@ -254,11 +254,11 @@ fun provideChatRepository(...): ChatRepository = ChatRepositoryImpl(...)
 ## Architecture Notes
 
 - **Min SDK**: 31 (Android 12)
-- **Target SDK**: 36
+- **Target SDK**: 37
 - **Java**: 21
 - **Pattern**: MVVM with Repository layer
 - **DI**: Hilt
-- **Database**: Room (`ChatDatabaseV2`, schema v23) with explicit migrations
+- **Database**: Room (`ChatDatabaseV2`, schema v33) with explicit migrations
 - **Network**: Ktor with OkHttp engine on Android
 - **Serialization**: kotlinx.serialization
 - **UI**: Material 3 with dynamic theming

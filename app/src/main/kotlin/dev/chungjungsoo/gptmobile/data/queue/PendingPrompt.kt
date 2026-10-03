@@ -24,7 +24,10 @@ data class PendingPrompt(
     val paused: Boolean = false,
     val userMessageId: Int? = null
 ) {
-    fun details(): PendingPromptPayload = Json { ignoreUnknownKeys = true }.decodeFromString(payload)
+    fun details(): PendingPromptPayload = payloadJson.decodeFromString(payload)
+    companion object {
+        private val payloadJson = Json { ignoreUnknownKeys = true }
+    }
 }
 
 @Serializable
@@ -32,5 +35,7 @@ data class PendingPromptPayload(
     val attachments: List<ChatAttachment> = emptyList(),
     val profileUids: List<String> = emptyList(),
     val models: Map<String, String> = emptyMap(),
-    val tools: ChatMcpToolConfig = ChatMcpToolConfig()
+    val tools: ChatMcpToolConfig = ChatMcpToolConfig(),
+    val localOnly: Boolean = false,
+    val requiresSpendAllowance: Boolean = false
 )

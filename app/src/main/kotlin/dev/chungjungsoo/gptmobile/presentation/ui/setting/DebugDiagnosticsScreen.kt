@@ -13,13 +13,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,106 +61,106 @@ fun DebugDiagnosticsScreen(
     val settings by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     val runtime by settingViewModel.localRuntimeState.collectAsStateWithLifecycle()
     val debugEnabled by settingViewModel.debugMode.collectAsStateWithLifecycle()
+    var workspaceTab by rememberSaveable { mutableIntStateOf(0) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var frozen by remember { mutableStateOf<DebugAnalyticsState?>(null) }
     val state = frozen ?: analytics
-    val live = frozen == null && selectedTab == 0
+    val live = workspaceTab == 0 && frozen == null && selectedTab == 0
     val now = rememberLiveClock(live)
     val hardware = rememberLiveHardware(runtime.backend?.displayName ?: "Idle", runtime.engineSpec?.accelerator ?: "None", live)
-    var showMetrics by rememberSaveable { mutableStateOf(false) }
     val activeRequests = state.invocations.filter { it.status == "RUNNING" }
     val activeTools = state.recentToolEvents.distinctBy { it.eventId }.filter { it.status == ToolEventStatus.RUNNING || it.status == ToolEventStatus.PENDING }
     Scaffold(modifier = modifier.fillMaxSize(), topBar = {
         TopAppBar(title = { Text("Debug and Statistics") }, navigationIcon = {
             IconButton(onClick = onNavigationClick) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary) }
         }, actions = {
-            if (selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause" else "Resume") }
+            if (workspaceTab == 0 && selectedTab == 0) TextButton(onClick = { frozen = if (frozen == null) analytics else null }) { Text(if (frozen == null) "Pause" else "Resume") }
         })
     }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Live", "Runs", "Logs").forEachIndexed { index, title -> FilterChip(selectedTab == index, { selectedTab = index }, label = { Text(title) }) }
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = workspaceTab) {
+                listOf("Debug", "Statistics", "Benchmark").forEachIndexed { index, label ->
+                    androidx.compose.material3.Tab(selected = workspaceTab == index, onClick = { workspaceTab = index }, text = { Text(label) })
                 }
             }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FilledTonalButton(onStatisticsClick, Modifier.weight(1f)) {
-                        Icon(Icons.Default.BarChart, null)
-                        Text("Usage", Modifier.padding(start = 8.dp))
-                    }
-                    FilledTonalButton(onBenchmarksClick, Modifier.weight(1f)) {
-                        Icon(Icons.Default.Speed, null)
-                        Text("Benchmarks", Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-            when (selectedTab) {
-                0 -> {
-                    item {
-                        DebugPanel(if (frozen == null) "Live session" else "Paused snapshot") {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Debug in conversations", fontWeight = FontWeight.SemiBold)
-                                    Text("Open response activity to inspect its diagnostics.", style = MaterialTheme.typography.bodySmall)
+            if (workspaceTab == 1) UsageStatisticsScreen(onBack = onNavigationClick, embedded = true)
+            if (workspaceTab == 2) ProfileBenchmarkScreen(onBack = onNavigationClick, onUsage = { workspaceTab = 1 }, embedded = true)
+            if (workspaceTab == 0) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    item { SettingsHero("Observatory", "Your AI, in focus", "${activeRequests.size} active requests · ${activeTools.size} tools · ${state.failedRuns} failed runs") }
+                    item { SettingsTabs(listOf("Live", "Runs", "Logs", "Display"), selectedTab) { selectedTab = it } }
+                    when (selectedTab) {
+                        0 -> {
+                            item {
+                                DebugPanel(if (frozen == null) "Live session" else "Paused snapshot") {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("Debug in conversations", fontWeight = FontWeight.SemiBold)
+                                            Text("Open response activity to inspect its diagnostics.", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        Switch(debugEnabled, settingViewModel::updateDebugMode)
+                                    }
+                                    MetricLine("Active model requests / tools", "${activeRequests.size} / ${activeTools.size}")
+                                    MetricLine("Recent runs / failed", "${state.recentRuns.size} / ${state.failedRuns}")
+                                    Text("Live values update once per second. Hardware samples every two seconds while this screen is visible.", style = MaterialTheme.typography.labelSmall)
                                 }
-                                Switch(debugEnabled, settingViewModel::updateDebugMode)
                             }
-                            MetricLine("Active model requests / tools", "${activeRequests.size} / ${activeTools.size}")
-                            MetricLine("Recent runs / failed", "${state.recentRuns.size} / ${state.failedRuns}")
-                            Text("Live values update once per second. Hardware samples every two seconds while this screen is visible.", style = MaterialTheme.typography.labelSmall)
-                            TextButton(onClick = { showMetrics = !showMetrics }) { Text(if (showMetrics) "Hide display settings" else "Display settings") }
-                            if (showMetrics) {
+                            if (activeRequests.isEmpty()) item { Text("No model request is running. Start a conversation to see live timing and token observations.", style = MaterialTheme.typography.bodyMedium) }
+                            items(activeRequests, key = { "live-${it.id}" }) { request ->
+                                DebugPanel(state.profileNames[request.profileUid] ?: request.model) { RequestDiagnostic(request, now, settings) }
+                            }
+                            items(activeTools, key = { "tool-${it.eventId}" }) { tool ->
+                                DebugPanel(tool.modelToolName.ifBlank { tool.toolName }) {
+                                    MetricLine("Status", tool.status.lowercase())
+                                    MetricLine("Elapsed", tool.startedAt?.let { formatLatency((now - it * 1000).coerceAtLeast(0)) } ?: "Waiting")
+                                    MetricLine("Connection", tool.connectionNameSnapshot ?: "Built in")
+                                    Text("Run ${tool.runId} · call ${tool.callId}", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            item { DebugPanel("This device") { hardware?.let { HardwareDiagnostic(it) } ?: Text("Reading device state…") } }
+                        }
+                        1 -> {
+                            item { Text("Recent runs · up to 250", style = MaterialTheme.typography.titleMedium) }
+                            items(state.recentRuns.distinctBy { it.runId }, key = { it.runId }) { run ->
+                                var expanded by rememberSaveable(run.runId) { mutableStateOf(false) }
+                                val requests = state.invocations.filter { it.parentRunId == run.runId }
+                                val tools = state.recentToolEvents.filter { it.runId == run.runId }.distinctBy { it.eventId }
+                                Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(18.dp)) {
+                                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(state.profileNames[run.profileUid] ?: run.modelSnapshot, color = modelChartColor(run.profileUid), fontWeight = FontWeight.SemiBold)
+                                        Text("${run.modelSnapshot} · ${run.status.lowercase()}", style = MaterialTheme.typography.bodyMedium, color = if (run.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                                        Text("${requests.size} recent requests · ${tools.size} retained tool calls", style = MaterialTheme.typography.labelSmall)
+                                        if (expanded) {
+                                            Text("Run ${run.runId}\nProvider ${run.providerSnapshot}\nChat ${run.chatId}", style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
+                                            run.terminalError?.let { Text(DiagnosticRedactor.redact(it), color = MaterialTheme.colorScheme.error) }
+                                            requests.forEach { RequestDiagnostic(it, now, settings) }
+                                            tools.forEach { tool ->
+                                                MetricLine(tool.modelToolName.ifBlank { tool.toolName }, tool.status.lowercase())
+                                                tool.error?.let { Text(DiagnosticRedactor.redact(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                                            }
+                                            if (requests.isEmpty()) Text("No individual request record in the latest 100. Full retained performance is available in Usage.", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
+                            }
+                            if (state.recentRuns.isEmpty()) item { Text("No recorded runs yet.") }
+                        }
+                        2 -> item { AppLogPanel() }
+                        3 -> item {
+                            SettingsPanel("Conversation diagnostics") {
                                 DebugMetric.entries.forEach { metric ->
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(metric.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                        Column(Modifier.weight(1f)) {
+                                            Text(metric.title, style = MaterialTheme.typography.titleSmall)
+                                            Text(metric.description, style = MaterialTheme.typography.bodySmall)
+                                        }
                                         Switch(settings.shows(metric), { settingViewModel.updateDebugMetric(metric, it) })
                                     }
                                 }
                             }
                         }
                     }
-                    if (activeRequests.isEmpty()) item { Text("No model request is running. Start a conversation to see live timing and token observations.", style = MaterialTheme.typography.bodyMedium) }
-                    items(activeRequests, key = { "live-${it.id}" }) { request ->
-                        DebugPanel(state.profileNames[request.profileUid] ?: request.model) { RequestDiagnostic(request, now) }
-                    }
-                    items(activeTools, key = { "tool-${it.eventId}" }) { tool ->
-                        DebugPanel(tool.modelToolName.ifBlank { tool.toolName }) {
-                            MetricLine("Status", tool.status.lowercase())
-                            MetricLine("Elapsed", tool.startedAt?.let { formatLatency((now - it * 1000).coerceAtLeast(0)) } ?: "Waiting")
-                            MetricLine("Connection", tool.connectionNameSnapshot ?: "Built in")
-                            Text("Run ${tool.runId} · call ${tool.callId}", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                    item { DebugPanel("This device") { hardware?.let { HardwareDiagnostic(it) } ?: Text("Reading device state…") } }
                 }
-                1 -> {
-                    item { Text("Recent runs · up to 250", style = MaterialTheme.typography.titleMedium) }
-                    items(state.recentRuns.distinctBy { it.runId }, key = { it.runId }) { run ->
-                        var expanded by rememberSaveable(run.runId) { mutableStateOf(false) }
-                        val requests = state.invocations.filter { it.parentRunId == run.runId }
-                        val tools = state.recentToolEvents.filter { it.runId == run.runId }.distinctBy { it.eventId }
-                        Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(18.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(state.profileNames[run.profileUid] ?: run.modelSnapshot, color = modelChartColor(run.profileUid), fontWeight = FontWeight.SemiBold)
-                                Text("${run.modelSnapshot} · ${run.status.lowercase()}", style = MaterialTheme.typography.bodyMedium, color = if (run.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                                Text("${requests.size} recent requests · ${tools.size} retained tool calls", style = MaterialTheme.typography.labelSmall)
-                                if (expanded) {
-                                    Text("Run ${run.runId}\nProvider ${run.providerSnapshot}\nChat ${run.chatId}", style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)
-                                    run.terminalError?.let { Text(DiagnosticRedactor.redact(it), color = MaterialTheme.colorScheme.error) }
-                                    requests.forEach { RequestDiagnostic(it, now) }
-                                    tools.forEach { tool ->
-                                        MetricLine(tool.modelToolName.ifBlank { tool.toolName }, tool.status.lowercase())
-                                        tool.error?.let { Text(DiagnosticRedactor.redact(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                                    }
-                                    if (requests.isEmpty()) Text("No individual request record in the latest 100. Full retained performance is available in Usage.", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                    }
-                    if (state.recentRuns.isEmpty()) item { Text("No recorded runs yet.") }
-                }
-                else -> item { AppLogPanel() }
             }
         }
     }

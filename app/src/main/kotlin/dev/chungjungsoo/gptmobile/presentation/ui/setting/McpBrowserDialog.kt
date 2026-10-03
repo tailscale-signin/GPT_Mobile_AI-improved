@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -80,6 +81,7 @@ fun McpBrowserDialog(connection: ToolConnection, onDismiss: () -> Unit, model: M
     AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.mcp_browser_dialog_label_1)) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text("${connection.name} · ${catalog.serverName}")
+            Text("${catalog.protocolVersion} · ${catalog.capabilities.joinToString()}", style = MaterialTheme.typography.bodySmall)
             if (catalog.verifiedAt > 0) Text("Last connected: ${java.time.Instant.ofEpochMilli(catalog.verifiedAt)}")
             if (busy) LinearProgressIndicator()
             catalog.resources.forEach { resource -> TextButton(enabled = !busy, onClick = { model.read(connection, resource.uri) }) { Text(resource.name) } }

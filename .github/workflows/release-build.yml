@@ -18,7 +18,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -59,7 +59,7 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
-          packages: 'platforms;android-37.0 build-tools;36.0.0'
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Unit tests, compatibility, resources and lint
         run: |
           set -euo pipefail
@@ -85,7 +85,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -96,7 +96,7 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
-          packages: 'platforms;android-37.0 build-tools;36.0.0'
+          packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Configure release signing
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -115,7 +115,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
           mkdir -p release-artifacts
           while IFS= read -r apk; do
             NAME=$(basename "$apk")

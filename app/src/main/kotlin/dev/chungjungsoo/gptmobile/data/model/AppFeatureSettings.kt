@@ -4,6 +4,16 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class AppFeatureSettings(
+    val smoothStreaming: Boolean = true,
+    val centerUnread: Boolean = true,
+    val responseAnimation: Boolean = true,
+    val edgeFades: Boolean = true,
+    val messageTimestamps: Boolean = true,
+    val queuedFollowUps: Boolean = true,
+    val parallelSearch: Boolean = true,
+    val deduplicateSearch: Boolean = true,
+    val githubConditionalReads: Boolean = true,
+    val githubBlobCache: Boolean = true,
     val backgroundGeneration: Boolean = true,
     val responseNotifications: Boolean = true,
     val automaticConversationTitles: Boolean = true,
@@ -30,12 +40,28 @@ data class AppFeatureSettings(
     val localNativeMetrics: Boolean = false,
     val localIdleMinutes: Int = 10,
     /** Global enable state for integrated, in-app tool plugins. Missing entries default to enabled. */
+    val pluginExecution: Map<String, PluginExecutionSettings> = emptyMap(),
     val toolPluginStates: Map<String, Boolean> = emptyMap(),
     val delegation: ModelDelegationSettings = ModelDelegationSettings(),
+    val profileBehavior: Map<String, ProfileBehaviorSettings> = emptyMap(),
+    val conversationReasoning: Map<Int, Boolean> = emptyMap(),
     val conversationDelegation: Map<Int, ConversationDelegationSettings> = emptyMap(),
+    val spendBudget: dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings = dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings(),
     val tokenBudget: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings()
 ) {
     fun withFeature(feature: AppFeature, enabled: Boolean): AppFeatureSettings = when (feature) {
+        AppFeature.SMOOTH_STREAMING -> copy(smoothStreaming = enabled)
+        AppFeature.CENTER_UNREAD -> copy(centerUnread = enabled)
+        AppFeature.RESPONSE_ANIMATION -> copy(responseAnimation = enabled)
+        AppFeature.EDGE_FADES -> copy(edgeFades = enabled)
+        AppFeature.MESSAGE_TIMESTAMPS -> copy(messageTimestamps = enabled)
+        AppFeature.QUEUED_FOLLOW_UPS -> copy(queuedFollowUps = enabled)
+        AppFeature.PARALLEL_SEARCH -> copy(parallelSearch = enabled)
+        AppFeature.DEDUPLICATE_SEARCH -> copy(deduplicateSearch = enabled)
+        AppFeature.GITHUB_CONDITIONAL_READS -> copy(githubConditionalReads = enabled)
+        AppFeature.GITHUB_BLOB_CACHE -> copy(githubBlobCache = enabled)
+        AppFeature.LOCAL_MODEL_CACHE -> copy(localModelCache = enabled)
+        AppFeature.LOCAL_NATIVE_METRICS -> copy(localNativeMetrics = enabled)
         AppFeature.BACKGROUND_GENERATION -> copy(backgroundGeneration = enabled)
         AppFeature.RESPONSE_NOTIFICATIONS -> copy(responseNotifications = enabled)
         AppFeature.AUTOMATIC_TITLES -> copy(automaticConversationTitles = enabled)
@@ -88,6 +114,18 @@ enum class AppFeature(
     val title: String,
     val description: String
 ) {
+    SMOOTH_STREAMING("Follow streaming responses", "Keep the latest text visible until you scroll up."),
+    CENTER_UNREAD("Center unread responses", "Open new replies at their beginning, in the middle of the screen."),
+    RESPONSE_ANIMATION("Response fade-in", "Animate newly generated text."),
+    EDGE_FADES("Conversation edge fades", "Blend conversation content beneath the header and composer."),
+    MESSAGE_TIMESTAMPS("Message timestamps", "Display sent and received times."),
+    QUEUED_FOLLOW_UPS("Live follow-up messages", "Add queued text to a delegated turn at its next safe model boundary."),
+    PARALLEL_SEARCH("Parallel search engines", "Query selected engines concurrently."),
+    DEDUPLICATE_SEARCH("Deduplicate search results", "Combine matching URLs across engines."),
+    GITHUB_CONDITIONAL_READS("GitHub conditional requests", "Reuse unchanged responses with ETag validation."),
+    GITHUB_BLOB_CACHE("GitHub immutable file cache", "Reuse source files by their content hash."),
+    LOCAL_MODEL_CACHE("Local compiled-model cache", "Reuse compiled model resources between loads."),
+    LOCAL_NATIVE_METRICS("Native runtime metrics", "Collect detailed LiteRT and QNN execution metrics."),
     BACKGROUND_GENERATION(
         "Background generation",
         "Keep active AI responses running when the app leaves the foreground."

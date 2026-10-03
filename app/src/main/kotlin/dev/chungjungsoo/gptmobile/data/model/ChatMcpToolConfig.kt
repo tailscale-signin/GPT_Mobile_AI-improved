@@ -26,6 +26,7 @@ data class ChatMcpToolConfig(
     val allToolsDisabled: Boolean = false,
     val maxTools: Int? = null,
     val maxToolCalls: Int? = null,
+    val reasoning: Boolean? = null,
     val delegation: ConversationDelegationSettings? = null
 ) {
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =

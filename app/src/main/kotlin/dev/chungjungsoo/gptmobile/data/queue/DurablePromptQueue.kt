@@ -62,9 +62,15 @@ class DurablePromptQueue @Inject constructor(
                             dao.pause(prompt.id, true)
                             return@forEach
                         }
+                        val remote = targets.any { it.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
+                        val features = settings.getFeatureSettings()
+                        if ((payload.localOnly && remote) || (payload.requiresSpendAllowance && remote && (!features.spendBudget.enforced || features.tokenBudget.outputTokens <= 0))) {
+                            dao.pause(prompt.id, true)
+                            return@forEach
+                        }
                         val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return@forEach
                         val before = chats.fetchMessagesV2(chatId)
-                        val resolved = targets.map { it.copy(model = payload.models[it.uid] ?: it.model) }
+                        val resolved = targets.map { it.copy(model = payload.models[it.uid] ?: it.model, reasoning = payload.tools.reasoning ?: it.reasoning) }
                         val result = chats.persistAgentTurn(
                             PersistAgentTurnRequest(
                                 chatRoom = room,

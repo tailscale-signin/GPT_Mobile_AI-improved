@@ -341,7 +341,8 @@ fun NavGraphBuilder.settingNavigation(
             val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
             val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
             val githubConnection = toolState.connections.firstOrNull { connection ->
-                connection.type == ToolConnectionType.GITHUB &&
+                (toolState.pluginStates[ToolPluginId.GITHUB] ?: true) &&
+                    connection.type == ToolConnectionType.GITHUB &&
                     (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
             }
             SettingScreen(
@@ -372,7 +373,8 @@ fun NavGraphBuilder.settingNavigation(
         ) {
             val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
             val githubConnection = toolState.connections.firstOrNull { connection ->
-                connection.type == ToolConnectionType.GITHUB &&
+                (toolState.pluginStates[ToolPluginId.GITHUB] ?: true) &&
+                    connection.type == ToolConnectionType.GITHUB &&
                     (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
             }
             if (githubConnection != null) {

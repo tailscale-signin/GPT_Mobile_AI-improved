@@ -19,6 +19,7 @@ class ToolExecutionBudget(
     private val completed = AtomicInteger()
     private val remainingBytes = AtomicInteger(limits.maxToolOutputBytes)
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
+    private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
 
     fun bind(
         tool: AgentTool,
@@ -30,10 +31,30 @@ class ToolExecutionBudget(
 
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
             fun failure(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true)
-            if (limits.maxToolCalls != Int.MAX_VALUE && calls.getAndIncrement() >= limits.maxToolCalls.coerceAtLeast(0)) {
-                return bounded(failure(AgentRunner.FINAL_RESPONSE_INSTRUCTION)).copy(outputBudgetExhausted = true)
+            if (!tryAcquireCall()) {
+                val message = toolCallBudgetMessage()
+                AppLogRecorder.record(
+                    "ToolBudget",
+                    "Tool-call limit blocked execution · tool=${tool.definition.name} · call=$callId · used=${calls.get()} · executableLimit=$executionLimit · configured=${limits.maxToolCalls} · reserved=${limits.finalResponseToolCallReserve}",
+                    "W"
+                )
+                return failure(message).copy(
+                    traceContent = ToolResultContent.Text(message),
+                    toolCallBudgetExhausted = true
+                )
             }
-            if (remainingBytes.get() <= 0) return bounded(failure("Tool result budget exhausted. Answer using the results already available."))
+            if (remainingBytes.get() <= 0) {
+                val message = outputBudgetMessage()
+                AppLogRecorder.record(
+                    "ToolBudget",
+                    "Tool-result byte budget blocked execution · tool=${tool.definition.name} · call=$callId · configuredBytes=${limits.maxToolOutputBytes}",
+                    "W"
+                )
+                return failure(message).copy(
+                    traceContent = ToolResultContent.Text(message),
+                    outputBudgetExhausted = true
+                )
+            }
             if (!authorize(callId, arguments)) return bounded(failure("Tool permission was denied or this action was already dispatched."))
             var success = false
             try {
@@ -47,8 +68,12 @@ class ToolExecutionBudget(
                             ?: failure("Tool timed out. Its outcome may be unknown; check before repeating a write.")
                     }
                 }
-                success = !result.isError
-                return bounded(result)
+                val boundedResult = bounded(
+                    result,
+                    preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME
+                )
+                success = !boundedResult.isError
+                return boundedResult
             } catch (cancellation: CancellationException) {
                 AppLogRecorder.record(
                     "Tool",
@@ -57,14 +82,31 @@ class ToolExecutionBudget(
                 )
                 throw cancellation
             } catch (error: Exception) {
-                return bounded(failure(failureMessage(error)))
+                val boundedResult = bounded(failure(failureMessage(error)))
+                success = !boundedResult.isError
+                return boundedResult
             } finally {
                 withContext(NonCancellable) { onFinished(callId, success) }
             }
         }
     }
 
-    private fun bounded(result: AgentToolResult): AgentToolResult {
+    private fun tryAcquireCall(): Boolean {
+        if (executionLimit == Int.MAX_VALUE) {
+            calls.incrementAndGet()
+            return true
+        }
+        while (true) {
+            val current = calls.get()
+            if (current >= executionLimit.coerceAtLeast(0)) return false
+            if (calls.compareAndSet(current, current + 1)) return true
+        }
+    }
+
+    private fun bounded(
+        result: AgentToolResult,
+        preserveSuccessfulHandoff: Boolean = false
+    ): AgentToolResult {
         val text = when (val value = result.content) {
             is ToolResultContent.Text -> value.text
             is ToolResultContent.Json -> value.value.toString()
@@ -76,15 +118,40 @@ class ToolExecutionBudget(
             ""
         }
         val size = (text + checkpoint).toByteArray(Charsets.UTF_8).size
-        val available = remainingBytes.getAndUpdate { (it.toLong() - size).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
+        val sharedAvailable = remainingBytes.getAndUpdate { (it.toLong() - size).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
+        val handoffReserve = if (
+            preserveSuccessfulHandoff &&
+            !result.isError &&
+            size > sharedAvailable
+        ) {
+            minOf(DELEGATION_HANDOFF_RESERVE_BYTES, size - sharedAvailable)
+        } else {
+            0
+        }
+        val available = (sharedAvailable.toLong() + handoffReserve).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+        // Delegation is an orchestrator: its nested search/read calls may legitimately
+        // consume the shared raw-result budget before the compact final handoff exists.
+        // Preserve that compact handoff in a small emergency reserve rather than
+        // replacing successful research with a misleading budget error.
+        if (handoffReserve > 0) {
+            AppLogRecorder.record(
+                "ToolBudget",
+                "Preserving delegated handoff after nested result budget use · call=${result.callId} · resultBytes=$size · sharedAvailable=$sharedAvailable · reserveBytes=$handoffReserve",
+                "W"
+            )
+        }
+
         // Control messages are bounded separately: providers reject empty error results,
         // and a zero payload allowance must still let the model finish the turn.
         if (available == 0) {
+            val message = outputBudgetMessage()
             return result.copy(
-                content = ToolResultContent.Text(OUTPUT_BUDGET_EXHAUSTED),
-                traceContent = ToolResultContent.Text(OUTPUT_BUDGET_EXHAUSTED),
+                content = ToolResultContent.Text(message),
+                traceContent = ToolResultContent.Text(message),
                 isError = true,
-                outputBudgetExhausted = true
+                outputBudgetExhausted = true,
+                toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
             )
         }
         val checkpointBytes = checkpoint.toByteArray(Charsets.UTF_8).size
@@ -95,7 +162,7 @@ class ToolExecutionBudget(
         }
         val safeText = bounded.ifBlank {
             if (size > available) {
-                OUTPUT_BUDGET_EXHAUSTED
+                outputBudgetMessage()
             } else if (result.isError) {
                 "Tool failed without error details."
             } else {
@@ -120,14 +187,35 @@ class ToolExecutionBudget(
         return result.copy(
             content = if (changed) ToolResultContent.Text(safeText) else result.content,
             traceContent = trace,
-            outputBudgetExhausted = result.outputBudgetExhausted ||
-                size >= available ||
-                (limits.maxToolCalls != Int.MAX_VALUE && calls.get() >= limits.maxToolCalls - 1)
+            outputBudgetExhausted = result.outputBudgetExhausted || size >= sharedAvailable,
+            toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
         )
+    }
+
+    private fun callBudgetIsExhausted(): Boolean =
+        executionLimit != Int.MAX_VALUE && calls.get() >= executionLimit
+
+    private fun toolCallBudgetMessage(): String {
+        val reserve = limits.finalResponseToolCallReserve.coerceAtLeast(0)
+        val configured = limits.maxToolCalls.coerceAtLeast(0)
+        return "Tool-call limit reached: ${calls.get()}/$executionLimit executable calls used " +
+            "($configured configured, $reserve reserved for finalization). " +
+            "Use the successful results already available. Increase Maximum Tool Calls on the active AI profile if more research is required."
+    }
+
+    private fun outputBudgetMessage(): String {
+        val configured = limits.maxToolOutputBytes.coerceAtLeast(0)
+        return "Tool-result byte budget exhausted: $configured/$configured bytes used. " +
+            "Use the successful results already available; completed delegated research should still be summarized."
+    }
+
+    private companion object {
+        const val DELEGATION_TOOL_NAME = "delegate_to_model"
+        const val DELEGATION_HANDOFF_RESERVE_BYTES = 64 * 1024
     }
 }
 
-internal const val OUTPUT_BUDGET_EXHAUSTED = "Tool result budget exhausted. Answer using the results already available; do not call more tools."
+internal const val OUTPUT_BUDGET_EXHAUSTED = "Tool-result byte budget exhausted. Answer using the results already available; do not call more tools."
 
 internal fun truncateUtf8(text: String, maxBytes: Int): String {
     if (maxBytes <= 0) return ""

@@ -29,6 +29,7 @@ import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
@@ -321,8 +322,7 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController) {
                 chatViewModel = conversation,
                 onBackAction = { navController.navigateUp() },
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
-                onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") },
-                onInspectContext = { id, run -> navController.navigate("workspaces?chatId=$id&tab=Context&runId=${android.net.Uri.encode(run)}") }
+                onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") }
             )
         }
     }
@@ -339,6 +339,11 @@ fun NavGraphBuilder.settingNavigation(
                 navController.getBackStackEntry(Route.SETTING_ROUTE)
             }
             val settingViewModel: SettingViewModelV2 = hiltViewModel(parentEntry)
+            val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
+            val githubConnection = toolState.connections.firstOrNull { connection ->
+                connection.type == ToolConnectionType.GITHUB &&
+                    (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
+            }
             SettingScreen(
                 settingViewModel = settingViewModel,
                 onNavigationClick = { navController.navigateUp() },
@@ -348,6 +353,7 @@ fun NavGraphBuilder.settingNavigation(
                 onNavigateToToolConnections = { navController.navigate(Route.TOOL_CONNECTIONS) },
                 onNavigateToAdvancedSettings = { navController.navigate(Route.ADVANCED_SETTINGS) },
                 onNavigateToWorkspaces = { navController.navigate("workspaces") },
+                githubWorkspaceEnabled = githubConnection != null,
                 onNavigateToFactVault = { navController.navigate(Route.FACT_VAULT) },
                 onNavigateToDebugDiagnostics = { navController.navigate(Route.DEBUG_DIAGNOSTICS) },
                 onNavigateToAboutPage = { navController.navigate(Route.ABOUT_PAGE) }
@@ -356,15 +362,27 @@ fun NavGraphBuilder.settingNavigation(
         composable(
             Route.WORKSPACES,
             arguments = listOf(
-                navArgument("chatId") {
-                    type = NavType.IntType
-                    defaultValue = 0
-                },
-                navArgument("tab") { defaultValue = "Tasks" },
+                navArgument("chatId") { type = NavType.IntType; defaultValue = 0 },
+                navArgument("tab") { defaultValue = "GitHub" },
                 navArgument("runId") { defaultValue = "" }
             )
-        ) { entry ->
-            dev.chungjungsoo.gptmobile.presentation.ui.workspace.WorkspaceScreen(onBack = { navController.navigateUp() }, onChat = { navController.navigate("chat_room/$it") }, initialChat = entry.arguments?.getInt("chatId") ?: 0, initialTab = entry.arguments?.getString("tab") ?: "Tasks", initialRun = entry.arguments?.getString("runId").orEmpty())
+        ) {
+            val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
+            val githubConnection = toolState.connections.firstOrNull { connection ->
+                connection.type == ToolConnectionType.GITHUB &&
+                    (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
+            }
+            if (githubConnection != null) {
+                dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
+                    connection = githubConnection,
+                    onDismiss = { navController.navigateUp() }
+                )
+            } else {
+                androidx.compose.material3.Text(
+                    "GitHub Workspace is available when the GitHub API plugin is enabled.",
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
         composable(Route.OPENROUTER_SETTINGS) {
             val viewModel: OpenRouterSettingsViewModel = hiltViewModel()

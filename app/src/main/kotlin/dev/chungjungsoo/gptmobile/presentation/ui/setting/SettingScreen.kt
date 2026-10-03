@@ -73,6 +73,7 @@ fun SettingScreen(
     onNavigateToAboutPage: () -> Unit,
     onNavigateToFactVault: () -> Unit = {},
     onNavigateToWorkspaces: () -> Unit = {},
+    githubWorkspaceEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val platforms by settingViewModel.platformState.collectAsState()
@@ -147,59 +148,61 @@ fun SettingScreen(
                 SettingsDiscoveryPanel(
                     featureSettings,
                     platforms,
-                    destinations = mapOf(
-                        "Models · profiles · reasoning · search engines · crawler" to onNavigateToAiPlatforms,
-                        "Tasks · context · research · recipes · GitHub workspace · spending" to onNavigateToWorkspaces,
-                        "Memory · projects · semantic recall · documents" to onNavigateToFactVault,
-                        "Plugins · remote MCP · GitHub settings" to onNavigateToToolConnections,
-                        "Theme · appearance · colors" to settingViewModel::openThemeDialog,
-                        "Privacy · storage · runtime · advanced" to onNavigateToAdvancedSettings,
-                        "Debug · statistics · benchmarks" to onNavigateToDebugDiagnostics,
-                        "Backup · restore · encryption" to settingViewModel::openBackupRestoreDialog,
-                        "Local models · LiteRT · QNN" to onNavigateToLocalModels
-                    ),
+                    destinations = buildMap {
+                        put("Models · profiles · reasoning · search engines · crawler", onNavigateToAiPlatforms)
+                        put("Memory · semantic recall · documents", onNavigateToFactVault)
+                        put("Plugins · remote MCP · GitHub tools", onNavigateToToolConnections)
+                        if (githubWorkspaceEnabled) put("GitHub workspace · repositories · code · pull requests", onNavigateToWorkspaces)
+                        put("Theme · appearance · colors", settingViewModel::openThemeDialog)
+                        put("Privacy · storage · runtime · advanced", onNavigateToAdvancedSettings)
+                        put("Debug · statistics · benchmarks", onNavigateToDebugDiagnostics)
+                        put("Backup · restore · encryption", settingViewModel::openBackupRestoreDialog)
+                        put("Local models · LiteRT · QNN", onNavigateToLocalModels)
+                    },
                     change = settingViewModel::updateFeature,
                     preset = settingViewModel::applyExperiencePreset,
                     resetOverrides = settingViewModel::resetConversationOverrides
                 )
             }
             item {
-                SettingsCategory(
-                    title = "AI & models"
-                ) {
+                SettingsCategory(title = "AI") {
                     SettingsDestination(
                         icon = Icons.Default.SmartToy,
                         title = "AI Platforms & Profiles",
                         onClick = onNavigateToAiPlatforms
                     )
                     SettingsDestination(
-                        icon = Icons.Default.AccountTree,
-                        title = "Memory",
-                        onClick = onNavigateToFactVault
-                    )
-                    SettingsDestination(icon = Icons.Default.Build, title = "Workspaces", onClick = onNavigateToWorkspaces)
-                    SettingsDestination(
                         icon = Icons.Default.Storage,
                         title = stringResource(R.string.local_models),
                         onClick = onNavigateToLocalModels
+                    )
+                }
+            }
+
+            item {
+                SettingsCategory(title = "Plugins/Tools") {
+                    SettingsDestination(
+                        icon = Icons.Default.Build,
+                        title = "Plugins/Tools",
+                        onClick = onNavigateToToolConnections
                     )
                     SettingsDestination(
                         icon = Icons.Default.Psychology,
                         title = "Model Delegation",
                         onClick = { showDelegation = true }
                     )
-                }
-            }
-
-            item {
-                SettingsCategory(
-                    title = "Tools & connectivity"
-                ) {
                     SettingsDestination(
-                        icon = Icons.Default.Build,
-                        title = stringResource(R.string.tool_connections),
-                        onClick = onNavigateToToolConnections
+                        icon = Icons.Default.AccountTree,
+                        title = "Memory",
+                        onClick = onNavigateToFactVault
                     )
+                    if (githubWorkspaceEnabled) {
+                        SettingsDestination(
+                            icon = Icons.Default.Build,
+                            title = "GitHub Workspace",
+                            onClick = onNavigateToWorkspaces
+                        )
+                    }
                 }
             }
 
@@ -222,11 +225,11 @@ fun SettingScreen(
 
             item {
                 SettingsCategory(
-                    title = "Diagnostics & data"
+                    title = "Diagnostics & Data"
                 ) {
                     SettingsDestination(
                         icon = Icons.Default.BugReport,
-                        title = "Debug and Statistics",
+                        title = "Debug & Statistics",
                         onClick = onNavigateToDebugDiagnostics
                     )
 

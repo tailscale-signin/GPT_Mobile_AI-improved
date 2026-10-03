@@ -47,10 +47,10 @@ internal fun PrivacyStoragePanel() {
     LaunchedEffect(Unit) { refresh() }
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Privacy & storage", style = MaterialTheme.typography.titleLarge)
+            Text("Privacy & Storage", style = MaterialTheme.typography.titleLarge)
             Row {
                 Column(Modifier.weight(1f)) {
-                    Text("Require device unlock")
+                    Text("Require Device Unlock")
                     Text("Locks after 30 seconds away", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(locked, { enabled ->
@@ -63,7 +63,7 @@ internal fun PrivacyStoragePanel() {
                 })
             }
             Row {
-                Text("Hide screenshots and recent-app previews", Modifier.weight(1f))
+                Text("Hide Screenshots And Recent-App Previews", Modifier.weight(1f))
                 Switch(secure, { enabled ->
                     secure = enabled
                     preferences.edit().putBoolean("secure_screen", enabled).apply()
@@ -71,7 +71,7 @@ internal fun PrivacyStoragePanel() {
                 })
             }
             sizes.forEach { (name, size) -> Text("$name · ${"%.1f".format(size / 1_048_576.0)} MB", style = MaterialTheme.typography.bodySmall) }
-            TextButton(onClick = { confirmCleanup = true }) { Text("Clear attachment previews") }
+            TextButton(onClick = { confirmCleanup = true }) { Text("Clear Attachment Previews") }
             if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
         }
     }

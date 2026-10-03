@@ -49,6 +49,8 @@ The manual `Android device validation` workflow targets a trusted self-hosted ru
 
 The suite includes real native-memory/Keystore/database tests, chat autoscroll behavior, cold startup, 1,000-item synthetic chat scrolling, streaming frames and Baseline Profile generation. Benchmarks use synthetic data; they do not load a user's account or call paid services. Also manually exercise settings, unread navigation, share cancellation, locking, fold/rotation with drafts, and sustained native generation/cancellation.
 
+App-lock validation must cover strong biometrics and device PIN/password on Android 12+, prompt cancellation after the 30-second grace period, activity recreation, and a device-credential reset. Unlock requires a single-use signature from an auth-per-use Android Keystore key; missing, stale or failed operations remain locked. JVM challenge tests cover proof rejection and replay, but cannot establish device authentication behavior. This gates the UI and does not make background-work vault keys authentication-bound.
+
 Generated profile files come from `BaselineProfileGenerator`; inspect them and copy the production-relevant rules into `app/src/main/baseline-prof.txt`. Exclude benchmark-only activity rules. Build again and compare `CompilationMode.None` against `CompilationMode.Partial(BaselineProfileMode.Require)` on the same physical device. No profile is checked in until it has been generated and its effect measured.
 
 Compare AndroidX JSON outputs using:

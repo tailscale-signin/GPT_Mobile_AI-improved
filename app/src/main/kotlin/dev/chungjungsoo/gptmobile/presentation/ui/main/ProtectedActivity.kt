@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import dev.chungjungsoo.gptmobile.data.security.AndroidAppLock
 
 /** UI privacy only: background generation follows the separate background-work setting. */
 open class ProtectedActivity : ComponentActivity() {
@@ -19,6 +20,7 @@ open class ProtectedActivity : ComponentActivity() {
         val preferences = getSharedPreferences("device_privacy", MODE_PRIVATE)
         if (preferences.getBoolean("secure_screen", false) || preferences.getBoolean("app_lock", false)) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         if (!preferences.getBoolean("app_lock", false)) {
+            authenticated = false
             window.decorView.visibility = View.VISIBLE
             return
         }
@@ -27,33 +29,58 @@ open class ProtectedActivity : ComponentActivity() {
             window.decorView.visibility = View.VISIBLE
             return
         }
+        authenticated = false
         window.decorView.visibility = View.INVISIBLE
         if (!(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isDeviceSecure) {
             finish()
             return
         }
+        val challenge = try {
+            AndroidAppLock.createChallenge()
+        } catch (_: Exception) {
+            finish()
+            return
+        }
         unlocking = true
         val signal = CancellationSignal().also { cancellation = it }
-        BiometricPrompt.Builder(this)
+        val prompt = BiometricPrompt.Builder(this)
             .setTitle("Unlock GPT Mobile")
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
             .build()
-            .authenticate(
+        try {
+            prompt.authenticate(
+                BiometricPrompt.CryptoObject(challenge.signature),
                 signal,
                 mainExecutor,
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                        authenticated = true
-                        pausedAt = SystemClock.elapsedRealtime()
+                        if (cancellation !== signal || signal.isCanceled || isFinishing || isDestroyed) return
+                        authenticated = challenge.complete(result.cryptoObject?.signature)
+                        cancellation = null
                         unlocking = false
+                        if (!authenticated) {
+                            finish()
+                            return
+                        }
+                        pausedAt = SystemClock.elapsedRealtime()
                         window.decorView.visibility = View.VISIBLE
                     }
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        if (cancellation !== signal || isFinishing || isDestroyed) return
+                        authenticated = false
+                        cancellation = null
                         unlocking = false
                         finish()
                     }
                 }
             )
+        } catch (_: Exception) {
+            authenticated = false
+            cancellation = null
+            signal.cancel()
+            unlocking = false
+            finish()
+        }
     }
 
     override fun onPause() {
@@ -62,7 +89,9 @@ open class ProtectedActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        cancellation?.cancel()
+        val signal = cancellation
+        cancellation = null
+        signal?.cancel()
         super.onDestroy()
     }
 

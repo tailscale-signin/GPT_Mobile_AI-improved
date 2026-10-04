@@ -197,18 +197,7 @@ class ReadUrlTool(
             }
             output.write(buffer, 0, read)
         }
-        if (!truncated && output.size() >= MAX_BODY_BYTES && !channel.isClosedForRead) {
-            while (true) {
-                val probe = channel.readAvailable(buffer, 0, 1)
-                if (probe == -1) break
-                if (probe == 0) {
-                    yield()
-                    continue
-                }
-                truncated = true
-                break
-            }
-        }
+        if (output.size() >= MAX_BODY_BYTES) truncated = true
         if (truncated) {
             AppLogRecorder.record(
                 "ReadUrl",

@@ -109,7 +109,7 @@ class ReadUrlTool(
                 if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status")
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
                 if (!isTextContent(contentType)) throw ReadUrlException("binary content rejected")
-                val boundedBody = readBounded(response)
+                val boundedBody = readBounded(response, current.host.orEmpty())
                 val rawText = boundedBody.bytes.toString(contentType.charsetOrUtf8())
                 val text = if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
                 val normalizedText = normalizeWhitespace(text)
@@ -182,7 +182,7 @@ class ReadUrlTool(
         return addresses
     }
 
-    private suspend fun readBounded(response: HttpResponse): BoundedBody {
+    private suspend fun readBounded(response: HttpResponse, host: String): BoundedBody {
         val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
         var truncated = contentLength != null && contentLength > MAX_BODY_BYTES
         val channel = response.bodyAsChannel()
@@ -201,7 +201,7 @@ class ReadUrlTool(
         if (truncated) {
             AppLogRecorder.record(
                 "ReadUrl",
-                "Read bounded oversized source · host=${response.request.url.host.take(160)} · retainedBytes=${output.size()} · maxBytes=$MAX_BODY_BYTES",
+                "Read bounded oversized source · host=${host.take(160)} · retainedBytes=${output.size()} · maxBytes=$MAX_BODY_BYTES",
                 "W"
             )
         }

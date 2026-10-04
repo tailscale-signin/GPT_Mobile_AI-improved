@@ -191,6 +191,12 @@ private val KNOWN_ANDROID_NOISE = listOf(
 
 internal fun redactLogMessage(message: String): String {
     var text = DiagnosticRedactor.redact(message)
+    if (
+        "ChatRoomV2(" in text &&
+        Regex("""(?i)(?:^|\s)D/chats\b|\bchats\s*[:=]""").containsMatchIn(text)
+    ) {
+        return "D/chats: [redacted chat collection]"
+    }
     // Android Log.d calls from legacy/UI code may stringify entire Room/domain objects.
     // Keep diagnostics useful without exporting conversation titles, profile UUIDs,
     // message text or timestamps embedded in those data-class dumps.

@@ -9,6 +9,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -168,8 +170,6 @@ class AgentRunner(
                 }
                 emit(failed(error.message ?: "Tools are unavailable for this model."))
                 return
-            } catch (error: Throwable) {
-                RoundResult(failure = ErrorClassification.classify(error).userMessage)
             }
             val roundFailure = round.failure
             if (roundFailure != null) {
@@ -434,7 +434,10 @@ class AgentRunner(
             )
         }
 
-        try {
+        var rejectedTools: ToolDefinitionsRejectedException? = null
+        // Keep provider failures separate from downstream collector failures. In
+        // particular, never emit usage from finally after cancellation or a failed emit.
+        flow {
             val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
             val replayExchanges = ToolExchangeCompactor.compact(
                 exchanges = exchanges,
@@ -455,70 +458,69 @@ class AgentRunner(
                     "W"
                 )
             }
-            session.streamRound(exposedDefinitions, replayExchanges)
-                .collect { event ->
-                    if (failure != null && event !is ProviderEvent.Usage) return@collect
-                    when (event) {
-                        is ProviderEvent.ToolCall -> {
-                            if (!session.handlesToolsInternally) {
-                                calls += event
-                            }
-                            emit(AgentRunEvent.Provider(event))
+            emitAll(session.streamRound(exposedDefinitions, replayExchanges))
+        }.catch { error ->
+            when (error) {
+                is CancellationException -> throw error
+                is ToolDefinitionsRejectedException -> rejectedTools = error
+                else -> failure = ErrorClassification.classify(error).userMessage
+            }
+        }.collect { event ->
+            if (failure != null && event !is ProviderEvent.Usage) return@collect
+            when (event) {
+                is ProviderEvent.ToolCall -> {
+                    if (!session.handlesToolsInternally) {
+                        calls += event
+                    }
+                    emit(AgentRunEvent.Provider(event))
+                }
+
+                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
+
+                is ProviderEvent.Failed -> {
+                    failure = event.message
+                }
+
+                is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
+
+                is ProviderEvent.Usage -> {
+                    event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
+                    event.inputTokens?.let { tokens ->
+                        roundInputTokens = if (event.cumulative) {
+                            maxOf(roundInputTokens, tokens.toLong())
+                        } else {
+                            roundInputTokens + tokens
                         }
-
-                        is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
-
-                        is ProviderEvent.Failed -> {
-                            failure = event.message
+                        hasRoundInputUsage = true
+                    }
+                    event.outputTokens?.let { tokens ->
+                        roundOutputTokens = if (event.cumulative) {
+                            maxOf(roundOutputTokens, tokens.toLong())
+                        } else {
+                            roundOutputTokens + tokens
                         }
-
-                        is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
-
-                        is ProviderEvent.Usage -> {
-                            event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
-                            event.inputTokens?.let { tokens ->
-                                roundInputTokens = if (event.cumulative) {
-                                    maxOf(roundInputTokens, tokens.toLong())
-                                } else {
-                                    roundInputTokens + tokens
-                                }
-                                hasRoundInputUsage = true
-                            }
-                            event.outputTokens?.let { tokens ->
-                                roundOutputTokens = if (event.cumulative) {
-                                    maxOf(roundOutputTokens, tokens.toLong())
-                                } else {
-                                    roundOutputTokens + tokens
-                                }
-                                hasRoundOutputUsage = true
-                            }
-                            event.totalTokens?.let { tokens ->
-                                roundTotalTokens = if (event.cumulative) {
-                                    maxOf(roundTotalTokens, tokens.toLong())
-                                } else {
-                                    roundTotalTokens + tokens
-                                }
-                                hasRoundTotalUsage = true
-                            }
+                        hasRoundOutputUsage = true
+                    }
+                    event.totalTokens?.let { tokens ->
+                        roundTotalTokens = if (event.cumulative) {
+                            maxOf(roundTotalTokens, tokens.toLong())
+                        } else {
+                            roundTotalTokens + tokens
                         }
-
-                        ProviderEvent.Completed -> completed = true
-
-                        else -> {
-                            if (event is ProviderEvent.TextDelta && event.text.isNotEmpty()) textEmitted = true
-                            emit(AgentRunEvent.Provider(event))
-                        }
+                        hasRoundTotalUsage = true
                     }
                 }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: ToolDefinitionsRejectedException) {
-            throw error
-        } catch (error: Exception) {
-            failure = ErrorClassification.classify(error).userMessage
-        } finally {
-            emitRoundUsage()
+
+                ProviderEvent.Completed -> completed = true
+
+                else -> {
+                    if (event is ProviderEvent.TextDelta && event.text.isNotEmpty()) textEmitted = true
+                    emit(AgentRunEvent.Provider(event))
+                }
+            }
         }
+        emitRoundUsage()
+        rejectedTools?.let { throw it }
         return RoundResult(calls, completed, failure, textEmitted)
     }
 

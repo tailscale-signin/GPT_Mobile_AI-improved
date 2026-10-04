@@ -298,8 +298,8 @@ class AgentRunCoordinator @Inject constructor(
             val profile = profiles[run.profileUid] ?: continue
             if (!sameGatewayEndpoint(profile.apiUrl, baseUrl)) continue
 
-            val recoveryAgeSeconds = (nowSeconds - (run.startedAt ?: run.createdAt)).coerceAtLeast(0)
-            if (recoveryAgeSeconds >= GATEWAY_RECOVERY_MAX_AGE_SECONDS) {
+            val recoveryAgeSeconds = gatewayRecoveryAgeSeconds(run, nowSeconds)
+            if (gatewayRecoveryExpired(run, nowSeconds)) {
                 val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
                     .keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
                 runCatching { gatewayAPI.cancelJob(jobId, ProviderRequestConfig(baseUrl, token)) }
@@ -395,7 +395,7 @@ class AgentRunCoordinator @Inject constructor(
     }
 
     private companion object {
-        const val GATEWAY_RECOVERY_MAX_AGE_SECONDS = 10 * 60L
+        const val GATEWAY_RECOVERY_MAX_AGE_SECONDS = DEFAULT_GATEWAY_RECOVERY_MAX_AGE_SECONDS
         const val GATEWAY_RECOVERY_MIN_INTERVAL_MS = 60_000L
         const val GATEWAY_RECOVERY_EXPIRED = "GATEWAY_RECOVERY_EXPIRED"
     }
@@ -505,6 +505,17 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 }
+
+internal const val DEFAULT_GATEWAY_RECOVERY_MAX_AGE_SECONDS = 10 * 60L
+
+internal fun gatewayRecoveryAgeSeconds(run: dev.chungjungsoo.gptmobile.data.database.entity.AgentRun, nowSeconds: Long): Long =
+    (nowSeconds - (run.startedAt ?: run.createdAt)).coerceAtLeast(0)
+
+internal fun gatewayRecoveryExpired(
+    run: dev.chungjungsoo.gptmobile.data.database.entity.AgentRun,
+    nowSeconds: Long,
+    maxAgeSeconds: Long = DEFAULT_GATEWAY_RECOVERY_MAX_AGE_SECONDS
+): Boolean = gatewayRecoveryAgeSeconds(run, nowSeconds) >= maxAgeSeconds
 
 internal data class AgentRunTerminalUpdate(val status: String, val error: String?)
 

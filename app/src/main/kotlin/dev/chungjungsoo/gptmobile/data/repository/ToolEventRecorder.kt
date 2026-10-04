@@ -72,7 +72,9 @@ class ToolEventRecorder @Inject constructor(
         completedAt: Long,
         error: String? = null
     ): ToolEvent? {
-        val normalizedResult = if (result.isError && result.hasSuccessfulDelegationMarker()) {
+        val startedEvent = dao.getToolEventById(eventId)
+        val isDelegationEvent = startedEvent?.modelToolName == "delegate_to_model" || startedEvent?.toolName == "delegate_to_model"
+        val normalizedResult = if (isDelegationEvent && result.isError && result.hasSuccessfulDelegationMarker()) {
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                 "Delegation",
                 "Corrected contradictory outer tool error after successful delegated handoff · call=${result.callId}",

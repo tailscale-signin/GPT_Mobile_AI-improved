@@ -3,6 +3,65 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 /** Display-only data resolved from recalled IDs; never persisted in chat metadata. */
 data class DebugMemorySource(val label: String, val value: String)
 
+private val debugMemoryWhitespace = Regex("\\s+")
+
+internal fun rememberedMemoryIdsFromToolResult(result: String?): List<String> {
+    val json = runCatching {
+        kotlinx.serialization.json.Json.parseToJsonElement(result.orEmpty()) as? kotlinx.serialization.json.JsonObject
+    }.getOrNull() ?: return emptyList()
+    return (json["recalledFactIds"] as? kotlinx.serialization.json.JsonArray)
+        .orEmpty()
+        .mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
+        .distinct()
+}
+
+internal fun isMemoryRecallTool(toolName: String): Boolean {
+    val leaf = toolName.substringAfterLast("__").trim().lowercase()
+    return leaf == "memory" || leaf == "memory_recall" || leaf == "local_memory" || leaf == "recall_memory"
+}
+
+internal fun debugMemorySourceRows(sources: Iterable<DebugMemorySource>): List<String> {
+    val seen = linkedSetOf<String>()
+    val rows = mutableListOf<String>()
+    for (source in sources) {
+        val row = source.displayLabel()
+        val key = row.lowercase()
+        if (row.isNotBlank() && seen.add(key)) rows += row
+    }
+    return rows
+}
+
+internal fun DebugMemorySource.displayLabel(): String {
+    val cleanLabel = label.cleanDebugMemoryText()
+    val cleanValue = value.cleanDebugMemoryText()
+    if (cleanLabel.isBlank()) return cleanValue
+    if (cleanValue.isBlank()) return cleanLabel
+
+    if (!cleanLabel.contains(cleanValue, ignoreCase = true)) return cleanLabel
+
+    val prefix = Regex(Regex.escape(cleanValue), RegexOption.IGNORE_CASE)
+        .replace(cleanLabel, " ")
+        .cleanDebugMemoryText()
+        .trim(' ', ':', '·', '-', '—')
+    val category = when {
+        prefix.equals("observation", ignoreCase = true) -> "Observation"
+        prefix.startsWith("User profile", ignoreCase = true) -> "User profile"
+        prefix.startsWith("User goal", ignoreCase = true) -> "User goal"
+        prefix.startsWith("User discusses", ignoreCase = true) -> "User discusses"
+        prefix.length in 1..28 -> prefix.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        else -> "Memory"
+    }
+    return "$category: $cleanValue"
+}
+
+private fun String.cleanDebugMemoryText(): String =
+    asSequence()
+        .filter { it == '\n' || it == '\t' || !it.isISOControl() }
+        .joinToString("")
+        .replace('�', ' ')
+        .replace(debugMemoryWhitespace, " ")
+        .trim()
+
 /** Highlight exact shared phrases, not guessed paraphrases or isolated common words. */
 private val memoryWord = Regex("[\\p{L}\\p{N}]+(?:['’-][\\p{L}\\p{N}]+)*")
 

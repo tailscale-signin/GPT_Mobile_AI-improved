@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,7 +55,8 @@ fun InlineExecutionTrace(
     contentIdentity: Any,
     debugMode: Boolean = false,
     remoteDelegation: Boolean = false,
-    debugSettings: AppFeatureSettings = AppFeatureSettings()
+    debugSettings: AppFeatureSettings = AppFeatureSettings(),
+    debugMemorySources: Map<String, DebugMemorySource> = emptyMap()
 ) {
     val recalled = timeline.flatMap { it.recalledFacts }.distinctBy { it.id }
     if (events.isEmpty() && recalled.isEmpty()) return
@@ -62,20 +64,27 @@ fun InlineExecutionTrace(
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        if (recalled.isNotEmpty() && !debugMode) {
-            val recallColor = androidx.compose.ui.graphics.Color(0xFFFF5CAA)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                recalled.forEach { fact ->
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (debugMode) recallColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.tertiaryContainer
-                    ) {
-                        Text(
-                            "🧠 Recalled: ${fact.label}",
-                            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (debugMode) recallColor else MaterialTheme.colorScheme.onTertiaryContainer
-                        )
+        if (recalled.isNotEmpty()) {
+            if (debugMode && debugSettings.debugShowMemoryRecall) {
+                val sources = recalled.mapNotNull { debugMemorySources[it.id] }
+                DebugMemorySourcesBubble(
+                    sources = sources.ifEmpty { recalled.map { DebugMemorySource(it.label, it.label) } },
+                    contentIdentity = "$contentIdentity:recalled"
+                )
+            } else if (!debugMode) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    recalled.forEach { fact ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Text(
+                                "🧠 Recalled: ${fact.label}",
+                                Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
                     }
                 }
             }
@@ -113,9 +122,11 @@ fun InlineExecutionTrace(
                     dots = dots % 3 + 1
                 }
             }
+            val memoryIds = rememberedMemoryIdsFromToolResult(event.result)
+            val isMemoryRecall = isMemoryRecallTool(event.toolName) || isMemoryRecallTool(event.modelToolName) || memoryIds.isNotEmpty()
             val summary = if (debugMode) {
                 buildString {
-                    append("${event.toolName} · $status")
+                    append(if (isMemoryRecall) "Memory recall · $status" else "${event.toolName} · $status")
                     metrics?.durationMs?.let { append(" · ${it}ms") }
                     metrics?.resultBytes?.let { append(" · $it bytes") }
                     if (metrics?.shared == true) append(" · Shared")
@@ -246,10 +257,76 @@ fun InlineExecutionTrace(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            } else if (debugMode && isMemoryRecall && debugSettings.debugShowMemoryRecall) {
+                                val sources = memoryIds.mapNotNull { debugMemorySources[it] }
+                                DebugMemorySourcesBubble(
+                                    sources = sources,
+                                    contentIdentity = "$contentIdentity:${event.eventId}:memory"
+                                )
                             } else if (!debugMode || !isFollowUp) {
                                 ToolTraceBlock(events = listOf(event))
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DebugMemorySourcesBubble(
+    sources: List<DebugMemorySource>,
+    contentIdentity: Any,
+    modifier: Modifier = Modifier
+) {
+    val rows = remember(sources) { debugMemorySourceRows(sources) }
+    if (rows.isEmpty()) return
+    var expanded by rememberSaveable(contentIdentity.toString()) { mutableStateOf(false) }
+    Surface(
+        onClick = { expanded = !expanded },
+        shape = RoundedCornerShape(18.dp),
+        color = DebugMemoryPink.copy(alpha = 0.13f),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(defaultSpatialSpec())
+            .semantics { contentDescription = "Memory recall. ${if (expanded) "Collapse" else "Expand"} memory details" }
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🧠", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Memory recall · ${rows.size} ${if (rows.size == 1) "source" else "sources"}",
+                    modifier = Modifier.weight(1f),
+                    color = DebugMemoryPink,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Icon(
+                    if (expanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                    null,
+                    tint = DebugMemoryPink,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(defaultSpatialSpec()) + fadeIn(fastEffectsSpec()),
+                exit = shrinkVertically(defaultSpatialSpec()) + fadeOut(fastEffectsSpec())
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Memory sources",
+                        color = DebugMemoryPink,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    rows.forEachIndexed { index, row ->
+                        Text(
+                            "${index + 1}. $row",
+                            color = DebugMemoryPink,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
             }

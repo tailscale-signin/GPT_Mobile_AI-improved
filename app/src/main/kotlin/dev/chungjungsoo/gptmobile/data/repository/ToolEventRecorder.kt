@@ -72,20 +72,34 @@ class ToolEventRecorder @Inject constructor(
         completedAt: Long,
         error: String? = null
     ): ToolEvent? {
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Tool", "Finished ${result.callId} · error=${result.isError}", if (result.isError) "E" else "I")
-        val content = (result.traceContent ?: result.content).serialized().forStorage()
-        val isCompletedEmpty = !result.isError && result.traceContent == null && content.value.isBlank()
+        val normalizedResult = if (result.isError && result.hasSuccessfulDelegationMarker()) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                "Delegation",
+                "Corrected contradictory outer tool error after successful delegated handoff · call=${result.callId}",
+                "W"
+            )
+            result.copy(isError = false)
+        } else {
+            result
+        }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Tool",
+            "Finished ${normalizedResult.callId} · error=${normalizedResult.isError}",
+            if (normalizedResult.isError) "E" else "I"
+        )
+        val content = (normalizedResult.traceContent ?: normalizedResult.content).serialized().forStorage()
+        val isCompletedEmpty = !normalizedResult.isError && normalizedResult.traceContent == null && content.value.isBlank()
         val resultType = if (isCompletedEmpty) ToolEventResultType.EMPTY else content.type
 
         val affectedRows = dao.finishToolEvent(
             eventId = eventId,
-            callId = result.callId,
+            callId = normalizedResult.callId,
             result = content.value,
             resultType = resultType,
-            status = if (result.isError) ToolEventStatus.FAILED else ToolEventStatus.COMPLETED,
-            isError = result.isError,
+            status = if (normalizedResult.isError) ToolEventStatus.FAILED else ToolEventStatus.COMPLETED,
+            isError = normalizedResult.isError,
             completedAt = completedAt,
-            error = error
+            error = if (normalizedResult.isError) error else null
         )
         if (affectedRows != 1) return null
         return dao.getToolEventById(eventId)
@@ -112,6 +126,10 @@ class ToolEventRecorder @Inject constructor(
         return dao.observeToolEventsForChat(chatId)
     }
 
+    private fun AgentToolResult.hasSuccessfulDelegationMarker(): Boolean =
+        (content as? ToolResultContent.Text)?.text?.trimStart()?.let { text ->
+            text.startsWith("<!-- delegation:local -->") || text.startsWith("<!-- delegation:remote -->")
+        } == true
     private fun ToolResultContent.serialized(): SerializedResult = when (this) {
         is ToolResultContent.Text -> SerializedResult(text, ToolEventResultType.TEXT)
         is ToolResultContent.Json -> SerializedResult(Json.encodeToString(value), ToolEventResultType.JSON)

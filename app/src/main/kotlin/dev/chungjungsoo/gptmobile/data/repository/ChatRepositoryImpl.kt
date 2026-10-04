@@ -352,8 +352,12 @@ class ChatRepositoryImpl(
             null
         }
         var calls = 0
+        var reviewerCalls = 0
         var input = 0L
         var output = 0L
+        var reviewerInput = 0L
+        var reviewerOutput = 0L
+        var reviewerEstimated = false
         var workerMs = 0L
         var estimated = false
         val firstText = mutableListOf<Long>()
@@ -385,7 +389,11 @@ class ChatRepositoryImpl(
         val runner = dev.chungjungsoo.gptmobile.data.benchmark.DelegationBenchmarkRunner(
             createCoordinator = { fixtures ->
                 suspend fun generate(targetProfile: PlatformV2, task: String, cap: Int, inputCap: Int, progress: (DelegateProgress) -> Unit, allowTools: Boolean, requestRole: String = "delegate"): String {
-                    calls++
+                    if (requestRole == "reviewer") {
+                        reviewerCalls++
+                    } else {
+                        calls++
+                    }
                     var roundInput = 0L
                     var roundOutput = 0L
                     var roundChars = 0
@@ -397,14 +405,33 @@ class ChatRepositoryImpl(
                     var sawOutput = false
                     var backendSpeed: Double? = null
                     fun finishRound() {
-                        workerMs += (System.nanoTime() / 1_000_000 - roundStarted).coerceAtLeast(0)
+                        val durationMs = (System.nanoTime() / 1_000_000 - roundStarted).coerceAtLeast(0)
+                        val chargedInput = if (sawInput) {
+                            roundInput
+                        } else {
+                            dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(task).toLong()
+                        }
+                        val chargedOutput = if (sawOutput) roundOutput else ((roundChars + 3) / 4).toLong()
+                        val roundEstimated = !sawInput || !sawOutput
+                        if (requestRole == "reviewer") {
+                            reviewerInput += chargedInput
+                            reviewerOutput += chargedOutput
+                            if (roundEstimated) reviewerEstimated = true
+                            benchmarkEvent(
+                                "REVIEWER_ROUND",
+                                "input=$chargedInput output=$chargedOutput durationMs=$durationMs tokenSource=${if (roundEstimated) "estimated" else "provider"}"
+                            )
+                            return
+                        }
+
+                        workerMs += durationMs
                         first?.let { firstText.add((it - roundStarted).coerceAtLeast(0)) }
                         val speedTokens = if (sawOutput && roundOutput > 0L) {
                             roundOutput.toDouble()
                         } else {
-                            ((roundChars + 3) / 4).toDouble()
+                            chargedOutput.toDouble()
                         }
-                        val elapsed = (System.nanoTime() / 1_000_000 - roundStarted).coerceAtLeast(1)
+                        val elapsed = durationMs.coerceAtLeast(1)
                         val streamedSpeed = if (chunks > 1 && first != null && last != null && last!! > first!!) {
                             speedTokens * 1000.0 / (last!! - first!!)
                         } else {
@@ -421,9 +448,7 @@ class ChatRepositoryImpl(
                             measuredSpeedRounds++
                             if (backendSpeed != null || (streamedSpeed != null && sawOutput)) reportedSpeedRounds++
                         }
-                        if (!sawInput || !sawOutput) estimated = true
-                        val chargedInput = if (sawInput) roundInput else dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(task).toLong()
-                        val chargedOutput = if (sawOutput) roundOutput else ((roundChars + 3) / 4).toLong()
+                        if (roundEstimated) estimated = true
                         input += chargedInput
                         output += chargedOutput
                         val speedSource = when {
@@ -434,7 +459,7 @@ class ChatRepositoryImpl(
                         }
                         benchmarkEvent(
                             "WORKER_ROUND",
-                            "input=$chargedInput output=$chargedOutput durationMs=${(System.nanoTime() / 1_000_000 - roundStarted).coerceAtLeast(0)} firstTextMs=${first?.let { (it - roundStarted).coerceAtLeast(0) } ?: -1} tokPerSec=${roundSpeed ?: "unavailable"} tokenSource=${if (sawOutput) "provider" else "estimated"} speedSource=$speedSource"
+                            "input=$chargedInput output=$chargedOutput durationMs=$durationMs firstTextMs=${first?.let { (it - roundStarted).coerceAtLeast(0) } ?: -1} tokPerSec=${roundSpeed ?: "unavailable"} tokenSource=${if (sawOutput) "provider" else "estimated"} speedSource=$speedSource"
                         )
                         if (roundOutput > cap) {
                             capViolations++
@@ -511,6 +536,14 @@ class ChatRepositoryImpl(
             openPrimary = { turns, tools -> openBenchmarkSession(platform, turns, tools, "$runId-primary") },
             workerTokens = { input to output },
             workerCalls = { calls },
+            reviewerUsage = {
+                dev.chungjungsoo.gptmobile.data.benchmark.ReviewerBenchmarkUsage(
+                    calls = reviewerCalls,
+                    inputTokens = reviewerInput,
+                    outputTokens = reviewerOutput,
+                    estimated = reviewerEstimated
+                )
+            },
             workerConfigKey = dev.chungjungsoo.gptmobile.data.benchmark.benchmarkConfigKey(target, workerEnvironment),
             telemetry = {
                 dev.chungjungsoo.gptmobile.data.benchmark.WorkerBenchmarkTelemetry(

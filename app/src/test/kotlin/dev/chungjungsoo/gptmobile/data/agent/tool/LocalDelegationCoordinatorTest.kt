@@ -68,7 +68,7 @@ class LocalDelegationCoordinatorTest {
         val dispatched = mutableListOf<String>()
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(researchEnabled = false, maxLocalModelCalls = 6, maxWastedLocalTokensPerTurn = 64000) },
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
             { listOf(target, second, third) },
             { profile, _, _ ->
                 dispatched += profile.uid
@@ -305,7 +305,7 @@ class LocalDelegationCoordinatorTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 6, maxWastedLocalTokensPerTurn = 64000) },
             { listOf(target) },
             { _, _, _ -> error("progressive path expected") },
             generateWithProgress = { _, _, _, _, progress ->

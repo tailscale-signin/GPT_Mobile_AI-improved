@@ -103,6 +103,7 @@ private val codeHighlightCache = LruCache<String, AnnotatedString>(400)
 fun ChatMarkdown(
     content: String,
     contentIdentity: Any = content,
+    memoryValues: List<String> = emptyList(),
     highlightSentence: String? = null,
     highlightProgress: Float = 0f,
     streaming: Boolean = false,
@@ -130,6 +131,7 @@ fun ChatMarkdown(
             }
             .toMap()
     }
+    val memoryRanges = remember(combinedMarkdown, memoryValues) { memoryHighlightRanges(combinedMarkdown, memoryValues) }
     val normalTextColor = MaterialTheme.colorScheme.onSurface
     // One timestamp per arriving chunk, rather than one boxed Long per character.
     val arrivalSegments = remember(contentIdentity) { mutableStateListOf<Pair<Int, Long>>() }
@@ -159,7 +161,7 @@ fun ChatMarkdown(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
-    val annotator = remember(inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
+    val annotator = remember(memoryRanges, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, hasStreamed, fadeClock, arrivalSegments.size) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)
@@ -169,7 +171,23 @@ fun ChatMarkdown(
 
             val streamVisibleText = streamVisibleMarkdownTokenText(child.type, text)
 
-            if (!hasMath && !hasSentenceHighlight && hasStreamed && streamVisibleText != null) {
+            val memorySpans = memoryRanges.filter { it.first < child.endOffset && it.last >= child.startOffset }
+            if (!hasMath && streamVisibleText != null && memorySpans.isNotEmpty()) {
+                val start = length
+                if (hasStreamed) {
+                    appendStreamFadedText(streamVisibleText, child.startOffset, arrivalSegments, fadeClock, normalTextColor)
+                } else append(streamVisibleText)
+                memorySpans.forEach { range ->
+                    val from = maxOf(range.first, child.startOffset)
+                    val to = minOf(range.last + 1, child.endOffset)
+                    if (to > from) addStyle(
+                        SpanStyle(color = DebugMemoryPink.copy(alpha = if (hasStreamed) streamAlphaAtOffset(from, arrivalSegments, fadeClock) else 1f)),
+                        start + (from - child.startOffset).coerceAtMost(streamVisibleText.length),
+                        start + (to - child.startOffset).coerceAtMost(streamVisibleText.length)
+                    )
+                }
+                true
+            } else if (!hasMath && !hasSentenceHighlight && hasStreamed && streamVisibleText != null) {
                 appendStreamFadedText(
                     text = streamVisibleText,
                     sourceStartOffset = child.startOffset,

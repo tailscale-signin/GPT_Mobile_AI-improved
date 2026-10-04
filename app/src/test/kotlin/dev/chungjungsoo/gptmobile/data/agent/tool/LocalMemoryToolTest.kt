@@ -51,6 +51,9 @@ class LocalMemoryToolTest {
         assertFalse((cloud.content as ToolResultContent.Text).text.contains("Kotlin"))
         val local = LocalMemoryTool(repository, message, true, false).execute("2", query)
         assertTrue((local.content as ToolResultContent.Text).text.contains("Kotlin"))
-        assertFalse((local.traceContent as ToolResultContent.Text).text.contains("Kotlin"))
+        val trace = (local.traceContent as ToolResultContent.Json).value as JsonObject
+        assertFalse(trace.toString().contains("Kotlin"))
+        val ids = trace["recalledFactIds"] as kotlinx.serialization.json.JsonArray
+        assertEquals(repository.state.value.facts.single().id, (ids.single() as kotlinx.serialization.json.JsonPrimitive).content)
     }
 }

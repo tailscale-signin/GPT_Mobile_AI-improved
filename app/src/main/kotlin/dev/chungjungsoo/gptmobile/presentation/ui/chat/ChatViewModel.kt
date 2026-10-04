@@ -101,7 +101,8 @@ class ChatViewModel @Inject constructor(
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val mcpInteractions: dev.chungjungsoo.gptmobile.data.agent.tool.McpInteractions? = null,
     private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
-    private val shareInbox: dev.chungjungsoo.gptmobile.data.sharing.ShareInbox? = null
+    private val shareInbox: dev.chungjungsoo.gptmobile.data.sharing.ShareInbox? = null,
+    private val factVault: dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -217,6 +218,28 @@ class ChatViewModel @Inject constructor(
         )
     )
     val chatRoom = _chatRoom.asStateFlow()
+
+    // Fact text remains in the encrypted vault; persisted timelines contain IDs only.
+    val debugMemorySources by lazy {
+        combine(
+            factVault?.state ?: flowOf(dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot()),
+            debugMode,
+            chatRoom
+        ) { _, debug, room ->
+            if (!debug || room.id <= 0) emptyMap() else {
+                withContext(Dispatchers.IO) {
+                    factVault?.visibleFacts(room.id, isLocal = true).orEmpty()
+                        .filter { it.supersededBy == null }
+                        .associate {
+                            it.id to DebugMemorySource(
+                                "${it.fact.entity.name} ${it.fact.relation.relationType.lowercase().replace('_', ' ')} ${it.fact.target.name}",
+                                it.fact.target.name
+                            )
+                        }
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }
 
     private val _isChatTitleDialogOpen = MutableStateFlow(false)
     val isChatTitleDialogOpen = _isChatTitleDialogOpen.asStateFlow()

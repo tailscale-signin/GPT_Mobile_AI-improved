@@ -47,13 +47,25 @@ internal fun AssistantChronologicalContent(
     isLoading: Boolean,
     animateResponse: Boolean = true,
     debugMode: Boolean,
+    debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     debugSettings: AppFeatureSettings = AppFeatureSettings(),
     showReasoning: Boolean,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     isError: Boolean = false
 ) {
-    val events = toolEvents.associateBy { it.sequence }
+    val events = remember(toolEvents) { toolEvents.associateBy { it.sequence } }
+    val recalledSources = remember(timeline, toolEvents, debugMemorySources, debugMode, debugSettings.debugShowMemoryRecall) {
+        if (debugMode && debugSettings.debugShowMemoryRecall) {
+            val automaticIds = timeline.flatMap { it.recalledFacts }.map { it.id }
+            val toolIds = toolEvents.filter { !it.isError && it.toolName in setOf("memory", "memory_recall") }.flatMap { event ->
+                val result = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(event.result.orEmpty()) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+                (result?.get("recalledFactIds") as? kotlinx.serialization.json.JsonArray).orEmpty()
+                    .mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            }
+            (automaticIds + toolIds).distinct().mapNotNull { debugMemorySources[it] }
+        } else emptyList()
+    }
     val legacy = timeline.isEmpty() || timeline.any { it.type == AssistantTimelineItemType.LEGACY_ORDER }
     val items = if (legacy) {
         buildList {
@@ -85,6 +97,9 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
+        recalledSources.forEach { source ->
+            Text("Memory sourced: ${source.label}", color = DebugMemoryPink, style = MaterialTheme.typography.bodySmall)
+        }
         items.forEachIndexed { index, item ->
             key(contentIdentity, index, item.type, item.toolSequence) {
                 when (item.type) {
@@ -100,7 +115,7 @@ internal fun AssistantChronologicalContent(
                             if (isError) {
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
-                                ChatMarkdown(content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }
@@ -133,7 +148,11 @@ internal fun AssistantChronologicalContent(
                                     style = MaterialTheme.typography.labelMedium,
                                     color = traceColor
                                 )
-                                Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = traceColor)
+                                if (reviewer) {
+                                    ReviewerDebugText(item.content, Modifier.padding(vertical = 8.dp))
+                                } else {
+                                    Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = traceColor)
+                                }
                             }
                         }
                     } else if (expanded && !item.statusSummary && !isContextDiagnostic(item.content)) {

@@ -62,7 +62,7 @@ fun InlineExecutionTrace(
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        if (recalled.isNotEmpty() && (!debugMode || debugSettings.debugShowMemoryRecall)) {
+        if (recalled.isNotEmpty() && !debugMode) {
             val recallColor = androidx.compose.ui.graphics.Color(0xFFFF5CAA)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 recalled.forEach { fact ->
@@ -145,7 +145,7 @@ fun InlineExecutionTrace(
                             tint = if (isDelegation) androidx.compose.ui.graphics.Color(0xFFFFC107) else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
-                        Text(summary, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(summary, modifier = Modifier.weight(1f), color = if (debugMode && isReviewerResult) androidx.compose.ui.graphics.Color(0xFFFFEA00) else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (running) {
                             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                 (1..3).forEach { index -> Text("•", color = MaterialTheme.colorScheme.primary.copy(alpha = if (index <= dots) 1f else 0.15f)) }
@@ -208,18 +208,13 @@ fun InlineExecutionTrace(
                                 .removePrefix("<!-- delegation:local -->")
                                 .trimStart()
                             val reviewerBoundary = if (isReviewerResult) debugResult.indexOf("\n\n") else -1
-                            val reviewerText = if (reviewerBoundary >= 0) debugResult.substring(0, reviewerBoundary).trim() else ""
-                            val delegateText = if (reviewerBoundary >= 0) debugResult.substring(reviewerBoundary).trim() else debugResult
+                            val reviewerText = if (reviewerBoundary >= 0) debugResult.substring(0, reviewerBoundary).trim() else if (isReviewerResult) debugResult else ""
+                            val delegateText = if (reviewerBoundary >= 0) debugResult.substring(reviewerBoundary).trim() else if (isReviewerResult) "" else debugResult
                             val showReviewerTrace = expanded && debugMode && reviewerText.isNotBlank() && debugSettings.debugShowReviewerTrace
                             val showDelegationTrace = expanded && debugMode && isDelegation && delegateText.isNotBlank() && debugSettings.debugShowDelegationTrace
                             if (showReviewerTrace || showDelegationTrace) {
                                 if (showReviewerTrace) {
-                                    Text(
-                                        reviewerText,
-                                        color = androidx.compose.ui.graphics.Color(0xFFFFEA00),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(top = 6.dp)
-                                    )
+                                    ReviewerDebugText(reviewerText, Modifier.padding(top = 6.dp))
                                 }
                                 if (showDelegationTrace) {
                                     Text(

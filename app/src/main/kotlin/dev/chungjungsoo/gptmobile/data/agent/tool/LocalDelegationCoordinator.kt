@@ -591,6 +591,7 @@ internal class LocalDelegationCoordinator(
         profile: PlatformV2,
         response: String?,
         chargedInput: Long,
+        observedOutputTokens: Long?,
         elapsedMs: Long,
         callNumber: Int,
         effectiveCallLimit: Int,
@@ -625,7 +626,7 @@ internal class LocalDelegationCoordinator(
             failuresByWorker[profile.uid]?.set(0)
             quarantinedWorkerUids.remove(profile.uid)
             permanentlyUnavailableWorkers.remove(availabilityKey(profile))
-            successfulLocalTokens.addAndGet(chargedInput + estimatedDelegateTokens(usable))
+            successfulLocalTokens.addAndGet(chargedInput + (observedOutputTokens ?: estimatedDelegateTokens(usable).toLong()))
             AppLogRecorder.record("Delegation", "Worker completed · target=${profile.uid} · call=$callNumber/$effectiveCallLimit · elapsedMs=$elapsedMs · outputChars=${usable.length} · requestedOutputCap=$requestedOutputCap · approxOutputTokens=${estimatedDelegateTokens(usable)}")
             logComputeTotals()
             return WorkerResolution(text = usable)
@@ -760,6 +761,7 @@ internal class LocalDelegationCoordinator(
         idleSeconds: Int,
         allowTools: Boolean,
         reviewer: Boolean = false,
+        onObservedOutput: (Long) -> Unit = {},
         onObservedUsage: (Long) -> Unit
     ): String? {
         if (delegationCanceledByUser.get()) return null
@@ -798,6 +800,7 @@ internal class LocalDelegationCoordinator(
                         }
                         DelegateProgressKind.USAGE -> {
                             progress.inputTokens?.let(onObservedUsage)
+                            progress.outputTokens?.let(onObservedOutput)
                             lastProgressAt.set(now)
                         }
                         DelegateProgressKind.REPAIR_WASTE -> {
@@ -1149,6 +1152,7 @@ internal class LocalDelegationCoordinator(
                 val startedAtMs = nowMs()
                 dispatchedAtMs = startedAtMs
                 var observedInputTokens = 0L
+                var observedOutputTokens: Long? = null
                 AppLogRecorder.record(
                     "Delegation",
                     "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/$effectiveCallLimit · sameTargetAttempt=${sameTargetRetryAttempt + 1}/${latest.localRetryLimit + 1} · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · hardRuntimeMs=${hardRuntimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
@@ -1163,7 +1167,8 @@ internal class LocalDelegationCoordinator(
                         hardRuntimeSeconds,
                         firstProgressSeconds,
                         idleSeconds,
-                        allowTools
+                        allowTools,
+                        onObservedOutput = { observedOutputTokens = maxOf(observedOutputTokens ?: 0L, it) }
                     ) { usage ->
                         observedInputTokens = maxOf(observedInputTokens, usage)
                         observedForFailure = maxOf(observedForFailure, usage)
@@ -1186,6 +1191,7 @@ internal class LocalDelegationCoordinator(
                     profile = profile,
                     response = response,
                     chargedInput = chargedInput,
+                    observedOutputTokens = observedOutputTokens,
                     elapsedMs = elapsedMs,
                     callNumber = callNumber,
                     effectiveCallLimit = effectiveCallLimit,

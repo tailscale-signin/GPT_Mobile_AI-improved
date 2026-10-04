@@ -10,7 +10,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -66,7 +68,32 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         }
     )
 
-    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = coroutineScope {
+    // Per-turn, short-lived single-flight cache. Identical searches by preparation and
+    // synthesis share evidence; changed filters and failed searches remain independent.
+    private val resultCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, AgentToolResult>>()
+    private val queryLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        if (!deduplicate) return search(callId, arguments)
+        val key = JsonObject(arguments.toSortedMap()).toString()
+        return queryLocks.getOrPut(key) { Mutex() }.withLock {
+            val now = clock.millis()
+            resultCache[key]?.takeIf { now - it.first in 0..30_000L }?.let {
+                return@withLock it.second.copy(callId = callId, sharedResult = true)
+            }
+            val result = search(callId, arguments)
+            if (!result.isError && !result.outputBudgetExhausted && !result.toolCallBudgetExhausted &&
+                (result.content as? ToolResultContent.Json)?.value?.let { extractSearchSources(it).isNotEmpty() } == true
+            ) {
+                resultCache.entries.removeIf { now - it.value.first > 30_000L }
+                if (resultCache.size >= 32) resultCache.keys.firstOrNull()?.let(resultCache::remove)
+                resultCache[key] = clock.millis() to result
+            }
+            result
+        }
+    }
+
+    private suspend fun search(callId: String, arguments: JsonObject): AgentToolResult = coroutineScope {
         val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull.orEmpty().trim()
         if (query.isEmpty()) return@coroutineScope AgentToolResult(callId, ToolResultContent.Text("A search query is required."), true)
         fun integer(name: String) = (arguments[name] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull

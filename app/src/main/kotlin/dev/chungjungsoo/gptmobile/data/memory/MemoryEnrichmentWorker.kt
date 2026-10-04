@@ -44,8 +44,8 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             if (scope.isTemporary || !state.enabled || !state.settings.learningEnabled || !state.settings.localModelLearning) {
                 return outcome("SKIPPED", "DISABLED_OR_TEMPORARY")
             }
-            // Indexing is independently useful, even when no inference engine is loaded.
-            vault.rebuildSemanticIndex()
+            // load() already synchronizes changed facts. Full index rebuild is a user action,
+            // not per-turn maintenance (it clears the embedding engine and every cached vector).
             vault.enrichTurn(message) { input ->
                 reason = "RUNTIME_BUSY"
                 val result = runtime.tryRunExclusive {

@@ -11,9 +11,7 @@ class AppLogRedactionTest {
         listOf("Private Project", "uuid-secret", "private text", "profile-secret").forEach {
             assertFalse(it, safe.contains(it))
         }
-        assertTrue(safe.contains("ChatRoomV2([redacted])"))
-        assertTrue(safe.contains("MessageV2([redacted])"))
-        assertTrue(safe.contains("PlatformV2([redacted])"))
+        assertTrue(safe.contains("D/chats: [redacted chat collection]"))
     }
     @Test fun `headers json credentials key prefixes and URL secrets are redacted`() {
         val raw = "Authorization: Bearer dangerous-token\nCookie: session=private\nX-Subscription-Token: brave-secret\n{\"api_key\":\"secret-value\"}\nhttps://example.com/search?token=url-secret\nhf_abcdefghijklmnop\nHTTP 500 request failed"

@@ -70,8 +70,13 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         }
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         val discovered = try {
-            rpc(config, "server/discover", JsonObject(emptyMap())).also {
-                check(VERSION in (it["supportedVersions"] as? JsonArray).orEmpty().map { version -> version.jsonPrimitive.content }) { "Server has no mutually supported modern MCP version." }
+            val discovery = rpc(config, "server/discover", JsonObject(emptyMap()))
+            val versions = (discovery["supportedVersions"] as? JsonArray).orEmpty()
+                .mapNotNull { version -> (version as? JsonPrimitive)?.takeIf { it.isString }?.content }
+            when {
+                VERSION in versions -> discovery
+                versions.any { it in LEGACY_VERSIONS } -> null
+                else -> error("Server has no mutually supported MCP version. Advertised: ${versions.joinToString().ifEmpty { "none" }}")
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -350,6 +355,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     }
     companion object {
         const val VERSION = "2026-07-28"
+        private val LEGACY_VERSIONS = setOf("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
         private const val DISCOVERY_CACHE_MS = 60 * 60 * 1000L
         private const val LEGACY_DECISION_CACHE_MS = 60_000L
         private const val LOCAL_DISCOVERY_TIMEOUT_MS = 12_000L

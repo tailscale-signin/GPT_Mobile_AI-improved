@@ -464,24 +464,29 @@ class LocalDelegationCoordinatorTest {
         assertEquals(3, calls)
     }
 
-    @Test fun `authorization failure quarantines delegated worker for the rest of the turn`() = runTest {
+    @Test fun `authorization failure blocks same credential across coordinators but credential change retries`() = runTest {
         var calls = 0
-        val coordinator = LocalDelegationCoordinator(
+        var active = target.copy(uid = "auth-blocked-worker", token = "bad-token")
+        fun coordinator() = LocalDelegationCoordinator(
             source,
             { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
-            { listOf(target) },
+            { listOf(active) },
             { _, _, _ ->
                 calls++
                 error("OpenRouter denied access (HTTP 403)")
             }
         )
 
-        val first = runCatching { coordinator.delegate(target, "first", 256, emptyList(), "first") }.exceptionOrNull()
-        val second = runCatching { coordinator.delegate(target, "second", 256, emptyList(), "second") }.exceptionOrNull()
+        val first = runCatching { coordinator().delegate(active, "first", 256, emptyList(), "first") }.exceptionOrNull()
+        val second = runCatching { coordinator().delegate(active, "second", 256, emptyList(), "second") }.exceptionOrNull()
 
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertEquals(1, calls)
+
+        active = active.copy(token = "rotated-token")
+        runCatching { coordinator().delegate(active, "after credential rotation", 256, emptyList(), "third") }
+        assertEquals(2, calls)
     }
 
     @Test fun `retired model is quarantined and delegation immediately fails over`() = runTest {

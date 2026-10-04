@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.SseUtils
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.header
@@ -39,6 +40,11 @@ class GatewayAPIImpl @Inject constructor(
                 config.token?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
                 accept(ContentType.Application.Json)
+                timeout {
+                    connectTimeoutMillis = RECOVERY_CONNECT_TIMEOUT_MS
+                    requestTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                    socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                }
             }.execute { response ->
                 if (response.status.isSuccess()) response.body<String>() else null
             } ?: return null
@@ -99,6 +105,11 @@ class GatewayAPIImpl @Inject constructor(
                 config.token?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
                 accept(ContentType.Application.Json)
+                timeout {
+                    connectTimeoutMillis = RECOVERY_CONNECT_TIMEOUT_MS
+                    requestTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                    socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                }
             }.execute { response ->
                 when {
                     response.status == HttpStatusCode.Accepted -> {
@@ -133,6 +144,11 @@ class GatewayAPIImpl @Inject constructor(
                 config.token?.let { bearerAuth(it) }
                 config.extraHeaders.forEach { (key, value) -> header(key, value) }
                 accept(ContentType.Application.Json)
+                timeout {
+                    connectTimeoutMillis = RECOVERY_CONNECT_TIMEOUT_MS
+                    requestTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                    socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                }
             }.execute { response ->
                 if (response.status.isSuccess()) response.body<String>() else null
             } ?: return null
@@ -142,5 +158,10 @@ class GatewayAPIImpl @Inject constructor(
         } catch (_: Exception) {
             null
         }
+    }
+
+    private companion object {
+        const val RECOVERY_CONNECT_TIMEOUT_MS = 5_000L
+        const val RECOVERY_REQUEST_TIMEOUT_MS = 10_000L
     }
 }

@@ -1176,10 +1176,17 @@ class ChatRepositoryImpl(
             }
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = userMessages.lastOrNull()
+            val synthesisRun = runId.startsWith("combined-synthesis:")
             val taskRoutedTools = preferNativeGitHubForTask(
                 resolvedTools,
                 latestUser?.content.orEmpty()
-            )
+            ).let { tools ->
+                if (synthesisRun) {
+                    tools.filterNot { it.realToolName == "delegate_to_model" }
+                } else {
+                    tools
+                }
+            }
             if (taskRoutedTools.size != resolvedTools.size) {
                 AppLogRecorder.record(
                     "GitHub",
@@ -1226,7 +1233,8 @@ class ChatRepositoryImpl(
             }
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
             val processingOwnership = effectiveDelegationSettings().processingOwnership
-            var localResearch = taskRoutedTools.any { it.realToolName == "delegate_to_model" } &&
+            var localResearch = !synthesisRun &&
+                taskRoutedTools.any { it.realToolName == "delegate_to_model" } &&
                 processingOwnership < 100 &&
                 localDelegation.researchAvailable()
             var exposedTools = orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools))
@@ -1251,11 +1259,17 @@ class ChatRepositoryImpl(
                 } else {
                     ""
                 }
+                val synthesisInstruction = if (synthesisRun) {
+                    "\nThis is a synthesis pass over evidence already prepared by earlier workers/reviewers. " +
+                        "Do not delegate, start another helper, or repeat completed research. Use the supplied evidence and any explicitly exposed direct recovery tools only when essential evidence is missing."
+                } else {
+                    ""
+                }
                 return liveToolSystemPrompt(
                     platform.systemPrompt,
                     exposedTools.map { it.modelToolName },
                     compact = localResearch || limits.contextTokens < 4096
-                ) + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction
+                ) + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction + synthesisInstruction
             }
             val memorySettings = factVault?.state?.value
             val canRecallDocuments = !privateConversation &&

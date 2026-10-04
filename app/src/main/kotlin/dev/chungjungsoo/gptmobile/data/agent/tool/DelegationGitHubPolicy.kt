@@ -34,6 +34,16 @@ internal fun preferNativeGitHubForTask(
     return tools.filterNot { it.isShellExecutionTool() }
 }
 
+internal fun synthesisSafeTools(
+    tools: List<ResolvedAgentTool>,
+    runId: String
+): List<ResolvedAgentTool> =
+    if (runId.startsWith("combined-synthesis:")) {
+        tools.filterNot { it.realToolName == "delegate_to_model" }
+    } else {
+        tools
+    }
+
 /** Keep repository actions callable even when the primary delegates its research. */
 internal fun primaryDelegationTools(
     tools: List<ResolvedAgentTool>,

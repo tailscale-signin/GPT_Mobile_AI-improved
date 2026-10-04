@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -20,6 +21,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test
+    fun `gateway recovery expires stale jobs using started time before created time`() {
+        val run = AgentRun(
+            runId = "run-stale",
+            chatId = 1,
+            assistantMessageId = 2,
+            profileUid = "profile",
+            status = AgentRunStatus.INTERRUPTED,
+            createdAt = 100,
+            startedAt = 200,
+            gatewayJobId = "gwjob",
+            gatewayBaseUrl = "http://127.0.0.1:8090"
+        )
+
+        assertEquals(599L, gatewayRecoveryAgeSeconds(run, 799))
+        assertFalse(gatewayRecoveryExpired(run, 799))
+        assertTrue(gatewayRecoveryExpired(run, 800))
+    }
+
     @Test
     fun `lazy run cleanup fires when job is canceled before start`() = runTest {
         val events = mutableListOf<String>()

@@ -1972,6 +1972,13 @@ class ChatRepositoryImpl(
         terminalError: String?
     ): Boolean = agentRunDao.finishActive(runId, status, completedAt, terminalError) == 1
 
+    override suspend fun finishInterruptedAgentRun(
+        runId: String,
+        status: String,
+        completedAt: Long,
+        terminalError: String?
+    ): Boolean = agentRunDao.finishInterrupted(runId, status, completedAt, terminalError) == 1
+
     override suspend fun updateAgentMessage(message: MessageV2) {
         messageV2Dao.editMessages(message)
     }

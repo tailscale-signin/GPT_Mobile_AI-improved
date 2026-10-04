@@ -285,6 +285,7 @@ fun ChatScreen(
     val isSelectTextSheetOpen by chatViewModel.isSelectTextSheetOpen.collectAsStateWithLifecycle()
     val selectedAttachments by chatViewModel.selectedAttachments.collectAsStateWithLifecycle()
     val pendingPrompts by chatViewModel.pendingPrompts.collectAsStateWithLifecycle()
+    val followUpProgress by chatViewModel.followUpProgress.collectAsStateWithLifecycle()
     val queuedPromptCount by chatViewModel.queuedPromptCount.collectAsStateWithLifecycle()
     val attachmentNotice by chatViewModel.attachmentNotice.collectAsStateWithLifecycle()
     val needsLocalNetworkAccess by chatViewModel.needsLocalNetworkAccess.collectAsStateWithLifecycle()
@@ -537,7 +538,7 @@ fun ChatScreen(
                     )
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
-                    QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt)
+                    QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[pendingPrompts[index].id]?.phase)
                 }
                 if (groupedMessages.userMessages.isNotEmpty()) {
                     item(key = "chat-bottom-anchor") {

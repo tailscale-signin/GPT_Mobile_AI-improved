@@ -229,6 +229,7 @@ internal fun ModelDelegationSettingsContent(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+                        DelegationSlider("Review Time Budget", config.reviewTimeoutSeconds, 15..120, 15, !busy, "Total time for review and evidence correction. Repairs do not reset this deadline.") { value -> onChange { it.copy(reviewTimeoutSeconds = value) } }
                         DelegationSlider(
                             "Reviewer Output Tokens",
                             config.reviewerOutputTokens,
@@ -344,6 +345,7 @@ internal fun ModelDelegationSettingsContent(
                         DelegationSlider("Idle-Token Timeout", config.idleTokenTimeoutSeconds, 5..90, 5, !busy, "Cancels a worker that started but stops making output/tool progress.") { value -> onChange { it.copy(idleTokenTimeoutSeconds = value) } }
                         DelegationSlider("Maximum Delegate Runtime", config.maxDelegateRuntimeSeconds, 30..120, 5, !busy, "Absolute hard ceiling; adaptive small and medium jobs finish earlier.") { value -> onChange { it.copy(maxDelegateRuntimeSeconds = value) } }
                         DelegationSlider("Delegations Per Turn", config.maxCallsPerTurn, 1..16, 1, !busy) { value -> onChange { it.copy(maxCallsPerTurn = value) } }
+                        DelegationSlider("Preparation Time Budget", config.preparationTimeoutSeconds, 30..300, 30, !busy, "Whole-turn research and review deadline, including retries.") { value -> onChange { it.copy(preparationTimeoutSeconds = value) } }
                         DelegationSlider("Maximum Wasted Local Tokens Per Turn", config.maxWastedLocalTokensPerTurn, 1000..64000, 1000, !busy, "Stops new workers after failed or canceled work consumes this estimated token budget.") { value -> onChange { it.copy(maxWastedLocalTokensPerTurn = value) } }
                         DelegationSlider("Stop When Evidence Sufficient", config.evidenceSufficiencyPercent, 50..100, 5, !busy, "Higher values gather more evidence before stopping; lower values reduce marginal delegate work.") { value -> onChange { it.copy(evidenceSufficiencyPercent = value) } }
                         DelegationSlider("Process Tool Results Above Characters", config.compactionThresholdCharacters, 256..48000, 256, !busy, "Small results pass through to avoid unnecessary local inference.") { value -> onChange { it.copy(compactionThresholdCharacters = value) } }

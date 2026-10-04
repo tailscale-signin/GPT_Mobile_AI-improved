@@ -100,6 +100,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -202,6 +203,7 @@ class ChatRepositoryImpl(
     private val conversationDeletion: dev.chungjungsoo.gptmobile.data.privacy.ConversationDeletion? = null,
     private val workspace: dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository? = null
 ) : ChatRepository {
+    private val conciseDelegateProfiles = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val providerAttachmentEncoder = ProviderAttachmentEncoder(context)
     private val openAIResponsesAdapter = OpenAIResponsesAdapter(openAIAPI, providerAttachmentEncoder)
     private val openAICompatibleAdapter = OpenAICompatibleAdapter(openAIAPI, groqAPI, providerAttachmentEncoder)
@@ -666,6 +668,9 @@ class ChatRepositoryImpl(
 
     private suspend fun delegateToProfile(target: PlatformV2, task: String, maxTokens: Int, parentRunId: String, turnKey: String, maxInputTokens: Int = Int.MAX_VALUE, onProgress: (DelegateProgress) -> Unit = {}, allowTools: Boolean = true, fixtureTools: List<AgentTool>? = null, chatToolConfig: ChatMcpToolConfig = ChatMcpToolConfig(), traceSequences: java.util.concurrent.atomic.AtomicInteger? = null, onToolTrace: (suspend (ApiState.ToolCall) -> Unit)? = null, authorizedTools: List<ResolvedAgentTool>? = null, finalizationRepairAttempted: Boolean = false, requestRole: String = "delegate"): String {
         val reviewing = requestRole == "reviewer"
+        val followingUp = requestRole == "follow_up"
+        val conciseKey = "${target.uid}|${target.model}"
+        val concise = followingUp || reviewing || conciseKey in conciseDelegateProfiles
         check(!reviewing || !allowTools) { "Reviewer requests cannot use worker tools." }
         val attemptId = UUID.randomUUID().toString()
         // Delegated runs are real child agent runs: they receive the target profile's
@@ -730,7 +735,7 @@ class ChatRepositoryImpl(
         }
         // Gateway-local capabilities are separately configured on the user's server.
         // Keep fixtures/text transforms isolated and never override chat exclusions.
-        val allowGatewayLocalTools = allowTools &&
+        val allowGatewayLocalTools = !followingUp && allowTools &&
             fixtureTools == null &&
             target.compatibleType == ClientType.LLAMA &&
             !target.disableAllTools &&
@@ -741,9 +746,9 @@ class ChatRepositoryImpl(
         val constraints = RequestConstraints(
             maxOutputTokens = maxTokens,
             allowTools = childTools.isNotEmpty() || allowGatewayLocalTools,
-            // Do not prohibit reasoning at the transport layer. Some endpoints require it;
-            // the worker prompt still asks for a concise visible final answer.
-            allowReasoning = true,
+            // Prefer visible output for reviewers, follow-ups and models that already
+            // spent a worker request entirely on reasoning.
+            allowReasoning = !concise,
             allowGatewayLocalTools = allowGatewayLocalTools,
             requestRole = requestRole,
             attemptId = attemptId
@@ -751,7 +756,7 @@ class ChatRepositoryImpl(
         val bounded = target.copy(
             batchMode = false,
             model = if (target.compatibleType == ClientType.OPENROUTER) target.model.removeSuffix(":batch") else target.model,
-            reasoning = target.reasoning,
+            reasoning = if (concise) false else target.reasoning,
             disableAllTools = childTools.isEmpty() && !allowGatewayLocalTools,
             systemPrompt = boundedSystemPrompt
         )
@@ -787,7 +792,10 @@ class ChatRepositoryImpl(
         var roundUsageTotal = 0L
         var maxRoundOutput = 0L
         var reasoningChars = 0
-        var sawUsage = false
+        var reasoningBytes = 0L
+        var hasInputUsage = false
+        var hasOutputUsage = false
+        var hasTotalUsage = false
         var extractionFailed = false
         AppLogRecorder.record(
             "Delegation",
@@ -838,6 +846,7 @@ class ChatRepositoryImpl(
                     }
                     is ProviderEvent.ThinkingDelta -> {
                         reasoningChars += provider.text.length
+                        reasoningBytes += provider.text.toByteArray().size
                         if (provider.text.isNotEmpty()) onProgress(DelegateProgress(DelegateProgressKind.OUTPUT))
                     }
                     is ProviderEvent.TextDelta -> {
@@ -860,22 +869,24 @@ class ChatRepositoryImpl(
                     }
                     is ProviderEvent.Usage -> {
                         provider.inputTokens?.let {
+                            hasInputUsage = true
                             val next = if (provider.cumulative) maxOf(roundUsageInput, it.toLong()) else roundUsageInput + it
                             usageInputTokens += next - roundUsageInput
                             roundUsageInput = next
                         }
                         provider.outputTokens?.let {
+                            hasOutputUsage = true
                             val next = if (provider.cumulative) maxOf(roundUsageOutput, it.toLong()) else roundUsageOutput + it
                             usageOutputTokens += next - roundUsageOutput
                             roundUsageOutput = next
                             maxRoundOutput = maxOf(maxRoundOutput, next)
                         }
                         provider.totalTokens?.let {
+                            hasTotalUsage = true
                             val next = if (provider.cumulative) maxOf(roundUsageTotal, it.toLong()) else roundUsageTotal + it
                             usageTotalTokens += next - roundUsageTotal
                             roundUsageTotal = next
                         }
-                        sawUsage = true
                         onProgress(DelegateProgress(DelegateProgressKind.USAGE, roundUsageInput.takeIf { provider.inputTokens != null }, roundUsageOutput.takeIf { provider.outputTokens != null }, roundUsageTotal.takeIf { provider.totalTokens != null }, decodeTokensPerSecond = provider.decodeTokensPerSecond))
                     }
                     else -> Unit
@@ -902,8 +913,8 @@ class ChatRepositoryImpl(
         val directUsableChars = rawText.trim().takeIf { it.length >= MIN_DELEGATED_USEFUL_CHARS && '\u0000' !in it }?.length ?: 0
         val recoveredToolChars = if (directUsableChars == 0) usableText?.length ?: 0 else 0
         val effectiveCap = effectiveProviderOutputCap ?: constraints.outputLimit(target.maxTokens)
-        val outputCapMismatch = sawUsage && effectiveCap != null && maxRoundOutput > effectiveCap
-        val outputCapReached = sawUsage && effectiveCap != null && maxRoundOutput >= effectiveCap
+        val outputCapMismatch = hasOutputUsage && effectiveCap != null && maxRoundOutput > effectiveCap
+        val outputCapReached = hasOutputUsage && effectiveCap != null && maxRoundOutput >= effectiveCap
         val likelyTruncated = (outputCapReached && usableText == null) || isLikelyDelegatedTruncation(rawText, outputCapReached)
 
         if (outputCapMismatch) {
@@ -920,14 +931,12 @@ class ChatRepositoryImpl(
             "Delegation",
             "Child parsed · parentRun=$parentRunId · target=${target.uid} · status=$status · directChars=$directUsableChars · recoveredToolChars=$recoveredToolChars · reasoningChars=$reasoningChars · reasoningOnly=$reasoningOnly"
         )
-        val accountedInputTokens = usageInputTokens.takeIf { it > 0 } ?: estimatedRequestInputTokens.toLong()
-        val accountedOutputTokens = usageOutputTokens.takeIf { it > 0 }
-            ?: ((usableText?.length ?: rawText.length) + 3L) / 4L
-        val accountedTotalTokens = usageTotalTokens.takeIf { it > 0 }
-            ?: accountedInputTokens + accountedOutputTokens
+        val accountedInputTokens = if (hasInputUsage) usageInputTokens else estimatedRequestInputTokens.toLong()
+        val accountedOutputTokens = if (hasOutputUsage) usageOutputTokens else (rawText.toByteArray().size + reasoningBytes + 2) / 3
+        val accountedTotalTokens = if (hasTotalUsage) usageTotalTokens else accountedInputTokens + accountedOutputTokens
         AppLogRecorder.record(
             "Delegation",
-            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=$accountedInputTokens · usageInputEstimated=${usageInputTokens <= 0} · usageOutput=$accountedOutputTokens · usageOutputEstimated=${usageOutputTokens <= 0} · usageTotal=$accountedTotalTokens · usageTotalEstimated=${usageTotalTokens <= 0} · reasoningTokensEstimated=${(reasoningChars + 3L) / 4} · usableOutputTokensEstimated=${((usableText?.length ?: 0) + 3L) / 4} · unusableTokens=${if (usableText == null) accountedTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
+            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=$accountedInputTokens · usageInputEstimated=${!hasInputUsage} · usageOutput=$accountedOutputTokens · usageOutputEstimated=${!hasOutputUsage} · usageTotal=$accountedTotalTokens · usageTotalEstimated=${!hasTotalUsage} · reasoningTokensEstimated=${(reasoningBytes + 2) / 3} · usableOutputTokensEstimated=${dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(usableText.orEmpty())} · unusableTokens=${if (usableText == null) accountedTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
         )
 
         if (!reviewing && usableText != null && likelyTruncated && !finalizationRepairAttempted) {
@@ -960,8 +969,9 @@ class ChatRepositoryImpl(
         }
 
         if (!reviewing && reasoningOnly && !finalizationRepairAttempted) {
-            val repairCap = delegationRepairOutputCap(maxTokens, target.maxTokens)
-            if (repairCap <= (effectiveCap ?: maxTokens)) error("DELEGATION_OUTPUT_BUDGET_EXHAUSTED: raise the profile output limit for this reasoning model.")
+            // Learn once per model and retry concisely at the same cap, rather than quadrupling it.
+            conciseDelegateProfiles += conciseKey
+            val repairCap = minOf(maxTokens, target.maxTokens?.takeIf { it > 0 } ?: maxTokens)
             AppLogRecorder.record(
                 "Delegation",
                 "Reasoning-only completion repair · parentRun=$parentRunId · target=${target.uid} · originalRequested=$maxTokens · repairRequested=$repairCap · providerMaximum=${target.maxTokens} · actuallySent=${minOf(repairCap, target.maxTokens?.takeIf { it > 0 } ?: repairCap)} · reasoningChars=$reasoningChars · repair_wasted_tokens=$accountedTotalTokens · repair_wasted_ms=$elapsedMs",
@@ -1502,103 +1512,12 @@ class ChatRepositoryImpl(
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }
                 .map { if (taskRoutedTools.any { tool -> tool.realToolName == "delegate_to_model" }) localDelegation.processToolResults(it, latestUser?.content.orEmpty()) else it }
             val delegationSettings = effectiveDelegationSettings()
-            val requestedOutputTokens = contextPlan.outputTokens
-            // Delegation saves input/replay tokens. Its brief budget must never cap the
-            // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
-            val effectiveOutputCap = requestedOutputTokens
-            val requestConstraints = RequestConstraints(
-                maxOutputTokens = effectiveOutputCap
-            )
-            if (localResearch) {
-                AppLogRecorder.record(
-                    "Delegation",
-                    "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=${effectiveOutputCap ?: -1} · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
-                )
-            }
-            suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>): AgentProviderSession {
-                workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan, turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
-                return when (platform.compatibleType) {
-                    ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, requestConstraints)
-
-                    ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
-                        openAICompatibleAdapter.openSession(turns, requestPlatform, requestConstraints)
-
-                    ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, requestPlatform, requestConstraints)
-
-                    ClientType.GOOGLE -> geminiAdapter.openSession(turns, requestPlatform, requestConstraints)
-
-                    ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
-                        turns,
-                        requestPlatform,
-                        effectiveTools.map { it.tool },
-                        requestConstraints,
-                        fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
-                    )
-                }
-            }
-            val session = object : AgentProviderSession {
-                private var active: AgentProviderSession? = null
-                private var currentTurns = contextPlan.turns
-                private var acceptedCharacters = 0
-                private var acceptedTokens = 0
-                override val handlesToolsInternally: Boolean get() = platform.compatibleType == ClientType.LITERT_LM
-                override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> = flow {
-                    val features = settingRepository.getFeatureSettings()
-                    val canFollowUp = features.queuedFollowUps &&
-                        pendingPromptDao != null &&
-                        effectiveDelegationSettings().enabled &&
-                        platform.compatibleType !in setOf(ClientType.LITERT_LM, ClientType.FREE) &&
-                        latestUser != null
-                    if (canFollowUp && latestUser != null && platform.uid !in context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE).getStringSet("paused_${latestUser.chatId}", emptySet()).orEmpty()) {
-                        val allowance = if (limits.contextTokens == Int.MAX_VALUE) {
-                            8000 - acceptedCharacters
-                        } else {
-                            minOf(8000 - acceptedCharacters, (limits.contextTokens.toLong() - contextPlan.promptTokens - acceptedTokens - dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(exchanges.joinToString()) - (effectiveOutputCap ?: 2048) - 2048).coerceIn(0, 8000).toInt() / 2)
-                        }
-                        val suffix = pendingPromptDao?.consumeFollowUp(latestUser.chatId, latestUser.id, runId, platform.uid, platform.model, (allowance - 32).coerceAtLeast(0), chatToolConfig ?: ChatMcpToolConfig())
-                        if (suffix != null) {
-                            currentTurns = currentTurns.map { turn -> if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = turn.userMessage.content + suffix)) else turn }
-                            acceptedCharacters += suffix.length
-                            acceptedTokens += dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(suffix)
-                            active = null
-                            emit(ProviderEvent.Notice("Queued message added as a follow-up to this response.", persistent = false))
-                        }
-                    }
-                    val current = active ?: openPrimarySession(currentTurns).also { active = it }
-                    current.streamRound(tools, exchanges).collect { emit(it) }
-                }
-            }
-            val accountedSession = invocationLedger?.wrap(
-                session, runId, turnKey, platform.compatibleType.name, platform.model,
-                if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary",
-                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(requestPlatform.systemPrompt.orEmpty() + contextPlan.turns.joinToString { it.userMessage.content + it.assistantMessage?.content.orEmpty() }) + contextPlan.tools.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.inputSchema.toString()) },
-                requestConstraints.outputLimit(platform.maxTokens) ?: 0, budgetSettings.totalRunTokens,
-                profileUid = platform.uid
-            ) ?: session
-            val groundedSession = accountedSession.withDeviceLocation(
-                clientType = platform.compatibleType,
-                userPrompt = latestUser?.content,
-                nativeLocationToolName = resolvedTools.firstOrNull {
-                    it.connectionUid == null && it.realToolName == BuiltInAgentTool.DEVICE_LOCATION
-                }?.modelToolName
-            )
-            val runnerTools = if (groundedSession.handlesToolsInternally) {
-                emptyList()
-            } else {
-                effectiveTools.map { it.tool }
-            }
-
-            val agentEvents = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(
-                customRunner.limits.copy(
-                    contextTokens = limits.contextTokens,
-                    initialContextTokens = contextPlan.promptTokens,
-                    finalResponseReserveTokens = minOf(contextPlan.outputTokens ?: 32768, limits.contextTokens / 4),
-                    finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls),
-                    maxReplayTokens = delegationSettings.primaryReplayTokens,
-                    maxReplayResultTokens = delegationSettings.primaryReplayResultTokens
-                )
-            ).run(groundedSession, runnerTools)
-            emitAll(streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace))
+            emitAll(streamPrimaryAnswer(
+                platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
+                budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
+                resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
+                localResearch, processingOwnership, reservedFinalToolCalls
+            ))
         } finally {
             withContext(NonCancellable) {
                 statusJob.cancelAndJoin()
@@ -1611,6 +1530,195 @@ class ChatRepositoryImpl(
         emit(ApiState.Error(classified.userMessage))
     }.onCompletion {
         emit(ApiState.Done)
+    }
+
+    private fun streamPrimaryAnswer(
+        platform: PlatformV2,
+        requestPlatform: PlatformV2,
+        latestUser: MessageV2?,
+        runId: String,
+        turnKey: String,
+        chatToolConfig: ChatMcpToolConfig?,
+        contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
+        budgetSettings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
+        limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
+        customRunner: dev.chungjungsoo.gptmobile.data.agent.AgentRunner,
+        delegationSettings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
+        effectiveTools: List<ResolvedAgentTool>,
+        exposedTools: List<ResolvedAgentTool>,
+        resolvedTools: List<ResolvedAgentTool>,
+        delegatedTools: List<ResolvedAgentTool>,
+        trace: ToolTraceSession,
+        traceSequences: java.util.concurrent.atomic.AtomicInteger,
+        recalled: FactRecall,
+        documentContext: String,
+        localResearch: Boolean,
+        processingOwnership: Int,
+        reservedFinalToolCalls: Int
+    ): Flow<ApiState> = channelFlow {
+        val requestedOutputTokens = contextPlan.outputTokens
+        // Delegation saves input/replay tokens. Its brief budget must never cap the
+        // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
+        val effectiveOutputCap = requestedOutputTokens
+        val requestConstraints = RequestConstraints(
+            maxOutputTokens = effectiveOutputCap
+        )
+        if (localResearch) {
+            AppLogRecorder.record(
+                "Delegation",
+                "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=${effectiveOutputCap ?: -1} · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
+            )
+        }
+        suspend fun openPrimarySession(turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>, kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary"): AgentProviderSession {
+            workspace?.recordContext(latestUser?.chatId ?: 0, runId, requestPlatform, contextPlan, turns, recalled, documentContext, chatToolConfig?.reasoning, localResearch)
+            val raw = when (platform.compatibleType) {
+                ClientType.OPENAI -> openAIResponsesAdapter.openSession(turns, requestPlatform, requestConstraints)
+
+                ClientType.NVIDIA, ClientType.GROQ, ClientType.OLLAMA, ClientType.OPENROUTER, ClientType.CUSTOM, ClientType.LLAMA, ClientType.FREE ->
+                    openAICompatibleAdapter.openSession(turns, requestPlatform, requestConstraints)
+
+                ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, requestPlatform, requestConstraints)
+
+                ClientType.GOOGLE -> geminiAdapter.openSession(turns, requestPlatform, requestConstraints)
+
+                ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
+                    turns,
+                    requestPlatform,
+                    effectiveTools.map { it.tool },
+                    requestConstraints,
+                    fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
+                )
+            }
+            return invocationLedger?.wrap(
+                raw, runId, turnKey, platform.compatibleType.name, platform.model, kind,
+                dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(requestPlatform.systemPrompt.orEmpty() + turns.joinToString { it.userMessage.content + it.assistantMessage?.content.orEmpty() }) + contextPlan.tools.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.inputSchema.toString()) },
+                requestConstraints.outputLimit(platform.maxTokens) ?: 0, budgetSettings.totalRunTokens,
+                profileUid = platform.uid
+            ) ?: raw
+        }
+        val session = followUpSession(
+            openPrimarySession(contextPlan.turns), platform, latestUser, runId, turnKey, chatToolConfig,
+            delegatedTools, traceSequences, limits.contextTokens, contextPlan.promptTokens, effectiveOutputCap,
+            openContinuation = { openPrimarySession(it, "follow_up_synthesis") },
+            onToolTrace = { send(it) }
+        )
+        val groundedSession = session.withDeviceLocation(
+            clientType = platform.compatibleType,
+            userPrompt = latestUser?.content,
+            nativeLocationToolName = resolvedTools.firstOrNull {
+                it.connectionUid == null && it.realToolName == BuiltInAgentTool.DEVICE_LOCATION
+            }?.modelToolName
+        )
+        val runnerTools = if (groundedSession.handlesToolsInternally) {
+            emptyList()
+        } else {
+            effectiveTools.map { it.tool }
+        }
+
+        val agentEvents = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(
+            customRunner.limits.copy(
+                contextTokens = limits.contextTokens,
+                initialContextTokens = contextPlan.promptTokens,
+                finalResponseReserveTokens = minOf(contextPlan.outputTokens ?: 32768, limits.contextTokens / 4),
+                finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls),
+                maxReplayTokens = delegationSettings.primaryReplayTokens,
+                maxReplayResultTokens = delegationSettings.primaryReplayResultTokens
+            )
+        ).run(groundedSession, runnerTools)
+        streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace).collect { send(it) }
+    }
+
+    private fun followUpSession(
+        initialSession: AgentProviderSession,
+        platform: PlatformV2,
+        latestUser: MessageV2?,
+        runId: String,
+        turnKey: String,
+        chatToolConfig: ChatMcpToolConfig?,
+        delegatedTools: List<ResolvedAgentTool>,
+        traceSequences: java.util.concurrent.atomic.AtomicInteger,
+        contextTokens: Int,
+        initialPromptTokens: Int,
+        effectiveOutputCap: Int?,
+        openContinuation: suspend (List<ConversationTurn>) -> AgentProviderSession,
+        onToolTrace: suspend (ApiState.ToolCall) -> Unit
+    ): AgentProviderSession {
+        val followUpDao = pendingPromptDao
+        val followUpTools = delegatedTools.filter { it.shareableReadOnly && it.realToolName != "delegate_to_model" }.sortedBy(::delegatedToolPriority).take(3)
+        var followUpCharacters = 0
+        var followUpTokens = 0
+        fun followUpAllowance(): Int {
+            val availableTokens = if (contextTokens == Int.MAX_VALUE) 6000 else
+                (contextTokens.toLong() - initialPromptTokens - followUpTokens - (effectiveOutputCap ?: 2048) - 2048).coerceIn(0, 6000).toInt()
+            return minOf(3000, 8000 - followUpCharacters, availableTokens / 2).coerceAtLeast(0)
+        }
+        suspend fun followUpsAllowed(): Boolean = settingRepository.getFeatureSettings().queuedFollowUps &&
+            latestUser != null && platform.uid !in context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE)
+                .getStringSet("paused_${latestUser.chatId}", emptySet()).orEmpty()
+        return if (followUpDao != null && latestUser != null &&
+            platform.compatibleType !in setOf(ClientType.LITERT_LM, ClientType.FREE) && !platform.batchMode
+        ) {
+            dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(
+                initial = initialSession,
+                pending = followUpDao.observePending().map { prompts -> prompts.filter { it.chatId == latestUser.chatId } },
+                eligible = { prompt -> followUpsAllowed() && followUpDao.canAcceptFollowUp(prompt, latestUser.id, runId, platform.uid, platform.model, followUpAllowance(), chatToolConfig ?: ChatMcpToolConfig()) },
+                prepare = { prompt ->
+                    val defaults = settingRepository.getFeatureSettings().delegationFor(platform.uid)
+                    val config = chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
+                    // A separate worker never borrows the reviewer or enables an unapproved destination.
+                    val configured = settingRepository.fetchPlatformV2s().firstOrNull {
+                        config.enabled && it.enabled && it.uid == config.targetProfileUid &&
+                            it.uid != config.reviewerProfileUid &&
+                            (it.isPrivateDestination() || config.remoteWorkersAllowed()) &&
+                            it.compatibleType !in setOf(ClientType.FREE, ClientType.LITERT_LM)
+                    }
+                    val target = (configured ?: platform).copy(maxToolCalls = 2)
+                    val childTrace = ToolTraceSession(runId, emptyList(), toolEventRecorder, traceSequences)
+                    val call = ProviderEvent.ToolCall("$runId:follow-up:${prompt.id}", "follow_up_context", kotlinx.serialization.json.buildJsonObject { put("prompt", kotlinx.serialization.json.JsonPrimitive(prompt.text)) })
+                    val event = childTrace.start(call)
+                    onToolTrace(ApiState.ToolCall(event.sequence))
+                    try {
+                        val result = delegateToProfile(
+                            target = target,
+                            task = "Prepare only the new user addition below. Search relevant context with the supplied read-only tools when needed. Return a compact brief of at most 250 words, preserve source URLs, and do not rewrite the main answer.\n\nOriginal task (excerpt):\n${latestUser.content.take(1600)}\n\nNew user addition:\n${prompt.text}",
+                            maxTokens = 768,
+                            parentRunId = runId,
+                            turnKey = turnKey,
+                            maxInputTokens = 4000,
+                            chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(),
+                            traceSequences = traceSequences,
+                            onToolTrace = onToolTrace,
+                            authorizedTools = followUpTools,
+                            finalizationRepairAttempted = true,
+                            requestRole = "follow_up"
+                        )
+                        childTrace.finish(call, AgentToolResult(call.callId, ToolResultContent.Text(result), false))?.let { onToolTrace(it) }
+                        result
+                    } catch (failure: Exception) {
+                        withContext(NonCancellable) {
+                            childTrace.finish(call, AgentToolResult(call.callId, ToolResultContent.Text("Follow-up helper did not finish. The queued user input is retained."), true))
+                        }
+                        throw failure
+                    }
+                },
+                accept = { prompt ->
+                    val consumed = followUpsAllowed() && followUpDao.acceptPreparedFollowUp(prompt, latestUser.id, runId, platform.uid, platform.model, followUpAllowance(), chatToolConfig ?: ChatMcpToolConfig())
+                    if (consumed) {
+                        followUpCharacters += prompt.text.length
+                        followUpTokens += dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt.text) + 2000
+                        AppLogRecorder.record("FollowUp", "Accepted · run=$runId · prompt=${prompt.id} · inputChars=${prompt.text.length} · primaryRestarted=false · historyReplayed=false")
+                    }
+                    consumed
+                },
+                continuation = { handoff, draft ->
+                    // Stateless endpoints require a new request; replay only this turn and a bounded tail.
+                    val user = latestUser.copy(content = latestUser.content.take(4000) + handoff +
+                        "\n\nContinue the same answer below. Address this addition, correct earlier claims if needed, and avoid repeating the answer already shown.\n\nAnswer already shown (bounded tail):\n" + draft)
+                    openContinuation(listOf(ConversationTurn(user, null, true)))
+                },
+                progress = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore::update
+            )
+        } else initialSession
     }
 
     private fun streamAgentEvents(
@@ -2334,6 +2442,6 @@ private fun AgentToolResult.errorMessage(): String? {
 
 private fun currentEpochSeconds(): Long = System.currentTimeMillis() / 1000
 
-/** One bounded jump avoids replaying a reasoning-only completion at the same small cap. */
+/** A truncated visible result gets one bounded finalization request. */
 internal fun delegationRepairOutputCap(requested: Int, profileLimit: Int?): Int =
-    minOf(maxOf(4096L, requested.toLong() * 4).coerceAtMost(8192L).toInt(), profileLimit?.takeIf { it > 0 } ?: 8192)
+    minOf(maxOf(1024L, requested.toLong() * 2).coerceAtMost(4096L).toInt(), profileLimit?.takeIf { it > 0 } ?: 4096)

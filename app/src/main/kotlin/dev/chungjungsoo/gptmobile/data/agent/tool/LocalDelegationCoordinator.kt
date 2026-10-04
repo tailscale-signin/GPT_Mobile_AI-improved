@@ -39,7 +39,7 @@ internal data class DelegateProgress(
     val wastedMillis: Long = 0
 )
 
-private fun estimatedDelegateTokens(text: String): Int = ((text.length + 3) / 4).coerceAtLeast(1)
+private fun estimatedDelegateTokens(text: String): Int = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(text).coerceAtLeast(1)
 
 /** One coordinator per main-model turn. Local inference is bounded and never recursively delegates. */
 internal class LocalDelegationCoordinator(
@@ -79,6 +79,7 @@ internal class LocalDelegationCoordinator(
         private val sessionUnavailableWorkers = ConcurrentHashMap.newKeySet<String>()
     }
 
+    private val preparationStartedAt = AtomicLong(-1L)
     private val physicalRequests = AtomicInteger()
     private val delegateAttempts = AtomicInteger()
     private val repairWastedTokens = AtomicLong()
@@ -153,7 +154,13 @@ internal class LocalDelegationCoordinator(
             reviewerEligible(it, config, source) && !sameDelegationModel(delegate, it)
         }
 
-    private suspend fun runReviewer(
+    private suspend fun runReviewer(delegate: PlatformV2, task: String, delegateOutput: String, config: ModelDelegationSettings): String {
+        return withTimeoutOrNull(config.reviewTimeoutSeconds * 1000L) {
+            reviewWithinBudget(delegate, task, delegateOutput, config)
+        } ?: "[REVIEW_REJECTED][REVIEW_TIMEOUT] Review/correction time budget reached. Treat delegate claims as unverified and recover independently."
+    }
+
+    private suspend fun reviewWithinBudget(
         delegate: PlatformV2,
         task: String,
         delegateOutput: String,
@@ -172,6 +179,7 @@ internal class LocalDelegationCoordinator(
         }
 
         var candidateOutput = delegateOutput
+        var previousScore: Int? = null
         fun reviewPrompt() = buildString {
             append("You are an independent REVIEWER model. Fact-check the delegate context against the original task and the evidence, source IDs, URLs, identifiers, numbers, code details, and explicit limitations contained in that context. ")
             append("Do not reward verbosity. Penalize unsupported claims, contradictions, missing requested details, invented facts, lost citations, or unsafe assumptions. ")
@@ -201,7 +209,7 @@ internal class LocalDelegationCoordinator(
                 delay(SAME_DELEGATE_RETRY_DELAY_MS)
             }
             try {
-                val reviewCap = delegationOutputBudget(reviewer, if (attempt == 0) config.reviewerOutputTokens else minOf(4096, maxOf(2048, config.reviewerOutputTokens * 4)))
+                val reviewCap = delegationOutputBudget(reviewer, config.reviewerOutputTokens)
                 val available = inputBudget(reviewer, reviewCap).coerceAtLeast(0)
                 if (available < 600) {
                     lastIssue = "Reviewer input capacity is unavailable."
@@ -242,10 +250,15 @@ internal class LocalDelegationCoordinator(
                 val accountedInputTokens = maxOf(observedInputTokens, estimatedInput.toLong())
                 AppLogRecorder.record(
                     "Delegation",
-                    "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · validationAttempt=${attempt + 1}/${retryLimit + 1} · terminalVerdict=${assessment.verdict != "REJECT" && assessment.score >= config.reviewerMinimumScore || attempt == retryLimit} · inputTokens=$accountedInputTokens · inputEstimated=${observedInputTokens <= 0} · retryPolicy=delegate_repair_then_review"
+                    "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · validationAttempt=${attempt + 1}/${retryLimit + 1} · terminalVerdict=${assessment.verdict != "REJECT" && assessment.score >= config.reviewerMinimumScore || attempt == retryLimit || previousScore?.let { assessment.score <= it } == true} · inputTokens=$accountedInputTokens · inputEstimated=${observedInputTokens <= 0} · retryPolicy=delegate_repair_then_review"
                 )
                 if (assessment.verdict == "REJECT" || assessment.score < config.reviewerMinimumScore) {
                     lastIssue = "Reviewer rejected the delegate evidence (${assessment.score}/100): ${assessment.issues.joinToString("; ")}"
+                    val priorScore = previousScore
+                    if (priorScore != null && assessment.score <= priorScore) {
+                        return "[REVIEW_REJECTED] $lastIssue\nRepair did not improve the review score; further correction calls were stopped. Recover independently."
+                    }
+                    previousScore = assessment.score
                     if (attempt < retryLimit) {
                         val repaired = workerText(
                             target = delegate,
@@ -256,7 +269,10 @@ internal class LocalDelegationCoordinator(
                             allowTools = false,
                             pinnedConfig = config
                         )
-                        if (!repaired.isNullOrBlank()) candidateOutput = repaired
+                        if (repaired.isNullOrBlank() || repaired.trim() == candidateOutput.trim()) {
+                            return "[REVIEW_REJECTED] $lastIssue\nNo changed evidence was produced; further correction calls were stopped."
+                        }
+                        candidateOutput = repaired
                         continue
                     }
                     return "[REVIEW_REJECTED] " + lastIssue + "\nDo not treat rejected claims as verified evidence. The primary must recover independently."
@@ -754,6 +770,7 @@ internal class LocalDelegationCoordinator(
             generateTextWithProgress ?: generateWithProgress
         }
         check(!reviewer || progressive != null) { "REVIEWER_EXECUTOR_UNAVAILABLE: no isolated reviewer transport is configured." }
+        val wasteCeiling = settings().normalized().effectiveWastedLocalTokens()
         return coroutineScope {
             val startedAt = nowMs()
             val attemptRepairMs = AtomicLong()
@@ -787,6 +804,9 @@ internal class LocalDelegationCoordinator(
                             failedLocalTokens.addAndGet(tokens)
                             repairWastedMs.addAndGet(progress.wastedMillis)
                             attemptRepairMs.addAndGet(progress.wastedMillis)
+                            if (failedLocalTokens.get() + canceledLocalTokens.get() >= wasteCeiling) {
+                                error("DELEGATE_WASTE_BUDGET_EXHAUSTED: stop repair before spending another request.")
+                            }
                         }
                         DelegateProgressKind.REQUEST_STARTED -> Unit
                     }
@@ -946,7 +966,7 @@ internal class LocalDelegationCoordinator(
                 AppLogRecorder.record("Delegation", "Worker rejected · input budget too small · target=${profile.uid} · inputBudget=$budget · fallback=${it.failoverTarget?.uid}", "W")
             }
         }
-        if (sameTargetRetryAttempt == 0 && failedLocalTokens.get() + canceledLocalTokens.get() >= effectiveWasteLimit) {
+        if (failedLocalTokens.get() + canceledLocalTokens.get() >= effectiveWasteLimit) {
             AppLogRecorder.record("Delegation", "Worker rejected · wasted token budget exhausted · target=${profile.uid} · wasted=${failedLocalTokens.get() + canceledLocalTokens.get()} · max=$effectiveWasteLimit", "W")
             return WorkerPreparation(resolvedProfileUid = profile.uid)
         }
@@ -1242,12 +1262,27 @@ internal class LocalDelegationCoordinator(
         )
     }
 
-    suspend fun prepare(
+    suspend fun prepare(task: String, tools: List<ResolvedAgentTool>, callId: String, automatic: Boolean = false, targetOverride: PlatformV2? = null): LocalResearchResult {
+        val config = settings().normalized()
+        preparationStartedAt.compareAndSet(-1L, nowMs())
+        val remaining = config.preparationTimeoutSeconds * 1000L - (nowMs() - preparationStartedAt.get())
+        var retained: LocalResearchResult? = null
+        val result = if (remaining > 0) withTimeoutOrNull(remaining) {
+            prepareWithinBudget(task, tools, callId, automatic, targetOverride) { retained = it }
+        } else null
+        return result ?: (retained ?: LocalResearchResult("", 0, 0, 0)).copy(
+            handoff = "[REVIEW_REJECTED][PREPARATION_TIMEOUT] Research/review time budget reached. Retained context is unverified; the primary must recover independently.\n" + retained?.handoff.orEmpty(),
+            outcome = LocalResearchOutcome.FAILED
+        ).also { AppLogRecorder.record("Delegation", "PREPARATION_DEADLINE · call=$callId · remainingMs=$remaining · retainedPages=${it.pagesRead}", "W") }
+    }
+
+    private suspend fun prepareWithinBudget(
         task: String,
         tools: List<ResolvedAgentTool>,
         callId: String,
         automatic: Boolean = false,
-        targetOverride: PlatformV2? = null
+        targetOverride: PlatformV2? = null,
+        retain: (LocalResearchResult) -> Unit
     ): LocalResearchResult {
         val config = settings().normalized()
         if (!config.researchEnabled || (automatic && !config.automaticResearch)) {
@@ -1294,6 +1329,7 @@ internal class LocalDelegationCoordinator(
                 LocalResearchOutcome.FAILED
             )
         }
+        retain(result)
         if (delegationCanceledByUser.get()) return result.copy(handoff = primaryOnlyHandoff(), outcome = LocalResearchOutcome.NO_USEFUL_OUTPUT)
         val reviewedResult = if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) {
             val handoff = runReviewer(userSelectedRecoveryProfile.get() ?: target, task, result.handoff, config)
@@ -1301,7 +1337,7 @@ internal class LocalDelegationCoordinator(
         } else {
             result
         }
-        AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · outcome=${reviewedResult.outcome} · searches=${reviewedResult.searches} · pages=${reviewedResult.pagesRead} · rawBytes=${reviewedResult.rawBytes} · handoffChars=${reviewedResult.handoff.length}")
+        AppLogRecorder.record("Delegation", "Research finished · call=$callId · automatic=$automatic · outcome=${reviewedResult.outcome} · searches=${reviewedResult.searches} · pages=${reviewedResult.pagesRead} · pagesAttempted=${reviewedResult.pagesAttempted} · pagesRetrieved=${reviewedResult.pagesRetrieved} · pagesAccepted=${reviewedResult.pagesRead} · rawBytes=${reviewedResult.rawBytes} · handoffChars=${reviewedResult.handoff.length}")
         if (automatic && reviewedResult.outcome != LocalResearchOutcome.SUCCESS) requests.decrementAndGet()
         return reviewedResult
     }

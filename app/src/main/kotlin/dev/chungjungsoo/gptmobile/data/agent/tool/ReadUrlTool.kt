@@ -26,6 +26,7 @@ import java.net.UnknownHostException
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonArray
@@ -41,10 +42,11 @@ class ReadUrlTool(
     private val dns: Dns = Dns.SYSTEM,
     private val allowAddress: (InetAddress) -> Boolean = { false },
     private val htmlToText: (String) -> String = ::androidHtmlToText,
-    private val outputLimitBytes: Int = MAX_OUTPUT_BYTES
+    private val outputLimitBytes: Int = MAX_OUTPUT_BYTES,
+    private val deniedHosts: MutableSet<String> = ConcurrentHashMap.newKeySet()
 ) : AgentTool {
 
-    fun withOutputLimit(bytes: Int): ReadUrlTool = ReadUrlTool(dns, allowAddress, htmlToText, bytes.coerceIn(0, MAX_OUTPUT_BYTES))
+    fun withOutputLimit(bytes: Int): ReadUrlTool = ReadUrlTool(dns, allowAddress, htmlToText, bytes.coerceIn(0, MAX_OUTPUT_BYTES), deniedHosts)
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = "read_url",
@@ -96,6 +98,8 @@ class ReadUrlTool(
         var redirects = 0
         val seen = mutableSetOf(current.toASCIIString())
         while (true) {
+            val authority = current.host.lowercase(Locale.ROOT).removePrefix("www.") + ":" + current.port
+            if (authority in deniedHosts) return error(callId, "Read URL failed: this host denied access earlier in this turn. Choose another source.")
             val request = request(current)
             try {
                 val response = request.response
@@ -110,10 +114,11 @@ class ReadUrlTool(
                     redirects += 1
                     continue
                 }
+                if (status == 401 || status == 403) deniedHosts += authority
                 if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status")
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
                 if (!isTextContent(contentType)) throw ReadUrlException("binary content rejected")
-                val boundedBody = readBounded(response, current.host.orEmpty(), minOf(MAX_BODY_BYTES, maxOf(4096, outputCap * 8)))
+                val boundedBody = readBounded(response, current.host.orEmpty(), MAX_BODY_BYTES)
                 val rawText = boundedBody.bytes.toString(contentType.charsetOrUtf8())
                 val text = if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
                 val normalizedText = normalizeWhitespace(text)
@@ -382,12 +387,16 @@ private fun androidHtmlToText(html: String): String {
     // back-reference was fragile under the Android/JVM regex implementations and
     // could leak consent-manager JavaScript into the extracted article text.
     var visibleHtml = html
-    listOf("script", "style", "noscript", "template", "svg").forEach { tag ->
+    listOf("script", "style", "noscript", "template", "svg", "nav", "header", "footer", "aside").forEach { tag ->
         visibleHtml = Regex(
             """<$tag\b[^>]*>.*?</$tag\s*>""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
         ).replace(visibleHtml, " ")
     }
+    // Prefer article/main content so navigation and consent text cannot consume the output cap.
+    val article = Regex("""<(?:article|main)\b[^>]*>(.*?)</(?:article|main)\s*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .find(visibleHtml)?.groupValues?.get(1)
+    if (!article.isNullOrBlank()) visibleHtml = article
     val visible = runCatching {
         Html.fromHtml(visibleHtml, Html.FROM_HTML_MODE_LEGACY).toString()
     }.getOrElse {

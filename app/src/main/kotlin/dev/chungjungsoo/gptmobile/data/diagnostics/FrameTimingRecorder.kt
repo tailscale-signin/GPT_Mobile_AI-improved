@@ -2,13 +2,16 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import android.app.Activity
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.view.FrameMetrics
 import android.view.Window
 import java.util.WeakHashMap
 
 /** Opt-in frame timing for streaming, transitions and overlays; no per-frame log spam. */
 internal object FrameTimingRecorder {
+    private val metricsHandler by lazy { Handler(HandlerThread("FrameDiagnostics").apply { start() }.looper) }
     private var active = java.lang.ref.WeakReference<Activity>(null)
     private val listeners = WeakHashMap<Activity, Window.OnFrameMetricsAvailableListener>()
 
@@ -20,16 +23,20 @@ internal object FrameTimingRecorder {
         var dropped = 0
         var totalNs = 0L
         var maximumNs = 0L
+        var lastReportMs = SystemClock.elapsedRealtime()
         val frameBudgetNs = (1_000_000_000.0 / (activity.display?.refreshRate ?: 60f)).toLong()
         val listener = Window.OnFrameMetricsAvailableListener { _, metrics, lost ->
             if (!AppLogRecorder.enabled.value) return@OnFrameMetricsAvailableListener
             val duration = metrics.getMetric(FrameMetrics.TOTAL_DURATION).coerceAtLeast(0)
             frames++
-            if (duration > frameBudgetNs) slow++
+            val deadline = metrics.getMetric(FrameMetrics.DEADLINE).takeIf { it > 0 } ?: frameBudgetNs
+            if (duration > deadline) slow++
             dropped += lost
             totalNs += duration
             maximumNs = maxOf(maximumNs, duration)
-            if (frames >= 120) {
+            val nowMs = SystemClock.elapsedRealtime()
+            if (frames >= 120 && nowMs - lastReportMs >= 5000) {
+                lastReportMs = nowMs
                 AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · frameBudgetMs=${frameBudgetNs / 1_000_000.0}")
                 frames = 0
                 slow = 0
@@ -39,7 +46,7 @@ internal object FrameTimingRecorder {
             }
         }
         listeners[activity] = listener
-        activity.window.addOnFrameMetricsAvailableListener(listener, Handler(Looper.getMainLooper()))
+        activity.window.addOnFrameMetricsAvailableListener(listener, metricsHandler)
     }
 
     fun refresh() {

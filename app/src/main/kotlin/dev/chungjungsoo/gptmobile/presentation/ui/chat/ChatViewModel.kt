@@ -326,7 +326,11 @@ class ChatViewModel @Inject constructor(
     private data class QueuedPrompt(val text: String, val attachments: List<ChatAttachmentDraft>)
     private val queuedPrompts = ArrayDeque<QueuedPrompt>()
     private val _pendingPrompts = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.queue.PendingPrompt>>(emptyList())
-    val pendingPrompts = _pendingPrompts.asStateFlow()
+    val followUpProgress = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore.state
+    val pendingPrompts = kotlinx.coroutines.flow.combine(_pendingPrompts, followUpProgress) { prompts, progress ->
+        val merging = progress.values.filter { it.prompt.chatId == _chatRoom.value.id && it.phase == dev.chungjungsoo.gptmobile.data.queue.FollowUpPhase.MERGING }.map { it.prompt }
+        (prompts + merging).distinctBy { it.id }.sortedBy { it.position }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private var queueSubmissionPending = false
     private val _queuedPromptCount = MutableStateFlow(0)
     val queuedPromptCount = _queuedPromptCount.asStateFlow()

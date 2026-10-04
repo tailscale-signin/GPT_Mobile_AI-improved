@@ -56,21 +56,32 @@ interface PendingPromptDao {
     /** Atomic transfer: an accepted queued prompt is always retained in conversation history. */
     @Transaction
     suspend fun consumeFollowUp(chatId: Int, messageId: Int, runId: String, profileUid: String, model: String, maxCharacters: Int, tools: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig = dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig()): String? {
-        if (activeRunCount(chatId) != 1 || isRunningTurn(runId, messageId) != 1) return null
         val pending = firstPending(chatId) ?: return null
-        if (pending.paused || pending.text.isBlank() || pending.text.length > maxCharacters.coerceIn(0, 8000)) return null
-        val payload = pending.details()
-        if (payload.tools != tools ||
-            payload.attachments.isNotEmpty() ||
-            payload.profileUids != listOf(profileUid) ||
-            (payload.models[profileUid] != null && payload.models[profileUid] != model)
-        ) {
-            return null
-        }
+        if (!canAcceptFollowUp(pending, messageId, runId, profileUid, model, maxCharacters, tools)) return null
         val suffix = "\n\nFollow-up from user:\n${pending.text}"
         check(appendFollowUp(messageId, chatId, suffix) == 1)
         check(markFollowUpConsumed(pending.id, messageId) == 1)
         return suffix
+    }
+
+    suspend fun canAcceptFollowUp(pending: PendingPrompt, messageId: Int, runId: String, profileUid: String, model: String, maxCharacters: Int, tools: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig): Boolean {
+        if (activeRunCount(pending.chatId) != 1 || isRunningTurn(runId, messageId) != 1) return false
+        if (pending.paused || pending.text.isBlank() || pending.text.length > maxCharacters.coerceIn(0, 8000)) return false
+        val payload = pending.details()
+        return payload.tools == tools && payload.attachments.isEmpty() &&
+            !payload.localOnly && !payload.requiresSpendAllowance &&
+            payload.profileUids == listOf(profileUid) &&
+            (payload.models[profileUid] == null || payload.models[profileUid] == model)
+    }
+
+    /** Compare the prepared snapshot inside the same transaction that transfers ownership. */
+    @Transaction
+    suspend fun acceptPreparedFollowUp(expected: PendingPrompt, messageId: Int, runId: String, profileUid: String, model: String, maxCharacters: Int, tools: dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig): Boolean {
+        val current = firstPending(expected.chatId) ?: return false
+        if (current != expected || !canAcceptFollowUp(current, messageId, runId, profileUid, model, maxCharacters, tools)) return false
+        check(appendFollowUp(messageId, expected.chatId, "\n\nFollow-up from user:\n${expected.text}") == 1)
+        check(markFollowUpConsumed(expected.id, messageId) == 1)
+        return true
     }
 
     @Transaction

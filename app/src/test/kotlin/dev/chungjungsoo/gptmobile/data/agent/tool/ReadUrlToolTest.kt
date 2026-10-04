@@ -305,6 +305,28 @@ class ReadUrlToolTest {
         }
     }
 
+    @Test
+    fun `denied hosts are not fetched again through bounded readers`() = runBlocking {
+        var requests = 0
+        val server = server { exchange -> requests++; exchange.respond(403, "text/plain", "Denied") }
+        val reader = tool(allowTestLoopback = true)
+        assertTrue(reader.execute("one", args(server.url("fixture.test", "/one"))).isError)
+        assertTrue(reader.withOutputLimit(1000).execute("two", args(server.url("fixture.test", "/two"))).isError)
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun `small output allowance still finds article after large script header`() = runBlocking {
+        val server = server { exchange ->
+            exchange.respond(200, "text/html", "<script>" + "noise".repeat(40000) + "</script><article>Verified article result: 42 milliseconds.</article>")
+        }
+        val reader = tool(allowTestLoopback = true).withOutputLimit(200)
+        val result = reader.execute("article", args(server.url("fixture.test", "/article")))
+        assertFalse(result.isError)
+        assertTrue(result.text().contains("42 milliseconds"))
+        assertTrue(result.text().toByteArray().size <= 200)
+    }
+
     private fun tool(
         dns: Dns = dns("fixture.test", "127.0.0.1"),
         allowTestLoopback: Boolean = false

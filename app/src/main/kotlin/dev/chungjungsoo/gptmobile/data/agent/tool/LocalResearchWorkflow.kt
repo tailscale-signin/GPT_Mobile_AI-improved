@@ -183,7 +183,7 @@ internal class LocalResearchWorkflow(
                     // structured parser misses a provider-specific envelope, recover any public
                     // URLs from the raw result so page reading can still do the expensive evidence
                     // work locally instead of forcing the remote primary to re-research the task.
-                    val rawSearchText = result.content.researchText()
+                    val rawSearchText = pageText(payload)
                     researchLinks(rawSearchText).take(32).forEach { url ->
                         addSource(url, url, rawSearchText.take(600))
                     }
@@ -439,7 +439,12 @@ internal fun pageText(value: JsonElement, depth: Int = 0): String {
     if (depth > 8) return ""
     return when (value) {
         is JsonPrimitive -> value.takeIf { it.isString }?.content.orEmpty()
-        is JsonArray -> value.joinToString("\n") { pageText(it, depth + 1) }
-        is JsonObject -> listOf("markdown", "content", "text", "raw_content", "data", "results", "structuredContent").mapNotNull { value[it] }.joinToString("\n") { pageText(it, depth + 1) }
+        is JsonArray -> value.map { pageText(it, depth + 1) }.filter { it.isNotBlank() }.joinToString("\n")
+        is JsonObject -> if (value.string("status") in setOf("unavailable", "failed", "error")) {
+            ""
+        } else {
+            listOf("markdown", "content", "text", "raw_content", "data", "results", "sources", "structuredContent", "engines", "detail")
+                .mapNotNull { value[it] }.map { pageText(it, depth + 1) }.filter { it.isNotBlank() }.joinToString("\n")
+        }
     }
 }

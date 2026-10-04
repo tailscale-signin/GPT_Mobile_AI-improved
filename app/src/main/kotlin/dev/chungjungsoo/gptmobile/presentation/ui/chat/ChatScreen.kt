@@ -297,6 +297,7 @@ fun ChatScreen(
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
+    val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
     val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
@@ -507,6 +508,7 @@ fun ChatScreen(
                         debugMode = debugMode,
                         invocationDiagnostics = invocationDiagnostics,
                         debugSettings = featureSettings,
+                        debugMemorySources = debugMemorySources,
                         showReasoning = featureSettings.showReasoning,
                         combinedMode = chatRoom.conversationMode == ConversationMode.COMBINED,
                         smartSuggestionsEnabled = featureSettings.smartSuggestions,
@@ -761,6 +763,7 @@ private fun ChatMessagePair(
     maximumUserChatBubbleWidth: Dp,
     maximumOpponentChatBubbleWidth: Dp,
     debugMode: Boolean = false,
+    debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     invocationDiagnostics: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
     debugSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
     showReasoning: Boolean = true,
@@ -980,6 +983,7 @@ private fun ChatMessagePair(
                     debugMode = debugMode,
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
+                    debugMemorySources = debugMemorySources,
                     showReasoning = showReasoning,
                     text = assistantContent,
                     timestamp = selectedAssistantMessage?.let { it.createdAt * 1000L }?.takeIf { debugSettings.messageTimestamps },

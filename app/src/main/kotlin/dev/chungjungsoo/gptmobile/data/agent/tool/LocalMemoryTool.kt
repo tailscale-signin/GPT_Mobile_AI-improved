@@ -63,7 +63,16 @@ class LocalMemoryTool(
             callId,
             ToolResultContent.Text(result),
             false,
-            traceContent = if (capture) null else ToolResultContent.Text("Recalled ${recalled.facts.size} saved facts. Review their text in Memory.")
+            traceContent = if (capture) {
+                null
+            } else {
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("recalledFactIds", kotlinx.serialization.json.JsonArray(recalled.references.map { JsonPrimitive(it.id) }))
+                        put("count", recalled.facts.size)
+                    }
+                )
+            }
         )
     }
 }

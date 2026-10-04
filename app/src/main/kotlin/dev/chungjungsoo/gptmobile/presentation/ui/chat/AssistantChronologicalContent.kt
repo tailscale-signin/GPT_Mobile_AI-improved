@@ -1,33 +1,33 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -47,13 +47,27 @@ internal fun AssistantChronologicalContent(
     isLoading: Boolean,
     animateResponse: Boolean = true,
     debugMode: Boolean,
+    debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     debugSettings: AppFeatureSettings = AppFeatureSettings(),
     showReasoning: Boolean,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     isError: Boolean = false
 ) {
-    val events = toolEvents.associateBy { it.sequence }
+    val events = remember(toolEvents) { toolEvents.associateBy { it.sequence } }
+    val recalledSources = remember(timeline, toolEvents, debugMemorySources, debugMode, debugSettings.debugShowMemoryRecall) {
+        if (debugMode && debugSettings.debugShowMemoryRecall) {
+            val automaticIds = timeline.flatMap { it.recalledFacts }.map { it.id }
+            val toolIds = toolEvents.filter { !it.isError && it.toolName in setOf("memory", "memory_recall") }.flatMap { event ->
+                val result = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(event.result.orEmpty()) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+                (result?.get("recalledFactIds") as? kotlinx.serialization.json.JsonArray).orEmpty()
+                    .mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            }
+            (automaticIds + toolIds).distinct().mapNotNull { debugMemorySources[it] }
+        } else {
+            emptyList()
+        }
+    }
     val legacy = timeline.isEmpty() || timeline.any { it.type == AssistantTimelineItemType.LEGACY_ORDER }
     val items = if (legacy) {
         buildList {
@@ -85,6 +99,9 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
+        recalledSources.forEach { source ->
+            Text("Memory sourced: ${source.label}", color = DebugMemoryPink, style = MaterialTheme.typography.bodySmall)
+        }
         items.forEachIndexed { index, item ->
             key(contentIdentity, index, item.type, item.toolSequence) {
                 when (item.type) {
@@ -100,7 +117,7 @@ internal fun AssistantChronologicalContent(
                             if (isError) {
                                 Text(parsed.response, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
-                                ChatMarkdown(content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                ChatMarkdown(memoryValues = recalledSources.map { it.value }, content = parsed.response, contentIdentity = "$contentIdentity:$index", streaming = isLoading && animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                             }
                         }
                     }
@@ -133,7 +150,11 @@ internal fun AssistantChronologicalContent(
                                     style = MaterialTheme.typography.labelMedium,
                                     color = traceColor
                                 )
-                                Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = traceColor)
+                                if (reviewer) {
+                                    ReviewerDebugText(item.content, Modifier.padding(vertical = 8.dp))
+                                } else {
+                                    Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = traceColor)
+                                }
                             }
                         }
                     } else if (expanded && !item.statusSummary && !isContextDiagnostic(item.content)) {

@@ -24,6 +24,7 @@ internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<Jso
     return when (value) {
         is JsonArray -> value.flatMap { extractSearchSources(it, depth + 1) }
         is JsonObject -> {
+            if (value.stringValue("status") in setOf("unavailable", "failed", "error")) return emptyList()
             val url = value.stringValue("url", "link", "uri")
             if (url != null) {
                 listOf(
@@ -36,7 +37,7 @@ internal fun extractSearchSources(value: JsonElement?, depth: Int = 0): List<Jso
                     }
                 )
             } else {
-                listOf("results", "result", "data", "web", "organic", "organic_results", "search_results", "items", "content", "text", "structuredContent", "resourceLinks")
+                listOf("sources", "results", "result", "data", "web", "organic", "organic_results", "search_results", "items", "content", "text", "structuredContent", "resourceLinks", "engines", "detail")
                     .flatMap { extractSearchSources(value[it], depth + 1) }
             }
         }

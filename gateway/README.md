@@ -1,6 +1,6 @@
-# Local gateway 12.2
+# Local gateway 13.0
 
-`gateway_v12.py` is the canonical server. `gateway_v12.1.py` is a compatibility launcher; install it alongside the canonical script and `gateway_security.py`. The v10 file is retained for historical compatibility.
+`gateway_v13.py` is the canonical server; `gateway.py` is its stable launcher. Install the v13 runtime/transport modules and `gateway_security.py` alongside it. See [V13_UPGRADE.md](V13_UPGRADE.md) for installation, behavior changes and rollback. V12 and v10 files are retained for historical compatibility.
 
 Use Python 3.12 or newer and an isolated environment:
 
@@ -19,7 +19,7 @@ For phone access, explicitly select the host's private interface. Prefer your au
 ```powershell
 $env:GATEWAY_HOST="YOUR_PRIVATE_INTERFACE_IP"
 python gateway_security.py pair --name "My gateway" --url "http://YOUR_PRIVATE_INTERFACE_IP:8090/v1" --model "YOUR_MODEL_ID"
-python gateway_v12.py
+python gateway.py
 ```
 
 Open the generated `gptmobile://pair` link on Android. Preview the destination, fetch and save the configuration. The app puts the credential in its vault. The imported profile starts disabled for review.
@@ -36,6 +36,6 @@ To update dependencies, edit `requirements.in`, resolve in a clean environment, 
 
 ### Independent delegation retries and reviewer isolation
 
-Update `gateway_v12.py` on the server along with the Android reviewer reliability fix, then restart the gateway. The `gateway_v12.1.py` launcher still loads this canonical file. Each new delegated generation sends an `X-Gateway-Attempt-ID`; reconnects within that attempt retain it, while retries and output repairs receive new IDs. Singleflight now includes the attempt ID, completion budget, reasoning configuration, and tool policy, so a failed 768-token completion cannot be replayed as the next inference or a larger repair.
+Install v13 on the server along with the Android reviewer reliability fix, then restart the gateway. The historical `gateway_v12.1.py` launcher still loads v12; use `gateway.py` for v13. Each new delegated generation sends an `X-Gateway-Attempt-ID`; reconnects within that attempt retain it, while retries and output repairs receive new IDs. Singleflight now includes the attempt ID, completion budget, reasoning configuration, and tool policy, so a failed 768-token completion cannot be replayed as the next inference or a larger repair.
 
 The app sends worker isolation headers even when reasoning is enabled. Reviewer requests have no tool catalog and explicitly disable gateway-local tools. Page crawling is app-owned; reviewers assess completed delegate evidence only. External Perplexity authentication failures and MCP initialization 404s still require correcting the configured key or endpoint; the app stops automatic repeated attempts and reports those configuration errors.

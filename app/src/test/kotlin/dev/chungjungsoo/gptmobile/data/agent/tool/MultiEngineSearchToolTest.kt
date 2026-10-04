@@ -62,6 +62,45 @@ class MultiEngineSearchToolTest {
         assertEquals(4, statuses.count { "unsupportedFilters" in it })
     }
 
+    @Test
+    fun `repeated successful research reuses full evidence but changed queries execute`() = runBlocking {
+        var calls = 0
+        val tool = MultiEngineSearchTool(
+            listOf(
+                engine("search") { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/evidence\nDescription: Full exact evidence"), false)
+                }
+            )
+        )
+        val arguments = buildJsonObject { put("query", "same query") }
+        val first = tool.execute("first", arguments)
+        val repeated = tool.execute("second", arguments)
+        assertEquals(first.content, repeated.content)
+        assertEquals("second", repeated.callId)
+        assertTrue(repeated.sharedResult)
+        assertEquals(1, calls)
+        tool.execute("changed", buildJsonObject { put("query", "different query") })
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun `failed searches are never cached`() = runBlocking {
+        var calls = 0
+        val tool = MultiEngineSearchTool(
+            listOf(
+                engine("search") { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("Temporarily unavailable"), true)
+                }
+            )
+        )
+        val arguments = buildJsonObject { put("query", "same query") }
+        tool.execute("first", arguments)
+        tool.execute("second", arguments)
+        assertEquals(2, calls)
+    }
+
     private fun engine(
         name: String,
         realToolName: String = "web_search",

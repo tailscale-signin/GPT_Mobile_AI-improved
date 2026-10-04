@@ -55,7 +55,6 @@ internal fun primaryDelegationTools(
         tool.realToolName == "delegate_to_model" -> true
         tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true
         tool.connectionUid == null && tool.realToolName == "read_url" -> true
-        processingOwnership < 35 -> false
         else -> {
             val description = tool.tool.definition.description
             val researchLikeByIdentity =

@@ -25,7 +25,7 @@ class DelegationGitHubPolicyTest {
         val tools = listOf(delegate, aggregateWeb, readUrl, remoteReadUrl, directEngine, extraReader, githubNative, githubMcp, calculator)
 
         assertEquals(
-            listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp),
+            listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp, calculator),
             primaryDelegationTools(tools, true, 0)
         )
         assertEquals(tools, primaryDelegationTools(tools, false, 0))
@@ -33,6 +33,18 @@ class DelegationGitHubPolicyTest {
             listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp, calculator),
             primaryDelegationTools(tools, true, 100)
         )
+    }
+
+    @Test
+    fun `location and other authorized tools remain usable at every delegation ownership level`() {
+        val location = tool("device_location")
+        val remoteLocation = tool("mcp__phone__get_location", "get_location", connectionUid = "phone")
+        val calculator = tool("calculate_expression")
+        val memory = tool("memory")
+        val tools = listOf(location, remoteLocation, calculator, memory)
+        listOf(0, 25, 35, 65, 100).forEach { ownership ->
+            assertEquals(tools, primaryDelegationTools(tools, true, ownership))
+        }
     }
 
     @Test

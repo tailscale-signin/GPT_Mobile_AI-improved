@@ -26,7 +26,7 @@ jobs:
       - name: Validate gateway Python and contract tests
         run: |
           python3 -m pip install -r gateway/requirements.txt
-          python3 -m py_compile gateway/gateway_v12.py
+          python3 -m py_compile gateway/gateway*.py
           python3 -m unittest discover -s gateway/tests
 
       - name: Resource preflight

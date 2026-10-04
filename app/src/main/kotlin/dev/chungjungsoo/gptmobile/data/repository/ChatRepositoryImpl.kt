@@ -158,7 +158,7 @@ internal fun resolveDelegatedChildResult(
 private fun delegatedToolPriority(tool: ResolvedAgentTool): Int = when (tool.realToolName.lowercase()) {
     "web_search", "read_url" -> 0
     "read_file_slice", "current_date", "calculate_expression" -> 1
-    "device_location" -> 2
+    "device_location" -> 0
     else -> 3
 }
 
@@ -679,6 +679,7 @@ class ChatRepositoryImpl(
         val inheritedTools = authorizedTools.orEmpty()
             .filterNot { it.realToolName == "delegate_to_model" }
             .distinctBy { it.modelToolName }
+            .sortedWith(compareBy<ResolvedAgentTool> { !(isGitHubTask(task) && it.isGitHubTool()) }.thenBy { delegatedToolPriority(it) })
         val childTools: MutableList<AgentTool> = if (!allowTools || target.disableAllTools || chatToolConfig.allToolsDisabled) {
             mutableListOf()
         } else if (fixtureTools != null) {
@@ -769,7 +770,11 @@ class ChatRepositoryImpl(
             ClientType.ANTHROPIC -> anthropicMessagesAdapter.openSession(turns, bounded, constraints)
             ClientType.GOOGLE -> geminiAdapter.openSession(turns, bounded, constraints)
             ClientType.LITERT_LM -> liteRtLmAdapter.openSession(turns, bounded, childTools, constraints)
-        }
+        }.withDeviceLocation(
+            clientType = bounded.compatibleType,
+            userPrompt = task,
+            nativeLocationToolName = childTools.firstOrNull { it.definition.name == BuiltInAgentTool.DEVICE_LOCATION }?.definition?.name
+        )
         val text = StringBuilder()
         val toolFallbacks = mutableListOf<String>()
         val accounted = invocationLedger?.wrap(
@@ -778,8 +783,9 @@ class ChatRepositoryImpl(
             settingRepository.getFeatureSettings().tokenBudget.normalized().totalRunTokens,
             profileUid = target.uid
         ) ?: session
-        val childLimits = agentRunnerForPlatform(bounded, runOverride = target.maxToolCalls.coerceIn(1, 4)).limits
-        val childRunner = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(childLimits.copy(maxRounds = 3))
+        val childToolLimit = minOf(target.maxToolCalls, chatToolConfig.maxToolCalls ?: Int.MAX_VALUE).coerceAtLeast(0)
+        val childLimits = agentRunnerForPlatform(bounded, runOverride = childToolLimit).limits
+        val childRunner = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(childLimits)
         val startedAtMs = System.currentTimeMillis()
         var providerFailure: String? = null
         var configuredProviderOutputCap: Int? = target.maxTokens
@@ -888,7 +894,7 @@ class ChatRepositoryImpl(
                             usageTotalTokens += next - roundUsageTotal
                             roundUsageTotal = next
                         }
-                        onProgress(DelegateProgress(DelegateProgressKind.USAGE, roundUsageInput.takeIf { provider.inputTokens != null }, roundUsageOutput.takeIf { provider.outputTokens != null }, roundUsageTotal.takeIf { provider.totalTokens != null }, decodeTokensPerSecond = provider.decodeTokensPerSecond))
+                        onProgress(DelegateProgress(DelegateProgressKind.USAGE, usageInputTokens.takeIf { provider.inputTokens != null }, usageOutputTokens.takeIf { provider.outputTokens != null }, usageTotalTokens.takeIf { provider.totalTokens != null }, decodeTokensPerSecond = provider.decodeTokensPerSecond))
                     }
                     else -> Unit
                 }
@@ -1060,7 +1066,8 @@ class ChatRepositoryImpl(
         ): String {
             activity.set(if (requestRole == "reviewer") "Reviewing helper result" else "Working with helper")
             val invocation = UUID.randomUUID().toString()
-            send(ApiState.DelegationText(invocation, target.name, "", !target.isPrivateDestination()))
+            val traceProfile = if (requestRole == "reviewer") "${target.name} · Reviewer" else target.name
+            send(ApiState.DelegationText(invocation, traceProfile, "", !target.isPrivateDestination()))
             val delegateText = StringBuilder()
             try {
                 return delegateToProfile(target, task, cap, runId, userMessages.lastOrNull()?.let { "${it.chatId}:${it.id}" } ?: runId, inputCap, { event ->
@@ -1068,14 +1075,14 @@ class ChatRepositoryImpl(
                     if (event.kind == DelegateProgressKind.TOOL_ACTIVITY) activity.set("Using helper tools")
                     event.textDelta?.let {
                         delegateText.append(it)
-                        trySend(ApiState.DelegationText(invocation, target.name, delegateText.toString(), !target.isPrivateDestination()))
+                        trySend(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
                     }
                 }, allowTools, chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(), traceSequences = traceSequences, onToolTrace = { send(it) }, authorizedTools = if (allowTools) delegatedTools else emptyList(), requestRole = requestRole)
             } finally {
                 // A final suspending snapshot recovers any intermediate UI update
                 // skipped while the channel was busy. It is never the primary answer.
                 if (kotlinx.coroutines.currentCoroutineContext().isActive) {
-                    send(ApiState.DelegationText(invocation, target.name, delegateText.toString(), !target.isPrivateDestination()))
+                    send(ApiState.DelegationText(invocation, traceProfile, delegateText.toString(), !target.isPrivateDestination()))
                 }
             }
         }
@@ -1239,7 +1246,9 @@ class ChatRepositoryImpl(
                     ) ?: FactRecall()
                     if (factVault?.state?.value?.settings?.localModelLearning == true) {
                         try {
-                            if (!factVault.scopeForChat(latestUser.chatId).isTemporary) memoryEnrichment?.enqueue(latestUser)
+                            if (!factVault.scopeForChat(latestUser.chatId).isTemporary) {
+                                messageV2Dao.message(latestUser.id)?.let { memoryEnrichment?.enqueue(it) }
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -1354,7 +1363,7 @@ class ChatRepositoryImpl(
             val boundedTools = taskRoutedTools.filter { resolved ->
                 (behavior.crawlersEnabled && resolved.selectionId() in behavior.crawlerToolIds) ||
                     resolved in connectedMemoryTools ||
-                    (localResearch && (processingOwnership < 35 || resolved.isWebSearchEngine() || resolved.isResearchPageReader())) ||
+                    localResearch ||
                     contextPlan.tools.any { it.name == resolved.modelToolName || (it.name == "web_search" && resolved.isWebSearchEngine()) }
             }.map { resolved ->
                 resolved.copy(
@@ -1601,7 +1610,7 @@ class ChatRepositoryImpl(
         val groundedSession = session.withDeviceLocation(
             clientType = platform.compatibleType,
             userPrompt = latestUser?.content,
-            nativeLocationToolName = resolvedTools.firstOrNull {
+            nativeLocationToolName = effectiveTools.firstOrNull {
                 it.connectionUid == null && it.realToolName == BuiltInAgentTool.DEVICE_LOCATION
             }?.modelToolName
         )

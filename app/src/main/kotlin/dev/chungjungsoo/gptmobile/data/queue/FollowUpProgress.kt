@@ -29,9 +29,11 @@ object FollowUpProgressStore {
                 entries + (prompt.id to FollowUpProgress(prompt, phase))
             }
         }
-        if (phase == FollowUpPhase.MERGING) scope.launch {
-            delay(3500)
-            finish(prompt.id)
+        if (phase == FollowUpPhase.MERGING) {
+            scope.launch {
+                delay(3500)
+                finish(prompt.id)
+            }
         }
     }
 

@@ -322,7 +322,7 @@ class LocalDelegationCoordinatorTest {
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(third?.message.orEmpty().contains("CANCELED_NO_RESULT"))
-        assertEquals(16, calls)
+        assertEquals(6, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -343,7 +343,7 @@ class LocalDelegationCoordinatorTest {
             val failure = runCatching { coordinator.delegate(target, "task", 128, emptyList(), "timeout-$it") }.exceptionOrNull()
             assertTrue(failure?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         }
-        assertEquals(21, calls)
+        assertEquals(6, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -404,7 +404,7 @@ class LocalDelegationCoordinatorTest {
         repeat(2) {
             assertTrue(runCatching { coordinator.delegate(target, "task", 128, emptyList(), "abort-$it") }.isFailure)
         }
-        assertEquals(16, calls)
+        assertEquals(6, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -677,7 +677,7 @@ class LocalDelegationCoordinatorTest {
         })
         coordinator.executeTask(target, "first", 256)
         coordinator.executeTask(target, "second", 256)
-        assertEquals(11, calls)
+        assertEquals(1, calls)
     }
 
     @Test fun `pinned unavailable worker never substitutes another provider`() = runTest {

@@ -249,6 +249,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 MetricLine("Primary input / output tokens", "${result.primaryInputTokens} / ${result.primaryOutputTokens}")
                                 MetricLine("Output cap violations", result.outputCapViolations.toString())
                                 MetricLine("Reviewer Score", result.reviewerScore?.let { "$it / 100 · ${result.reviewerEvaluations} evaluations" } ?: "Not measured")
+                                if (result.reviewerCalls > 0) {
+                                    MetricLine(
+                                        "Reviewer calls / input / output tokens",
+                                        "${result.reviewerCalls} / ${result.reviewerInputTokens} / ${result.reviewerOutputTokens}${if (result.reviewerEstimated) " (estimated where provider usage was unavailable)" else ""}"
+                                    )
+                                }
                                 MetricLine("Diagnostic events", "${result.diagnosticEvents} total · ${result.warningEvents} warnings · ${result.errorEvents} errors")
                                 if (result.estimated) Text("Token totals include estimates.", style = MaterialTheme.typography.labelSmall)
                                 result.dimensions.forEach { dimension ->
@@ -275,6 +281,12 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                             MetricLine("Worker token throughput", metrics.workerDecodeTokensPerSecond?.let { "${if (metrics.workerSpeedUsesReportedTokens) "" else "≈ "}%.1f tok/s".format(it) } ?: "Not observed")
                                             MetricLine("Output cap violations", metrics.outputCapViolations.toString())
                                             MetricLine("Reviewer Score", metrics.reviewerScore?.let { "$it / 100 · ${metrics.reviewerEvaluations} evaluations" } ?: "Not measured")
+                                            if (metrics.reviewerCalls > 0) {
+                                                MetricLine(
+                                                    "Reviewer usage",
+                                                    "${metrics.reviewerCalls} calls · ${metrics.reviewerInputTokens} input / ${metrics.reviewerOutputTokens} output${if (metrics.reviewerEstimated) " (estimated)" else ""}"
+                                                )
+                                            }
                                             Text("Primary tokens: ${metrics.primaryInputTokens} input / ${metrics.primaryOutputTokens} output${if (metrics.primaryEstimated) " (output estimated)" else ""}")
                                             Text("${metrics.searches} searches · ${metrics.pagesRead} pages · ${metrics.rawEvidenceBytes} evidence bytes → ${metrics.handoffCharacters} brief characters")
                                             if (metrics.fixtureCalls > 0) Text("Fixture calls: ${metrics.successfulFixtureCalls}/${metrics.fixtureCalls} successful")

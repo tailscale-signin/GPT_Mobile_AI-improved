@@ -10,6 +10,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Semaphore
@@ -155,12 +156,11 @@ class AgentRunner(
             }
             rounds += 1
 
-            val round = try {
-                collectRound(session, exposedDefinitions, exchanges)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: ToolDefinitionsRejectedException) {
-                if (exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools) {
+            // collectRound catches only upstream provider failures. Cancellation and
+            // downstream collector errors must leave the run without retrying or emitting.
+            val round = collectRound(session, exposedDefinitions, exchanges)
+            if (round.toolDefinitionsRejected) {
+                if (exposedDefinitions.isNotEmpty() && !toolMayHaveExecuted && !retriedWithoutTools && !round.textEmitted) {
                     retriedWithoutTools = true
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
@@ -168,7 +168,7 @@ class AgentRunner(
                     emit(AgentRunEvent.Notice(TOOLS_UNAVAILABLE_MESSAGE, persistent = true))
                     continue
                 }
-                emit(failed(error.message ?: "Tools are unavailable for this model."))
+                emit(failed(round.failure ?: "Tools are unavailable for this model."))
                 return
             }
             val roundFailure = round.failure
@@ -388,7 +388,8 @@ class AgentRunner(
         val calls: List<ProviderEvent.ToolCall> = emptyList(),
         val completed: Boolean = false,
         val failure: String? = null,
-        val textEmitted: Boolean = false
+        val textEmitted: Boolean = false,
+        val toolDefinitionsRejected: Boolean = false
     )
 
     private fun recoverableRoundFailure(message: String): Boolean = listOf(
@@ -411,6 +412,7 @@ class AgentRunner(
         var completed = false
         var failure: String? = null
         var textEmitted = false
+        var toolDefinitionsRejected = false
         var roundInputTokens = 0L
         var roundOutputTokens = 0L
         var roundTotalTokens = 0L
@@ -434,7 +436,6 @@ class AgentRunner(
             )
         }
 
-        var rejectedTools: ToolDefinitionsRejectedException? = null
         // Keep provider failures separate from downstream collector failures. In
         // particular, never emit usage from finally after cancellation or a failed emit.
         flow {
@@ -458,12 +459,19 @@ class AgentRunner(
                     "W"
                 )
             }
+            // Include synchronous stream construction failures in the upstream boundary.
             emitAll(session.streamRound(exposedDefinitions, replayExchanges))
         }.catch { error ->
-            when (error) {
-                is CancellationException -> throw error
-                is ToolDefinitionsRejectedException -> rejectedTools = error
-                else -> failure = ErrorClassification.classify(error).userMessage
+            if (error is CancellationException) throw error
+            // Keep the first terminal provider failure; trailing transport errors
+            // must not replace it or change the recovery decision.
+            if (failure == null) {
+                toolDefinitionsRejected = error is ToolDefinitionsRejectedException
+                failure = if (toolDefinitionsRejected) {
+                    error.message ?: "Tools are unavailable for this model."
+                } else {
+                    ErrorClassification.classify(error).userMessage
+                }
             }
         }.collect { event ->
             if (failure != null && event !is ProviderEvent.Usage) return@collect
@@ -519,9 +527,10 @@ class AgentRunner(
                 }
             }
         }
+        // Do not emit from finally: a cancelled or failed consumer cannot accept
+        // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        rejectedTools?.let { throw it }
-        return RoundResult(calls, completed, failure, textEmitted)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected)
     }
 
     private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>): List<AgentToolResult> {

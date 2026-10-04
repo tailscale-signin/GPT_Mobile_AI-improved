@@ -524,7 +524,8 @@ internal class LocalDelegationCoordinator(
     private data class WorkerResolution(
         val text: String? = null,
         val recoveryReason: String? = null,
-        val failoverTarget: PlatformV2? = null
+        val failoverTarget: PlatformV2? = null,
+        val retrySameTarget: Boolean = true
     )
 
     private suspend fun handleWorkerResponse(
@@ -651,7 +652,15 @@ internal class LocalDelegationCoordinator(
             "E"
         )
         logComputeTotals()
-        return WorkerResolution(recoveryReason = reason, failoverTarget = fallback)
+        val terminalForTarget =
+            classified.authBlocked ||
+                classified.permanentlyUnavailable ||
+                classified.outputCapViolation
+        return WorkerResolution(
+            recoveryReason = reason,
+            failoverTarget = fallback,
+            retrySameTarget = !terminalForTarget
+        )
     }
 
     private fun logComputeTotals() {
@@ -990,6 +999,7 @@ internal class LocalDelegationCoordinator(
         var resolvedProfileUid: String? = null
         var failoverTarget: PlatformV2? = null
         var recoveryReason: String? = null
+        var retrySameTarget = true
         var dispatchedAtMs: Long? = null
         val result = worker.withPermit {
             val latest = (pinnedConfig ?: settings()).normalized()
@@ -1094,6 +1104,7 @@ internal class LocalDelegationCoordinator(
                 )
                 recoveryReason = resolution.recoveryReason
                 failoverTarget = resolution.failoverTarget
+                retrySameTarget = resolution.retrySameTarget
                 null
             } finally {
                 activeWorkers.decrementAndGet()
@@ -1105,7 +1116,7 @@ internal class LocalDelegationCoordinator(
             return result
         }
         val retryLimit = config.localRetryLimit.coerceAtLeast(5)
-        if (recoveryReason != null && sameTargetRetryAttempt < retryLimit && !delegationCanceledByUser.get()) {
+        if (retrySameTarget && recoveryReason != null && sameTargetRetryAttempt < retryLimit && !delegationCanceledByUser.get()) {
             val retryNumber = sameTargetRetryAttempt + 1
             val retryUid = resolvedProfileUid ?: target.uid
             AppLogRecorder.record(

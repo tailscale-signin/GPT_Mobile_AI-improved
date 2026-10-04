@@ -122,6 +122,30 @@ class DelegationBenchmarkRatingTest {
         assertTrue(strong.dimensions.any { it.label == "Reviewer quality" && it.score == 100.0 })
     }
 
+    @Test fun `reviewer token usage is aggregated separately from worker tokens`() {
+        val base = run("review-usage", reviewerScore = 90)
+        val enriched = base.copy(
+            samples = base.samples.map { sample ->
+                sample.copy(
+                    delegation = sample.delegation!!.copy(
+                        reviewerCalls = 1,
+                        reviewerInputTokens = 120,
+                        reviewerOutputTokens = 30,
+                        reviewerEstimated = true
+                    )
+                )
+            }
+        )
+
+        val result = delegationBenchmarkRating(listOf(enriched))
+        assertEquals(3, result.reviewerCalls)
+        assertEquals(360L, result.reviewerInputTokens)
+        assertEquals(90L, result.reviewerOutputTokens)
+        assertTrue(result.reviewerEstimated)
+        assertEquals(300L, result.workerInputTokens)
+        assertEquals(60L, result.workerOutputTokens)
+    }
+
     @Test fun `reviewer disabled leaves reviewer score unmeasured instead of treating it as zero`() {
         val result = delegationBenchmarkRating(listOf(run("no-reviewer")))
 

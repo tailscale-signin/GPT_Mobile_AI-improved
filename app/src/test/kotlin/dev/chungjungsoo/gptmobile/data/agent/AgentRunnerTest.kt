@@ -39,10 +39,12 @@ class AgentRunnerTest {
                     }
                 }
             },
-            listOf(tool("write") { id, _ ->
-                actions++
-                AgentToolResult(id, ToolResultContent.Text("done"), false)
-            })
+            listOf(
+                tool("write") { id, _ ->
+                    actions++
+                    AgentToolResult(id, ToolResultContent.Text("done"), false)
+                }
+            )
         ).toList()
         assertEquals(2, rounds)
         assertEquals(0, actions)
@@ -67,10 +69,12 @@ class AgentRunnerTest {
                     }
                 }
             },
-            listOf(tool("read") { id, _ ->
-                actions++
-                AgentToolResult(id, ToolResultContent.Text("Evidence"), false)
-            })
+            listOf(
+                tool("read") { id, _ ->
+                    actions++
+                    AgentToolResult(id, ToolResultContent.Text("Evidence"), false)
+                }
+            )
         ).toList()
         assertEquals(3, rounds)
         assertEquals(1, actions)

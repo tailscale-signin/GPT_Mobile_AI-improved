@@ -1624,7 +1624,7 @@ class ChatRepositoryImpl(
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace).collect { send(it) }
     }
 
-    private fun followUpInbox(
+    private suspend fun followUpInbox(
         scope: kotlinx.coroutines.CoroutineScope,
         platform: PlatformV2,
         latestUser: MessageV2?,
@@ -1633,6 +1633,7 @@ class ChatRepositoryImpl(
         initialMessages: List<MessageV2>
     ): dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox? {
         val dao = pendingPromptDao ?: return null
+        if (!settingRepository.getFeatureSettings().queuedFollowUps) return null
         if (latestUser == null || platform.batchMode || platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.FREE)) return null
         var admittedCharacters = 0
         suspend fun allowance(): Int {
@@ -1653,7 +1654,9 @@ class ChatRepositoryImpl(
                 val consumed = allowed() && dao.acceptPreparedFollowUp(prompt, latestUser.id, runId, platform.uid, platform.model, allowance(), chatToolConfig ?: ChatMcpToolConfig())
                 if (consumed) {
                     admittedCharacters += prompt.text.length
-                    AppLogRecorder.record("FollowUp", "Accepted · run=$runId · prompt=${prompt.id} · inputChars=${prompt.text.length} · graceMs=3000 · originalPreserved=true · applyAt=request_boundary")
+                    val deadline = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore.state.value[prompt.id]?.deadlineMs
+                    val admissionMs = deadline?.let { 3000L + System.nanoTime() / 1_000_000L - it }
+                    AppLogRecorder.record("FollowUp", "Accepted · run=$runId · prompt=${prompt.id} · inputChars=${prompt.text.length} · graceMs=3000 · admissionMs=${admissionMs ?: -1} · originalPreserved=true · applyAt=request_boundary")
                 }
                 consumed
             },

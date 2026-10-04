@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 
 /** Admission runs for the whole turn, including slow research, independently of model requests. */
 class FollowUpInbox(
@@ -28,10 +29,12 @@ class FollowUpInbox(
     private val deadlines = mutableMapOf<String, Long>()
     private val drafts = mutableMapOf<String, PendingPrompt>()
     private val accepted = MutableStateFlow<List<PendingPrompt>>(emptyList())
-    private val waiting = MutableStateFlow(false)
+    private val waiting = MutableStateFlow(true)
     private val watcher: Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
         try {
             pending.collectLatest { prompts ->
+                waiting.value = true
+                val observedAtMs = nowMs()
                 val ids = prompts.map { it.id }.toSet()
                 drafts.keys.filter { it !in ids }.toList().forEach { id ->
                     drafts.remove(id)?.let { progress(it, null, null) }
@@ -43,7 +46,7 @@ class FollowUpInbox(
                     deadlines.remove(id)
                 }
                 candidates.forEach { prompt ->
-                    val deadline = deadlines.getOrPut(prompt.id) { nowMs() + GRACE_MS }
+                    val deadline = deadlines.getOrPut(prompt.id) { observedAtMs + GRACE_MS }
                     drafts[prompt.id] = prompt
                     progress(prompt, FollowUpPhase.COUNTDOWN, deadline)
                 }
@@ -89,6 +92,8 @@ class FollowUpInbox(
 
     /** Keep a short primary answer alive until its already-visible countdown settles. */
     suspend fun awaitCountdown() {
+        // Let a just-enqueued emission enter admission before deciding the turn is idle.
+        yield()
         waiting.first { !it }
     }
 

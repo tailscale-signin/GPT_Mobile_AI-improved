@@ -300,7 +300,7 @@ class ProviderAdaptersTest {
     }
 
     @Test
-    fun `llama never dispatches a call from an unfinished stream`() = runBlocking {
+    fun `llama never dispatches an unfinished call and recovery is bounded without tools`() = runBlocking {
         val api = FakeOpenAIAPI(
             chatRounds = ArrayDeque(
                 listOf(
@@ -317,7 +317,8 @@ class ProviderAdaptersTest {
         ).toList()
         assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().isEmpty())
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
-        assertEquals(1, api.chatRequests.size)
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.chatRequests.last().tools.isNullOrEmpty())
     }
 
     private val definition = AgentToolDefinition(

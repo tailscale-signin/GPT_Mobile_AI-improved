@@ -9,11 +9,14 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -142,6 +145,32 @@ class FollowUpAgentSessionTest {
     }
 
     @Test
+    fun `addition arriving with completion is admitted before closing the turn`() = runTest {
+        val pending = MutableStateFlow<List<PendingPrompt>>(emptyList())
+        val inbox = FollowUpInbox(backgroundScope, pending, {
+            delay(10)
+            true
+        }, {
+            pending.value = emptyList()
+            true
+        }, nowMs = { testScheduler.currentTime })
+        var handoffs = 0
+        val session = FollowUpAgentSession(
+            provider {
+                pending.value = listOf(prompt())
+                emit(ProviderEvent.Completed)
+            },
+            inbox
+        ) { _, _, _ ->
+            handoffs++
+            provider { emit(ProviderEvent.Completed) }
+        }
+        session.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, handoffs)
+        inbox.close()
+    }
+
+    @Test
     fun `tool results are handed over after execution with no orphan replay`() = runTest {
         val pending = MutableStateFlow(listOf(prompt()))
         val inbox = FollowUpInbox(backgroundScope, pending, { true }, {
@@ -188,6 +217,55 @@ class FollowUpAgentSessionTest {
         assertTrue(turns.last().userMessage.content.contains("Also include dates"))
         assertTrue(turns.last().userMessage.content.contains("ALL original requirements"))
         assertEquals(current.userMessage.id, turns.last().userMessage.id)
+    }
+
+    @Test
+    fun `canceling parent before deadline preserves queued draft`() = runTest {
+        val pending = MutableStateFlow(listOf(prompt()))
+        var accepted = false
+        val parent = launch {
+            FollowUpInbox(this, pending, { true }, {
+                accepted = true
+                true
+            }, nowMs = { testScheduler.currentTime })
+            awaitCancellation()
+        }
+        runCurrent()
+        advanceTimeBy(2999)
+        parent.cancelAndJoin()
+        advanceTimeBy(1000)
+        runCurrent()
+        assertFalse(accepted)
+        assertEquals(listOf(prompt()), pending.value)
+    }
+
+    @Test
+    fun `usage across continuation requests is additive with cumulative usage per request`() = runTest {
+        val pending = MutableStateFlow(listOf(prompt()))
+        val inbox = FollowUpInbox(backgroundScope, pending, { true }, {
+            pending.value = emptyList()
+            true
+        }, nowMs = { testScheduler.currentTime })
+        val session = FollowUpAgentSession(
+            provider {
+                delay(100)
+                emit(ProviderEvent.Usage(100, 10, 110))
+                emit(ProviderEvent.Usage(130, 20, 150))
+                emit(ProviderEvent.Completed)
+            },
+            inbox
+        ) { _, _, _ ->
+            provider {
+                emit(ProviderEvent.Usage(30, 5, 35))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val usage = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Usage>()
+        assertEquals(160, usage.sumOf { it.inputTokens ?: 0 })
+        assertEquals(25, usage.sumOf { it.outputTokens ?: 0 })
+        assertEquals(185, usage.sumOf { it.totalTokens ?: 0 })
+        assertTrue(usage.all { !it.cumulative })
+        inbox.close()
     }
 
     @Test

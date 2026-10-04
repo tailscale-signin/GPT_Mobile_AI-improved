@@ -56,10 +56,16 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             }
         )
         val now = System.currentTimeMillis()
-        endpoints[config.connectionUid]?.takeIf { !refresh && it.identity == identity && now - it.checkedAt < DISCOVERY_CACHE_MS }?.let {
+        endpoints[config.connectionUid]?.takeIf { endpoint ->
+            val ttl = if (endpoint.discovery == null) LEGACY_DECISION_CACHE_MS else DISCOVERY_CACHE_MS
+            !refresh && endpoint.identity == identity && now - endpoint.checkedAt < ttl
+        }?.let {
             return@withLock it.discovery != null
         }
-        endpointDiscoveryCache[identity]?.takeIf { !refresh && now - it.checkedAt < DISCOVERY_CACHE_MS }?.let { shared ->
+        endpointDiscoveryCache[identity]?.takeIf { shared ->
+            val ttl = if (shared.discovery == null) LEGACY_DECISION_CACHE_MS else DISCOVERY_CACHE_MS
+            !refresh && now - shared.checkedAt < ttl
+        }?.let { shared ->
             endpoints[config.connectionUid] = shared
             return@withLock shared.discovery != null
         }
@@ -349,6 +355,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     companion object {
         const val VERSION = "2026-07-28"
         private const val DISCOVERY_CACHE_MS = 60 * 60 * 1000L
+        private const val LEGACY_DECISION_CACHE_MS = 60_000L
         private const val LOCAL_DISCOVERY_TIMEOUT_MS = 12_000L
         private const val REMOTE_DISCOVERY_TIMEOUT_MS = 5_000L
         private val MODERN_ERRORS = (-32029..-32020).toSet() + -32601

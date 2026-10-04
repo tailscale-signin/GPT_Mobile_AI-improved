@@ -72,7 +72,10 @@ class FollowUpAgentSessionTest {
     fun `stop before deadline never accepts the message`() = runTest {
         val pending = MutableStateFlow(listOf(prompt()))
         var calls = 0
-        val inbox = FollowUpInbox(backgroundScope, pending, { true }, { calls++; true }, nowMs = { testScheduler.currentTime })
+        val inbox = FollowUpInbox(backgroundScope, pending, { true }, {
+            calls++
+            true
+        }, nowMs = { testScheduler.currentTime })
         runCurrent()
         advanceTimeBy(2999)
         pending.value = emptyList()
@@ -109,17 +112,26 @@ class FollowUpAgentSessionTest {
     @Test
     fun `primary finishing during countdown still applies addition once`() = runTest {
         val pending = MutableStateFlow(listOf(prompt()))
-        val inbox = FollowUpInbox(backgroundScope, pending, { true }, { pending.value = emptyList(); true }, nowMs = { testScheduler.currentTime })
+        val inbox = FollowUpInbox(backgroundScope, pending, { true }, {
+            pending.value = emptyList()
+            true
+        }, nowMs = { testScheduler.currentTime })
         var handoffs = 0
-        val session = FollowUpAgentSession(provider {
-            delay(100)
-            emit(ProviderEvent.TextDelta("Original answer"))
-            emit(ProviderEvent.Completed)
-        }, inbox) { addition, draft, _ ->
+        val session = FollowUpAgentSession(
+            provider {
+                delay(100)
+                emit(ProviderEvent.TextDelta("Original answer"))
+                emit(ProviderEvent.Completed)
+            },
+            inbox
+        ) { addition, draft, _ ->
             handoffs++
             assertTrue(addition.contains("Also check dates"))
             assertEquals("Original answer", draft)
-            provider { emit(ProviderEvent.TextDelta("Added date")); emit(ProviderEvent.Completed) }
+            provider {
+                emit(ProviderEvent.TextDelta("Added date"))
+                emit(ProviderEvent.Completed)
+            }
         }
         val result = async { session.streamRound(emptyList(), emptyList()).toList() }
         advanceTimeBy(3000)
@@ -132,14 +144,20 @@ class FollowUpAgentSessionTest {
     @Test
     fun `tool results are handed over after execution with no orphan replay`() = runTest {
         val pending = MutableStateFlow(listOf(prompt()))
-        val inbox = FollowUpInbox(backgroundScope, pending, { true }, { pending.value = emptyList(); true }, nowMs = { testScheduler.currentTime })
+        val inbox = FollowUpInbox(backgroundScope, pending, { true }, {
+            pending.value = emptyList()
+            true
+        }, nowMs = { testScheduler.currentTime })
         val call = ProviderEvent.ToolCall("call", "read_url", JsonObject(emptyMap()))
         var handoffs = 0
-        val session = FollowUpAgentSession(provider {
-            delay(3100)
-            emit(call)
-            emit(ProviderEvent.Completed)
-        }, inbox) { _, _, exchanges ->
+        val session = FollowUpAgentSession(
+            provider {
+                delay(3100)
+                emit(call)
+                emit(ProviderEvent.Completed)
+            },
+            inbox
+        ) { _, _, exchanges ->
             handoffs++
             assertEquals(call, exchanges.single().calls.single())
             assertEquals("Verified source", (exchanges.single().results.single().content as ToolResultContent.Text).text)
@@ -162,8 +180,8 @@ class FollowUpAgentSessionTest {
     @Test
     fun `continuation preserves long original question history and prepared evidence`() {
         val original = "original requirement ".repeat(1000) + "MANDATORY FINAL REQUIREMENT\nPrepared evidence: [S1]"
-        val history = ConversationTurn(MessageV2(chatId = 1, content = "Earlier context"), null, false)
-        val current = ConversationTurn(MessageV2(chatId = 1, content = original), null, true)
+        val history = ConversationTurn(MessageV2(chatId = 1, content = "Earlier context", platformType = null), null, false)
+        val current = ConversationTurn(MessageV2(chatId = 1, content = original, platformType = null), null, true)
         val turns = appendFollowUpContext(listOf(history, current), "\nAlso include dates", "Answer already streamed")
         assertEquals(history, turns.first())
         assertTrue(turns.last().userMessage.content.startsWith(original))

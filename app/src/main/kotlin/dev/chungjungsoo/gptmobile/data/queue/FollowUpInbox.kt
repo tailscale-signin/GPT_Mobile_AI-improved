@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.queue
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -36,7 +37,7 @@ class FollowUpInbox(
                     drafts.remove(id)?.let { progress(it, null, null) }
                     deadlines.remove(id)
                 }
-                val candidates = prompts.take((3 - accepted.value.size).coerceAtLeast(0)).takeWhile { !it.paused && eligible(it) }
+                val candidates = prompts.take((3 - accepted.value.size).coerceAtLeast(0)).takeWhile { !it.paused && canAccept(it) }
                 drafts.keys.filter { id -> candidates.none { it.id == id } }.toList().forEach { id ->
                     drafts.remove(id)?.let { progress(it, null, null) }
                     deadlines.remove(id)
@@ -53,7 +54,14 @@ class FollowUpInbox(
                     // Never lose an admitted message if Room invalidates the pending flow
                     // between committing the transaction and publishing the handoff.
                     withContext(NonCancellable) {
-                        if (eligible(prompt) && accept(prompt)) {
+                        val consumed = try {
+                            canAccept(prompt) && accept(prompt)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (consumed) {
                             accepted.value += prompt
                             progress(prompt, FollowUpPhase.MERGING, null)
                         } else {
@@ -69,12 +77,24 @@ class FollowUpInbox(
         }
     }
 
+    private suspend fun canAccept(prompt: PendingPrompt): Boolean = try {
+        eligible(prompt)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
+    }
+
     fun snapshot(): List<PendingPrompt> = accepted.value
 
     /** Keep a short primary answer alive until its already-visible countdown settles. */
-    suspend fun awaitCountdown() { waiting.first { !it } }
+    suspend fun awaitCountdown() {
+        waiting.first { !it }
+    }
 
-    suspend fun close() { watcher.cancelAndJoin() }
+    suspend fun close() {
+        watcher.cancelAndJoin()
+    }
 
     companion object {
         const val GRACE_MS = 3_000L

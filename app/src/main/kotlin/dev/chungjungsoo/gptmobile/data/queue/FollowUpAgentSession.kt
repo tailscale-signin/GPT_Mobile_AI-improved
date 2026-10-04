@@ -20,7 +20,6 @@ class FollowUpAgentSession(
     override val handlesToolsInternally get() = active.handlesToolsInternally
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
-        var definitions = tools
         do {
             val additions = inbox.snapshot()
             if (additions.size > applied) {
@@ -45,11 +44,17 @@ class FollowUpAgentSession(
                 val calls = exchange.calls.filterNot { it.callId in replayedCallIds }
                 if (calls.isEmpty()) null else AgentToolExchange(calls, exchange.results.filter { result -> calls.any { it.callId == result.callId } })
             }
-            active.streamRound(definitions, newExchanges).collect { event ->
+            active.streamRound(tools, newExchanges).collect { event ->
                 when (event) {
                     ProviderEvent.Completed -> completed = true
-                    is ProviderEvent.Failed -> { failed = true; emit(event) }
-                    is ProviderEvent.ToolCall -> { toolCalled = true; emit(event) }
+                    is ProviderEvent.Failed -> {
+                        failed = true
+                        emit(event)
+                    }
+                    is ProviderEvent.ToolCall -> {
+                        toolCalled = true
+                        emit(event)
+                    }
                     is ProviderEvent.Usage -> {
                         event.inputTokens?.let { inputUsage = usage(inputUsage, it, event.cumulative) }
                         event.outputTokens?.let { outputUsage = usage(outputUsage, it, event.cumulative) }
@@ -83,7 +88,6 @@ class FollowUpAgentSession(
                 }
             }
             emit(ProviderEvent.TextDelta("\n\n"))
-            definitions = emptyList()
         } while (true)
     }
 }

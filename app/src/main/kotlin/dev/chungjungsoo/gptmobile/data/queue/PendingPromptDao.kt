@@ -103,6 +103,7 @@ interface PendingPromptDao {
 
     @Transaction
     suspend fun swap(first: String, second: String) {
+        if (!FollowUpProgressStore.canChange(first) || !FollowUpProgressStore.canChange(second)) return
         val a = get(first) ?: return
         val b = get(second) ?: return
         require(a.chatId == b.chatId)

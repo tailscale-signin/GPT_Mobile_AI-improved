@@ -670,7 +670,7 @@ class ChatRepositoryImpl(
         val reviewing = requestRole == "reviewer"
         val followingUp = requestRole == "follow_up"
         val conciseKey = "${target.uid}|${target.model}"
-        val concise = followingUp || reviewing || conciseKey in conciseDelegateProfiles
+        val concise = !allowTools || followingUp || reviewing || conciseKey in conciseDelegateProfiles
         check(!reviewing || !allowTools) { "Reviewer requests cannot use worker tools." }
         val attemptId = UUID.randomUUID().toString()
         // Delegated runs are real child agent runs: they receive the target profile's
@@ -1485,7 +1485,14 @@ class ChatRepositoryImpl(
             // A completed handoff is evidence-only by default. Do not advertise calls
             // which the shared budget cannot execute, or repeat finished research.
             if (!toolBudget.canExecute() || preparedEvidenceComplete) {
-                exposedTools = if (!toolBudget.canExecute()) emptyList() else exposedTools.filterNot { it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search" || it.realToolName == "delegate_to_model" }
+                exposedTools = if (!toolBudget.canExecute()) {
+                    emptyList()
+                } else {
+                    exposedTools.filterNot {
+                        it.realToolName == "delegate_to_model" ||
+                            (followUps == null && (it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search"))
+                    }
+                }
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             }
             val effectiveTools = aggregatedTools

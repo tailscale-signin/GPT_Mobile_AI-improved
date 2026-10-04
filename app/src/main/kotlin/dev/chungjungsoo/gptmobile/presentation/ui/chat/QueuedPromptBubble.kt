@@ -79,7 +79,8 @@ internal fun QueuedPromptBubble(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     when {
-                        merging || (deadline != null && remaining == 0L) -> "Added to original question"
+                        merging -> "Added to original question"
+                        deadline != null && remaining == 0L -> "Adding to original question…"
                         deadline != null -> "Adding in ${(remaining + 999L) / 1000L}s"
                         prompt.paused -> "Paused"
                         else -> "Queued"
@@ -107,7 +108,10 @@ internal fun QueuedPromptBubble(
                     if (deadline != null) {
                         Text("Save within ${(remaining + 999L) / 1000L}s to include your changes.", style = MaterialTheme.typography.labelSmall)
                     } else {
-                        TextButton(onClick = { onPause(prompt.id, !prompt.paused); editing = false }) {
+                        TextButton(onClick = {
+                            onPause(prompt.id, !prompt.paused)
+                            editing = false
+                        }) {
                             Text(if (prompt.paused) "Resume" else "Pause")
                         }
                     }

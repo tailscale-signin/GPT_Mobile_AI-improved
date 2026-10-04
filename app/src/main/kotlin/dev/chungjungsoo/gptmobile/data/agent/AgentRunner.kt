@@ -392,8 +392,14 @@ class AgentRunner(
     )
 
     private fun recoverableRoundFailure(message: String): Boolean = listOf(
-        "Tool arguments were not valid JSON", "incomplete function call", "before completing the tool call",
-        "connection abort", "connection reset", "temporarily overloaded", "timed out", "timeout has expired"
+        "Tool arguments were not valid JSON",
+        "incomplete function call",
+        "before completing the tool call",
+        "connection abort",
+        "connection reset",
+        "temporarily overloaded",
+        "timed out",
+        "timeout has expired"
     ).any { message.contains(it, ignoreCase = true) }
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.collectRound(

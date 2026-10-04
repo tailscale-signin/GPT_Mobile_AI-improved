@@ -78,6 +78,28 @@ class DurableExecutionIntegrationTest {
         assertTrue(database.pendingPromptDao().observePending().first().isEmpty())
     }
 
+    @Test fun `deadline locks edits stop and pause before atomic append`() = runBlocking {
+        val first = database.agentPersistenceDao().persistAgentTurn(request("Original question").copy(queuedPromptId = null))
+        database.agentRunDao().updateStatus("r", "RUNNING", 1, null, null)
+        val dao = database.pendingPromptDao()
+        val queued = prompt("Added requirement")
+        dao.enqueue(queued)
+        try {
+            FollowUpProgressStore.update(queued, FollowUpPhase.COUNTDOWN, Long.MAX_VALUE)
+            dao.edit("q", "Saved edit")
+            val edited = requireNotNull(dao.get("q"))
+            FollowUpProgressStore.update(edited, FollowUpPhase.COUNTDOWN, 0L)
+            dao.edit("q", "Too late")
+            dao.pause("q", true)
+            dao.delete("q")
+            assertEquals(edited, dao.get("q"))
+            assertTrue(dao.acceptPreparedFollowUp(edited, first.userMessage.id, "r", "p", "model", 8000, dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig()))
+            assertEquals("Original question\n\nFollow-up from user:\nSaved edit", database.messageDao().loadMessages(1).first { it.id == first.userMessage.id }.content)
+        } finally {
+            FollowUpProgressStore.finish("q")
+        }
+    }
+
     @Test fun `paused oversized or differently configured follow-ups stay queued`() = runBlocking {
         val first = database.agentPersistenceDao().persistAgentTurn(request("First question").copy(queuedPromptId = null))
         database.agentRunDao().updateStatus("r", "RUNNING", 1, null, null)

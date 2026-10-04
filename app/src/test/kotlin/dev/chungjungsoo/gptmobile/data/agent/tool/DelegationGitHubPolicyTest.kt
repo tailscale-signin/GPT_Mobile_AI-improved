@@ -36,6 +36,17 @@ class DelegationGitHubPolicyTest {
     }
 
     @Test
+    fun `combined synthesis cannot recursively expose delegation`() {
+        val delegate = tool("delegate_to_model")
+        val search = tool("web_search")
+        val read = tool("read_url")
+        val tools = listOf(delegate, search, read)
+
+        assertEquals(listOf(search, read), synthesisSafeTools(tools, "combined-synthesis:run-1"))
+        assertEquals(tools, synthesisSafeTools(tools, "normal-run"))
+    }
+
+    @Test
     fun `repository actions bypass public web planning`() {
         listOf("Create a draft PR", "Push a branch", "Inspect the repository", "Read github.com/owner/project", "Commit files").forEach {
             assertTrue(it, isGitHubTask(it))

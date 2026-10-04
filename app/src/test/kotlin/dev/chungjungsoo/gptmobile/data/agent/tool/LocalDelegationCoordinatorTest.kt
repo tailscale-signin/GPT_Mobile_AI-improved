@@ -481,7 +481,7 @@ class LocalDelegationCoordinatorTest {
 
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
-        assertEquals(11, calls)
+        assertEquals(1, calls)
     }
 
     @Test fun `retired model is quarantined and delegation immediately fails over`() = runTest {

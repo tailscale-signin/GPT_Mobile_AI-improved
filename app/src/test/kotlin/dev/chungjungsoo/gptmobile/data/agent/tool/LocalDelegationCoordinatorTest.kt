@@ -853,7 +853,7 @@ class LocalDelegationCoordinatorTest {
         var drafts = 0
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid, maxLocalModelCalls = 3) },
             { listOf(target, reviewer) },
             { _, _, _ -> error("No legacy callback") },
             generateWithProgress = { profile, _, _, _, _ ->

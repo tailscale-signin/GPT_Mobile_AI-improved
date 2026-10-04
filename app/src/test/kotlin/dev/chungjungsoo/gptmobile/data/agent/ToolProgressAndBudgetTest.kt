@@ -169,6 +169,23 @@ class ToolProgressAndBudgetTest {
         assertEquals(2, executions)
     }
 
+    @Test fun `successful delegation marker cannot leave shared budget wrapper as an error`() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4, maxToolOutputBytes = 1024))
+        val delegate = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("delegate_to_model", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("<!-- delegation:local -->\nreviewed evidence"),
+                    isError = true
+                )
+        })
+
+        val result = delegate.execute("delegate", buildJsonObject {})
+
+        assertFalse(result.isError)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("reviewed evidence"))
+    }
     @Test fun `approval waiting is outside tool execution timeout and cancellation propagates`() = runBlocking {
         val budget = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 5))
         val tool = object : AgentTool {

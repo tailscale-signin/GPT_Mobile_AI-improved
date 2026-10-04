@@ -21,12 +21,21 @@ object FollowUpProgressStore {
 
     fun update(prompt: PendingPrompt, phase: FollowUpPhase?) {
         mutable.update { entries ->
-            if (phase == null && entries[prompt.id]?.phase == FollowUpPhase.MERGING) entries
-            else if (phase == null) entries - prompt.id
-            else entries + (prompt.id to FollowUpProgress(prompt, phase))
+            if (phase == null && entries[prompt.id]?.phase == FollowUpPhase.MERGING) {
+                entries
+            } else if (phase == null) {
+                entries - prompt.id
+            } else {
+                entries + (prompt.id to FollowUpProgress(prompt, phase))
+            }
         }
-        if (phase == FollowUpPhase.MERGING) scope.launch { delay(3500); finish(prompt.id) }
+        if (phase == FollowUpPhase.MERGING) scope.launch {
+            delay(3500)
+            finish(prompt.id)
+        }
     }
 
-    fun finish(id: String) { mutable.update { it - id } }
+    fun finish(id: String) {
+        mutable.update { it - id }
+    }
 }

@@ -956,6 +956,7 @@ class LocalDelegationCoordinatorTest {
         assertNull(coordinator.executeTask(target, "later", 512))
         assertEquals(1, reviews)
     }
+
     @Test fun `review score regression stops correction without accepting rejected claims`() = runTest {
         val reviewer = target.copy(uid = "regression-reviewer", model = "independent-review")
         var calls = 0
@@ -967,8 +968,11 @@ class LocalDelegationCoordinatorTest {
             { _, _, _ -> "Changed evidence ${++repairs}" },
             generateReviewerWithProgress = { _, _, _, _, _ ->
                 calls++
-                if (calls == 1) """{"review_score":35,"verdict":"REJECT","issues":["Unsupported"],"corrections":null}"""
-                else """{"review_score":20,"verdict":"REJECT","issues":["Still unsupported"],"corrections":null}"""
+                if (calls == 1) {
+                    """{"review_score":35,"verdict":"REJECT","issues":["Unsupported"],"corrections":null}"""
+                } else {
+                    """{"review_score":20,"verdict":"REJECT","issues":["Still unsupported"],"corrections":null}"""
+                }
             }
         )
         val result = coordinator.executeTask(target, "Original task", 512).orEmpty()
@@ -983,7 +987,11 @@ class LocalDelegationCoordinatorTest {
             source,
             { config.copy(preparationTimeoutSeconds = 30) },
             { listOf(target) },
-            { _, _, _ -> calls++; delay(60_000); "unused" },
+            { _, _, _ ->
+                calls++
+                delay(60_000)
+                "unused"
+            },
             nowMs = { testScheduler.currentTime }
         )
         val result = coordinator.prepare("Research latency", emptyList(), "deadline")
@@ -1011,5 +1019,4 @@ class LocalDelegationCoordinatorTest {
         coordinator.executeTask(target, "Work", 512)
         assertEquals(1, calls)
     }
-
 }

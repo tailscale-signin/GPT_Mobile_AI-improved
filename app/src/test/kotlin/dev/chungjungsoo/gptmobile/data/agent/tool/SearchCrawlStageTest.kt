@@ -64,6 +64,7 @@ class SearchCrawlStageTest {
         assertFalse(isNamedWebSearch("provider_crawler", "Crawl web search results"))
         assertFalse(isNamedWebSearch("read_url", "Read web search pages"))
     }
+
     @Test fun `repeated searches reuse page evidence and enforce a turn wide page cap`() = runTest {
         val calls = mutableListOf<String>()
         val stage = SearchCrawlStage(listOf(crawler(calls)), 1)
@@ -82,5 +83,4 @@ class SearchCrawlStageTest {
         assertEquals(1, first.size)
         assertTrue(second.isEmpty())
     }
-
 }

@@ -154,11 +154,10 @@ internal class LocalDelegationCoordinator(
             reviewerEligible(it, config, source) && !sameDelegationModel(delegate, it)
         }
 
-    private suspend fun runReviewer(delegate: PlatformV2, task: String, delegateOutput: String, config: ModelDelegationSettings): String {
-        return withTimeoutOrNull(config.reviewTimeoutSeconds * 1000L) {
+    private suspend fun runReviewer(delegate: PlatformV2, task: String, delegateOutput: String, config: ModelDelegationSettings): String =
+        withTimeoutOrNull(config.reviewTimeoutSeconds * 1000L) {
             reviewWithinBudget(delegate, task, delegateOutput, config)
         } ?: "[REVIEW_REJECTED][REVIEW_TIMEOUT] Review/correction time budget reached. Treat delegate claims as unverified and recover independently."
-    }
 
     private suspend fun reviewWithinBudget(
         delegate: PlatformV2,
@@ -1267,9 +1266,13 @@ internal class LocalDelegationCoordinator(
         preparationStartedAt.compareAndSet(-1L, nowMs())
         val remaining = config.preparationTimeoutSeconds * 1000L - (nowMs() - preparationStartedAt.get())
         var retained: LocalResearchResult? = null
-        val result = if (remaining > 0) withTimeoutOrNull(remaining) {
-            prepareWithinBudget(task, tools, callId, automatic, targetOverride) { retained = it }
-        } else null
+        val result = if (remaining > 0) {
+            withTimeoutOrNull(remaining) {
+                prepareWithinBudget(task, tools, callId, automatic, targetOverride) { retained = it }
+            }
+        } else {
+            null
+        }
         return result ?: (retained ?: LocalResearchResult("", 0, 0, 0)).copy(
             handoff = "[REVIEW_REJECTED][PREPARATION_TIMEOUT] Research/review time budget reached. Retained context is unverified; the primary must recover independently.\n" + retained?.handoff.orEmpty(),
             outcome = LocalResearchOutcome.FAILED

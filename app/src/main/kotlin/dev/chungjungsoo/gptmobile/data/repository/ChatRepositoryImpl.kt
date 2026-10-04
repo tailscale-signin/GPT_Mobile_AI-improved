@@ -735,7 +735,8 @@ class ChatRepositoryImpl(
         }
         // Gateway-local capabilities are separately configured on the user's server.
         // Keep fixtures/text transforms isolated and never override chat exclusions.
-        val allowGatewayLocalTools = !followingUp && allowTools &&
+        val allowGatewayLocalTools = !followingUp &&
+            allowTools &&
             fixtureTools == null &&
             target.compatibleType == ClientType.LLAMA &&
             !target.disableAllTools &&
@@ -1512,12 +1513,14 @@ class ChatRepositoryImpl(
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }
                 .map { if (taskRoutedTools.any { tool -> tool.realToolName == "delegate_to_model" }) localDelegation.processToolResults(it, latestUser?.content.orEmpty()) else it }
             val delegationSettings = effectiveDelegationSettings()
-            emitAll(streamPrimaryAnswer(
-                platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
-                budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
-                resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
-                localResearch, processingOwnership, reservedFinalToolCalls
-            ))
+            emitAll(
+                streamPrimaryAnswer(
+                    platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
+                    budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
+                    resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
+                    localResearch, processingOwnership, reservedFinalToolCalls
+                )
+            )
         } finally {
             withContext(NonCancellable) {
                 statusJob.cancelAndJoin()
@@ -1648,15 +1651,21 @@ class ChatRepositoryImpl(
         var followUpCharacters = 0
         var followUpTokens = 0
         fun followUpAllowance(): Int {
-            val availableTokens = if (contextTokens == Int.MAX_VALUE) 6000 else
+            val availableTokens = if (contextTokens == Int.MAX_VALUE) {
+                6000
+            } else {
                 (contextTokens.toLong() - initialPromptTokens - followUpTokens - (effectiveOutputCap ?: 2048) - 2048).coerceIn(0, 6000).toInt()
+            }
             return minOf(3000, 8000 - followUpCharacters, availableTokens / 2).coerceAtLeast(0)
         }
         suspend fun followUpsAllowed(): Boolean = settingRepository.getFeatureSettings().queuedFollowUps &&
-            latestUser != null && platform.uid !in context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE)
+            latestUser != null &&
+            platform.uid !in context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE)
                 .getStringSet("paused_${latestUser.chatId}", emptySet()).orEmpty()
-        return if (followUpDao != null && latestUser != null &&
-            platform.compatibleType !in setOf(ClientType.LITERT_LM, ClientType.FREE) && !platform.batchMode
+        return if (followUpDao != null &&
+            latestUser != null &&
+            platform.compatibleType !in setOf(ClientType.LITERT_LM, ClientType.FREE) &&
+            !platform.batchMode
         ) {
             dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(
                 initial = initialSession,
@@ -1667,7 +1676,9 @@ class ChatRepositoryImpl(
                     val config = chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
                     // A separate worker never borrows the reviewer or enables an unapproved destination.
                     val configured = settingRepository.fetchPlatformV2s().firstOrNull {
-                        config.enabled && it.enabled && it.uid == config.targetProfileUid &&
+                        config.enabled &&
+                            it.enabled &&
+                            it.uid == config.targetProfileUid &&
                             it.uid != config.reviewerProfileUid &&
                             (it.isPrivateDestination() || config.remoteWorkersAllowed()) &&
                             it.compatibleType !in setOf(ClientType.FREE, ClientType.LITERT_LM)
@@ -1712,13 +1723,17 @@ class ChatRepositoryImpl(
                 },
                 continuation = { handoff, draft ->
                     // Stateless endpoints require a new request; replay only this turn and a bounded tail.
-                    val user = latestUser.copy(content = latestUser.content.take(4000) + handoff +
-                        "\n\nContinue the same answer below. Address this addition, correct earlier claims if needed, and avoid repeating the answer already shown.\n\nAnswer already shown (bounded tail):\n" + draft)
+                    val user = latestUser.copy(
+                        content = latestUser.content.take(4000) + handoff +
+                            "\n\nContinue the same answer below. Address this addition, correct earlier claims if needed, and avoid repeating the answer already shown.\n\nAnswer already shown (bounded tail):\n" + draft
+                    )
                     openContinuation(listOf(ConversationTurn(user, null, true)))
                 },
                 progress = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore::update
             )
-        } else initialSession
+        } else {
+            initialSession
+        }
     }
 
     private fun streamAgentEvents(

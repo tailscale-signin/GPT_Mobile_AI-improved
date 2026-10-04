@@ -43,12 +43,23 @@ class FollowUpAgentSessionTest {
             },
             pending = pending,
             eligible = { true },
-            prepare = { started.complete(Unit); delay(10); "Verified date: 2026" },
-            accept = { accepted++; pending.value = emptyList(); true },
+            prepare = {
+                started.complete(Unit)
+                delay(10)
+                "Verified date: 2026"
+            },
+            accept = {
+                accepted++
+                pending.value = emptyList()
+                true
+            },
             continuation = { evidence, draft ->
                 handoffs += evidence
                 assertEquals("Original answer", draft)
-                provider { emit(ProviderEvent.TextDelta("Added date")); emit(ProviderEvent.Completed) }
+                provider {
+                    emit(ProviderEvent.TextDelta("Added date"))
+                    emit(ProviderEvent.Completed)
+                }
             }
         )
         val events = session.streamRound(emptyList(), emptyList()).toList()
@@ -78,10 +89,21 @@ class FollowUpAgentSessionTest {
             prepare = {
                 if (it.text == "Old text") {
                     started.complete(Unit)
-                    try { awaitCancellation() } finally { staleCanceled = true }
-                } else { fresh.complete(Unit); "Fresh evidence" }
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        staleCanceled = true
+                    }
+                } else {
+                    fresh.complete(Unit)
+                    "Fresh evidence"
+                }
             },
-            accept = { acceptedText = it.text; pending.value = emptyList(); true },
+            accept = {
+                acceptedText = it.text
+                pending.value = emptyList()
+                true
+            },
             continuation = { _, _ -> provider { emit(ProviderEvent.Completed) } }
         )
         session.streamRound(emptyList(), emptyList()).toList()
@@ -94,12 +116,21 @@ class FollowUpAgentSessionTest {
         val pending = MutableStateFlow(listOf(prompt()))
         var handoff = ""
         val session = FollowUpAgentSession(
-            initial = provider { delay(1); emit(ProviderEvent.Completed) },
+            initial = provider {
+                delay(1)
+                emit(ProviderEvent.Completed)
+            },
             pending = pending,
             eligible = { true },
             prepare = { awaitCancellation() },
-            accept = { pending.value = emptyList(); true },
-            continuation = { evidence, _ -> handoff = evidence; provider { emit(ProviderEvent.Completed) } },
+            accept = {
+                pending.value = emptyList()
+                true
+            },
+            continuation = { evidence, _ ->
+                handoff = evidence
+                provider { emit(ProviderEvent.Completed) }
+            },
             workerTimeoutMs = 10
         )
         session.streamRound(emptyList(), emptyList()).toList()
@@ -117,8 +148,18 @@ class FollowUpAgentSessionTest {
             initial = provider { awaitCancellation() },
             pending = pending,
             eligible = { true },
-            prepare = { started.complete(Unit); try { awaitCancellation() } finally { childCanceled = true } },
-            accept = { accepted = true; true },
+            prepare = {
+                started.complete(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    childCanceled = true
+                }
+            },
+            accept = {
+                accepted = true
+                true
+            },
             continuation = { _, _ -> provider { emit(ProviderEvent.Completed) } }
         )
         val job = async { session.streamRound(emptyList(), emptyList()).toList() }
@@ -143,15 +184,27 @@ class FollowUpAgentSessionTest {
             },
             pending = pending,
             eligible = { true },
-            prepare = { ready.complete(Unit); "New evidence" },
-            accept = { pending.value = emptyList(); true },
-            continuation = { _, _ -> provider { continuations++; emit(ProviderEvent.Completed) } }
+            prepare = {
+                ready.complete(Unit)
+                "New evidence"
+            },
+            accept = {
+                pending.value = emptyList()
+                true
+            },
+            continuation = { _, _ ->
+                provider {
+                    continuations++
+                    emit(ProviderEvent.Completed)
+                }
+            }
         )
         session.streamRound(emptyList(), emptyList()).toList()
         assertEquals(0, continuations)
         session.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, continuations)
     }
+
     @Test
     fun `usage from continuation requests is additive rather than taking the maximum`() = runTest {
         val pending = MutableStateFlow(listOf(prompt()))
@@ -164,12 +217,20 @@ class FollowUpAgentSessionTest {
             },
             pending = pending,
             eligible = { true },
-            prepare = { ready.complete(Unit); "Evidence" },
-            accept = { pending.value = emptyList(); true },
-            continuation = { _, _ -> provider {
-                emit(ProviderEvent.Usage(inputTokens = 20, outputTokens = 6))
-                emit(ProviderEvent.Completed)
-            } }
+            prepare = {
+                ready.complete(Unit)
+                "Evidence"
+            },
+            accept = {
+                pending.value = emptyList()
+                true
+            },
+            continuation = { _, _ ->
+                provider {
+                    emit(ProviderEvent.Usage(inputTokens = 20, outputTokens = 6))
+                    emit(ProviderEvent.Completed)
+                }
+            }
         )
         val usage = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Usage>()
         assertEquals(30, usage.sumOf { it.inputTokens ?: 0 })
@@ -183,12 +244,21 @@ class FollowUpAgentSessionTest {
         val ready = CompletableDeferred<Unit>()
         var continued = false
         val session = FollowUpAgentSession(
-            initial = provider { ready.await(); emit(ProviderEvent.Completed) },
+            initial = provider {
+                ready.await()
+                emit(ProviderEvent.Completed)
+            },
             pending = pending,
             eligible = { true },
-            prepare = { ready.complete(Unit); "Evidence" },
+            prepare = {
+                ready.complete(Unit)
+                "Evidence"
+            },
             accept = { false },
-            continuation = { _, _ -> continued = true; provider { emit(ProviderEvent.Completed) } }
+            continuation = { _, _ ->
+                continued = true
+                provider { emit(ProviderEvent.Completed) }
+            }
         )
         session.streamRound(emptyList(), emptyList()).toList()
         assertFalse(continued)
@@ -201,15 +271,26 @@ class FollowUpAgentSessionTest {
         val started = CompletableDeferred<Unit>()
         var continued = false
         val session = FollowUpAgentSession(
-            initial = provider { started.await(); emit(ProviderEvent.Completed) },
+            initial = provider {
+                started.await()
+                emit(ProviderEvent.Completed)
+            },
             pending = pending,
             eligible = { true },
-            prepare = { started.complete(Unit); throw CancellationException("Helper disconnected") },
-            accept = { pending.value = emptyList(); true },
-            continuation = { _, _ -> continued = true; provider { emit(ProviderEvent.Completed) } }
+            prepare = {
+                started.complete(Unit)
+                throw CancellationException("Helper disconnected")
+            },
+            accept = {
+                pending.value = emptyList()
+                true
+            },
+            continuation = { _, _ ->
+                continued = true
+                provider { emit(ProviderEvent.Completed) }
+            }
         )
         session.streamRound(emptyList(), emptyList()).toList()
         assertTrue(continued)
     }
-
 }

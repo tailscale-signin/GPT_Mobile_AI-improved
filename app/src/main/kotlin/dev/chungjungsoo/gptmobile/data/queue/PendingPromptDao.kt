@@ -68,8 +68,10 @@ interface PendingPromptDao {
         if (activeRunCount(pending.chatId) != 1 || isRunningTurn(runId, messageId) != 1) return false
         if (pending.paused || pending.text.isBlank() || pending.text.length > maxCharacters.coerceIn(0, 8000)) return false
         val payload = pending.details()
-        return payload.tools == tools && payload.attachments.isEmpty() &&
-            !payload.localOnly && !payload.requiresSpendAllowance &&
+        return payload.tools == tools &&
+            payload.attachments.isEmpty() &&
+            !payload.localOnly &&
+            !payload.requiresSpendAllowance &&
             payload.profileUids == listOf(profileUid) &&
             (payload.models[profileUid] == null || payload.models[profileUid] == model)
     }

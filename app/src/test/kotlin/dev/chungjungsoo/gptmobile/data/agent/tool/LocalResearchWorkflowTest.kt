@@ -284,6 +284,7 @@ class LocalResearchWorkflowTest {
         assertEquals("false", payload.getValue("partial").jsonPrimitive.content)
         assertTrue(payload.getValue("warnings").toString().contains("another enabled search provider was attempted"))
     }
+
     @Test fun `pages supplied by aggregate search count as read evidence`() = runTest {
         val search = tool("web_search") { id, _ ->
             response(id, """{"results":[{"title":"Benchmark","url":"https://example.org/start","snippet":"Snippet"}],"pages":{"results":[{"url":"https://example.org/start","status":"completed","content":"Verified latency is 42 ms.","truncated":false}]}}""")
@@ -305,5 +306,4 @@ class LocalResearchWorkflowTest {
         assertEquals(0, result.pagesRetrieved)
         assertTrue(result.handoff.contains("search snippet"))
     }
-
 }

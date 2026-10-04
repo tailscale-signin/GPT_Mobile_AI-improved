@@ -308,7 +308,10 @@ class ReadUrlToolTest {
     @Test
     fun `denied hosts are not fetched again through bounded readers`() = runBlocking {
         var requests = 0
-        val server = server { exchange -> requests++; exchange.respond(403, "text/plain", "Denied") }
+        val server = server { exchange ->
+            requests++
+            exchange.respond(403, "text/plain", "Denied")
+        }
         val reader = tool(allowTestLoopback = true)
         assertTrue(reader.execute("one", args(server.url("fixture.test", "/one"))).isError)
         assertTrue(reader.withOutputLimit(1000).execute("two", args(server.url("fixture.test", "/two"))).isError)

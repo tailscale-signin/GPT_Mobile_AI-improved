@@ -2,10 +2,12 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -238,6 +240,18 @@ class ReadUrlToolTest {
             assertTrue(result.isError)
             assertContains(result.text(), message)
         }
+    }
+
+    @Test
+    fun `page result honors the remaining run allowance through wrappers`() = runBlocking {
+        val page = server { it.respond(200, "text/plain", "Useful evidence. ".repeat(10000)) }
+        val reader = MeasuredAgentTool(tool(allowTestLoopback = true))
+        val result = withContext(ToolOutputAllowance(1024)) {
+            reader.execute("bounded", buildJsonObject { put("url", page.url("fixture.test", "/")) })
+        }
+        assertFalse(result.isError)
+        assertTrue(result.text().isNotBlank())
+        assertTrue(result.text().toByteArray().size <= 1024)
     }
 
     @Test

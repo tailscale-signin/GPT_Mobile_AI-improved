@@ -128,8 +128,8 @@ class WebSearchTool(
                 }
                 return error(callId, "Add a $provider API key in Settings → Tool Connections before using this search provider.")
             }
-            if (config.provider == WebSearchProvider.PERPLEXITY && clock.millis() < authenticationBlockedUntilMs.get()) {
-                return error(callId, "Perplexity web search is disabled for this connection after an authentication failure. Update its API key in Settings → Tool Connections before retrying.")
+            if (clock.millis() < authenticationBlockedUntilMs.get()) {
+                return error(callId, "${config.provider} web search is temporarily unavailable after an authentication, billing, or access failure. Check this search connection and provider account.")
             }
             val response = if (config.provider == WebSearchProvider.BRAVE) {
                 networkClient().get(config.endpointUrl) {
@@ -153,8 +153,8 @@ class WebSearchTool(
                 }
             }
             if (response.status.value !in 200..299) {
-                if (config.provider == WebSearchProvider.PERPLEXITY && response.status.value in setOf(401, 403)) {
-                    authenticationBlockedUntilMs.set(Long.MAX_VALUE)
+                if (response.status.value in setOf(401, 402, 403)) {
+                    authenticationBlockedUntilMs.set(clock.millis() + 5 * 60_000L)
                 }
                 return error(callId, providerFailureMessage(response.status.value))
             }

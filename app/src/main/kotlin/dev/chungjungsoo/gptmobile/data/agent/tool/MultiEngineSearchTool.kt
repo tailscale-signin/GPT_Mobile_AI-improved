@@ -22,11 +22,13 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Children must already be bound to the run's shared budget and permission gate. */
-class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC(), private val parallel: Boolean = true, private val deduplicate: Boolean = true, private val afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null) : AgentTool {
+class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC(), private val parallel: Boolean = true, private val deduplicate: Boolean = true, private val afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null, private val canExecute: () -> Boolean = { true }, private val remainingBytes: () -> Int = { Int.MAX_VALUE }) : AgentTool {
+    private val reliability = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+    private val blockedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         "web_search",
-        "Search every enabled web search engine in parallel. Returns deduplicated sources and each engine's status. An unavailable engine does not discard other results.",
+        "Search up to two available web search engines, ranked by observed reliability. Returns deduplicated sources and each engine's status. An unavailable engine does not discard other results.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -92,14 +94,27 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         ) {
             return@coroutineScope AgentToolResult(callId, ToolResultContent.Text("Use valid host names and a recency within the supported calendar range."), true)
         }
-        val permits = Semaphore(if (parallel) 4 else 1)
-        val responses = engines.mapIndexed { index, engine ->
+        val engineCap = if (remainingBytes() < 16 * 1024) 1 else 2
+        val selected = engines.filter { (blockedUntil[it.modelToolName] ?: 0) <= clock.millis() }
+            .sortedByDescending { reliability[it.modelToolName]?.get() ?: 0 }
+            .take(engineCap)
+        val permits = Semaphore(if (parallel) 2 else 1)
+        val responses = selected.mapIndexed { index, engine ->
             async {
                 permits.withPermit {
                     try {
+                        if (!canExecute() || remainingBytes() < 1024) {
+                            return@withPermit engine to AgentToolResult(callId, ToolResultContent.Text("Search skipped: insufficient remaining run budget."), true, outputBudgetExhausted = true)
+                        }
                         val adapter = requireNotNull(WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition))
                         val mapped = adapter.arguments(arguments, clock)
-                        engine to engine.tool.execute("$callId:engine:$index", mapped)
+                        val result = engine.tool.execute("$callId:engine:$index", mapped)
+                        reliability.getOrPut(engine.modelToolName) { java.util.concurrent.atomic.AtomicInteger() }.addAndGet(if (result.isError) -1 else 1)
+                        val detail = result.content.toString()
+                        if (result.isError && Regex("HTTP (401|402|403)").containsMatchIn(detail)) {
+                            blockedUntil[engine.modelToolName] = clock.millis() + 5 * 60_000L
+                        }
+                        engine to result
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -185,9 +200,9 @@ internal fun canonicalSearchUrl(url: String): String = runCatching {
 }.getOrDefault(url)
 
 /** Compose only after child authorization/budget wrappers have been installed. */
-internal fun aggregateWebSearch(tools: List<ResolvedAgentTool>, parallel: Boolean = true, deduplicate: Boolean = true, afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null): List<ResolvedAgentTool> {
+internal fun aggregateWebSearch(tools: List<ResolvedAgentTool>, parallel: Boolean = true, deduplicate: Boolean = true, afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null, canExecute: () -> Boolean = { true }, remainingBytes: () -> Int = { Int.MAX_VALUE }): List<ResolvedAgentTool> {
     val engines = tools.filter { it.isWebSearchEngine() }
     if (engines.isEmpty()) return tools
-    val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines, parallel = parallel, deduplicate = deduplicate, afterSearch = afterSearch))
+    val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines, parallel = parallel, deduplicate = deduplicate, afterSearch = afterSearch, canExecute = canExecute, remainingBytes = remainingBytes))
     return tools.filterNot { it in engines } + ResolvedAgentTool(aggregate, null, "Multi-engine search", "web_search", "web_search")
 }

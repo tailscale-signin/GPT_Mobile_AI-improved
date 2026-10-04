@@ -18,4 +18,16 @@ class GroupedAppLogsTest {
         val events = listOf(first, first.copy(time = 1500, level = "E"), first.copy(time = 2000), first.copy(time = 6000))
         assertEquals(4, groupAppLogs(events).size)
     }
+
+    @Test fun `budget warnings across different engines group with raw details`() {
+        val events = listOf(
+            AppLogEntry(1000, "W", "ToolBudget", "Tool-result byte budget blocked execution · tool=one"),
+            AppLogEntry(1500, "I", "Model", "Progress"),
+            AppLogEntry(2000, "W", "ToolBudget", "Tool-result byte budget blocked execution · tool=two")
+        )
+        val groups = groupAppLogs(events)
+        assertEquals(2, groups.size)
+        assertEquals(2, groups.last().repetitions)
+        assertEquals(listOf(events.first(), events.last()), groups.last().rawDetails)
+    }
 }

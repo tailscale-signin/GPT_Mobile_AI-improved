@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
-import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
@@ -69,6 +68,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             endpoints[config.connectionUid] = shared
             return@withLock shared.discovery != null
         }
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         val discovered = try {
             rpc(config, "server/discover", JsonObject(emptyMap())).also {
                 check(VERSION in (it["supportedVersions"] as? JsonArray).orEmpty().map { version -> version.jsonPrimitive.content }) { "Server has no mutually supported modern MCP version." }
@@ -78,14 +78,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         } catch (error: ModernMcpError) {
             if ((error.status in setOf(400, 404, 405) && error.code !in MODERN_ERRORS) || error.status == 200 && error.code == -32601) null else throw error
         } catch (error: Exception) {
-            if (!isLocalMcpEndpoint(config.endpointUrl)) throw error
-            val host = runCatching { URI(config.endpointUrl).host }.getOrNull().orEmpty()
-            AppLogRecorder.record(
-                "MCP",
-                "Modern discovery probe failed on local endpoint; falling back to legacy session · host=$host · ${error.javaClass.simpleName}",
-                "W"
-            )
-            null
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
+            // Transport failure says nothing about protocol support. Never open a second
+            // legacy connection to a host that did not answer discovery.
+            throw error
         }
         if (endpoints.size >= 64) {
             endpoints.keys.firstOrNull()?.let {

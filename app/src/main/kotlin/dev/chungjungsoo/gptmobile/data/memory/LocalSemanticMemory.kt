@@ -54,7 +54,10 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             TextEmbedder.TextEmbedderOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("memory/universal_sentence_encoder.tflite").build())
                 .build()
-        ).also { embedder = it }
+        ).also {
+            embedder = it
+            AppLogRecorder.record("Memory", "EMBEDDING_ENGINE_CREATED · instance=${System.identityHashCode(this)} · lazy=true · singleton=true")
+        }
         val vector = engine.embed(text.take(4000)).embeddingResult().embeddings().first().floatEmbedding()
         require(vector.size == 100 && vector.all(Float::isFinite)) { "Embedding model dimensions changed." }
         return vector

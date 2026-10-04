@@ -56,6 +56,7 @@ internal object ToolExchangeCompactor {
                 val duplicate = lastOccurrence[fingerprints[index]] != index
                 val maxChars = resultBudgets[index] * CHARS_PER_TOKEN
                 when {
+                    result.isError -> result.copy(content = ToolResultContent.Text(raw.take(240)))
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
                     resultBudgets[index] == 0 -> result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
                     raw.length <= maxChars -> result

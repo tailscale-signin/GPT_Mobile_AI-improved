@@ -904,7 +904,7 @@ class ChatRepositoryImpl(
         val effectiveCap = effectiveProviderOutputCap ?: constraints.outputLimit(target.maxTokens)
         val outputCapMismatch = sawUsage && effectiveCap != null && maxRoundOutput > effectiveCap
         val outputCapReached = sawUsage && effectiveCap != null && maxRoundOutput >= effectiveCap
-        val likelyTruncated = isLikelyDelegatedTruncation(rawText, outputCapReached)
+        val likelyTruncated = (outputCapReached && usableText == null) || isLikelyDelegatedTruncation(rawText, outputCapReached)
 
         if (outputCapMismatch) {
             AppLogRecorder.record(
@@ -927,7 +927,7 @@ class ChatRepositoryImpl(
             ?: accountedInputTokens + accountedOutputTokens
         AppLogRecorder.record(
             "Delegation",
-            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=$accountedInputTokens · usageInputEstimated=${usageInputTokens <= 0} · usageOutput=$accountedOutputTokens · usageOutputEstimated=${usageOutputTokens <= 0} · usageTotal=$accountedTotalTokens · usageTotalEstimated=${usageTotalTokens <= 0} · unusableTokens=${if (usableText == null) accountedTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
+            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=$accountedInputTokens · usageInputEstimated=${usageInputTokens <= 0} · usageOutput=$accountedOutputTokens · usageOutputEstimated=${usageOutputTokens <= 0} · usageTotal=$accountedTotalTokens · usageTotalEstimated=${usageTotalTokens <= 0} · reasoningTokensEstimated=${(reasoningChars + 3L) / 4} · usableOutputTokensEstimated=${((usableText?.length ?: 0) + 3L) / 4} · unusableTokens=${if (usableText == null) accountedTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
         )
 
         if (!reviewing && usableText != null && likelyTruncated && !finalizationRepairAttempted) {
@@ -939,6 +939,7 @@ class ChatRepositoryImpl(
                 "Output-cap completion repair · parentRun=$parentRunId · target=${target.uid} · cap=$effectiveCap · outputTokens=$maxRoundOutput · draftChars=${repairDraft.length}",
                 "W"
             )
+            onProgress(DelegateProgress(DelegateProgressKind.REPAIR_WASTE, totalTokens = accountedTotalTokens, wastedMillis = elapsedMs))
             return delegateToProfile(
                 target = target,
                 task = task + "\n\nA previous draft reached the output cap and may be truncated. Rewrite it into a complete, concise final answer within the response budget. Preserve exact facts/source IDs and do not invent anything.\n\nDraft:\n" + repairDraft,
@@ -963,9 +964,10 @@ class ChatRepositoryImpl(
             if (repairCap <= (effectiveCap ?: maxTokens)) error("DELEGATION_OUTPUT_BUDGET_EXHAUSTED: raise the profile output limit for this reasoning model.")
             AppLogRecorder.record(
                 "Delegation",
-                "Reasoning-only completion repair · parentRun=$parentRunId · target=${target.uid} · firstCap=$maxTokens · repairCap=$repairCap · reasoningChars=$reasoningChars",
+                "Reasoning-only completion repair · parentRun=$parentRunId · target=${target.uid} · originalRequested=$maxTokens · repairRequested=$repairCap · providerMaximum=${target.maxTokens} · actuallySent=${minOf(repairCap, target.maxTokens?.takeIf { it > 0 } ?: repairCap)} · reasoningChars=$reasoningChars · repair_wasted_tokens=$accountedTotalTokens · repair_wasted_ms=$elapsedMs",
                 "W"
             )
+            onProgress(DelegateProgress(DelegateProgressKind.REPAIR_WASTE, totalTokens = accountedTotalTokens, wastedMillis = elapsedMs))
             return delegateToProfile(
                 target = target,
                 task = task + "\n\nThe previous attempt used its response budget without producing a final answer. Do not expose internal reasoning. Return only the concise final answer or the required tool call now.",
@@ -1120,7 +1122,7 @@ class ChatRepositoryImpl(
             // intuitive: raising Max tools also allows the agent enough rounds to use them.
             // AgentRunner still reserves one additional no-tools synthesis round after the
             // configured work-round allowance is reached.
-            val effectiveMaxTools = (chatToolConfig?.maxToolCalls ?: platform.maxToolCalls).coerceAtLeast(1)
+            val effectiveMaxTools = minOf(chatToolConfig?.maxToolCalls ?: platform.maxToolCalls, platform.maxToolCalls, 64).coerceAtLeast(1)
             val customRunner = agentRunnerForPlatform(
                 platform = platform,
                 runOverride = effectiveMaxTools,
@@ -1345,6 +1347,9 @@ class ChatRepositoryImpl(
             // produce a grounded response.
             val reservedFinalToolCalls = if (localResearch) 1 else 0
             val toolBudgetLimits = customRunner.limits.copy(
+                maxToolCalls = minOf(effectiveMaxTools, 64),
+                maxReplayTokens = minOf(customRunner.limits.maxReplayTokens, 4096),
+                maxReplayResultTokens = minOf(customRunner.limits.maxReplayResultTokens, 1024),
                 maxToolOutputBytes = if (localResearch) maxOf(contextPlan.toolResultBytes, 256 * 1024) else contextPlan.toolResultBytes,
                 finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls)
             )
@@ -1386,7 +1391,9 @@ class ChatRepositoryImpl(
                 searchStageTools,
                 runFeatures.parallelSearch,
                 runFeatures.deduplicateSearch,
-                afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } }
+                afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } },
+                canExecute = toolBudget::canExecute,
+                remainingBytes = toolBudget::remainingOutputBytes
             )
             delegatedTools = aggregatedTools.filterNot { it.realToolName == "delegate_to_model" }
             // The model calls the aggregate name, while local workers can call individual
@@ -1429,6 +1436,7 @@ class ChatRepositoryImpl(
                 }
                 if (brief.isNotBlank()) appendPreparedEvidence(brief)
             }
+            var preparedEvidenceComplete = false
             val delegationConfig = effectiveDelegationSettings()
             if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && !isGitHubTask(latestUser.content) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
                 emit(ApiState.Notice("Local model is planning research and preparing evidence…", persistent = false))
@@ -1455,6 +1463,7 @@ class ChatRepositoryImpl(
                     )
                     throw cancelled
                 }
+                preparedEvidenceComplete = research.outcome == dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.SUCCESS
                 val content = ToolResultContent.Text(research.handoff.ifBlank { "No external research was needed for this task." })
                 val preparationFailed = research.outcome in setOf(
                     dev.chungjungsoo.gptmobile.data.agent.tool.LocalResearchOutcome.FAILED,
@@ -1466,7 +1475,7 @@ class ChatRepositoryImpl(
                     // delegate tool. Reuse authorized/budgeted tools, without reexecuting
                     // any completed action or claiming research succeeded.
                     localResearch = false
-                    exposedTools = orderPrimaryTools(aggregatedTools)
+                    exposedTools = orderPrimaryTools(aggregatedTools.filterNot { research.handoff.startsWith("[REVIEW_REJECTED]") && it.realToolName == "delegate_to_model" })
                     requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt())
                     contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
                     emit(ApiState.Notice("Delegated preparation failed. The main profile can use its enabled tools to recover.", persistent = true))
@@ -1482,6 +1491,12 @@ class ChatRepositoryImpl(
                 } catch (_: IllegalArgumentException) {
                     emit(ApiState.Notice("Prepared evidence did not fit the main model's context budget. Continuing with the original context.", persistent = true))
                 }
+            }
+            // A completed handoff is evidence-only by default. Do not advertise calls
+            // which the shared budget cannot execute, or repeat finished research.
+            if (!toolBudget.canExecute() || preparedEvidenceComplete) {
+                exposedTools = if (!toolBudget.canExecute()) emptyList() else exposedTools.filterNot { it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search" || it.realToolName == "delegate_to_model" }
+                contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             }
             val effectiveTools = aggregatedTools
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }

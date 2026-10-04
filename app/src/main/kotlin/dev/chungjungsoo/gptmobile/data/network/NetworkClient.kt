@@ -51,7 +51,7 @@ class NetworkClient @Inject constructor(
             } else if (httpEngine == OkHttp) {
                 engine {
                     (this as? OkHttpConfig)?.config {
-                        retryOnConnectionFailure(true)
+                        retryOnConnectionFailure(false)
                         connectTimeout(60, TimeUnit.SECONDS)
                         readTimeout(5, TimeUnit.MINUTES)
                         writeTimeout(5, TimeUnit.MINUTES)

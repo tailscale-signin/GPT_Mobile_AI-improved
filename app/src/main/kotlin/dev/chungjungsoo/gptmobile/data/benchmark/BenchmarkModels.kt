@@ -53,7 +53,14 @@ data class DelegationBenchmarkMetrics(
     val reviewerInputTokens: Long = 0,
     val reviewerOutputTokens: Long = 0,
     val reviewerEstimated: Boolean = false,
-    val diagnosticEvents: List<DelegationBenchmarkEvent> = emptyList()
+    val diagnosticEvents: List<DelegationBenchmarkEvent> = emptyList(),
+    val delegateAttempts: Int = 0,
+    val successfulRequests: Int = 0,
+    val physicalRequests: Int = 0,
+    val wastedMs: Long = 0,
+    val repairWastedTokens: Long = 0,
+    val repairWastedMs: Long = 0,
+    val timeEfficiencyPercent: Double? = null
 )
 
 @Serializable

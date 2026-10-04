@@ -21,6 +21,9 @@ class ToolExecutionBudget(
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
     private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
 
+    fun canExecute(): Boolean = remainingBytes.get() > 0 && !callBudgetIsExhausted()
+    fun remainingOutputBytes(): Int = remainingBytes.get().coerceAtLeast(0)
+
     fun bind(
         tool: AgentTool,
         onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
@@ -68,7 +71,10 @@ class ToolExecutionBudget(
                     tool.execute(callId, arguments)
                 } else {
                     permits.withPermit {
-                        withTimeoutOrNull(limits.toolTimeoutMillis) { tool.execute(callId, arguments) }
+                        if (!canExecute() && remainingBytes.get() <= 0) return@withPermit failure(outputBudgetMessage())
+                        withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
+                            withTimeoutOrNull(limits.toolTimeoutMillis) { tool.execute(callId, arguments) }
+                        }
                             ?: failure("Tool timed out. Its outcome may be unknown; check before repeating a write.")
                     }
                 }
@@ -277,4 +283,9 @@ internal fun truncateUtf8(text: String, maxBytes: Int): String {
         end += Character.charCount(point)
     }
     return text.substring(0, end)
+}
+
+/** Reaches page readers through measured/authorized wrappers without altering tool arguments. */
+internal class ToolOutputAllowance(val bytes: Int) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<ToolOutputAllowance>
 }

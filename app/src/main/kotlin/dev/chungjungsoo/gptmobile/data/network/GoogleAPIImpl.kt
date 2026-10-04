@@ -98,6 +98,7 @@ class GoogleAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<GenerateContentResponse> = flow {
+        val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedPayload = false
         var completed = false
         emitAll(
@@ -125,7 +126,7 @@ class GoogleAPIImpl @Inject constructor(
                     }
                 ) {
                     networkClient().preparePost(endpoint) {
-                        applyPlatformStreamingTimeout(timeoutSeconds)
+                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                         header(GOOGLE_API_KEY_HEADER, config.token ?: "")
                         parameter("alt", "sse")
                         contentType(ContentType.Application.Json)

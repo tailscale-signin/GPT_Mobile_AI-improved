@@ -105,6 +105,7 @@ internal class DelegationBenchmarkRunner(
             val timing = telemetry()
             val workerInputDelta = after.first - before.first
             val workerOutputDelta = after.second - before.second
+            val compute = coordinator.computeStats()
             val reviewerScores = coordinator.reviewerScoresSnapshot()
             val reviewerTokens = reviewerUsage()
             val reviewerScore = reviewerScores.takeIf { it.isNotEmpty() }?.let { values ->
@@ -138,7 +139,14 @@ internal class DelegationBenchmarkRunner(
                     reviewerInputTokens = reviewerTokens.inputTokens,
                     reviewerOutputTokens = reviewerTokens.outputTokens,
                     reviewerEstimated = reviewerTokens.estimated,
-                    diagnosticEvents = (diagnosticEvents + timing.events).sortedBy { it.elapsedMs }.takeLast(80)
+                    diagnosticEvents = (diagnosticEvents + timing.events).sortedBy { it.elapsedMs }.takeLast(80),
+                    delegateAttempts = compute.attempts,
+                    successfulRequests = compute.successfulRequests,
+                    physicalRequests = compute.physicalRequests,
+                    wastedMs = compute.wastedMs,
+                    repairWastedTokens = compute.repairWastedTokens,
+                    repairWastedMs = compute.repairWastedMs,
+                    timeEfficiencyPercent = compute.timeEfficiencyPercent
                 )
             )
         }

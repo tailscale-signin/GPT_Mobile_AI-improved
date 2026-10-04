@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.util
 import io.ktor.client.plugins.HttpTimeoutCapability
 import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.http.takeFrom
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -24,6 +25,21 @@ class PlatformTimeoutTest {
         assertEquals(300_000L, config.socketTimeoutMillis)
         assertEquals(60_000L, config.connectTimeoutMillis)
         assertEquals(HttpTimeoutConfig.INFINITE_TIMEOUT_MS, config.requestTimeoutMillis)
+    }
+
+    @Test
+    fun `worker deadline bounds all HTTP timeouts and local connect uses five seconds`() {
+        var now = 100L
+        val worker = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(45000, java.util.concurrent.atomic.AtomicInteger(), clock = { now })
+        now += 40000
+        val request = HttpRequestBuilder().apply {
+            url.takeFrom("http://100.124.181.6:8090/chat/completions")
+            applyPlatformStreamingTimeout(300, worker)
+        }
+        val config = checkNotNull(request.getCapabilityOrNull(HttpTimeoutCapability))
+        assertEquals(5000L, config.connectTimeoutMillis)
+        assertEquals(5000L, config.socketTimeoutMillis)
+        assertEquals(5000L, config.requestTimeoutMillis)
     }
 
     @Test

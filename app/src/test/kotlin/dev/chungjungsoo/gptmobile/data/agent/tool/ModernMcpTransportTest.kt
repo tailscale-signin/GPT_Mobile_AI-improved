@@ -70,7 +70,7 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun localDiscoveryTransportFailureFallsBackAndCachesLegacyDecision() = runBlocking {
+    @Test fun localDiscoveryTransportFailureNeverClaimsLegacySupport() = runBlocking {
         var requests = 0
         val localConfig = McpConnectionConfig("local-modern", "http://127.0.0.1:8101/mcp", true)
         HttpClient(
@@ -80,9 +80,9 @@ class ModernMcpTransportTest {
             }
         ).use { client ->
             val modern = ModernMcpTransport(client)
-            assertFalse(modern.supports(localConfig))
-            assertFalse(modern.supports(localConfig))
-            assertEquals(1, requests)
+            assertTrue(runCatching { modern.supports(localConfig) }.isFailure)
+            assertTrue(runCatching { modern.supports(localConfig) }.isFailure)
+            assertEquals(2, requests)
         }
 
         HttpClient(MockEngine { error("remote discovery unavailable") }).use { client ->

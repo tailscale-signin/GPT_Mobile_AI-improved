@@ -40,8 +40,11 @@ import okhttp3.Dns
 class ReadUrlTool(
     private val dns: Dns = Dns.SYSTEM,
     private val allowAddress: (InetAddress) -> Boolean = { false },
-    private val htmlToText: (String) -> String = ::androidHtmlToText
+    private val htmlToText: (String) -> String = ::androidHtmlToText,
+    private val outputLimitBytes: Int = MAX_OUTPUT_BYTES
 ) : AgentTool {
+
+    fun withOutputLimit(bytes: Int): ReadUrlTool = ReadUrlTool(dns, allowAddress, htmlToText, bytes.coerceIn(0, MAX_OUTPUT_BYTES))
 
     override val definition: AgentToolDefinition = AgentToolDefinition(
         name = "read_url",
@@ -88,6 +91,7 @@ class ReadUrlTool(
     }
 
     private suspend fun read(callId: String, start: URI, includeLinks: Boolean): AgentToolResult {
+        val outputCap = minOf(outputLimitBytes, kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: outputLimitBytes)
         var current = start
         var redirects = 0
         val seen = mutableSetOf(current.toASCIIString())
@@ -109,11 +113,11 @@ class ReadUrlTool(
                 if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status")
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
                 if (!isTextContent(contentType)) throw ReadUrlException("binary content rejected")
-                val boundedBody = readBounded(response, current.host.orEmpty())
+                val boundedBody = readBounded(response, current.host.orEmpty(), minOf(MAX_BODY_BYTES, maxOf(4096, outputCap * 8)))
                 val rawText = boundedBody.bytes.toString(contentType.charsetOrUtf8())
                 val text = if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
                 val normalizedText = normalizeWhitespace(text)
-                val plainText = truncateUtf8(normalizedText, MAX_OUTPUT_BYTES)
+                val plainText = truncateUtf8(normalizedText, outputCap)
                 val content = if (includeLinks) {
                     val linkText = if (isHtmlContent(contentType)) {
                         Regex("""<a\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(rawText).joinToString("\n") { it.value }
@@ -182,14 +186,14 @@ class ReadUrlTool(
         return addresses
     }
 
-    private suspend fun readBounded(response: HttpResponse, host: String): BoundedBody {
+    private suspend fun readBounded(response: HttpResponse, host: String, bodyLimit: Int = MAX_BODY_BYTES): BoundedBody {
         val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-        var truncated = contentLength != null && contentLength > MAX_BODY_BYTES
+        var truncated = contentLength != null && contentLength > bodyLimit
         val channel = response.bodyAsChannel()
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (output.size() < MAX_BODY_BYTES) {
-            val read = channel.readAvailable(buffer, 0, minOf(buffer.size, MAX_BODY_BYTES - output.size()))
+        while (output.size() < bodyLimit) {
+            val read = channel.readAvailable(buffer, 0, minOf(buffer.size, bodyLimit - output.size()))
             if (read == -1) break
             if (read == 0) {
                 yield()
@@ -197,11 +201,11 @@ class ReadUrlTool(
             }
             output.write(buffer, 0, read)
         }
-        if (output.size() >= MAX_BODY_BYTES) truncated = true
+        if (output.size() >= bodyLimit) truncated = true
         if (truncated) {
             AppLogRecorder.record(
                 "ReadUrl",
-                "Read bounded oversized source · host=${host.take(160)} · retainedBytes=${output.size()} · maxBytes=$MAX_BODY_BYTES",
+                "Read bounded oversized source · host=${host.take(160)} · retainedBytes=${output.size()} · maxBytes=$bodyLimit",
                 "W"
             )
         }

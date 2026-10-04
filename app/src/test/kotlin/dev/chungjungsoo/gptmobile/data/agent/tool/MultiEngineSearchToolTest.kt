@@ -42,21 +42,22 @@ class MultiEngineSearchToolTest {
             ResolvedAgentTool(tool, name, name, name, tool.definition.name)
         }
         assertEquals(listOf("web_search"), aggregateWebSearch(engines).map { it.modelToolName })
-        val tool = MultiEngineSearchTool(engines, Clock.fixed(Instant.parse("2026-08-01T12:00:00Z"), ZoneOffset.UTC))
-        val result = tool.execute(
-            "all",
-            buildJsonObject {
-                put("query", "local model speed")
-                put("maxResults", 2)
-                put("includeDomains", JsonArray(listOf(JsonPrimitive("example.org"))))
-                put("recencyDays", 2)
-            }
-        )
-        assertFalse(result.isError)
+        val responses = engines.chunked(2).map { batch ->
+            MultiEngineSearchTool(batch, Clock.fixed(Instant.parse("2026-08-01T12:00:00Z"), ZoneOffset.UTC)).execute(
+                "all",
+                buildJsonObject {
+                    put("query", "local model speed")
+                    put("maxResults", 2)
+                    put("includeDomains", JsonArray(listOf(JsonPrimitive("example.org"))))
+                    put("recencyDays", 2)
+                }
+            )
+        }
+        assertTrue(responses.none { it.isError })
         assertEquals(fixtures.size, queried.size)
-        val payload = (result.content as ToolResultContent.Json).value.jsonObject
-        assertEquals(fixtures.size, (payload["results"] as JsonArray).size)
-        val statuses = (payload["engines"] as JsonArray).map { it.jsonObject }
+        val payloads = responses.map { (it.content as ToolResultContent.Json).value.jsonObject }
+        assertEquals(fixtures.size, payloads.sumOf { (it["results"] as JsonArray).size })
+        val statuses = payloads.flatMap { (it["engines"] as JsonArray).map { status -> status.jsonObject } }
         assertTrue(statuses.all { it.getValue("status") == JsonPrimitive("completed") })
         assertEquals(4, statuses.count { "unsupportedFilters" in it })
     }
@@ -164,7 +165,7 @@ class MultiEngineSearchToolTest {
         assertEquals(0, calls)
     }
 
-    @Test fun `every engine runs and duplicate sources merge despite partial failure`() = runBlocking {
+    @Test fun `per query engine cap prevents broad fanout and merges duplicate sources`() = runBlocking {
         val queried = mutableSetOf<String>()
         fun search(name: String, url: String) = engine(name) { id, args ->
             queried += name
@@ -196,11 +197,11 @@ class MultiEngineSearchToolTest {
         }
         val result = MultiEngineSearchTool(listOf(search("one", "https://example.org/doc?utm_source=one"), search("two", "https://example.org/doc#section"), broken))
             .execute("parent", buildJsonObject { put("query", "Compose") })
-        assertEquals(setOf("one", "two", "broken"), queried)
+        assertEquals(setOf("one", "two"), queried)
         assertFalse(result.isError)
         val json = (result.content as ToolResultContent.Json).value.jsonObject
         assertEquals(1, (json["results"] as JsonArray).size)
-        assertEquals(3, (json["engines"] as JsonArray).size)
+        assertEquals(2, (json["engines"] as JsonArray).size)
         assertEquals("parent", result.callId)
     }
 
@@ -221,6 +222,21 @@ class MultiEngineSearchToolTest {
         assertEquals(2, result.toolCallBudgetUsed)
         assertEquals(2, result.toolCallBudgetLimit)
         assertFalse(result.isError)
+    }
+
+    @Test fun `exhausted byte budget skips all engine executions`() = runBlocking {
+        var calls = 0
+        val engines = (1..5).map { number ->
+            engine("engine$number") { id, _ ->
+                calls++
+                AgentToolResult(id, ToolResultContent.Text("source"), false)
+            }
+        }
+        val result = MultiEngineSearchTool(engines, canExecute = { false }, remainingBytes = { 0 })
+            .execute("empty", buildJsonObject { put("query", "news") })
+        assertEquals(0, calls)
+        assertTrue(result.isError)
+        assertTrue(result.outputBudgetExhausted)
     }
 
     @Test fun `explicit web search descriptions are eligible even with a nonstandard name`() {

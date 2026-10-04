@@ -73,8 +73,14 @@ object AppLogRecorder {
         application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = event(activity, "created")
             override fun onActivityStarted(activity: Activity) = event(activity, "started")
-            override fun onActivityResumed(activity: Activity) = event(activity, "resumed")
-            override fun onActivityPaused(activity: Activity) = event(activity, "paused")
+            override fun onActivityResumed(activity: Activity) {
+                event(activity, "resumed")
+                FrameTimingRecorder.start(activity)
+            }
+            override fun onActivityPaused(activity: Activity) {
+                FrameTimingRecorder.stop(activity)
+                event(activity, "paused")
+            }
             override fun onActivityStopped(activity: Activity) = event(activity, "stopped")
             override fun onActivityDestroyed(activity: Activity) = event(activity, "destroyed")
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
@@ -86,6 +92,7 @@ object AppLogRecorder {
 
     @Synchronized fun setEnabled(value: Boolean) {
         mutableEnabled.value = value
+        FrameTimingRecorder.refresh()
         app?.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE)?.edit()?.putBoolean("tracking", value)?.apply()
         if (!value) {
             process?.destroy()

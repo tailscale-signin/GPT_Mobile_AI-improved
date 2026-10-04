@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.rag
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
@@ -274,6 +275,10 @@ class FactVaultRepository @Inject constructor(
             val facts = MemoryLearning.modelObservations(input, response, current.settings.captureSensitivity)
             val merged = mergeAutomatic(current, facts, message.chatId, message.id, scope, "local_model_observation", System.currentTimeMillis())
             if (merged != current) persist(merged)
+            val previous = current.facts.associateBy { it.id }
+            val written = merged.facts.count { it.id !in previous }
+            val updated = merged.facts.count { previous[it.id]?.let { old -> old != it } == true }
+            AppLogRecorder.record("Memory", "ENRICHMENT_RECORDS · message=${message.id} · examined=${facts.size} · written=$written · updated=$updated · skipped=${(facts.size - written - updated).coerceAtLeast(0)}")
             enrichedMessages += key
             while (enrichedMessages.size > 128) enrichedMessages.remove(enrichedMessages.first())
         }

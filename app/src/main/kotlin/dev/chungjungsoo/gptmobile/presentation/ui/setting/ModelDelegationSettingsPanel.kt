@@ -243,7 +243,7 @@ internal fun ModelDelegationSettingsContent(
                             0..100,
                             5,
                             !busy,
-                            "Scores below this threshold are marked for primary-model verification. A valid low score is kept."
+                            "Rejected evidence is corrected and reviewed again. If it still fails, the primary model recovers independently."
                         ) { value -> onChange { it.copy(reviewerMinimumScore = value) } }
                         DelegationSlider(
                             "Reviewer Retry Attempts",
@@ -251,14 +251,14 @@ internal fun ModelDelegationSettingsContent(
                             0..5,
                             1,
                             !busy,
-                            "Retries malformed or unavailable assessments with a fresh review request. Valid scores are never retried."
+                            "Retries rejected evidence through delegate correction and another independent review. Also retries malformed or unavailable assessments."
                         ) { value -> onChange { it.copy(reviewerRetryLimit = value) } }
                         LocalToolToggle("Allow Reviewer Corrections", config.reviewerAutoCorrect, !busy) { value ->
                             onChange { it.copy(reviewerAutoCorrect = value) }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Correction Policy", style = MaterialTheme.typography.labelLarge)
-                            SettingsHelpIcon("Turn corrections off to use the reviewer only as an independent score and warning layer; the original delegate context is preserved.")
+                            SettingsHelpIcon("Controls whether accepted reviewer corrections replace the draft. Rejected drafts always require correction or independent primary recovery.")
                         }
                     }
                 }

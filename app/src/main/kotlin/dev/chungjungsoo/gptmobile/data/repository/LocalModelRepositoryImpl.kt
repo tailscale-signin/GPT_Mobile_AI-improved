@@ -154,6 +154,7 @@ class LocalModelRepositoryImpl(
                     .takeIf { it.isDirectory && it.list().isNullOrEmpty() }
                     ?.delete()
             }
+            dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
         }
     }
 
@@ -182,6 +183,7 @@ class LocalModelRepositoryImpl(
                     updatedAt = now
                 )
             )
+            dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
         }
         result
     }

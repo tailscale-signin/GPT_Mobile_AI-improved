@@ -273,6 +273,7 @@ class LocalModelDownloadWorker @AssistedInject constructor(
 
     private suspend fun markStatus(catalogEntryId: String, status: String) {
         localModelDao.updateStatus(catalogEntryId, status, System.currentTimeMillis() / 1000)
+        if (status == LocalModelStatus.READY) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.changed()
     }
 
     private fun ensureNotificationChannel() {

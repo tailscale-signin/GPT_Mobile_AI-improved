@@ -104,13 +104,14 @@ class AnthropicAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<MessageResponseChunk> = flow {
+        val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedPayload = false
         emitAll(
             flow<MessageResponseChunk> {
                 val endpoint = config.buildEndpoint("messages")
 
                 networkClient().preparePost(endpoint) {
-                    applyPlatformStreamingTimeout(timeoutSeconds)
+                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
                     setBody(json.encodeToString(messageRequest))
                     accept(ContentType.Text.EventStream)

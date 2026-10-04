@@ -307,14 +307,14 @@ internal class LocalDelegationCoordinator(
             throw cancelled
         } catch (failure: Exception) {
             val message = failure.message.orEmpty()
+            val packageMissing =
+                message.contains("package", ignoreCase = true) &&
+                    message.contains("missing", ignoreCase = true)
             val packageNotInstalled =
                 message.contains("not downloaded", ignoreCase = true) ||
                     message.contains("no installed local model", ignoreCase = true) ||
                     message.contains("local model file is missing", ignoreCase = true) ||
-                    (
-                        message.contains("package", ignoreCase = true) &&
-                            message.contains("missing", ignoreCase = true)
-                    )
+                    packageMissing
             val cooldownMs = if (packageNotInstalled) NOT_DOWNLOADED_COOLDOWN_MS else RUNTIME_NOT_READY_COOLDOWN_MS
             runtimeNotReadyUntilMs[readinessKey] = now + cooldownMs
             if (logFailure) {

@@ -246,7 +246,7 @@ internal class LocalDelegationCoordinator(
                     if (delegationCanceledByUser.get()) return primaryOnlyHandoff()
                     reviewerScores.add(assessment.score)
                 }
-                val accountedInputTokens = maxOf(observedInputTokens, estimatedInput.toLong())
+                val accountedInputTokens = observedInputTokens.takeIf { it > 0L } ?: estimatedInput.toLong()
                 AppLogRecorder.record(
                     "Delegation",
                     "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · validationAttempt=${attempt + 1}/${retryLimit + 1} · terminalVerdict=${assessment.verdict != "REJECT" && assessment.score >= config.reviewerMinimumScore || attempt == retryLimit || previousScore?.let { assessment.score <= it } == true} · inputTokens=$accountedInputTokens · inputEstimated=${observedInputTokens <= 0} · retryPolicy=delegate_repair_then_review"
@@ -258,7 +258,7 @@ internal class LocalDelegationCoordinator(
                         return "[REVIEW_REJECTED] $lastIssue\nRepair did not improve the review score; further correction calls were stopped. Recover independently."
                     }
                     previousScore = assessment.score
-                    if (attempt < retryLimit) {
+                    if (attempt < retryLimit && failedLocalTokens.get() + canceledLocalTokens.get() < config.effectiveWastedLocalTokens()) {
                         val repaired = workerText(
                             target = delegate,
                             prompt = task + "\n\nCorrect the rejected draft using only supported evidence. Address every reviewer finding. " +
@@ -662,8 +662,10 @@ internal class LocalDelegationCoordinator(
         interactiveRecovery: Boolean,
         allowFailover: Boolean
     ): WorkerResolution {
-        val estimated = maxOf(estimatedDelegateTokens(prompt).toLong(), observedForFailure)
-        val chargedFailureTokens = if (dispatchedAtMs != null || observedForFailure > 0L) {
+        val budgetExhausted = failure.message.orEmpty().contains("DELEGATE_WASTE_BUDGET_EXHAUSTED")
+        // REPAIR_WASTE already charged the complete provider usage before stopping.
+        val estimated = observedForFailure.takeIf { it > 0L } ?: estimatedDelegateTokens(prompt).toLong()
+        val chargedFailureTokens = if (!budgetExhausted && (dispatchedAtMs != null || observedForFailure > 0L)) {
             estimated
         } else {
             0L
@@ -712,10 +714,11 @@ internal class LocalDelegationCoordinator(
         val reason = message.takeIf { it.isNotBlank() }?.let { "The delegate failed: ${it.take(240)}" }
             ?: "The delegate failed before completing the task."
         val terminalForTarget =
-            classified.authBlocked ||
+            budgetExhausted ||
+                classified.authBlocked ||
                 classified.permanentlyUnavailable ||
                 classified.outputCapViolation
-        val fallback = if ((allowFailover || terminalForTarget) && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
+        val fallback = if (!budgetExhausted && (allowFailover || terminalForTarget) && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
             recoveryCandidates(latest, failedUid).firstOrNull()
         } else {
             null
@@ -1103,6 +1106,7 @@ internal class LocalDelegationCoordinator(
         val config = (pinnedConfig ?: settings()).normalized()
         if (target.uid in attemptedProfiles) return null
         if (!config.enabled || delegationCanceledByUser.get()) return null
+        if (failedLocalTokens.get() + canceledLocalTokens.get() >= config.effectiveWastedLocalTokens()) return null
         var observedForFailure = 0L
         var resolvedProfileUid: String? = null
         var failoverTarget: PlatformV2? = null
@@ -1176,7 +1180,7 @@ internal class LocalDelegationCoordinator(
                     val observedOverhead = observedInputTokens - estimatedInput
                     profileOverhead.accumulateAndGet(observedOverhead) { current, observed -> maxOf(current, observed) }
                 }
-                val chargedInput = maxOf(estimatedEffectiveInput, observedInputTokens)
+                val chargedInput = observedInputTokens.takeIf { it > 0L } ?: estimatedEffectiveInput
 
                 val resolution = handleWorkerResponse(
                     profile = profile,
@@ -1220,6 +1224,7 @@ internal class LocalDelegationCoordinator(
             }
         }
         if (delegationCanceledByUser.get()) return null
+        if (result == null && failedLocalTokens.get() + canceledLocalTokens.get() >= config.effectiveWastedLocalTokens()) return null
         if (result != null) {
             lastFailure.set(null)
             return result

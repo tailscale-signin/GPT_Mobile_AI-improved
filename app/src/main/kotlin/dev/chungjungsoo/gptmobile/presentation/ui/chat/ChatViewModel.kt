@@ -426,7 +426,7 @@ class ChatViewModel @Inject constructor(
                         )
                         if (question.text.toString() == questionText) question.clearText()
                         _selectedAttachments.update { current -> current.filterNot { it in snapshot } }
-                        _attachmentNotice.value = "Saved to queue. You can edit, reorder, pause or remove it."
+                        _attachmentNotice.value = "Queued. Use the buttons beside the message to edit or stop it."
                     } catch (cancellation: CancellationException) {
                         throw cancellation
                     } catch (_: Exception) {

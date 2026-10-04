@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -26,8 +27,11 @@ class AgentRunCoordinatorTest {
         val run = AgentRun(
             runId = "run-stale",
             chatId = 1,
+            userMessageId = 1,
             assistantMessageId = 2,
             profileUid = "profile",
+            providerSnapshot = "CUSTOM",
+            modelSnapshot = "test-model",
             status = AgentRunStatus.INTERRUPTED,
             createdAt = 100,
             startedAt = 200,

@@ -144,7 +144,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
             var first: Long? = null
             var input: Int? = null
             var output: Int? = null
-            var characters = 0L
+            var generatedBytes = 0L
             var status = "INTERRUPTED"
             var lastPublished = started
             liveRequests.update { it + (record.id to record.copy(outputTokens = 0)) }
@@ -153,9 +153,9 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                     when (event) {
                         is ProviderEvent.TextDelta -> {
                             if (first == null) first = (System.nanoTime() - started) / 1_000_000
-                            characters += event.text.length
+                            generatedBytes += event.text.toByteArray().size
                         }
-                        is ProviderEvent.ThinkingDelta -> characters += event.text.length
+                        is ProviderEvent.ThinkingDelta -> generatedBytes += event.text.toByteArray().size
                         is ProviderEvent.Usage -> {
                             event.inputTokens?.let { input = if (event.cumulative) maxOf(input ?: 0, it) else (input ?: 0) + it }
                             event.outputTokens?.let { output = if (event.cumulative) maxOf(output ?: 0, it) else (output ?: 0) + it }
@@ -174,7 +174,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                             it + (
                                 record.id to record.copy(
                                     inputTokens = input ?: record.inputTokens,
-                                    outputTokens = output ?: ((characters + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                    outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                                     estimated = input == null || output == null,
                                     durationMs = (now - started) / 1_000_000,
                                     firstTokenMs = first
@@ -193,13 +193,13 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 throw error
             } finally {
                 withContext(NonCancellable) {
-                    val recordedOutput = output ?: ((characters + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${output == null}", if (status == "COMPLETED") "I" else "W")
                     try {
                         dao.save(
                             record.copy(
                                 inputTokens = input ?: record.inputTokens,
-                                outputTokens = output ?: ((characters + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                                 estimated = input == null || output == null,
                                 status = status,
                                 costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,

@@ -69,7 +69,7 @@ class ModelDelegationSettingsTest {
         assertEquals(16, localFirst.effectiveLocalModelCalls())
         assertEquals(8, localFirst.effectiveResearchCalls())
         assertEquals(8000, localFirst.effectiveLocalInputTokens())
-        assertEquals(24000, localFirst.effectiveWastedLocalTokens())
+        assertEquals(localFirst.maxWastedLocalTokensPerTurn, localFirst.effectiveWastedLocalTokens())
     }
 
     @Test

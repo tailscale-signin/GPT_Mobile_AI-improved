@@ -101,12 +101,11 @@ class LocalResearchWorkflowTest {
 
     @Test fun `timeout retains fetched sources and reports incomplete research`() = runTest {
         val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"One","url":"https://example.org/one","snippet":"A verified search snippet"}]}""") }
-        val result = LocalResearchWorkflow(config.copy(timeoutSeconds = 5, maxLocalModelCalls = 1, maxPages = 0), listOf(search), { prompt, _ ->
+        val result = LocalResearchWorkflow(config.copy(timeoutSeconds = 5, preparationTimeoutSeconds = 30, maxLocalModelCalls = 1, maxPages = 0), listOf(search), { prompt, _ ->
             if (prompt.startsWith("Plan")) {
                 worker(prompt)
             } else {
-                // The workflow timeout intentionally includes serialized-worker headroom
-                // (one worker timeout plus transport grace), so exceed that full window.
+                // Exceed the whole preparation deadline after fetching usable evidence.
                 delay(36_000)
                 "late"
             }
@@ -283,5 +282,27 @@ class LocalResearchWorkflowTest {
         val payload = Json.parseToJsonElement(result.handoff).jsonObject
         assertEquals("false", payload.getValue("partial").jsonPrimitive.content)
         assertTrue(payload.getValue("warnings").toString().contains("another enabled search provider was attempted"))
+    }
+
+    @Test fun `pages supplied by aggregate search count as read evidence`() = runTest {
+        val search = tool("web_search") { id, _ ->
+            response(id, """{"results":[{"title":"Benchmark","url":"https://example.org/start","snippet":"Snippet"}],"pages":{"results":[{"url":"https://example.org/start","status":"completed","content":"Verified latency is 42 ms.","truncated":false}]}}""")
+        }
+        val result = LocalResearchWorkflow(config, listOf(search), { prompt, _ -> worker(prompt) }).run("Research latency", "aggregate")
+        assertEquals(1, result.pagesRead)
+        assertEquals(1, result.pagesAttempted)
+        assertEquals(1, result.pagesRetrieved)
+        assertTrue(result.handoff.contains("page read"))
+    }
+
+    @Test fun `failed aggregate page retrieval is never counted as read evidence`() = runTest {
+        val search = tool("web_search") { id, _ ->
+            response(id, """{"results":[{"title":"Benchmark","url":"https://example.org/start","snippet":"Snippet"}],"pages":{"results":[{"url":"https://example.org/start","status":"failed","content":"HTTP 403"}]}}""")
+        }
+        val result = LocalResearchWorkflow(config, listOf(search), { prompt, _ -> worker(prompt) }).run("Research latency", "failed-page")
+        assertEquals(0, result.pagesRead)
+        assertEquals(1, result.pagesAttempted)
+        assertEquals(0, result.pagesRetrieved)
+        assertTrue(result.handoff.contains("search snippet"))
     }
 }

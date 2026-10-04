@@ -179,6 +179,12 @@ fun InlineExecutionTrace(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
                             Text(event.connectionNameSnapshot ?: "Integrated tool", style = MaterialTheme.typography.labelLarge)
+                            val isFollowUp = event.toolName == "follow_up_context"
+                            if (debugMode && isFollowUp) {
+                                Text("Follow-up prompt", style = MaterialTheme.typography.labelMedium)
+                                Text(event.arguments, color = androidx.compose.ui.graphics.Color(0xFF00FFE5), style = MaterialTheme.typography.bodySmall)
+                                event.result?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFF00FFE5), style = MaterialTheme.typography.bodySmall) }
+                            }
                             if (debugMode) Text("Call ${event.callId} · Run ${event.runId} · #${event.sequence}", style = MaterialTheme.typography.bodySmall)
                             metrics?.let {
                                 if (debugMode) Text("Arguments: ${it.argumentsCharacters} characters · ${it.argumentsBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
@@ -233,7 +239,7 @@ fun InlineExecutionTrace(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            } else {
+                            } else if (!debugMode || !isFollowUp) {
                                 ToolTraceBlock(events = listOf(event))
                             }
                         }

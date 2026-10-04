@@ -1,15 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
-import dev.chungjungsoo.gptmobile.data.agent.AgentTool
-import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
@@ -19,68 +19,79 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
-/** Post-search reads inherit the parent's permissions and execution budget. */
+/** One turn-wide cache and page allowance; readers are alternatives, not duplicate jobs. */
 internal class SearchCrawlStage(
     private val crawlers: List<ResolvedAgentTool>,
     private val maxPages: Int,
     private val stillEnabled: () -> Boolean = { true }
 ) {
+    private val cache = ConcurrentHashMap<String, JsonObject>()
+    private val locks = ConcurrentHashMap<String, Mutex>()
+    private val attemptedPages = AtomicInteger()
+    private val permits = Semaphore(2)
+
     suspend fun execute(callId: String, sources: List<JsonObject>): JsonObject = coroutineScope {
         val urls = sources.mapNotNull { (it["url"] as? JsonPrimitive)?.contentOrNull }
             .filter { runCatching { URI(it).let { uri -> uri.scheme in setOf("http", "https") && uri.host != null && uri.userInfo == null } }.getOrDefault(false) }
-            .distinctBy(::canonicalSearchUrl).take(maxPages.coerceIn(1, 20))
-        val results = ConcurrentHashMap<String, JsonObject>()
-        val attempted = ConcurrentHashMap.newKeySet<String>()
-        val permits = Semaphore(2)
-        val bounded = crawlers.map { resolved ->
-            resolved.copy(
-                tool = object : AgentTool {
-                    override val definition = resolved.tool.definition
-                    override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                        if (!stillEnabled()) return AgentToolResult(callId, ToolResultContent.Text("Crawling canceled."), true)
-                        val url = ((arguments["url"] ?: arguments["uri"]) as? JsonPrimitive)?.contentOrNull
-                            ?: ((arguments["urls"] as? JsonArray)?.singleOrNull() as? JsonPrimitive)?.contentOrNull
-                        val safe = url?.takeIf { it in urls }?.let { crawlerArguments(definition, it) }
-                        if (safe == null) return AgentToolResult(callId, ToolResultContent.Text("Choose one URL from the search results with a supported page reader."), true)
-                        val key = "${resolved.selectionId()}:$url"
-                        if (!attempted.add(key)) return AgentToolResult(callId, ToolResultContent.Text("This page was already read in this search stage."), false)
-                        val result = permits.withPermit {
-                            try {
-                                withTimeoutOrNull(30_000) { resolved.tool.execute(callId, safe) }
-                                    ?: AgentToolResult(callId, ToolResultContent.Text("Page reader timed out."), true)
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                AgentToolResult(callId, ToolResultContent.Text("Page reader unavailable."), true)
-                            }
-                        }
-                        val text = when (val content = result.content) {
-                            is ToolResultContent.Text -> content.text
-                            is ToolResultContent.Json -> content.value.toString()
-                            is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
-                        }
-                        results[key] = buildJsonObject {
-                            put("url", url)
-                            put("crawler", resolved.realToolName)
-                            put("status", if (result.isError) "failed" else "completed")
-                            put("content", text.take(6000))
-                        }
-                        return result
-                    }
-                }
-            )
-        }
-        // Page retrieval is app-owned. A reviewer never receives tools or a research assignment.
-        urls.flatMap { url -> bounded.map { tool -> url to tool } }.mapIndexed { index, (url, tool) ->
+            .distinctBy(::canonicalSearchUrl).take(maxPages.coerceIn(0, 20))
+        val pages = urls.mapIndexed { index, url ->
             async {
-                if (stillEnabled()) crawlerArguments(tool.tool.definition, url)?.let { tool.tool.execute("$callId:crawl:$index", it) }
+                val key = canonicalSearchUrl(url)
+                locks.computeIfAbsent(key) { Mutex() }.withLock {
+                    cache[key]?.let { return@withLock it }
+                    if (!stillEnabled() || !reservePage()) return@withLock null
+                    val page = permits.withPermit { read("$callId:crawl:$index", url) }
+                    cache[key] = page
+                    page
+                }
             }
-        }.awaitAll()
+        }.awaitAll().filterNotNull()
         buildJsonObject {
             put("owner", "search")
             put("requestedPages", urls.size)
-            put("results", JsonArray(results.toSortedMap().values.toList()))
+            put("attemptedPages", attemptedPages.get().coerceAtMost(maxPages.coerceAtLeast(0)))
+            put("completedPages", pages.count { it["status"] == JsonPrimitive("completed") })
+            put("results", JsonArray(pages))
             if (crawlers.isEmpty()) put("notice", "No selected crawler is available for this profile.")
+        }
+    }
+
+    private fun reservePage(): Boolean {
+        val limit = maxPages.coerceIn(0, 20)
+        while (true) {
+            val used = attemptedPages.get()
+            if (used >= limit) return false
+            if (attemptedPages.compareAndSet(used, used + 1)) return true
+        }
+    }
+
+    private suspend fun read(callId: String, url: String): JsonObject {
+        for (reader in crawlers) {
+            val arguments = crawlerArguments(reader.tool.definition, url) ?: continue
+            val result = try {
+                withTimeoutOrNull(30_000) { reader.tool.execute(callId + ":" + reader.modelToolName, arguments) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: continue
+            if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) break
+            if (result.isError) continue
+            val payload = result.content.researchPayload()
+            val text = pageText(payload).ifBlank { result.content.researchText() }
+            if (text.isBlank() || looksLikeConsentOrScriptShell(text)) continue
+            return buildJsonObject {
+                put("url", url)
+                put("crawler", reader.realToolName)
+                put("status", "completed")
+                put("content", dev.chungjungsoo.gptmobile.data.agent.truncateUtf8(text, 6000))
+                put("truncated", text.toByteArray().size > 6000 || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true))
+            }
+        }
+        return buildJsonObject {
+            put("url", url)
+            put("status", "failed")
+            put("content", "No enabled reader returned usable page evidence.")
         }
     }
 }

@@ -18,6 +18,10 @@ data class ModelDelegationSettings(
     val reviewerMinimumScore: Int = 70,
     /** Correction/review retries, also covering malformed or unavailable reviews; failover retries are separate. */
     val reviewerRetryLimit: Int = 2,
+    /** Whole-turn research and review deadline; worker retries do not reset it. */
+    val preparationTimeoutSeconds: Int = 180,
+    /** Aggregate review/correction deadline within the preparation allowance. */
+    val reviewTimeoutSeconds: Int = 90,
     /** Allow the reviewer to replace unsupported delegate context with corrected context. */
     val reviewerAutoCorrect: Boolean = true,
     val fallbackToAnotherProfile: Boolean = true,
@@ -159,18 +163,8 @@ data class ModelDelegationSettings(
         return maxOf(maxInputTokensPerDelegate, ownershipFloor).coerceIn(1_000, 12_000)
     }
 
-    /** Failed local attempts should still be bounded, but Local-first gets enough room to
-     * recover from one or two reasoning-only/empty responses without immediately handing
-     * the rest of the workload back to the remote primary. */
-    fun effectiveWastedLocalTokens(): Int {
-        val ownershipFloor = when {
-            processingOwnership <= 10 -> 24_000
-            processingOwnership <= 25 -> 16_000
-            processingOwnership <= 40 -> 10_000
-            else -> 1_000
-        }
-        return maxOf(maxWastedLocalTokensPerTurn, ownershipFloor).coerceIn(1_000, 64_000)
-    }
+    /** The configured waste ceiling is authoritative regardless of ownership preference. */
+    fun effectiveWastedLocalTokens(): Int = maxWastedLocalTokensPerTurn.coerceIn(1_000, 64_000)
 
     fun normalized(): ModelDelegationSettings {
         val normalizedInputCap = maxInputTokensPerDelegate.coerceIn(1000, 12000)
@@ -186,6 +180,8 @@ data class ModelDelegationSettings(
             reviewerOutputTokens = reviewerOutputTokens.coerceIn(128, 1024),
             reviewerMinimumScore = reviewerMinimumScore.coerceIn(0, 100),
             reviewerRetryLimit = reviewerRetryLimit.coerceIn(0, 5),
+            preparationTimeoutSeconds = preparationTimeoutSeconds.coerceIn(30, 300),
+            reviewTimeoutSeconds = reviewTimeoutSeconds.coerceIn(15, 120),
             maxDelegationDepth = maxDelegationDepth.coerceIn(1, 2),
             maxInputCharacters = maxInputCharacters.coerceIn(1000, 64000),
             maxInputTokensPerDelegate = normalizedInputCap,

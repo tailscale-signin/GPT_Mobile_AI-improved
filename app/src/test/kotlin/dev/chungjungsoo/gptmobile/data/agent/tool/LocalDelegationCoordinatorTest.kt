@@ -305,7 +305,7 @@ class LocalDelegationCoordinatorTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 6, maxWastedLocalTokensPerTurn = 64000) },
             { listOf(target) },
             { _, _, _ -> error("progressive path expected") },
             generateWithProgress = { _, _, _, _, progress ->
@@ -850,25 +850,50 @@ class LocalDelegationCoordinatorTest {
     @Test fun `reviewer rejection triggers correction and rejects after validation limit`() = runTest {
         val reviewer = target.copy(uid = "reserved", model = "review-model")
         var reviews = 0
+        var drafts = 0
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid, maxLocalModelCalls = 3) },
             { listOf(target, reviewer) },
             { _, _, _ -> error("No legacy callback") },
             generateWithProgress = { profile, _, _, _, _ ->
                 assertEquals(target.uid, profile.uid)
-                "Finished delegate evidence"
+                "Finished delegate evidence ${++drafts}"
             },
             generateReviewerWithProgress = { profile, prompt, _, _, _ ->
                 reviews++
                 assertEquals(reviewer.uid, profile.uid)
                 assertTrue(prompt.contains("Finished delegate evidence"))
-                """{"review_score":35,"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
+                """{"review_score":${30 + reviews * 5},"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
             }
         )
         assertTrue(coordinator.executeTask(target, "Check evidence", 512).orEmpty().startsWith("[REVIEW_REJECTED]"))
         assertEquals(3, reviews)
-        assertEquals(listOf(35, 35, 35), coordinator.reviewerScoresSnapshot())
+        assertEquals(listOf(35, 40, 45), coordinator.reviewerScoresSnapshot())
+    }
+
+    @Test fun `unchanged rejected evidence stops further review requests`() = runTest {
+        val reviewer = target.copy(uid = "unchanged-reviewer", model = "independent-review-model")
+        var reviews = 0
+        var drafts = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ ->
+                drafts++
+                "Unchanged unsupported evidence"
+            },
+            generateReviewerWithProgress = { _, _, _, _, _ ->
+                reviews++
+                """{"review_score":35,"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
+            }
+        )
+        val result = coordinator.executeTask(target, "Check evidence", 512).orEmpty()
+        assertTrue(result.startsWith("[REVIEW_REJECTED]"))
+        assertTrue(result.contains("No changed evidence"))
+        assertEquals(1, reviews)
+        assertEquals(2, drafts)
     }
 
     @Test fun `reviewer accepts repaired evidence only after a second review`() = runTest {
@@ -920,7 +945,7 @@ class LocalDelegationCoordinatorTest {
         assertTrue(coordinator.executeTask(target, "Original task", 512).orEmpty().contains("REVIEW_FAILED"))
         assertEquals(3, prompts.size)
         assertEquals(1, prompts.distinct().size)
-        assertTrue(caps[1] > caps[0])
+        assertEquals(caps[0], caps[1])
         assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
     }
 
@@ -955,5 +980,68 @@ class LocalDelegationCoordinatorTest {
         assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
         assertNull(coordinator.executeTask(target, "later", 512))
         assertEquals(1, reviews)
+    }
+
+    @Test fun `review score regression stops correction without accepting rejected claims`() = runTest {
+        val reviewer = target.copy(uid = "regression-reviewer", model = "independent-review")
+        var calls = 0
+        var repairs = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, reviewerEnabled = true, reviewerProfileUid = reviewer.uid, reviewerRetryLimit = 5) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> "Changed evidence ${++repairs}" },
+            generateReviewerWithProgress = { _, _, _, _, _ ->
+                calls++
+                if (calls == 1) {
+                    """{"review_score":35,"verdict":"REJECT","issues":["Unsupported"],"corrections":null}"""
+                } else {
+                    """{"review_score":20,"verdict":"REJECT","issues":["Still unsupported"],"corrections":null}"""
+                }
+            }
+        )
+        val result = coordinator.executeTask(target, "Original task", 512).orEmpty()
+        assertTrue(result.contains("REVIEW_REJECTED"))
+        assertTrue(result.contains("did not improve"))
+        assertEquals(2, calls)
+    }
+
+    @Test fun `whole preparation deadline is shared and does not reset with retries`() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(preparationTimeoutSeconds = 30) },
+            { listOf(target) },
+            { _, _, _ ->
+                calls++
+                delay(60_000)
+                "unused"
+            },
+            nowMs = { testScheduler.currentTime }
+        )
+        val result = coordinator.prepare("Research latency", emptyList(), "deadline")
+        val firstCalls = calls
+        assertEquals(LocalResearchOutcome.FAILED, result.outcome)
+        assertTrue(result.handoff.contains("PREPARATION_TIMEOUT"))
+        coordinator.prepare("Research again", emptyList(), "deadline-again")
+        assertEquals(firstCalls, calls)
+        assertEquals(30_000L, testScheduler.currentTime)
+    }
+
+    @Test fun `repair waste ceiling stops another physical request`() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, maxWastedLocalTokensPerTurn = 1000) },
+            { listOf(target) },
+            { _, _, _ -> "unused" },
+            generateWithProgress = { _, _, _, _, progress ->
+                calls++
+                progress(DelegateProgress(DelegateProgressKind.REPAIR_WASTE, totalTokens = 1000))
+                error("A repair should not start")
+            }
+        )
+        coordinator.executeTask(target, "Work", 512)
+        assertEquals(1, calls)
     }
 }

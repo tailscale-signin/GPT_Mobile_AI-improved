@@ -64,4 +64,23 @@ class SearchCrawlStageTest {
         assertFalse(isNamedWebSearch("provider_crawler", "Crawl web search results"))
         assertFalse(isNamedWebSearch("read_url", "Read web search pages"))
     }
+
+    @Test fun `repeated searches reuse page evidence and enforce a turn wide page cap`() = runTest {
+        val calls = mutableListOf<String>()
+        val stage = SearchCrawlStage(listOf(crawler(calls)), 1)
+        stage.execute("first", listOf(source("https://example.org/a")))
+        val repeated = stage.execute("second", listOf(source("https://example.org/a")))
+        stage.execute("third", listOf(source("https://example.org/b")))
+        assertEquals(listOf("https://example.org/a"), calls)
+        assertEquals(JsonPrimitive(1), repeated["completedPages"])
+    }
+
+    @Test fun `a usable first reader prevents redundant alternative page reads`() = runTest {
+        val first = mutableListOf<String>()
+        val second = mutableListOf<String>()
+        val stage = SearchCrawlStage(listOf(crawler(first), crawler(second)), 2)
+        stage.execute("search", listOf(source("https://example.org/a")))
+        assertEquals(1, first.size)
+        assertTrue(second.isEmpty())
+    }
 }

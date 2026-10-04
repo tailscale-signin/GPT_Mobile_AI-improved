@@ -112,7 +112,7 @@ fun ChatMarkdown(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val parsed = remember(content) { parseChatMarkdown(content) }
-    val displayMathNonce = remember(content) { UUID.randomUUID().toString().replace("-", "") }
+    val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     val highlightsBuilder = remember(isDarkTheme) {
         Highlights.Builder().theme(SyntaxThemes.atom(isDarkTheme))
     }
@@ -147,8 +147,12 @@ fun ChatMarkdown(
             if (hasStreamed) arrivalSegments.add(arrivalLength to now)
             arrivalLength = combinedMarkdown.length
         }
-        while (streaming || (hasStreamed && arrivalSegments.lastOrNull()?.let { fadeClock - it.second < STREAM_FADE_DURATION_MS } == true)) {
+        while (hasStreamed && arrivalSegments.lastOrNull()?.let { fadeClock - it.second < STREAM_FADE_DURATION_MS } == true) {
             fadeClock = android.os.SystemClock.uptimeMillis()
+            // Settled text is fully opaque and needs no per-frame history scan.
+            while (arrivalSegments.size > 1 && fadeClock - arrivalSegments[1].second >= STREAM_FADE_DURATION_MS) {
+                arrivalSegments.removeAt(0)
+            }
             delay(STREAM_FADE_TICK_MS)
         }
     }

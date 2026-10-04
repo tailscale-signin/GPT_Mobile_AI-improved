@@ -25,7 +25,9 @@ internal data class LocalResearchResult(
     val rawBytes: Int,
     val pagesRead: Int,
     val searches: Int,
-    val outcome: LocalResearchOutcome = LocalResearchOutcome.SUCCESS
+    val outcome: LocalResearchOutcome = LocalResearchOutcome.SUCCESS,
+    val pagesAttempted: Int = pagesRead,
+    val pagesRetrieved: Int = pagesRead
 )
 
 /** Tools are borrowed from the main profile after its authorization and budget wrappers. */
@@ -40,6 +42,8 @@ internal class LocalResearchWorkflow(
         val notes = mutableListOf<String>()
         var rawBytes = 0
         var searches = 0
+        val pageAttempts = mutableSetOf<String>()
+        val retrievedPages = mutableSetOf<String>()
         var brief = ""
         var noResearchNeeded = false
         var toolsExhausted = false
@@ -94,10 +98,9 @@ internal class LocalResearchWorkflow(
                 null
             }
         }
-        // The timeout is per worker generation. A complete research pass may contain
-        // several serialized worker calls, so timing the whole workflow at one worker
-        // timeout discards valid results after the worker has already completed.
-        val workflowTimeoutSeconds = config.timeoutSeconds.toLong() * config.maxLocalModelCalls.coerceIn(1, 8) + 30L
+        // A research pass shares the turn's preparation deadline, separate from each
+        // worker's progress watchdog. The coordinator reserves time for review too.
+        val workflowTimeoutSeconds = config.preparationTimeoutSeconds.toLong()
         val completed = withTimeoutOrNull(workflowTimeoutSeconds * 1000L) {
             val plan = generate(
                 delegationPrompt(
@@ -161,6 +164,20 @@ internal class LocalResearchWorkflow(
                 extractedSources.forEach { source ->
                     addSource(source.string("url"), source.string("title"), source.string("snippet"))
                 }
+                // Aggregate search may already have crawled pages with the same shared budget.
+                val crawled = ((payload as? JsonObject)?.get("pages") as? JsonObject)?.get("results") as? JsonArray
+                crawled.orEmpty().filterIsInstance<JsonObject>().forEach { page ->
+                    val url = publicResearchUrl(page.string("url")) ?: return@forEach
+                    val key = canonicalSearchUrl(url)
+                    pageAttempts += key
+                    if (page.string("status") != "completed") return@forEach
+                    retrievedPages += key
+                    val text = pageText(page["content"] ?: JsonPrimitive("")).trim()
+                    if (text.isBlank() || looksLikeConsentOrScriptShell(text)) return@forEach
+                    val source = addSource(url, sources[key]?.title ?: url) ?: return@forEach
+                    val excerpt = relevantEvidence(text, task, config.maxPageCharacters)
+                    sources[key] = source.copy(text = excerpt, pageRead = true, excerpted = excerpt != text || page["truncated"] == JsonPrimitive(true))
+                }
                 if (extractedSources.isEmpty()) {
                     // MCP aggregators/providers do not all return the same JSON shape. If the
                     // structured parser misses a provider-specific envelope, recover any public
@@ -181,11 +198,11 @@ internal class LocalResearchWorkflow(
             }
             val readers = tools.filter { it.isResearchPageReader() }
                 .sortedBy { if (it.connectionUid == null) 0 else 1 }
-            if (readers.isEmpty() && config.maxPages > 0 && sources.isNotEmpty()) {
+            if (readers.isEmpty() && config.maxPages > 0 && sources.values.none { it.pageRead } && sources.isNotEmpty()) {
                 notes += "Page reading is not enabled; evidence contains search snippets only."
             }
             if (readers.isNotEmpty() && config.maxPages > 0 && sources.isNotEmpty()) {
-                val candidates = sources.values.toList()
+                val candidates = sources.values.filterNot { it.pageRead }
                 val choice = generate(
                     delegationPrompt(
                         "Choose up to ${config.maxPages} source IDs most useful for the task. Prefer primary sources and diverse relevant evidence. Return only JSON {\"ids\":[\"S1\"]}. Use only IDs present in the evidence.",
@@ -203,7 +220,7 @@ internal class LocalResearchWorkflow(
                 val standby = ArrayDeque(ranked.drop(seedCount))
                 val visited = mutableSetOf<String>()
                 var fetchAttempts = 0
-                var successfulReads = 0
+                var successfulReads = sources.values.count { it.pageRead }
                 val maxFetchAttempts = maxOf(config.maxPages * maxOf(2, readers.size + 1), ranked.size)
                 while (
                     successfulReads < config.maxPages &&
@@ -219,7 +236,10 @@ internal class LocalResearchWorkflow(
                         fetchAttempts + batch.size < maxFetchAttempts
                     ) {
                         val source = queue.removeFirst()
-                        if (visited.add(canonicalSearchUrl(source.url))) batch += source
+                        if (visited.add(canonicalSearchUrl(source.url))) {
+                            pageAttempts += canonicalSearchUrl(source.url)
+                            batch += source
+                        }
                     }
                     if (batch.isEmpty()) continue
                     fetchAttempts += batch.size
@@ -265,6 +285,7 @@ internal class LocalResearchWorkflow(
                             continue
                         }
                         rawBytes += result.content.researchText().toByteArray().size
+                        retrievedPages += canonicalSearchUrl(source.url)
                         val pageText = attempt.text
                         val excerpt = relevantEvidence(pageText, task, config.maxPageCharacters)
                         val payload = result.content.researchPayload()
@@ -354,12 +375,14 @@ internal class LocalResearchWorkflow(
             rawBytes,
             sources.values.count { it.pageRead },
             searches,
-            outcome
+            outcome,
+            pageAttempts.size,
+            retrievedPages.size
         )
     }
 }
 
-private fun looksLikeConsentOrScriptShell(text: String): Boolean {
+internal fun looksLikeConsentOrScriptShell(text: String): Boolean {
     val normalized = text.lowercase()
     val signals = listOf(
         "onetrust",
@@ -372,7 +395,7 @@ private fun looksLikeConsentOrScriptShell(text: String): Boolean {
         "enable javascript",
         "tag manager"
     ).count { it in normalized }
-    return signals >= 2 || (signals >= 1 && normalized.length < 400)
+    return (signals >= 2 && normalized.length < 1500) || (signals >= 1 && normalized.length < 400)
 }
 
 private data class PageReadAttempt(
@@ -409,10 +432,10 @@ internal fun ToolResultContent.researchText(): String = when (this) {
     is ToolResultContent.ResourceLinks -> links.joinToString("\n") { it.uri }
 }
 
-private fun ToolResultContent.researchPayload(): JsonElement = if (this is ToolResultContent.Json) value else parseSearchPayload(researchText())
+internal fun ToolResultContent.researchPayload(): JsonElement = if (this is ToolResultContent.Json) value else parseSearchPayload(researchText())
 private fun JsonObject?.stringList(key: String): List<String> = (this?.get(key) as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { it.isString }?.content }
 private fun JsonObject.string(key: String): String = (this[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
-private fun pageText(value: JsonElement, depth: Int = 0): String {
+internal fun pageText(value: JsonElement, depth: Int = 0): String {
     if (depth > 8) return ""
     return when (value) {
         is JsonPrimitive -> value.takeIf { it.isString }?.content.orEmpty()

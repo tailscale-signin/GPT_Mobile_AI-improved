@@ -95,8 +95,6 @@ interface AgentRunDao {
     )
     suspend fun interruptActiveRuns(completedAt: Long): Int
 
-
-
     @Query("UPDATE agent_runs SET gateway_job_id = :jobId, gateway_base_url = :baseUrl WHERE run_id = :runId")
     suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Int
 

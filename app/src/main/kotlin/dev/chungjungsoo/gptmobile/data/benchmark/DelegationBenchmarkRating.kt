@@ -36,7 +36,11 @@ data class DelegationBenchmarkRating(
     val diagnosticEvents: Int,
     val warningEvents: Int,
     val errorEvents: Int,
-    val dimensions: List<BenchmarkDimension>
+    val dimensions: List<BenchmarkDimension>,
+    val reviewerCalls: Int = 0,
+    val reviewerInputTokens: Long = 0,
+    val reviewerOutputTokens: Long = 0,
+    val reviewerEstimated: Boolean = false
 )
 
 data class DelegateRanking(val run: BenchmarkRun, val runs: Int, val rating: DelegationBenchmarkRating)
@@ -93,13 +97,33 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
     }
     val events = metrics.flatMap { it.diagnosticEvents }
     return DelegationBenchmarkRating(
-        score, samples.size, passed, toolTaskSuccess, toolCallSuccess, successfulFixtureCalls, fixtureCalls,
-        latency, percentile(successful.map { it.durationMs }, .95), first, speed,
-        metrics.sumOf { it.workerInputTokens }, metrics.sumOf { it.workerOutputTokens },
-        metrics.sumOf { it.primaryInputTokens }, metrics.sumOf { it.primaryOutputTokens },
-        metrics.sumOf { it.outputCapViolations }, reviewerScore, reviewerEvaluations,
-        metrics.any { it.workerEstimated || it.primaryEstimated },
-        events.size, events.count { it.level == "WARN" }, events.count { it.level == "ERROR" }, dimensions
+        score = score,
+        attempts = samples.size,
+        passed = passed,
+        toolTaskSuccessPercent = toolTaskSuccess,
+        toolCallSuccessPercent = toolCallSuccess,
+        successfulToolCalls = successfulFixtureCalls,
+        toolCalls = fixtureCalls,
+        medianLatencyMs = latency,
+        p95LatencyMs = percentile(successful.map { it.durationMs }, .95),
+        medianFirstTextMs = first,
+        medianDecodeSpeed = speed,
+        workerInputTokens = metrics.sumOf { it.workerInputTokens },
+        workerOutputTokens = metrics.sumOf { it.workerOutputTokens },
+        primaryInputTokens = metrics.sumOf { it.primaryInputTokens },
+        primaryOutputTokens = metrics.sumOf { it.primaryOutputTokens },
+        outputCapViolations = metrics.sumOf { it.outputCapViolations },
+        reviewerScore = reviewerScore,
+        reviewerEvaluations = reviewerEvaluations,
+        estimated = metrics.any { it.workerEstimated || it.primaryEstimated || it.reviewerEstimated },
+        diagnosticEvents = events.size,
+        warningEvents = events.count { it.level == "WARN" },
+        errorEvents = events.count { it.level == "ERROR" },
+        dimensions = dimensions,
+        reviewerCalls = metrics.sumOf { it.reviewerCalls },
+        reviewerInputTokens = metrics.sumOf { it.reviewerInputTokens },
+        reviewerOutputTokens = metrics.sumOf { it.reviewerOutputTokens },
+        reviewerEstimated = metrics.any { it.reviewerEstimated }
     )
 }
 

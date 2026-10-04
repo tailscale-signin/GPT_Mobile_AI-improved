@@ -176,15 +176,19 @@ fun ChatMarkdown(
                 val start = length
                 if (hasStreamed) {
                     appendStreamFadedText(streamVisibleText, child.startOffset, arrivalSegments, fadeClock, normalTextColor)
-                } else append(streamVisibleText)
+                } else {
+                    append(streamVisibleText)
+                }
                 memorySpans.forEach { range ->
                     val from = maxOf(range.first, child.startOffset)
                     val to = minOf(range.last + 1, child.endOffset)
-                    if (to > from) addStyle(
-                        SpanStyle(color = DebugMemoryPink.copy(alpha = if (hasStreamed) streamAlphaAtOffset(from, arrivalSegments, fadeClock) else 1f)),
-                        start + (from - child.startOffset).coerceAtMost(streamVisibleText.length),
-                        start + (to - child.startOffset).coerceAtMost(streamVisibleText.length)
-                    )
+                    if (to > from) {
+                        addStyle(
+                            SpanStyle(color = DebugMemoryPink.copy(alpha = if (hasStreamed) streamAlphaAtOffset(from, arrivalSegments, fadeClock) else 1f)),
+                            start + (from - child.startOffset).coerceAtMost(streamVisibleText.length),
+                            start + (to - child.startOffset).coerceAtMost(streamVisibleText.length)
+                        )
+                    }
                 }
                 true
             } else if (!hasMath && !hasSentenceHighlight && hasStreamed && streamVisibleText != null) {

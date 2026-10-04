@@ -14,6 +14,18 @@ class WebSearchResultsTest {
     }
 
     @Test
+    fun `empty and failed nested content contributes no separator text`() {
+        val result = Json.parseToJsonElement("""{"engines":[{"status":"failed","detail":"provider help"},{"status":"error","detail":"error page"}],"results":[],"content":["", "   "]}""")
+        assertEquals("", pageText(result))
+    }
+
+    @Test
+    fun `mixed search content preserves successful text exactly`() {
+        val result = Json.parseToJsonElement("""{"engines":[{"status":"unavailable","detail":"provider help"},{"status":"completed","detail":"  Exact evidence\nSecond line  "}],"results":[],"content":""}""")
+        assertEquals("  Exact evidence\nSecond line  ", pageText(result))
+    }
+
+    @Test
     fun `MCP sources envelope is usable research evidence`() {
         val result = Json.parseToJsonElement("""{"structuredContent":{"sources":[{"url":"https://example.org/article","title":"Article","snippet":"Exact evidence"}]}}""")
         val sources = extractSearchSources(result)

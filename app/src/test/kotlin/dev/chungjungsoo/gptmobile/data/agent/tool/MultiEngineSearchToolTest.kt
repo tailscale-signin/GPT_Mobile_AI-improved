@@ -65,10 +65,14 @@ class MultiEngineSearchToolTest {
     @Test
     fun `repeated successful research reuses full evidence but changed queries execute`() = runBlocking {
         var calls = 0
-        val tool = MultiEngineSearchTool(listOf(engine("search") { id, _ ->
-            calls++
-            AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/evidence\nDescription: Full exact evidence"), false)
-        }))
+        val tool = MultiEngineSearchTool(
+            listOf(
+                engine("search") { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/evidence\nDescription: Full exact evidence"), false)
+                }
+            )
+        )
         val arguments = buildJsonObject { put("query", "same query") }
         val first = tool.execute("first", arguments)
         val repeated = tool.execute("second", arguments)
@@ -83,10 +87,14 @@ class MultiEngineSearchToolTest {
     @Test
     fun `failed searches are never cached`() = runBlocking {
         var calls = 0
-        val tool = MultiEngineSearchTool(listOf(engine("search") { id, _ ->
-            calls++
-            AgentToolResult(id, ToolResultContent.Text("Temporarily unavailable"), true)
-        }))
+        val tool = MultiEngineSearchTool(
+            listOf(
+                engine("search") { id, _ ->
+                    calls++
+                    AgentToolResult(id, ToolResultContent.Text("Temporarily unavailable"), true)
+                }
+            )
+        )
         val arguments = buildJsonObject { put("query", "same query") }
         tool.execute("first", arguments)
         tool.execute("second", arguments)

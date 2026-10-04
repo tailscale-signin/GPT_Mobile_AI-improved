@@ -82,7 +82,9 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 return@withLock it.second.copy(callId = callId, sharedResult = true)
             }
             val result = search(callId, arguments)
-            if (!result.isError && !result.outputBudgetExhausted && !result.toolCallBudgetExhausted &&
+            if (!result.isError &&
+                !result.outputBudgetExhausted &&
+                !result.toolCallBudgetExhausted &&
                 (result.content as? ToolResultContent.Json)?.value?.let { extractSearchSources(it).isNotEmpty() } == true
             ) {
                 resultCache.entries.removeIf { now - it.value.first > 30_000L }

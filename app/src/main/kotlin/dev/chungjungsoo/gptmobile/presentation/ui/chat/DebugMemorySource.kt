@@ -15,9 +15,12 @@ internal fun memoryHighlightRanges(text: String, values: List<String>): List<Int
         for (start in words.indices) {
             for (responseStart in byWord[words[start]].orEmpty()) {
                 var count = 0
-                while (start + count < words.size && responseStart + count < responseWords.size &&
+                while (start + count < words.size &&
+                    responseStart + count < responseWords.size &&
                     words[start + count] == responseWords[responseStart + count].value.lowercase()
-                ) count++
+                ) {
+                    count++
+                }
                 if (count < 2 && words.size != 1) continue
                 val range = responseWords[responseStart].range.first..responseWords[responseStart + count - 1].range.last
                 if (range.last - range.first >= 3) ranges += range
@@ -29,7 +32,9 @@ internal fun memoryHighlightRanges(text: String, values: List<String>): List<Int
         val previous = merged.lastOrNull()
         if (previous != null && range.first <= previous.last + 1) {
             merged[merged.lastIndex] = previous.first..maxOf(previous.last, range.last)
-        } else merged += range
+        } else {
+            merged += range
+        }
     }
     return merged
 }

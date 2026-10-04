@@ -63,10 +63,16 @@ class LocalMemoryTool(
             callId,
             ToolResultContent.Text(result),
             false,
-            traceContent = if (capture) null else ToolResultContent.Json(buildJsonObject {
-                put("recalledFactIds", kotlinx.serialization.json.JsonArray(recalled.references.map { JsonPrimitive(it.id) }))
-                put("count", recalled.facts.size)
-            })
+            traceContent = if (capture) {
+                null
+            } else {
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("recalledFactIds", kotlinx.serialization.json.JsonArray(recalled.references.map { JsonPrimitive(it.id) }))
+                        put("count", recalled.facts.size)
+                    }
+                )
+            }
         )
     }
 }

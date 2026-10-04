@@ -226,7 +226,9 @@ class ChatViewModel @Inject constructor(
             debugMode,
             chatRoom
         ) { _, debug, room ->
-            if (!debug || room.id <= 0) emptyMap() else {
+            if (!debug || room.id <= 0) {
+                emptyMap()
+            } else {
                 withContext(Dispatchers.IO) {
                     factVault?.visibleFacts(room.id, isLocal = true).orEmpty()
                         .filter { it.supersededBy == null }

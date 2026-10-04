@@ -208,8 +208,20 @@ fun InlineExecutionTrace(
                                 .removePrefix("<!-- delegation:local -->")
                                 .trimStart()
                             val reviewerBoundary = if (isReviewerResult) debugResult.indexOf("\n\n") else -1
-                            val reviewerText = if (reviewerBoundary >= 0) debugResult.substring(0, reviewerBoundary).trim() else if (isReviewerResult) debugResult else ""
-                            val delegateText = if (reviewerBoundary >= 0) debugResult.substring(reviewerBoundary).trim() else if (isReviewerResult) "" else debugResult
+                            val reviewerText = if (reviewerBoundary >= 0) {
+                                debugResult.substring(0, reviewerBoundary).trim()
+                            } else if (isReviewerResult) {
+                                debugResult
+                            } else {
+                                ""
+                            }
+                            val delegateText = if (reviewerBoundary >= 0) {
+                                debugResult.substring(reviewerBoundary).trim()
+                            } else if (isReviewerResult) {
+                                ""
+                            } else {
+                                debugResult
+                            }
                             val showReviewerTrace = expanded && debugMode && reviewerText.isNotBlank() && debugSettings.debugShowReviewerTrace
                             val showDelegationTrace = expanded && debugMode && isDelegation && delegateText.isNotBlank() && debugSettings.debugShowDelegationTrace
                             if (showReviewerTrace || showDelegationTrace) {

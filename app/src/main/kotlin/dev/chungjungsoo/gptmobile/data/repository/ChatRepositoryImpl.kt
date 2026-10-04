@@ -1982,7 +1982,12 @@ class ChatRepositoryImpl(
         status: String,
         completedAt: Long,
         terminalError: String?
-    ): Boolean = agentRunDao.finishInterrupted(runId, status, completedAt, terminalError) == 1
+    ): Boolean {
+        val current = agentRunDao.getById(runId) ?: return false
+        if (current.status != AgentRunStatus.INTERRUPTED) return false
+        agentRunDao.updateStatus(runId, status, current.startedAt, completedAt, terminalError)
+        return true
+    }
 
     override suspend fun updateAgentMessage(message: MessageV2) {
         messageV2Dao.editMessages(message)

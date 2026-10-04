@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.memory
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.rag.VaultFact
 import java.security.MessageDigest
 import java.util.Locale
@@ -254,11 +255,24 @@ class MemoryGraphRepository @Inject constructor(
 
     private fun ensureFtsLocked(): Boolean {
         ftsAvailable?.let { return it }
+        val readable = database.openHelper.readableDatabase
+        val compiledWithFts5 = runCatching {
+            readable.query("SELECT sqlite_compileoption_used('ENABLE_FTS5')").use { cursor ->
+                cursor.moveToFirst() && cursor.getInt(0) == 1
+            }
+        }.getOrDefault(false)
+        if (!compiledWithFts5) {
+            ftsAvailable = false
+            AppLogRecorder.record("Memory", "SQLite FTS5 is unavailable on this Android build; memory graph search is using the portable LIKE fallback.", "W")
+            return false
+        }
         val available = runCatching {
-            ftsNeedsRebuild = !database.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE name = 'memory_graph_fts'").use { it.moveToFirst() }
+            ftsNeedsRebuild = !readable.query("SELECT name FROM sqlite_master WHERE name = 'memory_graph_fts'").use { it.moveToFirst() }
             database.openHelper.writableDatabase.execSQL(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS memory_graph_fts USING fts5(entity_id UNINDEXED, scope UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')"
             )
+        }.onFailure {
+            AppLogRecorder.record("Memory", "FTS5 initialization failed; memory graph search is using the portable LIKE fallback.", "W")
         }.isSuccess
         ftsAvailable = available
         return available

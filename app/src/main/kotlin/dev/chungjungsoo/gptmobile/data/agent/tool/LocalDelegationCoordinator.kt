@@ -641,7 +641,11 @@ internal class LocalDelegationCoordinator(
         }
         val reason = message.takeIf { it.isNotBlank() }?.let { "The delegate failed: ${it.take(240)}" }
             ?: "The delegate failed before completing the task."
-        val fallback = if (allowFailover && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
+        val terminalForTarget =
+            classified.authBlocked ||
+                classified.permanentlyUnavailable ||
+                classified.outputCapViolation
+        val fallback = if ((allowFailover || terminalForTarget) && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
             recoveryCandidates(latest, failedUid).firstOrNull()
         } else {
             null
@@ -652,10 +656,6 @@ internal class LocalDelegationCoordinator(
             "E"
         )
         logComputeTotals()
-        val terminalForTarget =
-            classified.authBlocked ||
-                classified.permanentlyUnavailable ||
-                classified.outputCapViolation
         return WorkerResolution(
             recoveryReason = reason,
             failoverTarget = fallback,

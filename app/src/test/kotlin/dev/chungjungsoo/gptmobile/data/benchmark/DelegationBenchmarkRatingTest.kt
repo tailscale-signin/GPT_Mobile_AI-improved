@@ -153,4 +153,17 @@ class DelegationBenchmarkRatingTest {
         assertEquals(0, result.reviewerEvaluations)
         assertTrue(result.dimensions.any { it.label == "Reviewer quality" && it.score == null })
     }
+
+    @Test fun `retry cost lowers scoreboard even when the final answer passes`() {
+        val base = run("helper")
+        fun withEfficiency(percent: Double, attempts: Int) = base.copy(
+            samples = base.samples.map { sample ->
+                sample.copy(delegation = sample.delegation!!.copy(timeEfficiencyPercent = percent, delegateAttempts = attempts, successfulRequests = 1))
+            }
+        )
+        val efficient = delegationBenchmarkRating(listOf(withEfficiency(100.0, 1)))
+        val recovered = delegationBenchmarkRating(listOf(withEfficiency(5.0, 6)))
+        assertTrue(efficient.score!! > recovered.score!!)
+        assertTrue(recovered.dimensions.any { it.label == "Time efficiency" && it.score == 5.0 })
+    }
 }

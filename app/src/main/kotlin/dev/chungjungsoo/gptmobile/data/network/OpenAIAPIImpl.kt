@@ -98,6 +98,7 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
+        val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedAssistantPayload = false
         var receivedGatewayToolActivity = false
         var receivedTerminal = false
@@ -141,11 +142,12 @@ class OpenAIAPIImpl @Inject constructor(
                 emit(ChatCompletionChunk(model = free.model, choices = listOf(Choice(delta = Delta(content = legacyResponse), finishReason = "stop"))))
                 return@flow
             }
+            if (workerBudget != null) LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
                 networkClient().preparePost(endpoint) {
-                    applyPlatformStreamingTimeout(timeoutSeconds)
+                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
                     setBody(NetworkClient.openAIJson.encodeToString(preparedRequest))
                     accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)
@@ -351,10 +353,12 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ResponsesStreamEvent> = flow {
+        val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedResponsePayload = false
         var receivedTerminal = false
         var preparedRequest = request.withModelSamplingPolicy()
         try {
+            if (workerBudget != null) LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("responses")
 
             ResilientStreamingClient.executeWithRetry(
@@ -369,7 +373,7 @@ class OpenAIAPIImpl @Inject constructor(
                 }
             ) {
                 networkClient().preparePost(endpoint) {
-                    applyPlatformStreamingTimeout(timeoutSeconds)
+                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
                     setBody(NetworkClient.openAIJson.encodeToString(preparedRequest))
                     accept(ContentType.Text.EventStream)

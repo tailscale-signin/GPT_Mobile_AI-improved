@@ -150,6 +150,10 @@ class ModelDelegationTool(
                 AppLogRecorder.record("Delegation", "Primary-only handoff · call=$callId · target=${target.uid} · elapsedMs=$elapsedMs · terminalCircuit=true", "W")
                 return error(response)
             }
+            if (response.startsWith("[REVIEW_REJECTED]")) {
+                primaryOnlyForTurn.set(true)
+                return error(response)
+            }
             if (gitHubCapabilityRefusal(task, response)) {
                 githubUnavailableTargets += targetKey(target)
                 calls.decrementAndGet()

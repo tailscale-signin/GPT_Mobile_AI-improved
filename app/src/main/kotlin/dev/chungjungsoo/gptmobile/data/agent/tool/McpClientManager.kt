@@ -312,6 +312,7 @@ class McpClientManager internal constructor(
         retryStale: Boolean = true,
         block: suspend (Session) -> T
     ): T {
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         var staleSessionRetries = 0
         while (true) {
             val session = session(config, bypassBackoff || staleSessionRetries > 0)

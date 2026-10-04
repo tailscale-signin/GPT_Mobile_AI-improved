@@ -41,7 +41,7 @@ object ResilientStreamingClient {
                 return block()
             } catch (e: Throwable) {
                 currentAttempt++
-                if (currentAttempt >= config.maxAttempts || !shouldRetry() || !isRetryable(e)) {
+                if (kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget] != null || currentAttempt >= config.maxAttempts || !shouldRetry() || !isRetryable(e)) {
                     throw e
                 }
 

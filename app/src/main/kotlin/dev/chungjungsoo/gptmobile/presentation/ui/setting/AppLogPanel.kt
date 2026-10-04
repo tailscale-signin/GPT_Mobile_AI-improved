@@ -94,22 +94,29 @@ internal fun AppLogPanel() {
         val visible = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(frozen ?: entries)
             .filter { (!errorsOnly || it.entry.level in setOf("W", "E", "F")) && (it.entry.tag + it.entry.message).contains(query, ignoreCase = true) }.takeLast(100)
         Text("${visible.sumOf { it.repetitions }} events · ${visible.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
-        Text("Consecutive repeats are grouped; exports keep every event.", style = MaterialTheme.typography.labelSmall)
+        Text("Repeated timeouts and budget warnings are grouped; expand a row for raw details. Exports keep every event.", style = MaterialTheme.typography.labelSmall)
         if (visible.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")
         visible.asReversed().forEach { group ->
             val entry = group.entry
+            var expanded by remember(entry.time, entry.tag) { mutableStateOf(false) }
             Card(Modifier.fillMaxWidth()) {
-                Text(
-                    entry.line() + if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "",
-                    modifier = Modifier.padding(12.dp),
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when (entry.level) {
-                        "E", "F" -> MaterialTheme.colorScheme.error
-                        "W" -> MaterialTheme.colorScheme.tertiary
-                        else -> MaterialTheme.colorScheme.onSurface
+                Column {
+                    Text(
+                        entry.line() + if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "",
+                        modifier = Modifier.padding(12.dp),
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when (entry.level) {
+                            "E", "F" -> MaterialTheme.colorScheme.error
+                            "W" -> MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.onSurface
+                        }
+                    )
+                    if (group.repetitions > 1) {
+                        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide Raw Details" else "Show Raw Details") }
+                        if (expanded) group.rawDetails.forEach { detail -> Text(detail.line(), modifier = Modifier.padding(12.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
                     }
-                )
+                }
             }
         }
     }

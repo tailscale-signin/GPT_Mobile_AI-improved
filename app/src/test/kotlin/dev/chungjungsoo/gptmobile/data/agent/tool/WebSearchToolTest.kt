@@ -42,6 +42,21 @@ class WebSearchToolTest {
     }
 
     @Test
+    fun `billing failures suppress repeated requests until the cooldown expires`() = runBlocking {
+        val server = server("/search", "{}", status = 402)
+        val client = NetworkClient(CIO).also { networkClients += it }
+        val config = WebSearchProviderConfig(WebSearchProvider.PERPLEXITY, "billing-key", server.url("/search"))
+        val args = buildJsonObject { put("query", "test") }
+        WebSearchTool(config, client, clock).execute("first", args)
+        val blocked = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(4))).execute("second", args)
+        assertTrue(blocked.content.toString().contains("disabled"))
+        assertEquals(1, server.requestCount)
+        val retried = WebSearchTool(config, client, Clock.offset(clock, java.time.Duration.ofMinutes(6))).execute("third", args)
+        assertTrue(retried.content.toString().contains("HTTP 402"))
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
     fun `Brave uses subscription header and GET filters with normalized sources`() = runBlocking {
         val server = server("/web/search", """{"type":"search","web":{"results":[{"title":"Kotlin &amp; Android","url":"https://docs.allowed.example/kotlin","description":"Useful <b>documentation</b>","date":"2026-07-31"}]}}""")
         val result = tool(WebSearchProvider.BRAVE, server.url("/web/search")).execute("brave", arguments())

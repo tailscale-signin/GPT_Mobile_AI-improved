@@ -847,7 +847,7 @@ class LocalDelegationCoordinatorTest {
         assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
     }
 
-    @Test fun `reviewer has separate callback and accepts a low score without score shopping`() = runTest {
+    @Test fun `reviewer rejection triggers correction and rejects after validation limit`() = runTest {
         val reviewer = target.copy(uid = "reserved", model = "review-model")
         var reviews = 0
         val coordinator = LocalDelegationCoordinator(
@@ -866,9 +866,40 @@ class LocalDelegationCoordinatorTest {
                 """{"review_score":35,"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
             }
         )
-        assertTrue(coordinator.executeTask(target, "Check evidence", 512).orEmpty().contains("BELOW_THRESHOLD"))
-        assertEquals(1, reviews)
-        assertEquals(listOf(35), coordinator.reviewerScoresSnapshot())
+        assertTrue(coordinator.executeTask(target, "Check evidence", 512).orEmpty().startsWith("[REVIEW_REJECTED]"))
+        assertEquals(3, reviews)
+        assertEquals(listOf(35, 35, 35), coordinator.reviewerScoresSnapshot())
+    }
+
+    @Test fun `reviewer accepts repaired evidence only after a second review`() = runTest {
+        val reviewer = target.copy(uid = "repair-reviewer", model = "independent-review-model")
+        var drafts = 0
+        var reviews = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ -> error("No legacy callback") },
+            generateWithProgress = { _, prompt, _, _, _ ->
+                drafts++
+                if (drafts > 1) assertTrue(prompt.contains("unsupported number"))
+                if (drafts == 1) "Unsupported number 99" else "Verified number 42 [S1]"
+            },
+            generateReviewerWithProgress = { _, prompt, _, _, _ ->
+                reviews++
+                if (reviews == 1) {
+                    """{"review_score":10,"verdict":"REJECT","issues":["unsupported number"],"corrections":null}"""
+                } else {
+                    assertTrue(prompt.contains("Verified number 42 [S1]"))
+                    """{"review_score":90,"verdict":"PASS","issues":[],"corrections":null}"""
+                }
+            }
+        )
+        val result = coordinator.executeTask(target, "Check evidence", 512).orEmpty()
+        assertTrue(result.contains("Verified number 42 [S1]"))
+        assertFalse(result.contains("Unsupported number 99"))
+        assertEquals(2, drafts)
+        assertEquals(listOf(10, 90), coordinator.reviewerScoresSnapshot())
     }
 
     @Test fun `invalid reviews retry statelessly and never record zero quality`() = runTest {

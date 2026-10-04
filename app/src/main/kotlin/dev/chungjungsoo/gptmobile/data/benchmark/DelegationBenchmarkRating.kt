@@ -85,6 +85,8 @@ fun delegationBenchmarkRating(runs: List<BenchmarkRun>): DelegationBenchmarkRati
         BenchmarkDimension("End-to-end latency", latency?.let { (100.0 * 5000.0 / it.coerceAtLeast(1)).coerceIn(0.0, 100.0) }, 10, "100 at 5 seconds per successful delegation case"),
         BenchmarkDimension("Evidence accuracy", accuracy("delegation-compact"), 5, "Preserves the random evidence code"),
         BenchmarkDimension("Research and handoff", accuracy("delegation-research"), 5, "Reads evidence, preserves the code and source, and survives primary synthesis"),
+        BenchmarkDimension("Time efficiency", metrics.mapNotNull { it.timeEfficiencyPercent }.takeIf { it.isNotEmpty() }?.average(), 15, "Productive request time after failed attempts and repairs"),
+        BenchmarkDimension("Request reliability", metrics.filter { it.delegateAttempts > 0 }.takeIf { it.isNotEmpty() }?.let { 100.0 * it.sumOf { metric -> metric.successfulRequests } / it.sumOf { metric -> metric.delegateAttempts } }, 15, "Successful worker/reviewer requests including retries"),
         BenchmarkDimension("Reviewer quality", reviewerScore?.toDouble(), 20, "Independent reviewer score for the delegate context; measured only when Reviewer mode is enabled")
     )
     val measured = dimensions.filter { it.score != null }

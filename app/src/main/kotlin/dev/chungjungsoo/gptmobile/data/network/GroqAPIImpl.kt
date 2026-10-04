@@ -34,13 +34,14 @@ class GroqAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<GroqChatCompletionChunk> = flow {
+        val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedPayload = false
         try {
             val resolvedApiUrl = config.apiUrl.ifBlank { ModelConstants.GROQ_API_URL }
             val endpoint = config.copy(apiUrl = resolvedApiUrl).buildEndpoint("chat/completions")
 
             networkClient().preparePost(endpoint) {
-                applyPlatformStreamingTimeout(timeoutSeconds)
+                applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                 contentType(ContentType.Application.Json)
                 setBody(NetworkClient.openAIJson.encodeToString(request))
                 accept(if (request.stream) ContentType.Text.EventStream else ContentType.Application.Json)

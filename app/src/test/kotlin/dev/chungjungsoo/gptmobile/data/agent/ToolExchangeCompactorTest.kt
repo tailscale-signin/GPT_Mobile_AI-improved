@@ -9,6 +9,22 @@ import org.junit.Test
 
 class ToolExchangeCompactorTest {
     @Test
+    fun compact_preserves_latest_failure_instructions_and_bounds_old_errors() {
+        val instruction = "Give a final response and ask the user to continue."
+        fun exchange(id: String) = AgentToolExchange(
+            calls = listOf(ProviderEvent.ToolCall(id, "web_search", buildJsonObject { })),
+            results = listOf(AgentToolResult(id, ToolResultContent.Text(id + "x".repeat(600) + instruction), true))
+        )
+        val compacted = ToolExchangeCompactor.compact(listOf(exchange("old"), exchange("latest")), 4_000, 800)
+        val oldText = (compacted.first().results.single().content as ToolResultContent.Text).text
+        val latestText = (compacted.last().results.single().content as ToolResultContent.Text).text
+        assertTrue(oldText.length <= 480)
+        assertTrue(oldText.endsWith(instruction))
+        assertEquals("latest" + "x".repeat(600) + instruction, latestText)
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) <= 4_000)
+    }
+
+    @Test
     fun compact_bounds_old_tool_payloads_and_keeps_pairing() {
         val exchanges = (0 until 6).map { index ->
             val call = ProviderEvent.ToolCall(
@@ -115,6 +131,7 @@ class ToolExchangeCompactorTest {
             assertEquals(exchange.calls.map { it.callId }, exchange.results.map { it.callId })
         }
     }
+
     @Test
     fun compact_preserves_unmodified_json_result_type() {
         val call = ProviderEvent.ToolCall(

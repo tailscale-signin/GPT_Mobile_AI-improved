@@ -27,7 +27,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 
-internal enum class DelegateProgressKind { REQUEST_STARTED, OUTPUT, TOOL_ACTIVITY, USAGE }
+internal enum class DelegateProgressKind { REQUEST_STARTED, OUTPUT, TOOL_ACTIVITY, USAGE, REPAIR_WASTE }
 
 internal data class DelegateProgress(
     val kind: DelegateProgressKind,
@@ -35,7 +35,8 @@ internal data class DelegateProgress(
     val outputTokens: Long? = null,
     val totalTokens: Long? = null,
     val textDelta: String? = null,
-    val decodeTokensPerSecond: Double? = null
+    val decodeTokensPerSecond: Double? = null,
+    val wastedMillis: Long = 0
 )
 
 private fun estimatedDelegateTokens(text: String): Int = ((text.length + 3) / 4).coerceAtLeast(1)
@@ -68,7 +69,7 @@ internal class LocalDelegationCoordinator(
         private const val SAME_DELEGATE_RETRY_DELAY_MS = 1_000L
         private const val MAX_CONSECUTIVE_EMPTY_RESPONSES = 2
         private const val RUNTIME_NOT_READY_COOLDOWN_MS = 5 * 60_000L
-        private const val NOT_DOWNLOADED_COOLDOWN_MS = 60_000L
+        private const val NOT_DOWNLOADED_COOLDOWN_MS = Long.MAX_VALUE
 
         // Readiness belongs to the runtime/model installation, not to one chat turn.
         // Sharing this cache prevents a new coordinator from probing the same missing
@@ -78,6 +79,12 @@ internal class LocalDelegationCoordinator(
         private val sessionUnavailableWorkers = ConcurrentHashMap.newKeySet<String>()
     }
 
+    private val physicalRequests = AtomicInteger()
+    private val delegateAttempts = AtomicInteger()
+    private val repairWastedTokens = AtomicLong()
+    private val repairWastedMs = AtomicLong()
+    private val successfulRequests = AtomicInteger()
+    private val successfulMs = AtomicLong()
     private val localCalls = AtomicInteger()
     private val requests = AtomicInteger()
     private val activeWorkers = AtomicInteger()
@@ -96,6 +103,19 @@ internal class LocalDelegationCoordinator(
     private val activeRequests = ConcurrentHashMap.newKeySet<Deferred<String?>>()
     private val reviewStateLock = Any()
     private val reviewerScores = ConcurrentLinkedQueue<Int>()
+    internal fun computeStats(): DelegationComputeStats {
+        val productive = successfulMs.get()
+        val wasted = wastedLocalMs.get()
+        return DelegationComputeStats(
+            delegateAttempts.get(),
+            successfulRequests.get(),
+            physicalRequests.get(),
+            wasted,
+            repairWastedTokens.get(),
+            repairWastedMs.get(),
+            if (productive + wasted > 0) 100.0 * productive / (productive + wasted) else 100.0
+        )
+    }
     fun failureReason(): String? = lastFailure.get()
     internal fun reviewerScoresSnapshot(): List<Int> = reviewerScores.toList()
     internal fun latestReviewerScore(): Int? = reviewerScores.toList().lastOrNull()
@@ -107,7 +127,7 @@ internal class LocalDelegationCoordinator(
 
     private fun availabilityKey(profile: PlatformV2): String {
         val credentialFingerprint = profile.token?.hashCode() ?: profile.secretRef?.hashCode() ?: 0
-        return "${profile.uid}|${profile.compatibleType}|${profile.model.trim()}|${profile.apiUrl}|$credentialFingerprint"
+        return "${profile.uid}|${profile.compatibleType}|${profile.model.trim()}|${profile.apiUrl}|$credentialFingerprint|${if (profile.compatibleType == ClientType.LITERT_LM) dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current() else 0}"
     }
 
     private fun isPermanentlyUnavailable(profile: PlatformV2): Boolean {
@@ -145,13 +165,14 @@ internal class LocalDelegationCoordinator(
         if (reviewer == null) {
             AppLogRecorder.record("Delegation", "REVIEWER_UNAVAILABLE · score=unavailable · delegate=${delegate.uid}", "W")
             return buildString {
-                append("[REVIEWER_UNAVAILABLE · unverified]\n")
+                append("[REVIEW_REJECTED][REVIEWER_UNAVAILABLE · unverified]\n")
                 append("Reviewer findings: No eligible reviewer model was available. Treat the following delegate context as unverified.\n\n")
                 append(delegateOutput)
             }
         }
 
-        val reviewPrompt = buildString {
+        var candidateOutput = delegateOutput
+        fun reviewPrompt() = buildString {
             append("You are an independent REVIEWER model. Fact-check the delegate context against the original task and the evidence, source IDs, URLs, identifiers, numbers, code details, and explicit limitations contained in that context. ")
             append("Do not reward verbosity. Penalize unsupported claims, contradictions, missing requested details, invented facts, lost citations, or unsafe assumptions. ")
             append("Do not perform external actions and do not claim to have checked information that is not present. Preserve exact verified details. ")
@@ -159,7 +180,7 @@ internal class LocalDelegationCoordinator(
             append("ORIGINAL TASK:\n")
             append(task)
             append("\n\nDELEGATE CONTEXT:\n")
-            append(delegateOutput)
+            append(candidateOutput)
             append("\n\nReturn only one JSON object with all four fields: ")
             append("""{"review_score":0,"verdict":"PASS|CORRECTED|REJECT","issues":["brief evidence-based issue"],"corrections":null}""")
             append("\nreview_score must be an integer from 0 to 100. Use exactly PASS, CORRECTED, or REJECT. ")
@@ -187,7 +208,7 @@ internal class LocalDelegationCoordinator(
                     continue
                 }
                 val hardInputTokenCap = minOf(config.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS)
-                val boundedPrompt = capPrompt(reviewPrompt, minOf(available, hardInputTokenCap * APPROX_CHARS_PER_TOKEN))
+                val boundedPrompt = capPrompt(reviewPrompt(), minOf(available, hardInputTokenCap * APPROX_CHARS_PER_TOKEN))
                 val estimatedInput = estimatedDelegateTokens(boundedPrompt)
                 var observedInputTokens = 0L
                 val runtimeSeconds = adaptiveRuntimeSeconds(estimatedInput, config)
@@ -221,14 +242,31 @@ internal class LocalDelegationCoordinator(
                 val accountedInputTokens = maxOf(observedInputTokens, estimatedInput.toLong())
                 AppLogRecorder.record(
                     "Delegation",
-                    "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · validationAttempt=${attempt + 1}/${retryLimit + 1} · terminalVerdict=true · inputTokens=$accountedInputTokens · inputEstimated=${observedInputTokens <= 0} · retryPolicy=invalid_empty_or_transport_only"
+                    "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · validationAttempt=${attempt + 1}/${retryLimit + 1} · terminalVerdict=${assessment.verdict != "REJECT" && assessment.score >= config.reviewerMinimumScore || attempt == retryLimit} · inputTokens=$accountedInputTokens · inputEstimated=${observedInputTokens <= 0} · retryPolicy=delegate_repair_then_review"
                 )
+                if (assessment.verdict == "REJECT" || assessment.score < config.reviewerMinimumScore) {
+                    lastIssue = "Reviewer rejected the delegate evidence (${assessment.score}/100): ${assessment.issues.joinToString("; ")}"
+                    if (attempt < retryLimit) {
+                        val repaired = workerText(
+                            target = delegate,
+                            prompt = task + "\n\nCorrect the rejected draft using only supported evidence. Address every reviewer finding. " +
+                                "Preserve source IDs; remove unsupported claims.\nFindings: " + assessment.issues.joinToString("; ") +
+                                "\nDraft:\n" + candidateOutput,
+                            tokens = config.maxOutputTokens,
+                            allowTools = false,
+                            pinnedConfig = config
+                        )
+                        if (!repaired.isNullOrBlank()) candidateOutput = repaired
+                        continue
+                    }
+                    return "[REVIEW_REJECTED] " + lastIssue + "\nDo not treat rejected claims as verified evidence. The primary must recover independently."
+                }
                 return buildString {
                     val thresholdVerdict = if (assessment.score < config.reviewerMinimumScore) "BELOW_THRESHOLD" else assessment.verdict
                     append("[Reviewer Score: ${assessment.score}/100 · $thresholdVerdict]\n")
                     if (assessment.issues.isNotEmpty()) append("Reviewer findings: ${assessment.issues.joinToString("; ")}\n")
                     append("\nReviewed delegate context:\n")
-                    append(if (config.reviewerAutoCorrect) assessment.corrections ?: delegateOutput else delegateOutput)
+                    append(if (config.reviewerAutoCorrect) assessment.corrections ?: candidateOutput else candidateOutput)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -248,7 +286,7 @@ internal class LocalDelegationCoordinator(
             "E"
         )
         return buildString {
-            append("[REVIEW_FAILED · unverified]\n")
+            append("[REVIEW_REJECTED][REVIEW_FAILED · unverified]\n")
             append("Reviewer findings: ${lastIssue.take(500)} Treat the following delegate context as unverified.\n\n")
             append(delegateOutput)
         }
@@ -282,7 +320,7 @@ internal class LocalDelegationCoordinator(
 
     private suspend fun candidateInputBudget(candidate: PlatformV2, outputTokens: Int, logFailure: Boolean): Int? {
         val now = nowMs()
-        val readinessKey = "${availabilityKey(candidate)}|$outputTokens"
+        val readinessKey = "${availabilityKey(candidate)}|$outputTokens|${dev.chungjungsoo.gptmobile.data.localmodel.LocalModelInstallationEpoch.current()}"
         val cachedUntil = runtimeNotReadyUntilMs[readinessKey]
         if (cachedUntil != null && cachedUntil > now) return null
         if (cachedUntil != null) runtimeNotReadyUntilMs.remove(readinessKey, cachedUntil)
@@ -316,7 +354,7 @@ internal class LocalDelegationCoordinator(
                     message.contains("local model file is missing", ignoreCase = true) ||
                     packageMissing
             val cooldownMs = if (packageNotInstalled) NOT_DOWNLOADED_COOLDOWN_MS else RUNTIME_NOT_READY_COOLDOWN_MS
-            runtimeNotReadyUntilMs[readinessKey] = now + cooldownMs
+            runtimeNotReadyUntilMs[readinessKey] = if (packageNotInstalled) Long.MAX_VALUE else now + cooldownMs
             if (logFailure) {
                 AppLogRecorder.record(
                     "Delegation",
@@ -503,6 +541,7 @@ internal class LocalDelegationCoordinator(
                 "EOFException"
             ) ||
                 containsAny(
+                    "LOCAL_SERVICE_UNREACHABLE",
                     "Unable to resolve host",
                     "UnknownHostException",
                     "connection abort",
@@ -549,9 +588,8 @@ internal class LocalDelegationCoordinator(
     ): WorkerResolution {
         if (response == null) {
             canceledLocalTokens.addAndGet(chargedInput)
-            wastedLocalMs.addAndGet(elapsedMs)
             val timeouts = timeoutsByWorker.getOrPut(profile.uid, ::AtomicInteger).incrementAndGet()
-            val quarantined = timeouts >= 2
+            val quarantined = allowFailover && timeouts >= latest.localRetryLimit + 1
             if (quarantined) {
                 quarantinedWorkerUids += profile.uid
             }
@@ -562,7 +600,7 @@ internal class LocalDelegationCoordinator(
                 null
             }
             AppLogRecorder.record("Delegation", "CANCELED_NO_RESULT · target=${profile.uid} · call=$callNumber/$effectiveCallLimit · elapsedMs=$elapsedMs · estimatedInputTokens=$estimatedInput · observedInputTokens=$observedInputTokens · requestedOutputCap=$requestedOutputCap", "E")
-            AppLogRecorder.record("Delegation", "Worker timeout circuit · target=${profile.uid} · timeouts=$timeouts/2 · quarantined=$quarantined · fallback=${fallback?.uid}", "W")
+            AppLogRecorder.record("Delegation", "Worker timeout circuit · target=${profile.uid} · timeouts=$timeouts/${latest.localRetryLimit + 1} · quarantined=$quarantined · fallback=${fallback?.uid}", "W")
             logComputeTotals()
             return WorkerResolution(recoveryReason = reason, failoverTarget = fallback)
         }
@@ -578,9 +616,8 @@ internal class LocalDelegationCoordinator(
             return WorkerResolution(text = usable)
         }
         failedLocalTokens.addAndGet(chargedInput)
-        wastedLocalMs.addAndGet(elapsedMs)
         val emptyCount = emptyResponsesByWorker.getOrPut(profile.uid, ::AtomicInteger).incrementAndGet()
-        val quarantined = emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES
+        val quarantined = allowFailover && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES
         if (quarantined) {
             quarantinedWorkerUids += profile.uid
         }
@@ -610,7 +647,6 @@ internal class LocalDelegationCoordinator(
         interactiveRecovery: Boolean,
         allowFailover: Boolean
     ): WorkerResolution {
-        dispatchedAtMs?.let { wastedLocalMs.addAndGet((nowMs() - it).coerceAtLeast(0L)) }
         val estimated = maxOf(estimatedDelegateTokens(prompt).toLong(), observedForFailure)
         val chargedFailureTokens = if (dispatchedAtMs != null || observedForFailure > 0L) {
             estimated
@@ -628,10 +664,15 @@ internal class LocalDelegationCoordinator(
         val shouldQuarantine =
             classified.authBlocked ||
                 classified.permanentlyUnavailable ||
-                classified.connectionUnavailable ||
                 classified.outputCapViolation ||
-                failures >= 3 ||
-                (classified.softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES)
+                (
+                    allowFailover &&
+                        (
+                            classified.connectionUnavailable ||
+                                failures >= latest.localRetryLimit + 1 ||
+                                (classified.softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES)
+                            )
+                    )
         if (shouldQuarantine) {
             quarantinedWorkerUids += failedUid
         }
@@ -686,7 +727,7 @@ internal class LocalDelegationCoordinator(
         val usefulPercent = if (attempted == 0L) 100 else (successful * 100L / attempted)
         AppLogRecorder.record(
             "Delegation",
-            "Local compute totals · local_tokens_successful=$successful · local_tokens_failed=$failed · local_tokens_canceled=$canceled · wasted_local_tokens=$wasted · wasted_local_ms=${wastedLocalMs.get()} · useful_local_offload_percent=$usefulPercent"
+            "Local compute totals · local_tokens_successful=$successful · local_tokens_failed=$failed · local_tokens_canceled=$canceled · wasted_local_tokens=$wasted · wasted_local_ms=${wastedLocalMs.get()} · useful_local_offload_percent=$usefulPercent · repair_wasted_tokens=${repairWastedTokens.get()} · repair_wasted_ms=${repairWastedMs.get()} · logicalCall=${localCalls.get()} · delegateAttempt=${delegateAttempts.get()} · physicalRequest=${physicalRequests.get()}/48 · successful_request_ratio=${successfulRequests.get().toDouble() / delegateAttempts.get().coerceAtLeast(1)} · time_weighted_efficiency_percent=${100L * successfulMs.get() / (successfulMs.get() + wastedLocalMs.get()).coerceAtLeast(1)}"
         )
     }
 
@@ -715,9 +756,17 @@ internal class LocalDelegationCoordinator(
         check(!reviewer || progressive != null) { "REVIEWER_EXECUTOR_UNAVAILABLE: no isolated reviewer transport is configured." }
         return coroutineScope {
             val startedAt = nowMs()
+            val attemptRepairMs = AtomicLong()
+            var successful = false
             val firstProgressAt = AtomicLong(-1L)
             val lastProgressAt = AtomicLong(startedAt)
-            val deferred = async(start = CoroutineStart.LAZY) {
+            delegateAttempts.incrementAndGet()
+            // Progressing tool work may extend the adaptive runtime, but never the hard deadline.
+            val requestRuntimeSeconds = if (progressive == null) minOf(runtimeSeconds, hardRuntimeSeconds) else hardRuntimeSeconds
+            val deferred = async(
+                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests),
+                start = CoroutineStart.LAZY
+            ) {
                 if (progressive == null) {
                     return@async withTimeoutOrNull(runtimeSeconds * 1000L) { generate(profile, prompt, outputTokens) }
                 }
@@ -732,6 +781,13 @@ internal class LocalDelegationCoordinator(
                             progress.inputTokens?.let(onObservedUsage)
                             lastProgressAt.set(now)
                         }
+                        DelegateProgressKind.REPAIR_WASTE -> {
+                            val tokens = progress.totalTokens ?: 0
+                            repairWastedTokens.addAndGet(tokens)
+                            failedLocalTokens.addAndGet(tokens)
+                            repairWastedMs.addAndGet(progress.wastedMillis)
+                            attemptRepairMs.addAndGet(progress.wastedMillis)
+                        }
                         DelegateProgressKind.REQUEST_STARTED -> Unit
                     }
                 }
@@ -740,7 +796,7 @@ internal class LocalDelegationCoordinator(
             try {
                 if (delegationCanceledByUser.get()) deferred.cancel() else deferred.start()
                 // Without progress events, keep the workload deadline and coroutine timeout clock.
-                if (progressive == null) return@coroutineScope deferred.await()
+                if (progressive == null) return@coroutineScope deferred.await().also { successful = !it.isNullOrBlank() }
                 while (!deferred.isCompleted) {
                     withTimeoutOrNull(WATCHDOG_POLL_MS) { deferred.join() }
                     if (deferred.isCompleted) break
@@ -765,10 +821,19 @@ internal class LocalDelegationCoordinator(
                         return@coroutineScope null
                     }
                 }
-                deferred.await()
+                deferred.await().also { successful = !it.isNullOrBlank() }
             } catch (cancelled: CancellationException) {
                 if (delegationCanceledByUser.get()) null else throw cancelled
             } finally {
+                val elapsed = (nowMs() - startedAt).coerceAtLeast(0)
+                if (successful) {
+                    successfulRequests.incrementAndGet()
+                    val repairMs = minOf(attemptRepairMs.get(), elapsed)
+                    successfulMs.addAndGet(elapsed - repairMs)
+                    wastedLocalMs.addAndGet(repairMs)
+                } else {
+                    wastedLocalMs.addAndGet(elapsed)
+                }
                 activeRequests.remove(deferred)
             }
         }
@@ -824,6 +889,10 @@ internal class LocalDelegationCoordinator(
             )
         }
         if (delegationCanceledByUser.get()) return WorkerPreparation()
+        if (physicalRequests.get() >= 48) {
+            lastFailure.set("DELEGATE_PHYSICAL_REQUEST_LIMIT: 48 physical requests used; continue with primary evidence.")
+            return WorkerPreparation(resolvedProfileUid = target.uid, retrySameTarget = false)
+        }
         val availableProfiles = profiles()
         val reserved = reservedReviewer(latest, availableProfiles, source)
         if (sameDelegationModel(target, reserved)) {
@@ -836,7 +905,7 @@ internal class LocalDelegationCoordinator(
                 candidate.enabled &&
                 !candidate.excludesMemory() &&
                 candidate.uid != source.uid &&
-                (sameTargetRetryAttempt > 0 || (candidate.uid !in quarantinedWorkerUids && !isPermanentlyUnavailable(candidate))) &&
+                (candidate.uid !in quarantinedWorkerUids && !isPermanentlyUnavailable(candidate)) &&
                 (latest.remoteWorkersAllowed() || candidate.isPrivateDestination())
         } ?: return recovery(target.uid, "The selected delegate is unavailable or no longer eligible.", retrySameTarget = false).also {
             AppLogRecorder.record("Delegation", "Worker requires recovery · requested=${target.uid} · reason=TARGET_UNAVAILABLE · fallback=${it.failoverTarget?.uid}", "W")
@@ -1227,7 +1296,8 @@ internal class LocalDelegationCoordinator(
         }
         if (delegationCanceledByUser.get()) return result.copy(handoff = primaryOnlyHandoff(), outcome = LocalResearchOutcome.NO_USEFUL_OUTPUT)
         val reviewedResult = if (result.outcome == LocalResearchOutcome.SUCCESS && result.handoff.isNotBlank()) {
-            result.copy(handoff = runReviewer(userSelectedRecoveryProfile.get() ?: target, task, result.handoff, config))
+            val handoff = runReviewer(userSelectedRecoveryProfile.get() ?: target, task, result.handoff, config)
+            result.copy(handoff = handoff, outcome = if (handoff.startsWith("[REVIEW_REJECTED]")) LocalResearchOutcome.FAILED else result.outcome)
         } else {
             result
         }
@@ -1413,6 +1483,7 @@ internal class LocalDelegationCoordinator(
         val guarded = summary?.let { preserveDelegationFacts(compactEvidence, it, config.handoffTokens * 2) }
         if (guarded == compactEvidence && guarded.length > config.handoffTokens * 2) return result
         val reviewed = guarded?.let { runReviewer(userSelectedRecoveryProfile.get() ?: target, task, it, config) }
+        if (reviewed?.startsWith("[REVIEW_REJECTED]") == true) return result
         val compact = ToolResultContent.Text(delegationHandoff(reviewed ?: relevantEvidence(raw, task, config.handoffTokens * 2), urls, notes, config.handoffTokens))
         return result.copy(
             content = compact,
@@ -1421,3 +1492,13 @@ internal class LocalDelegationCoordinator(
         )
     }
 }
+
+internal data class DelegationComputeStats(
+    val attempts: Int,
+    val successfulRequests: Int,
+    val physicalRequests: Int,
+    val wastedMs: Long,
+    val repairWastedTokens: Long,
+    val repairWastedMs: Long,
+    val timeEfficiencyPercent: Double
+)

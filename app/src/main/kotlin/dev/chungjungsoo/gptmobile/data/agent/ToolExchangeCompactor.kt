@@ -49,7 +49,7 @@ internal object ToolExchangeCompactor {
             remaining = (remaining - allowance).coerceAtLeast(0)
         }
 
-        val compacted = exchanges.map { exchange ->
+        val compacted = exchanges.mapIndexed { exchangeIndex, exchange ->
             val compactedResults = exchange.results.map { result ->
                 val index = resultIndex++
                 val raw = render(result.content)
@@ -58,6 +58,8 @@ internal object ToolExchangeCompactor {
                 when {
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
                     resultBudgets[index] == 0 -> result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
+                    result.isError && exchangeIndex < exchanges.lastIndex ->
+                        result.copy(content = ToolResultContent.Text(compactText(raw, minOf(maxChars, 480))))
                     raw.length <= maxChars -> result
                     else -> result.copy(content = ToolResultContent.Text(compactText(raw, maxChars)))
                 }

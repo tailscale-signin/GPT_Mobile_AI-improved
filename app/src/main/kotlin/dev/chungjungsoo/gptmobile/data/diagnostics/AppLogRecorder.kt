@@ -191,6 +191,12 @@ private val KNOWN_ANDROID_NOISE = listOf(
 
 internal fun redactLogMessage(message: String): String {
     var text = DiagnosticRedactor.redact(message)
+    // Android Log.d calls from legacy/UI code may stringify entire Room/domain objects.
+    // Keep diagnostics useful without exporting conversation titles, profile UUIDs,
+    // message text or timestamps embedded in those data-class dumps.
+    listOf("ChatRoomV2", "MessageV2", "PlatformV2").forEach { type ->
+        text = text.replace(Regex("""\b$type\([^\r\n)]*\)"""), "$type([redacted])")
+    }
     text = text.replace(Regex("(?i)(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id)\\s*[:=]\\s*[^\\r\\n]+"), "$1: [redacted]")
     text = text.replace(Regex("(?i)(bearer|basic)\\s+[a-z0-9._~+/=-]+"), "$1 [redacted]")
     text = text.replace(Regex("(?i)([\\\"]?(?:api_?key|access_?token|refresh_?token|password|client_?secret)[\\\"]?\\s*[:=]\\s*[\\\"]?)[^\\\"\\s,}]+"), "$1[redacted]")

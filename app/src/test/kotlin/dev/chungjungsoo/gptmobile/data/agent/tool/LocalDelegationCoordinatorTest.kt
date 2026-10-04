@@ -1043,5 +1043,9 @@ class LocalDelegationCoordinatorTest {
         )
         coordinator.executeTask(target, "Work", 512)
         assertEquals(1, calls)
+        assertEquals(1000L, coordinator.computeStats().repairWastedTokens)
+        assertEquals(1, coordinator.computeStats().attempts)
+        coordinator.executeTask(target, "Try again", 512)
+        assertEquals(1, calls)
     }
 }

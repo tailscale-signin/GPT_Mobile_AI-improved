@@ -116,12 +116,12 @@ class DurablePromptQueue @Inject constructor(
     }
 
     fun observe(chatId: Int) = pending.map { entries -> entries.filter { it.chatId == chatId } }
-    suspend fun remove(id: String) = dao.delete(id)
+    suspend fun remove(id: String) { if (FollowUpProgressStore.canChange(id)) dao.delete(id) }
     suspend fun edit(id: String, text: String) {
         require(text.isNotBlank())
-        dao.edit(id, text)
+        if (FollowUpProgressStore.canChange(id)) dao.edit(id, text)
     }
-    suspend fun pause(id: String, paused: Boolean) = dao.pause(id, paused)
+    suspend fun pause(id: String, paused: Boolean) { if (FollowUpProgressStore.canChange(id)) dao.pause(id, paused) }
     suspend fun move(id: String, otherId: String) = dao.swap(id, otherId)
     fun pausedProfiles(chatId: Int): Set<String> = preferences.getStringSet("paused_$chatId", emptySet()).orEmpty().toSet()
     fun setPausedProfiles(chatId: Int, uids: Set<String>) {

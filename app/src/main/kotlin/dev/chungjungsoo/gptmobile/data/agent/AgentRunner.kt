@@ -85,6 +85,7 @@ class AgentRunner(
         var toolCallCount = initialToolCallCount
         var toolMayHaveExecuted = initialToolMayHaveExecuted
         var retriedWithoutTools = initialRetriedWithoutTools
+        var roundRecoveryAttempted = false
         var finalResponseRequested = false
         var roundLimitFinalizationAttempted = false
         var wrapUpNoticeEmitted = false
@@ -152,106 +153,8 @@ class AgentRunner(
             }
             rounds += 1
 
-            val calls = mutableListOf<ProviderEvent.ToolCall>()
-            var completed = false
-            var failed = false
-            var roundInputTokens = 0L
-            var roundOutputTokens = 0L
-            var roundTotalTokens = 0L
-            var hasRoundInputUsage = false
-            var hasRoundOutputUsage = false
-            var hasRoundTotalUsage = false
-            var roundDecodeSpeed: Double? = null
-
-            suspend fun emitRoundUsage() {
-                if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage && roundDecodeSpeed == null) return
-                emit(
-                    AgentRunEvent.Provider(
-                        ProviderEvent.Usage(
-                            inputTokens = roundInputTokens.takeIf { hasRoundInputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
-                            outputTokens = roundOutputTokens.takeIf { hasRoundOutputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
-                            totalTokens = roundTotalTokens.takeIf { hasRoundTotalUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
-                            cumulative = false,
-                            decodeTokensPerSecond = roundDecodeSpeed
-                        )
-                    )
-                )
-            }
-
-            try {
-                val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
-                val replayExchanges = ToolExchangeCompactor.compact(
-                    exchanges = exchanges,
-                    maxReplayTokens = limits.maxReplayTokens,
-                    maxResultTokens = limits.maxReplayResultTokens
-                )
-                val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges)
-                if (rawReplayTokens > compactedReplayTokens) {
-                    AppLogRecorder.record(
-                        "Agent",
-                        "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=${limits.maxReplayTokens}"
-                    )
-                }
-                if (compactedReplayTokens > limits.maxReplayTokens) {
-                    AppLogRecorder.record(
-                        "Agent",
-                        "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=${limits.maxReplayTokens} · exchanges=${exchanges.size}",
-                        "W"
-                    )
-                }
-                session.streamRound(exposedDefinitions, replayExchanges)
-                    .collect { event ->
-                        if (failed) return@collect
-                        when (event) {
-                            is ProviderEvent.ToolCall -> {
-                                if (!session.handlesToolsInternally) {
-                                    calls += event
-                                }
-                                emit(AgentRunEvent.Provider(event))
-                            }
-
-                            is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
-
-                            is ProviderEvent.Failed -> {
-                                failed = true
-                                emit(AgentRunEvent.Provider(event))
-                            }
-
-                            is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
-
-                            is ProviderEvent.Usage -> {
-                                event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
-                                event.inputTokens?.let { tokens ->
-                                    roundInputTokens = if (event.cumulative) {
-                                        maxOf(roundInputTokens, tokens.toLong())
-                                    } else {
-                                        roundInputTokens + tokens
-                                    }
-                                    hasRoundInputUsage = true
-                                }
-                                event.outputTokens?.let { tokens ->
-                                    roundOutputTokens = if (event.cumulative) {
-                                        maxOf(roundOutputTokens, tokens.toLong())
-                                    } else {
-                                        roundOutputTokens + tokens
-                                    }
-                                    hasRoundOutputUsage = true
-                                }
-                                event.totalTokens?.let { tokens ->
-                                    roundTotalTokens = if (event.cumulative) {
-                                        maxOf(roundTotalTokens, tokens.toLong())
-                                    } else {
-                                        roundTotalTokens + tokens
-                                    }
-                                    hasRoundTotalUsage = true
-                                }
-                            }
-
-                            ProviderEvent.Completed -> completed = true
-
-                            else -> emit(AgentRunEvent.Provider(event))
-                        }
-                    }
+            val round = try {
+                collectRound(session, exposedDefinitions, exchanges)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: ToolDefinitionsRejectedException) {
@@ -266,16 +169,27 @@ class AgentRunner(
                 emit(failed(error.message ?: "Tools are unavailable for this model."))
                 return
             } catch (error: Throwable) {
-                emitRoundUsage()
-                val classifiedMessage = ErrorClassification.classify(error).userMessage
-                emit(failed(classifiedMessage))
+                RoundResult(failure = ErrorClassification.classify(error).userMessage)
+            }
+            val roundFailure = round.failure
+            if (roundFailure != null) {
+                // An incomplete tool call is never executed. Recover once from its
+                // existing evidence with tools disabled, without replaying an action.
+                if (!roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure)) {
+                    roundRecoveryAttempted = true
+                    exposedDefinitions = emptyList()
+                    executableToolByName = emptyMap()
+                    finalResponseRequested = true
+                    emit(AgentRunEvent.Notice("The provider interrupted this round. Finishing once with the results already collected.", persistent = false))
+                    kotlinx.coroutines.delay(1000)
+                    continue
+                }
+                emit(failed(roundFailure))
                 return
             }
-
-            emitRoundUsage()
-            if (failed) return
+            val calls = round.calls
             if (calls.isEmpty()) {
-                if (completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+                if (round.completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
                 return
             }
             val roundLimitReached = limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds
@@ -309,26 +223,7 @@ class AgentRunner(
 
             executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
             if (executableCalls.isNotEmpty()) toolMayHaveExecuted = true
-            val semaphore = Semaphore(limits.maxConcurrentTools)
-            val perToolSemaphores = executableCalls
-                .map { it.name }
-                .distinct()
-                .associateWith { Semaphore(1) }
-            val executedResults = coroutineScope {
-                executableCalls.map { call ->
-                    async {
-                        perToolSemaphores.getValue(call.name).withPermit {
-                            // Calls to different tools can run in parallel, but repeated
-                            // calls to the same provider/tool are serialized. This avoids
-                            // bursts that hammer one API, duplicate writes, or trip its
-                            // rate/circuit protection simultaneously.
-                            semaphore.withPermit {
-                                executeBounded(call, executableToolByName[call.name])
-                            }
-                        }
-                    }
-                }.awaitAll()
-            }
+            val executedResults = executeToolBatch(executableCalls, executableToolByName)
             toolCallCount += executableCalls.size
 
             val newlyBlockedTools = mutableSetOf<String>()
@@ -486,6 +381,152 @@ class AgentRunner(
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
             exchanges += AgentToolExchange(calls, allResults)
+        }
+    }
+
+    private data class RoundResult(
+        val calls: List<ProviderEvent.ToolCall> = emptyList(),
+        val completed: Boolean = false,
+        val failure: String? = null,
+        val textEmitted: Boolean = false
+    )
+
+    private fun recoverableRoundFailure(message: String): Boolean = listOf(
+        "Tool arguments were not valid JSON", "incomplete function call", "before completing the tool call",
+        "connection abort", "connection reset", "temporarily overloaded", "timed out", "timeout has expired"
+    ).any { message.contains(it, ignoreCase = true) }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.collectRound(
+        session: AgentProviderSession,
+        exposedDefinitions: List<AgentToolDefinition>,
+        exchanges: List<AgentToolExchange>
+    ): RoundResult {
+        val calls = mutableListOf<ProviderEvent.ToolCall>()
+        var completed = false
+        var failure: String? = null
+        var textEmitted = false
+        var roundInputTokens = 0L
+        var roundOutputTokens = 0L
+        var roundTotalTokens = 0L
+        var hasRoundInputUsage = false
+        var hasRoundOutputUsage = false
+        var hasRoundTotalUsage = false
+        var roundDecodeSpeed: Double? = null
+
+        suspend fun emitRoundUsage() {
+            if (!hasRoundInputUsage && !hasRoundOutputUsage && !hasRoundTotalUsage && roundDecodeSpeed == null) return
+            emit(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Usage(
+                        inputTokens = roundInputTokens.takeIf { hasRoundInputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                        outputTokens = roundOutputTokens.takeIf { hasRoundOutputUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                        totalTokens = roundTotalTokens.takeIf { hasRoundTotalUsage }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
+                        cumulative = false,
+                        decodeTokensPerSecond = roundDecodeSpeed
+                    )
+                )
+            )
+        }
+
+        try {
+            val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
+            val replayExchanges = ToolExchangeCompactor.compact(
+                exchanges = exchanges,
+                maxReplayTokens = limits.maxReplayTokens,
+                maxResultTokens = limits.maxReplayResultTokens
+            )
+            val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges)
+            if (rawReplayTokens > compactedReplayTokens) {
+                AppLogRecorder.record(
+                    "Agent",
+                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=${limits.maxReplayTokens}"
+                )
+            }
+            if (compactedReplayTokens > limits.maxReplayTokens) {
+                AppLogRecorder.record(
+                    "Agent",
+                    "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=${limits.maxReplayTokens} · exchanges=${exchanges.size}",
+                    "W"
+                )
+            }
+            session.streamRound(exposedDefinitions, replayExchanges)
+                .collect { event ->
+                    if (failure != null && event !is ProviderEvent.Usage) return@collect
+                    when (event) {
+                        is ProviderEvent.ToolCall -> {
+                            if (!session.handlesToolsInternally) {
+                                calls += event
+                            }
+                            emit(AgentRunEvent.Provider(event))
+                        }
+
+                        is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, event.result))
+
+                        is ProviderEvent.Failed -> {
+                            failure = event.message
+                        }
+
+                        is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent))
+
+                        is ProviderEvent.Usage -> {
+                            event.decodeTokensPerSecond?.let { roundDecodeSpeed = it }
+                            event.inputTokens?.let { tokens ->
+                                roundInputTokens = if (event.cumulative) {
+                                    maxOf(roundInputTokens, tokens.toLong())
+                                } else {
+                                    roundInputTokens + tokens
+                                }
+                                hasRoundInputUsage = true
+                            }
+                            event.outputTokens?.let { tokens ->
+                                roundOutputTokens = if (event.cumulative) {
+                                    maxOf(roundOutputTokens, tokens.toLong())
+                                } else {
+                                    roundOutputTokens + tokens
+                                }
+                                hasRoundOutputUsage = true
+                            }
+                            event.totalTokens?.let { tokens ->
+                                roundTotalTokens = if (event.cumulative) {
+                                    maxOf(roundTotalTokens, tokens.toLong())
+                                } else {
+                                    roundTotalTokens + tokens
+                                }
+                                hasRoundTotalUsage = true
+                            }
+                        }
+
+                        ProviderEvent.Completed -> completed = true
+
+                        else -> {
+                            if (event is ProviderEvent.TextDelta && event.text.isNotEmpty()) textEmitted = true
+                            emit(AgentRunEvent.Provider(event))
+                        }
+                    }
+                }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: ToolDefinitionsRejectedException) {
+            throw error
+        } catch (error: Exception) {
+            failure = ErrorClassification.classify(error).userMessage
+        } finally {
+            emitRoundUsage()
+        }
+        return RoundResult(calls, completed, failure, textEmitted)
+    }
+
+    private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>): List<AgentToolResult> {
+        val semaphore = Semaphore(limits.maxConcurrentTools)
+        val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
+        return coroutineScope {
+            calls.map { call ->
+                async {
+                    perTool.getValue(call.name).withPermit {
+                        semaphore.withPermit { executeBounded(call, tools[call.name]) }
+                    }
+                }
+            }.awaitAll()
         }
     }
 

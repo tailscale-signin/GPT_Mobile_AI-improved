@@ -24,16 +24,31 @@ interface PendingPromptDao {
     suspend fun get(id: String): PendingPrompt?
 
     @Query("DELETE FROM pending_prompts WHERE id = :id AND userMessageId IS NULL")
-    suspend fun delete(id: String)
+    suspend fun deleteUnconsumed(id: String)
 
     @Query("DELETE FROM pending_prompts WHERE id LIKE :prefix AND userMessageId IS NULL")
     suspend fun deleteRecipePrompts(prefix: String)
 
     @Query("UPDATE pending_prompts SET text = :text WHERE id = :id AND userMessageId IS NULL")
-    suspend fun edit(id: String, text: String)
+    suspend fun editUnconsumed(id: String, text: String)
 
     @Query("UPDATE pending_prompts SET paused = :paused WHERE id = :id AND userMessageId IS NULL")
-    suspend fun pause(id: String, paused: Boolean)
+    suspend fun pauseUnconsumed(id: String, paused: Boolean)
+
+    @Transaction
+    suspend fun delete(id: String) {
+        if (FollowUpProgressStore.canChange(id)) deleteUnconsumed(id)
+    }
+
+    @Transaction
+    suspend fun edit(id: String, text: String) {
+        if (FollowUpProgressStore.canChange(id)) editUnconsumed(id, text)
+    }
+
+    @Transaction
+    suspend fun pause(id: String, paused: Boolean) {
+        if (FollowUpProgressStore.canChange(id)) pauseUnconsumed(id, paused)
+    }
 
     @Query("UPDATE pending_prompts SET position = :position WHERE id = :id AND userMessageId IS NULL")
     suspend fun reposition(id: String, position: Long)

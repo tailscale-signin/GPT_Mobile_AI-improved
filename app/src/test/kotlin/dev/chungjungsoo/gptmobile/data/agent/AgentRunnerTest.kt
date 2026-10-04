@@ -21,6 +21,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun `malformed tool arguments recover once without executing any incomplete action`() = kotlinx.coroutines.test.runTest {
+        var rounds = 0
+        var actions = 0
+        val events = AgentRunner().run(
+            session { tools, _ ->
+                flow {
+                    rounds++
+                    if (rounds == 1) {
+                        emit(toolCall("incomplete", "write"))
+                        emit(ProviderEvent.Failed("Tool arguments were not valid JSON."))
+                        emit(ProviderEvent.Usage(100, 4096, 4196))
+                    } else {
+                        assertTrue(tools.isEmpty())
+                        emit(ProviderEvent.TextDelta("The incomplete action was not performed."))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+            },
+            listOf(tool("write") { id, _ -> actions++; AgentToolResult(id, ToolResultContent.Text("done"), false) })
+        ).toList()
+        assertEquals(2, rounds)
+        assertEquals(0, actions)
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertTrue(events.any { it is AgentRunEvent.Provider && (it.event as? ProviderEvent.Usage)?.totalTokens == 4196 })
+    }
+
+    @Test fun `connection abort retry preserves completed tools and cannot loop`() = kotlinx.coroutines.test.runTest {
+        var rounds = 0
+        var actions = 0
+        val events = AgentRunner().run(
+            session { tools, exchanges ->
+                flow {
+                    rounds++
+                    if (rounds == 1) {
+                        emit(toolCall("completed", "read"))
+                        emit(ProviderEvent.Completed)
+                    } else {
+                        assertEquals(1, exchanges.size)
+                        if (rounds == 3) assertTrue(tools.isEmpty())
+                        emit(ProviderEvent.Failed("Software caused connection abort"))
+                    }
+                }
+            },
+            listOf(tool("read") { id, _ -> actions++; AgentToolResult(id, ToolResultContent.Text("Evidence"), false) })
+        ).toList()
+        assertEquals(3, rounds)
+        assertEquals(1, actions)
+        assertEquals(1, events.count { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
     @Test fun `read url circuit pauses only the failing host`() = runBlocking {
         val executed = mutableListOf<String>()
         val reader = tool("read_url") { id, args ->

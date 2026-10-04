@@ -602,7 +602,7 @@ class ChatRepositoryImpl(
             val userBudget = if (turn.isCurrentTurn) turnBudget else maxOf(256, turnBudget / 2)
             val assistantBudget = (turnBudget - userBudget).coerceAtLeast(0)
             turn.copy(
-                userMessage = turn.userMessage.copy(content = truncateSynthesisText(turn.userMessage.content, userBudget)),
+                userMessage = if (turn.isCurrentTurn) turn.userMessage else turn.userMessage.copy(content = truncateSynthesisText(turn.userMessage.content, userBudget)),
                 assistantMessage = turn.assistantMessage?.copy(
                     content = truncateSynthesisText(turn.assistantMessage.content, assistantBudget)
                 )
@@ -940,33 +940,11 @@ class ChatRepositoryImpl(
             "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=$accountedInputTokens · usageInputEstimated=${!hasInputUsage} · usageOutput=$accountedOutputTokens · usageOutputEstimated=${!hasOutputUsage} · usageTotal=$accountedTotalTokens · usageTotalEstimated=${!hasTotalUsage} · reasoningTokensEstimated=${(reasoningBytes + 2) / 3} · usableOutputTokensEstimated=${dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(usableText.orEmpty())} · unusableTokens=${if (usableText == null) accountedTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
         )
 
-        if (!reviewing && usableText != null && likelyTruncated && !finalizationRepairAttempted) {
-            val repairCap = delegationRepairOutputCap(maxTokens, target.maxTokens)
-            if (repairCap <= (effectiveCap ?: maxTokens)) error("DELEGATION_OUTPUT_BUDGET_EXHAUSTED: raise the profile output limit to allow a complete answer.")
-            val repairDraft = dev.chungjungsoo.gptmobile.data.agent.truncateUtf8(usableText, 6_000)
-            AppLogRecorder.record(
-                "Delegation",
-                "Output-cap completion repair · parentRun=$parentRunId · target=${target.uid} · cap=$effectiveCap · outputTokens=$maxRoundOutput · draftChars=${repairDraft.length}",
-                "W"
-            )
-            onProgress(DelegateProgress(DelegateProgressKind.REPAIR_WASTE, totalTokens = accountedTotalTokens, wastedMillis = elapsedMs))
-            return delegateToProfile(
-                target = target,
-                task = task + "\n\nA previous draft reached the output cap and may be truncated. Rewrite it into a complete, concise final answer within the response budget. Preserve exact facts/source IDs and do not invent anything.\n\nDraft:\n" + repairDraft,
-                maxTokens = repairCap,
-                parentRunId = parentRunId,
-                turnKey = turnKey,
-                maxInputTokens = maxInputTokens,
-                onProgress = onProgress,
-                allowTools = false,
-                fixtureTools = emptyList(),
-                chatToolConfig = chatToolConfig,
-                traceSequences = traceSequences,
-                onToolTrace = onToolTrace,
-                authorizedTools = emptyList(),
-                finalizationRepairAttempted = true,
-                requestRole = requestRole
-            )
+        if (!reviewing && usableText != null && likelyTruncated) {
+            // Useful source facts are evidence, not waste. Preserve them for review
+            // instead of discarding the whole response and exhausting the repair cap.
+            AppLogRecorder.record("Delegation", "Partial output retained · parentRun=$parentRunId · target=${target.uid} · usableChars=${usableText.length} · outputCap=$effectiveCap", "W")
+            return "[PARTIAL_DELEGATE_OUTPUT: response reached its output limit. Verify incomplete claims and finish missing requirements; do not claim this draft completed the task.]\n$usableText"
         }
 
         if (!reviewing && reasoningOnly && !finalizationRepairAttempted) {
@@ -1026,6 +1004,7 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?
     ): Flow<ApiState> = channelFlow {
         suspend fun emit(state: ApiState) = send(state)
+        val followUps = followUpInbox(this, platform, userMessages.lastOrNull(), runId, chatToolConfig, userMessages)
         val activity = AtomicReference("Preparing response")
         val traceSequences = java.util.concurrent.atomic.AtomicInteger()
         var delegatedTools = emptyList<ResolvedAgentTool>()
@@ -1518,11 +1497,12 @@ class ChatRepositoryImpl(
                     platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
                     budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
                     resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
-                    localResearch, processingOwnership, reservedFinalToolCalls
+                    localResearch, processingOwnership, reservedFinalToolCalls, followUps
                 )
             )
         } finally {
             withContext(NonCancellable) {
+                followUps?.close()
                 statusJob.cancelAndJoin()
                 toolEventRecorder.cancelRun(runId, currentEpochSeconds())
             }
@@ -1557,7 +1537,8 @@ class ChatRepositoryImpl(
         documentContext: String,
         localResearch: Boolean,
         processingOwnership: Int,
-        reservedFinalToolCalls: Int
+        reservedFinalToolCalls: Int,
+        followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?
     ): Flow<ApiState> = channelFlow {
         val requestedOutputTokens = contextPlan.outputTokens
         // Delegation saves input/replay tokens. Its brief budget must never cap the
@@ -1599,12 +1580,17 @@ class ChatRepositoryImpl(
                 profileUid = platform.uid
             ) ?: raw
         }
-        val session = followUpSession(
-            openPrimarySession(contextPlan.turns), platform, latestUser, runId, turnKey, chatToolConfig,
-            delegatedTools, traceSequences, limits.contextTokens, contextPlan.promptTokens, effectiveOutputCap,
-            openContinuation = { openPrimarySession(it, "follow_up_synthesis") },
-            onToolTrace = { send(it) }
-        )
+        val initialSession = openPrimarySession(contextPlan.turns)
+        val session = if (followUps != null && latestUser != null) {
+            dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(initialSession, followUps) { handoff, draft, exchanges ->
+                // Preserve the entire planned history, original question, attachments and
+                // prepared evidence. Only append instructions to the current user turn.
+                val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(contextPlan.turns, handoff, draft, exchanges)
+                openPrimarySession(turns, "follow_up_synthesis")
+            }
+        } else {
+            initialSession
+        }
         val groundedSession = session.withDeviceLocation(
             clientType = platform.compatibleType,
             userPrompt = latestUser?.content,
@@ -1631,109 +1617,41 @@ class ChatRepositoryImpl(
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace).collect { send(it) }
     }
 
-    private fun followUpSession(
-        initialSession: AgentProviderSession,
+    private fun followUpInbox(
+        scope: kotlinx.coroutines.CoroutineScope,
         platform: PlatformV2,
         latestUser: MessageV2?,
         runId: String,
-        turnKey: String,
         chatToolConfig: ChatMcpToolConfig?,
-        delegatedTools: List<ResolvedAgentTool>,
-        traceSequences: java.util.concurrent.atomic.AtomicInteger,
-        contextTokens: Int,
-        initialPromptTokens: Int,
-        effectiveOutputCap: Int?,
-        openContinuation: suspend (List<ConversationTurn>) -> AgentProviderSession,
-        onToolTrace: suspend (ApiState.ToolCall) -> Unit
-    ): AgentProviderSession {
-        val followUpDao = pendingPromptDao
-        val followUpTools = delegatedTools.filter { it.shareableReadOnly && it.realToolName != "delegate_to_model" }.sortedBy(::delegatedToolPriority).take(3)
-        var followUpCharacters = 0
-        var followUpTokens = 0
-        fun followUpAllowance(): Int {
-            val availableTokens = if (contextTokens == Int.MAX_VALUE) {
-                6000
-            } else {
-                (contextTokens.toLong() - initialPromptTokens - followUpTokens - (effectiveOutputCap ?: 2048) - 2048).coerceIn(0, 6000).toInt()
-            }
-            return minOf(3000, 8000 - followUpCharacters, availableTokens / 2).coerceAtLeast(0)
+        initialMessages: List<MessageV2>
+    ): dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox? {
+        val dao = pendingPromptDao ?: return null
+        if (latestUser == null || platform.batchMode || platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.FREE)) return null
+        var admittedCharacters = 0
+        suspend fun allowance(): Int {
+            val budgets = settingRepository.getFeatureSettings().tokenBudget.normalized()
+            val ceiling = minOf(budgets.contextTokens, budgets.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE)
+            val input = initialMessages.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.content) }
+            val reserve = maxOf(platform.maxTokens ?: 2048, 2048) + 8000
+            return minOf(3000, 8000 - admittedCharacters, ((ceiling.toLong() - input - reserve) * 2).coerceIn(0, 3000).toInt())
         }
-        suspend fun followUpsAllowed(): Boolean = settingRepository.getFeatureSettings().queuedFollowUps &&
-            latestUser != null &&
+        suspend fun allowed(): Boolean = settingRepository.getFeatureSettings().queuedFollowUps &&
             platform.uid !in context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE)
                 .getStringSet("paused_${latestUser.chatId}", emptySet()).orEmpty()
-        return if (followUpDao != null &&
-            latestUser != null &&
-            platform.compatibleType !in setOf(ClientType.LITERT_LM, ClientType.FREE) &&
-            !platform.batchMode
-        ) {
-            dev.chungjungsoo.gptmobile.data.queue.FollowUpAgentSession(
-                initial = initialSession,
-                pending = followUpDao.observePending().map { prompts -> prompts.filter { it.chatId == latestUser.chatId } },
-                eligible = { prompt -> followUpsAllowed() && followUpDao.canAcceptFollowUp(prompt, latestUser.id, runId, platform.uid, platform.model, followUpAllowance(), chatToolConfig ?: ChatMcpToolConfig()) },
-                prepare = { prompt ->
-                    val defaults = settingRepository.getFeatureSettings().delegationFor(platform.uid)
-                    val config = chatToolConfig?.effectiveDelegation(defaults) ?: defaults.normalized()
-                    // A separate worker never borrows the reviewer or enables an unapproved destination.
-                    val configured = settingRepository.fetchPlatformV2s().firstOrNull {
-                        config.enabled &&
-                            it.enabled &&
-                            it.uid == config.targetProfileUid &&
-                            it.uid != config.reviewerProfileUid &&
-                            (it.isPrivateDestination() || config.remoteWorkersAllowed()) &&
-                            it.compatibleType !in setOf(ClientType.FREE, ClientType.LITERT_LM)
-                    }
-                    val target = (configured ?: platform).copy(maxToolCalls = 2)
-                    val childTrace = ToolTraceSession(runId, emptyList(), toolEventRecorder, traceSequences)
-                    val call = ProviderEvent.ToolCall("$runId:follow-up:${prompt.id}", "follow_up_context", kotlinx.serialization.json.buildJsonObject { put("prompt", kotlinx.serialization.json.JsonPrimitive(prompt.text)) })
-                    val event = childTrace.start(call)
-                    onToolTrace(ApiState.ToolCall(event.sequence))
-                    try {
-                        val result = delegateToProfile(
-                            target = target,
-                            task = "Prepare only the new user addition below. Search relevant context with the supplied read-only tools when needed. Return a compact brief of at most 250 words, preserve source URLs, and do not rewrite the main answer.\n\nOriginal task (excerpt):\n${latestUser.content.take(1600)}\n\nNew user addition:\n${prompt.text}",
-                            maxTokens = 768,
-                            parentRunId = runId,
-                            turnKey = turnKey,
-                            maxInputTokens = 4000,
-                            chatToolConfig = chatToolConfig ?: ChatMcpToolConfig(),
-                            traceSequences = traceSequences,
-                            onToolTrace = onToolTrace,
-                            authorizedTools = followUpTools,
-                            finalizationRepairAttempted = true,
-                            requestRole = "follow_up"
-                        )
-                        childTrace.finish(call, AgentToolResult(call.callId, ToolResultContent.Text(result), false))?.let { onToolTrace(it) }
-                        result
-                    } catch (failure: Exception) {
-                        withContext(NonCancellable) {
-                            childTrace.finish(call, AgentToolResult(call.callId, ToolResultContent.Text("Follow-up helper did not finish. The queued user input is retained."), true))
-                        }
-                        throw failure
-                    }
-                },
-                accept = { prompt ->
-                    val consumed = followUpsAllowed() && followUpDao.acceptPreparedFollowUp(prompt, latestUser.id, runId, platform.uid, platform.model, followUpAllowance(), chatToolConfig ?: ChatMcpToolConfig())
-                    if (consumed) {
-                        followUpCharacters += prompt.text.length
-                        followUpTokens += dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(prompt.text) + 2000
-                        AppLogRecorder.record("FollowUp", "Accepted · run=$runId · prompt=${prompt.id} · inputChars=${prompt.text.length} · primaryRestarted=false · historyReplayed=false")
-                    }
-                    consumed
-                },
-                continuation = { handoff, draft ->
-                    // Stateless endpoints require a new request; replay only this turn and a bounded tail.
-                    val user = latestUser.copy(
-                        content = latestUser.content.take(4000) + handoff +
-                            "\n\nContinue the same answer below. Address this addition, correct earlier claims if needed, and avoid repeating the answer already shown.\n\nAnswer already shown (bounded tail):\n" + draft
-                    )
-                    openContinuation(listOf(ConversationTurn(user, null, true)))
-                },
-                progress = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore::update
-            )
-        } else {
-            initialSession
-        }
+        return dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox(
+            scope = scope,
+            pending = dao.observePending().map { prompts -> prompts.filter { it.chatId == latestUser.chatId } },
+            eligible = { prompt -> allowed() && dao.canAcceptFollowUp(prompt, latestUser.id, runId, platform.uid, platform.model, allowance(), chatToolConfig ?: ChatMcpToolConfig()) },
+            accept = { prompt ->
+                val consumed = allowed() && dao.acceptPreparedFollowUp(prompt, latestUser.id, runId, platform.uid, platform.model, allowance(), chatToolConfig ?: ChatMcpToolConfig())
+                if (consumed) {
+                    admittedCharacters += prompt.text.length
+                    AppLogRecorder.record("FollowUp", "Accepted · run=$runId · prompt=${prompt.id} · inputChars=${prompt.text.length} · graceMs=3000 · originalPreserved=true · applyAt=request_boundary")
+                }
+                consumed
+            },
+            progress = dev.chungjungsoo.gptmobile.data.queue.FollowUpProgressStore::update
+        )
     }
 
     private fun streamAgentEvents(

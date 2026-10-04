@@ -101,12 +101,11 @@ class LocalResearchWorkflowTest {
 
     @Test fun `timeout retains fetched sources and reports incomplete research`() = runTest {
         val search = tool("web_search") { id, _ -> response(id, """{"results":[{"title":"One","url":"https://example.org/one","snippet":"A verified search snippet"}]}""") }
-        val result = LocalResearchWorkflow(config.copy(timeoutSeconds = 5, maxLocalModelCalls = 1, maxPages = 0), listOf(search), { prompt, _ ->
+        val result = LocalResearchWorkflow(config.copy(timeoutSeconds = 5, preparationTimeoutSeconds = 30, maxLocalModelCalls = 1, maxPages = 0), listOf(search), { prompt, _ ->
             if (prompt.startsWith("Plan")) {
                 worker(prompt)
             } else {
-                // The workflow timeout intentionally includes serialized-worker headroom
-                // (one worker timeout plus transport grace), so exceed that full window.
+                // Exceed the whole preparation deadline after fetching usable evidence.
                 delay(36_000)
                 "late"
             }

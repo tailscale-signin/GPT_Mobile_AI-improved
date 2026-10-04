@@ -68,7 +68,7 @@ class LocalDelegationCoordinatorTest {
         val dispatched = mutableListOf<String>()
         val coordinator = LocalDelegationCoordinator(
             source,
-            { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
+            { config.copy(researchEnabled = false, maxLocalModelCalls = 6, maxWastedLocalTokensPerTurn = 64000) },
             { listOf(target, second, third) },
             { profile, _, _ ->
                 dispatched += profile.uid
@@ -850,6 +850,7 @@ class LocalDelegationCoordinatorTest {
     @Test fun `reviewer rejection triggers correction and rejects after validation limit`() = runTest {
         val reviewer = target.copy(uid = "reserved", model = "review-model")
         var reviews = 0
+        var drafts = 0
         val coordinator = LocalDelegationCoordinator(
             source,
             { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
@@ -857,18 +858,42 @@ class LocalDelegationCoordinatorTest {
             { _, _, _ -> error("No legacy callback") },
             generateWithProgress = { profile, _, _, _, _ ->
                 assertEquals(target.uid, profile.uid)
-                "Finished delegate evidence"
+                "Finished delegate evidence ${++drafts}"
             },
             generateReviewerWithProgress = { profile, prompt, _, _, _ ->
                 reviews++
                 assertEquals(reviewer.uid, profile.uid)
                 assertTrue(prompt.contains("Finished delegate evidence"))
-                """{"review_score":35,"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
+                """{"review_score":${30 + reviews * 5},"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
             }
         )
         assertTrue(coordinator.executeTask(target, "Check evidence", 512).orEmpty().startsWith("[REVIEW_REJECTED]"))
         assertEquals(3, reviews)
-        assertEquals(listOf(35, 35, 35), coordinator.reviewerScoresSnapshot())
+        assertEquals(listOf(35, 40, 45), coordinator.reviewerScoresSnapshot())
+    }
+
+    @Test fun `unchanged rejected evidence stops further review requests`() = runTest {
+        val reviewer = target.copy(uid = "unchanged-reviewer", model = "independent-review-model")
+        var reviews = 0
+        var drafts = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(reviewerEnabled = true, reviewerProfileUid = reviewer.uid) },
+            { listOf(target, reviewer) },
+            { _, _, _ ->
+                drafts++
+                "Unchanged unsupported evidence"
+            },
+            generateReviewerWithProgress = { _, _, _, _, _ ->
+                reviews++
+                """{"review_score":35,"verdict":"REJECT","issues":["Not supported"],"corrections":null}"""
+            }
+        )
+        val result = coordinator.executeTask(target, "Check evidence", 512).orEmpty()
+        assertTrue(result.startsWith("[REVIEW_REJECTED]"))
+        assertTrue(result.contains("No changed evidence"))
+        assertEquals(1, reviews)
+        assertEquals(2, drafts)
     }
 
     @Test fun `reviewer accepts repaired evidence only after a second review`() = runTest {

@@ -954,6 +954,6 @@ class LocalDelegationCoordinatorTest {
         assertTrue(reviewCancelled)
         assertTrue(coordinator.reviewerScoresSnapshot().isEmpty())
         assertNull(coordinator.executeTask(target, "later", 512))
-        assertEquals(3, reviews)
+        assertEquals(1, reviews)
     }
 }

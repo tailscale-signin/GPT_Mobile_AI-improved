@@ -761,8 +761,10 @@ internal class LocalDelegationCoordinator(
             val firstProgressAt = AtomicLong(-1L)
             val lastProgressAt = AtomicLong(startedAt)
             delegateAttempts.incrementAndGet()
+            // Progressing tool work may extend the adaptive runtime, but never the hard deadline.
+            val requestRuntimeSeconds = if (progressive == null) minOf(runtimeSeconds, hardRuntimeSeconds) else hardRuntimeSeconds
             val deferred = async(
-                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(minOf(runtimeSeconds, hardRuntimeSeconds) * 1000L, physicalRequests),
+                context = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(requestRuntimeSeconds * 1000L, physicalRequests),
                 start = CoroutineStart.LAZY
             ) {
                 if (progressive == null) {
@@ -802,7 +804,7 @@ internal class LocalDelegationCoordinator(
                     val elapsed = now - startedAt
                     val first = firstProgressAt.get()
                     val reason = when {
-                        elapsed >= minOf(runtimeSeconds, hardRuntimeSeconds) * 1000L -> "MAX_RUNTIME"
+                        elapsed >= hardRuntimeSeconds * 1000L -> "MAX_RUNTIME"
                         first < 0L && elapsed >= firstProgressSeconds * 1000L -> "NO_FIRST_PROGRESS"
                         first >= 0L && now - lastProgressAt.get() >= idleSeconds * 1000L -> "IDLE_PROGRESS"
                         else -> null

@@ -129,7 +129,7 @@ class WebSearchTool(
                 return error(callId, "Add a $provider API key in Settings → Tool Connections before using this search provider.")
             }
             if (clock.millis() < authenticationBlockedUntilMs.get()) {
-                return error(callId, "${config.provider} web search is temporarily unavailable after an authentication, billing, or access failure. Check this search connection and provider account.")
+                return error(callId, "${config.provider} web search is disabled after an authentication, billing, or access failure. Check this search connection and provider account.")
             }
             val response = if (config.provider == WebSearchProvider.BRAVE) {
                 networkClient().get(config.endpointUrl) {
@@ -154,7 +154,7 @@ class WebSearchTool(
             }
             if (response.status.value !in 200..299) {
                 if (response.status.value in setOf(401, 402, 403)) {
-                    authenticationBlockedUntilMs.set(clock.millis() + 5 * 60_000L)
+                    authenticationBlockedUntilMs.set(if (response.status.value == 402) clock.millis() + 5 * 60_000L else Long.MAX_VALUE)
                 }
                 return error(callId, providerFailureMessage(response.status.value))
             }

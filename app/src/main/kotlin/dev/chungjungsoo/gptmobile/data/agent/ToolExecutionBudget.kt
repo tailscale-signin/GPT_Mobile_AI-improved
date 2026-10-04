@@ -76,8 +76,22 @@ class ToolExecutionBudget(
                     result,
                     preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME
                 )
-                success = !boundedResult.isError
-                return boundedResult
+                val normalizedResult = if (
+                    tool.definition.name == DELEGATION_TOOL_NAME &&
+                    boundedResult.isError &&
+                    boundedResult.hasSuccessfulDelegationMarker()
+                ) {
+                    AppLogRecorder.record(
+                        "Delegation",
+                        "Corrected contradictory execution-budget error after successful delegated handoff · call=$callId",
+                        "W"
+                    )
+                    boundedResult.copy(isError = false)
+                } else {
+                    boundedResult
+                }
+                success = !normalizedResult.isError
+                return normalizedResult
             } catch (cancellation: CancellationException) {
                 AppLogRecorder.record(
                     "Tool",
@@ -217,6 +231,10 @@ class ToolExecutionBudget(
         )
     }
 
+    private fun AgentToolResult.hasSuccessfulDelegationMarker(): Boolean =
+        (content as? ToolResultContent.Text)?.text?.trimStart()?.let { text ->
+            text.startsWith("<!-- delegation:local -->") || text.startsWith("<!-- delegation:remote -->")
+        } == true
     private fun callBudgetIsExhausted(): Boolean =
         executionLimit != Int.MAX_VALUE && calls.get() >= executionLimit
 

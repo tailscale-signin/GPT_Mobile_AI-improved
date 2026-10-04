@@ -38,6 +38,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.agent.tool.preferNativeGitHubForTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
 import dev.chungjungsoo.gptmobile.data.agent.tool.selectionId
+import dev.chungjungsoo.gptmobile.data.agent.tool.synthesisSafeTools
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
 import dev.chungjungsoo.gptmobile.data.agent.withRunContext
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder

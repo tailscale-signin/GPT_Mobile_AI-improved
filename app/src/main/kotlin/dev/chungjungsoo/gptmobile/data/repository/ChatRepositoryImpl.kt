@@ -885,9 +885,14 @@ class ChatRepositoryImpl(
             "Delegation",
             "Child parsed · parentRun=$parentRunId · target=${target.uid} · status=$status · directChars=$directUsableChars · recoveredToolChars=$recoveredToolChars · reasoningChars=$reasoningChars · reasoningOnly=$reasoningOnly"
         )
+        val accountedInputTokens = usageInputTokens.takeIf { it > 0 } ?: estimatedRequestInputTokens.toLong()
+        val accountedOutputTokens = usageOutputTokens.takeIf { it > 0 }
+            ?: ((usableText?.length ?: rawText.length) + 3L) / 4L
+        val accountedTotalTokens = usageTotalTokens.takeIf { it > 0 }
+            ?: accountedInputTokens + accountedOutputTokens
         AppLogRecorder.record(
             "Delegation",
-            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=${if (sawUsage) usageInputTokens else -1} · usageOutput=${if (sawUsage) usageOutputTokens else -1} · usageTotal=${if (sawUsage) usageTotalTokens else -1} · unusableTokens=${if (usableText == null && sawUsage) usageTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
+            "Child returned · parentRun=$parentRunId · target=${target.uid} · status=$status · elapsedMs=$elapsedMs · usableChars=${usableText?.length ?: 0} · configuredProfileCap=$configuredProviderOutputCap · calculatedDelegationCap=$providerRequestedOutputCap · effectiveProviderCap=$effectiveCap · usageInput=$accountedInputTokens · usageInputEstimated=${usageInputTokens <= 0} · usageOutput=$accountedOutputTokens · usageOutputEstimated=${usageOutputTokens <= 0} · usageTotal=$accountedTotalTokens · usageTotalEstimated=${usageTotalTokens <= 0} · unusableTokens=${if (usableText == null) accountedTotalTokens else 0} · outputCapReached=$outputCapReached · likelyTruncated=$likelyTruncated · outputCapMismatch=$outputCapMismatch"
         )
 
         if (!reviewing && usableText != null && likelyTruncated && !finalizationRepairAttempted) {

@@ -781,7 +781,8 @@ internal class LocalDelegationCoordinator(
         val plan: WorkerDispatchPlan? = null,
         val resolvedProfileUid: String? = null,
         val recoveryReason: String? = null,
-        val failoverTarget: PlatformV2? = null
+        val failoverTarget: PlatformV2? = null,
+        val retrySameTarget: Boolean = true
     )
 
     private suspend fun prepareWorkerDispatch(
@@ -794,14 +795,19 @@ internal class LocalDelegationCoordinator(
         interactiveRecovery: Boolean,
         sameTargetRetryAttempt: Int
     ): WorkerPreparation {
-        suspend fun recovery(uid: String, reason: String): WorkerPreparation {
-            val allowFailover = sameTargetRetryAttempt >= latest.localRetryLimit
+        suspend fun recovery(uid: String, reason: String, retrySameTarget: Boolean = true): WorkerPreparation {
+            val allowFailover = sameTargetRetryAttempt >= latest.localRetryLimit || !retrySameTarget
             val fallback = if (allowFailover && ((interactiveRecovery && onRecoveryRequired != null) || automaticFallbackAllowed(latest))) {
                 recoveryCandidates(latest, uid).firstOrNull()
             } else {
                 null
             }
-            return WorkerPreparation(resolvedProfileUid = uid, recoveryReason = reason, failoverTarget = fallback)
+            return WorkerPreparation(
+                resolvedProfileUid = uid,
+                recoveryReason = reason,
+                failoverTarget = fallback,
+                retrySameTarget = retrySameTarget
+            )
         }
         if (delegationCanceledByUser.get()) return WorkerPreparation()
         val availableProfiles = profiles()
@@ -818,7 +824,7 @@ internal class LocalDelegationCoordinator(
                 candidate.uid != source.uid &&
                 (sameTargetRetryAttempt > 0 || (candidate.uid !in quarantinedWorkerUids && !isPermanentlyUnavailable(candidate))) &&
                 (latest.remoteWorkersAllowed() || candidate.isPrivateDestination())
-        } ?: return recovery(target.uid, "The selected delegate is unavailable or no longer eligible.").also {
+        } ?: return recovery(target.uid, "The selected delegate is unavailable or no longer eligible.", retrySameTarget = false).also {
             AppLogRecorder.record("Delegation", "Worker requires recovery · requested=${target.uid} · reason=TARGET_UNAVAILABLE · fallback=${it.failoverTarget?.uid}", "W")
         }
 
@@ -835,7 +841,7 @@ internal class LocalDelegationCoordinator(
                 (requirePrivate && !profile.isPrivateDestination() && !latest.remoteWorkersAllowed()) ||
                 (source.compatibleType == ClientType.LITERT_LM && profile.compatibleType == ClientType.LITERT_LM)
         if (rejectedByRules) {
-            return recovery(profile.uid, "The selected delegate was rejected by the active delegation rules.").also {
+            return recovery(profile.uid, "The selected delegate was rejected by the active delegation rules.", retrySameTarget = false).also {
                 AppLogRecorder.record("Delegation", "Worker rejected by gate · target=${target.uid} · fallback=${it.failoverTarget?.uid}", "W")
             }
         }
@@ -853,7 +859,7 @@ internal class LocalDelegationCoordinator(
         )
         val budget = inputBudget(profile, requestedOutputCap).coerceAtLeast(0)
         if (budget < 600) {
-            return recovery(profile.uid, "The delegate does not have enough input capacity for this task.").also {
+            return recovery(profile.uid, "The delegate does not have enough input capacity for this task.", retrySameTarget = false).also {
                 AppLogRecorder.record("Delegation", "Worker rejected · input budget too small · target=${profile.uid} · inputBudget=$budget · fallback=${it.failoverTarget?.uid}", "W")
             }
         }
@@ -876,7 +882,7 @@ internal class LocalDelegationCoordinator(
         if (promptTokenBudget < 150) {
             quarantinedWorkerUids += profile.uid
             AppLogRecorder.record("Delegation", "Worker quarantined · target=${profile.uid} · reason=INPUT_OVERHEAD_EXHAUSTED · observedRequestOverheadTokens=$knownRequestOverhead · maxInputTokens=$hardInputTokenCap", "W")
-            return recovery(profile.uid, "The delegate's provider overhead exhausted its available input budget.")
+            return recovery(profile.uid, "The delegate's provider overhead exhausted its available input budget.", retrySameTarget = false)
         }
         val charCap = minOf(promptTokenBudget * APPROX_CHARS_PER_TOKEN, budget).coerceAtLeast(600)
         val boundedPrompt = capPrompt(prompt, charCap)
@@ -1018,6 +1024,7 @@ internal class LocalDelegationCoordinator(
                 resolvedProfileUid = preparation.resolvedProfileUid
                 recoveryReason = preparation.recoveryReason
                 failoverTarget = preparation.failoverTarget
+                retrySameTarget = preparation.retrySameTarget
                 val plan = preparation.plan ?: return@withPermit null
                 val profile = plan.profile
                 val effectiveCallLimit = plan.effectiveCallLimit

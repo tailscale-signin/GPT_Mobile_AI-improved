@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.appendChronologicalText
 import dev.chungjungsoo.gptmobile.data.database.entity.resetActiveRevision
 import dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -100,6 +101,8 @@ class AgentRunCoordinator @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
     private val recoveryLock = Mutex()
+    private val gatewayRecoveryAttemptAtMs = ConcurrentHashMap<String, Long>()
+    private val gatewayRecoveryFailures = ConcurrentHashMap<String, Int>()
     private val chatLocks = ConcurrentHashMap<Int, Mutex>()
     private val interruptingRunIds = ConcurrentHashMap.newKeySet<String>()
     private val _streamMessages = MutableStateFlow<Map<Int, MessageV2>>(emptyMap())
@@ -285,6 +288,8 @@ class AgentRunCoordinator @Inject constructor(
      */
     suspend fun recoverInterruptedGatewayRuns() = recoveryLock.withLock {
         val profiles = settingRepository.fetchPlatformV2s().associateBy { it.uid }
+        val nowSeconds = currentEpochSeconds()
+        val nowMillis = System.currentTimeMillis()
         for (run in chatRepository.getRecoverableGatewayRuns()) {
             // A live stream remains the owner of its answer. Recovery only adopts interrupted work.
             if (run.status != AgentRunStatus.INTERRUPTED || jobs.containsKey(run.runId)) continue
@@ -292,24 +297,96 @@ class AgentRunCoordinator @Inject constructor(
             val baseUrl = run.gatewayBaseUrl ?: continue
             val profile = profiles[run.profileUid] ?: continue
             if (!sameGatewayEndpoint(profile.apiUrl, baseUrl)) continue
+
+            val recoveryAgeSeconds = (nowSeconds - (run.startedAt ?: run.createdAt)).coerceAtLeast(0)
+            if (recoveryAgeSeconds >= GATEWAY_RECOVERY_MAX_AGE_SECONDS) {
+                val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
+                    .keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
+                runCatching { gatewayAPI.cancelJob(jobId, ProviderRequestConfig(baseUrl, token)) }
+                if (
+                    chatRepository.finishInterruptedAgentRun(
+                        run.runId,
+                        AgentRunStatus.FAILED,
+                        nowSeconds,
+                        GATEWAY_RECOVERY_EXPIRED
+                    )
+                ) {
+                    gatewayRecoveryAttemptAtMs.remove(run.runId)
+                    gatewayRecoveryFailures.remove(run.runId)
+                    AppLogRecorder.record(
+                        "Gateway",
+                        "Expired stale recovery job · run=${run.runId} · job=$jobId · ageSeconds=$recoveryAgeSeconds · maxAgeSeconds=$GATEWAY_RECOVERY_MAX_AGE_SECONDS",
+                        "W"
+                    )
+                    _notices.tryEmit(
+                        AgentRunNotice(
+                            run.chatId,
+                            run.runId,
+                            "The previous Gateway job expired and was abandoned instead of being polled again. Retry the response to submit fresh work.",
+                            persistent = true
+                        )
+                    )
+                }
+                continue
+            }
+
+            val lastAttempt = gatewayRecoveryAttemptAtMs[run.runId]
+            if (lastAttempt != null && nowMillis - lastAttempt < GATEWAY_RECOVERY_MIN_INTERVAL_MS) continue
+            gatewayRecoveryAttemptAtMs[run.runId] = nowMillis
+
             try {
                 val token = dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
                     .keysForNewRequest(profile.providerConnectionUid ?: profile.uid, profile.token).firstOrNull()
-                val result = gatewayAPI.getJobResult(jobId, ProviderRequestConfig(baseUrl, token)) ?: continue
-                if (result.jobId != jobId || !result.status.equals("COMPLETED", ignoreCase = true)) continue
+                val config = ProviderRequestConfig(baseUrl, token)
+                val capabilities = gatewayAPI.getCapabilities(config)
+                if (capabilities == null || !capabilities.supportsResultRecovery) {
+                    val failures = gatewayRecoveryFailures.merge(run.runId, 1, Int::plus) ?: 1
+                    AppLogRecorder.record(
+                        "Gateway",
+                        "Recovery health check unavailable · run=${run.runId} · job=$jobId · failures=$failures · ageSeconds=$recoveryAgeSeconds",
+                        "W"
+                    )
+                    continue
+                }
+
+                val result = gatewayAPI.getJobResult(jobId, config)
+                if (result == null) {
+                    gatewayRecoveryFailures.merge(run.runId, 1, Int::plus)
+                    continue
+                }
+                if (result.jobId != jobId) continue
+                if (result.status.equals("FAILED", ignoreCase = true) || result.status.equals("CANCELED", ignoreCase = true)) {
+                    chatRepository.finishInterruptedAgentRun(
+                        run.runId,
+                        AgentRunStatus.FAILED,
+                        nowSeconds,
+                        result.error?.take(500) ?: "GATEWAY_JOB_${result.status.uppercase()}"
+                    )
+                    gatewayRecoveryAttemptAtMs.remove(run.runId)
+                    gatewayRecoveryFailures.remove(run.runId)
+                    continue
+                }
+                if (!result.status.equals("COMPLETED", ignoreCase = true)) continue
                 val content = result.content ?: continue
-                val completedAt = result.completedAt ?: currentEpochSeconds()
+                val completedAt = result.completedAt ?: nowSeconds
                 if (chatRepository.restoreGatewayAnswer(run.runId, jobId, content, completedAt)) {
+                    gatewayRecoveryAttemptAtMs.remove(run.runId)
+                    gatewayRecoveryFailures.remove(run.runId)
                     completionStore.record(run.runId, run.chatId, run.assistantMessageId, completedAt)
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (_: Exception) {
-                _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Gateway recovery is unavailable. Try again after checking the connection."))
+            } catch (error: Exception) {
+                val failures = gatewayRecoveryFailures.merge(run.runId, 1, Int::plus) ?: 1
+                AppLogRecorder.record(
+                    "Gateway",
+                    "Recovery failed · run=${run.runId} · job=$jobId · failures=$failures · ${error.javaClass.simpleName}: ${error.message.orEmpty().take(180)}",
+                    "W"
+                )
+                _notices.tryEmit(AgentRunNotice(run.chatId, run.runId, "Gateway recovery is unavailable. A stale job will be abandoned automatically instead of being resurrected indefinitely."))
             }
         }
     }
-
     private fun updateGatewayProgress(runId: String, progress: GatewayProgress) {
         _activeRuns.update { runs ->
             val current = runs[runId] ?: return@update runs
@@ -317,6 +394,11 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
+    private companion object {
+        const val GATEWAY_RECOVERY_MAX_AGE_SECONDS = 10 * 60L
+        const val GATEWAY_RECOVERY_MIN_INTERVAL_MS = 60_000L
+        const val GATEWAY_RECOVERY_EXPIRED = "GATEWAY_RECOVERY_EXPIRED"
+    }
     private suspend fun execute(request: AgentRunRequest) {
         val startedAt = currentEpochSeconds()
         var assistantMessage = request.assistantMessage

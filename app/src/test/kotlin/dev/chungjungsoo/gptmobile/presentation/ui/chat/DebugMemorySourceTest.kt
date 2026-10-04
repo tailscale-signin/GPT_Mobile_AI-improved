@@ -29,4 +29,39 @@ class DebugMemorySourceTest {
     fun `common isolated words do not claim memory provenance`() {
         assertTrue(memoryHighlightRanges("Your project is ready", listOf("Your birthday is August 4th 1987")).isEmpty())
     }
+
+    @Test
+    fun `memory source rows collapse repeated value labels and dedupe rows`() {
+        val rows = debugMemorySourceRows(
+            listOf(
+                DebugMemorySource("August 4th 1987 observation August 4th 1987", "August 4th 1987"),
+                DebugMemorySource("August 4th 1987 observation August 4th 1987", "August 4th 1987"),
+                DebugMemorySource("User profile Je suis en vacances en France", "Je suis en vacances en France"),
+                DebugMemorySource("User goal to know specifically about chatGPT pro subscription.", "to know specifically about chatGPT pro subscription.")
+            )
+        )
+
+        assertEquals(
+            listOf(
+                "Observation: August 4th 1987",
+                "User profile: Je suis en vacances en France",
+                "User goal: to know specifically about chatGPT pro subscription."
+            ),
+            rows
+        )
+    }
+
+    @Test
+    fun `memory tool result ids parse without exposing bundle text`() {
+        val result = """{"recalledFactIds":["birthday","birthday","profile"],"text":"Memory sourced: August 4th 1987"}"""
+
+        assertEquals(listOf("birthday", "profile"), rememberedMemoryIdsFromToolResult(result))
+    }
+
+    @Test
+    fun `memory source rows remove replacement characters and control characters`() {
+        val rows = debugMemorySourceRows(listOf(DebugMemorySource("User profile Bad�\u0007 text", "Bad�\u0007 text")))
+
+        assertEquals(listOf("User profile: Bad text"), rows)
+    }
 }

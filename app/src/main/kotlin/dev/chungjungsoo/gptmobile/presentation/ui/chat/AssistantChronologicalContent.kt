@@ -58,11 +58,9 @@ internal fun AssistantChronologicalContent(
     val recalledSources = remember(timeline, toolEvents, debugMemorySources, debugMode, debugSettings.debugShowMemoryRecall) {
         if (debugMode && debugSettings.debugShowMemoryRecall) {
             val automaticIds = timeline.flatMap { it.recalledFacts }.map { it.id }
-            val toolIds = toolEvents.filter { !it.isError && it.toolName in setOf("memory", "memory_recall") }.flatMap { event ->
-                val result = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(event.result.orEmpty()) as? kotlinx.serialization.json.JsonObject }.getOrNull()
-                (result?.get("recalledFactIds") as? kotlinx.serialization.json.JsonArray).orEmpty()
-                    .mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-            }
+            val toolIds = toolEvents
+                .filter { !it.isError && (isMemoryRecallTool(it.toolName) || isMemoryRecallTool(it.modelToolName)) }
+                .flatMap { rememberedMemoryIdsFromToolResult(it.result) }
             (automaticIds + toolIds).distinct().mapNotNull { debugMemorySources[it] }
         } else {
             emptyList()
@@ -99,9 +97,6 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
-        recalledSources.forEach { source ->
-            Text("Memory sourced: ${source.label}", color = DebugMemoryPink, style = MaterialTheme.typography.bodySmall)
-        }
         items.forEachIndexed { index, item ->
             key(contentIdentity, index, item.type, item.toolSequence) {
                 when (item.type) {
@@ -130,7 +125,8 @@ internal fun AssistantChronologicalContent(
                                 debugMode,
                                 remoteDelegation = items.take(index + 1).lastOrNull { it.delegationInvocationId != null }?.delegationRemote == true ||
                                     items.drop(index + 1).firstOrNull { it.delegationInvocationId != null }?.delegationRemote == true,
-                                debugSettings = debugSettings
+                                debugSettings = debugSettings,
+                                debugMemorySources = debugMemorySources
                             )
                         }
                     }
@@ -159,7 +155,7 @@ internal fun AssistantChronologicalContent(
                         }
                     } else if (expanded && !item.statusSummary && !isContextDiagnostic(item.content)) {
                         if (item.recalledFacts.isNotEmpty()) {
-                            InlineExecutionTrace(emptyList(), listOf(item), "$contentIdentity:$index", debugMode, debugSettings = debugSettings)
+                            InlineExecutionTrace(emptyList(), listOf(item), "$contentIdentity:$index", debugMode, debugSettings = debugSettings, debugMemorySources = debugMemorySources)
                         } else if (item.content.isNotBlank()) {
                             Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }

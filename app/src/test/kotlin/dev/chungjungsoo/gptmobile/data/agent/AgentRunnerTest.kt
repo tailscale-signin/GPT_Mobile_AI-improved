@@ -149,7 +149,10 @@ class AgentRunnerTest {
                         emit(toolCall("search", "web_search"))
                     } else {
                         assertTrue(tools.isEmpty())
-                        assertTrue((exchanges.single().results.single().content as ToolResultContent.Text).text.contains("Useful source"))
+                        val resultText = (exchanges.single().results.single().content as ToolResultContent.Text).text
+                        assertTrue(resultText.contains("Useful source"))
+                        assertTrue(resultText.contains("tool-result byte budget is exhausted"))
+                        assertFalse(resultText.contains("tool-call allowance is exhausted"))
                         emit(ProviderEvent.TextDelta("Answer from the source"))
                     }
                     emit(ProviderEvent.Completed)
@@ -158,6 +161,49 @@ class AgentRunnerTest {
             listOf(bound)
         ).toList()
         assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.TextDelta })
+        assertTrue(
+            events.filterIsInstance<AgentRunEvent.Notice>().any {
+                it.message.contains("Tool-result byte budget reached: 32/32 bytes used")
+            }
+        )
+    }
+
+    @Test
+    fun `shared child call budget notice uses shared counters rather than top level call count`() = runBlocking {
+        val budgeted = object : AgentTool {
+            override val definition = AgentToolDefinition("delegate_to_model", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId = callId,
+                content = ToolResultContent.Text("completed delegated evidence"),
+                isError = false,
+                toolCallBudgetExhausted = true,
+                toolCallBudgetUsed = 9,
+                toolCallBudgetLimit = 9,
+                toolCallBudgetConfigured = 10,
+                toolCallBudgetReserved = 1
+            )
+        }
+        val events = AgentRunner(AgentRunLimits(maxToolCalls = 50)).run(
+            session { tools, exchanges ->
+                flow {
+                    if (exchanges.isEmpty()) {
+                        emit(toolCall("delegate", "delegate_to_model"))
+                    } else {
+                        assertTrue(tools.isEmpty())
+                        emit(ProviderEvent.TextDelta("Answer from completed evidence"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(budgeted)
+        ).toList()
+
+        assertTrue(
+            events.filterIsInstance<AgentRunEvent.Notice>().any {
+                it.message.contains("Shared tool-call limit reached: 9/9") &&
+                    it.message.contains("10 configured, 1 reserved")
+            }
+        )
     }
 
     @Test

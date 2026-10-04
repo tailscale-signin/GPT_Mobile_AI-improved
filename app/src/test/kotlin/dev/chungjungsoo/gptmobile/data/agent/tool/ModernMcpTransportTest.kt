@@ -70,6 +70,26 @@ class ModernMcpTransportTest {
         }
     }
 
+    @Test fun localDiscoveryTransportFailureFallsBackAndCachesLegacyDecision() = runBlocking {
+        var requests = 0
+        val localConfig = McpConnectionConfig("local-modern", "http://127.0.0.1:8101/mcp", true)
+        HttpClient(
+            MockEngine {
+                requests++
+                error("local discovery unavailable")
+            }
+        ).use { client ->
+            val modern = ModernMcpTransport(client)
+            assertFalse(modern.supports(localConfig))
+            assertFalse(modern.supports(localConfig))
+            assertEquals(1, requests)
+        }
+
+        HttpClient(MockEngine { error("remote discovery unavailable") }).use { client ->
+            assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.isFailure)
+        }
+    }
+
     @Test fun invalidMirroringIsRejectedAndNullValuesAreOmitted() {
         for (schema in listOf(
             """{"properties":{"x":{"type":"string","x-mcp-header":"bad\r\nheader"}}}""",

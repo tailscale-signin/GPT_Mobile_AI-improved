@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
@@ -12,9 +13,11 @@ import io.ktor.utils.io.readUTF8Line
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.ElicitRequest
 import io.modelcontextprotocol.kotlin.sdk.types.Tool
+import java.net.URI
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -40,6 +43,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     private val json = Json { ignoreUnknownKeys = true }
     private data class Endpoint(val identity: String, val discovery: JsonObject?, val checkedAt: Long)
     private val endpoints = ConcurrentHashMap<String, Endpoint>()
+    private val endpointDiscoveryCache = ConcurrentHashMap<String, Endpoint>()
     private val locks = ConcurrentHashMap<String, Mutex>()
     private val taskLocks = Array(64) { Mutex() }
     private val schemas = ConcurrentHashMap<String, Map<String, JsonObject>>()
@@ -51,14 +55,37 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 put("authorization", config.authorizationHeader)
             }
         )
-        endpoints[config.connectionUid]?.takeIf { !refresh && it.identity == identity && System.currentTimeMillis() - it.checkedAt < 3_600_000 }?.let { return@withLock it.discovery != null }
+        val now = System.currentTimeMillis()
+        endpoints[config.connectionUid]?.takeIf { endpoint ->
+            val ttl = if (endpoint.discovery == null) LEGACY_DECISION_CACHE_MS else DISCOVERY_CACHE_MS
+            !refresh && endpoint.identity == identity && now - endpoint.checkedAt < ttl
+        }?.let {
+            return@withLock it.discovery != null
+        }
+        endpointDiscoveryCache[identity]?.takeIf { shared ->
+            val ttl = if (shared.discovery == null) LEGACY_DECISION_CACHE_MS else DISCOVERY_CACHE_MS
+            !refresh && now - shared.checkedAt < ttl
+        }?.let { shared ->
+            endpoints[config.connectionUid] = shared
+            return@withLock shared.discovery != null
+        }
         val discovered = try {
             rpc(config, "server/discover", JsonObject(emptyMap())).also {
                 check(VERSION in (it["supportedVersions"] as? JsonArray).orEmpty().map { version -> version.jsonPrimitive.content }) { "Server has no mutually supported modern MCP version." }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: ModernMcpError) {
-            // Only the read-only era probe may fall back. Never retry a tool call through another transport.
             if ((error.status in setOf(400, 404, 405) && error.code !in MODERN_ERRORS) || error.status == 200 && error.code == -32601) null else throw error
+        } catch (error: Exception) {
+            if (!isLocalMcpEndpoint(config.endpointUrl)) throw error
+            val host = runCatching { URI(config.endpointUrl).host }.getOrNull().orEmpty()
+            AppLogRecorder.record(
+                "MCP",
+                "Modern discovery probe failed on local endpoint; falling back to legacy session · host=$host · ${error.javaClass.simpleName}",
+                "W"
+            )
+            null
         }
         if (endpoints.size >= 64) {
             endpoints.keys.firstOrNull()?.let {
@@ -67,7 +94,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 locks.remove(it)
             }
         }
-        endpoints[config.connectionUid] = Endpoint(identity, discovered, System.currentTimeMillis())
+        if (endpointDiscoveryCache.size >= 64) endpointDiscoveryCache.keys.firstOrNull()?.let(endpointDiscoveryCache::remove)
+        val endpoint = Endpoint(identity, discovered, now)
+        endpoints[config.connectionUid] = endpoint
+        endpointDiscoveryCache[identity] = endpoint
         discovered != null
     }
 
@@ -266,9 +296,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             mirrored.forEach { (name, value) -> header(name, value) }
             config.authorizationHeader?.let { header("Authorization", it) }
             timeout {
-                requestTimeoutMillis = if (method == "server/discover") 5000 else 60_000
-                connectTimeoutMillis = 5000
-                socketTimeoutMillis = if (method == "server/discover") 5000 else 60_000
+                val discoveryTimeout = if (isLocalMcpEndpoint(config.endpointUrl)) LOCAL_DISCOVERY_TIMEOUT_MS else REMOTE_DISCOVERY_TIMEOUT_MS
+                requestTimeoutMillis = if (method == "server/discover") discoveryTimeout else 60_000
+                connectTimeoutMillis = if (method == "server/discover") minOf(discoveryTimeout, 8_000L) else 5_000
+                socketTimeoutMillis = if (method == "server/discover") discoveryTimeout else 60_000
             }
             setBody(body.toString())
         }.execute { response ->
@@ -309,8 +340,24 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         }
     }
 
+    private fun isLocalMcpEndpoint(url: String): Boolean {
+        val host = runCatching { URI(url).host?.lowercase() }.getOrNull() ?: return false
+        if (host == "localhost" || host == "127.0.0.1" || host == "::1") return true
+        val parts = host.split('.').mapNotNull(String::toIntOrNull)
+        if (parts.size != 4) return false
+        val a = parts[0]
+        val b = parts[1]
+        return a == 10 ||
+            (a == 172 && b in 16..31) ||
+            (a == 192 && b == 168) ||
+            (a == 100 && b in 64..127)
+    }
     companion object {
         const val VERSION = "2026-07-28"
+        private const val DISCOVERY_CACHE_MS = 60 * 60 * 1000L
+        private const val LEGACY_DECISION_CACHE_MS = 60_000L
+        private const val LOCAL_DISCOVERY_TIMEOUT_MS = 12_000L
+        private const val REMOTE_DISCOVERY_TIMEOUT_MS = 5_000L
         private val MODERN_ERRORS = (-32029..-32020).toSet() + -32601
         fun headerValue(value: String): String = if (value != value.trim() || value.any { it.code !in 0x20..0x7e && it != '\t' } || value.startsWith("=?base64?") && value.endsWith("?=")) {
             "=?base64?${Base64.getEncoder().encodeToString(value.encodeToByteArray())}?="

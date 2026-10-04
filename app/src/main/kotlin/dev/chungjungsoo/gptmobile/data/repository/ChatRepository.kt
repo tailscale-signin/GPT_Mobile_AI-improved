@@ -66,6 +66,7 @@ interface ChatRepository {
     suspend fun finishAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun finishQueuedAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
     suspend fun finishActiveAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean
+    suspend fun finishInterruptedAgentRun(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean = false
     suspend fun updateAgentMessage(message: MessageV2)
     suspend fun interruptActiveAgentRuns(completedAt: Long): Int
     suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Boolean

@@ -322,7 +322,7 @@ class LocalDelegationCoordinatorTest {
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(third?.message.orEmpty().contains("CANCELED_NO_RESULT"))
-        assertEquals(16, calls)
+        assertEquals(6, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -343,7 +343,7 @@ class LocalDelegationCoordinatorTest {
             val failure = runCatching { coordinator.delegate(target, "task", 128, emptyList(), "timeout-$it") }.exceptionOrNull()
             assertTrue(failure?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         }
-        assertEquals(21, calls)
+        assertEquals(6, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -404,7 +404,7 @@ class LocalDelegationCoordinatorTest {
         repeat(2) {
             assertTrue(runCatching { coordinator.delegate(target, "task", 128, emptyList(), "abort-$it") }.isFailure)
         }
-        assertEquals(16, calls)
+        assertEquals(6, calls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -464,24 +464,29 @@ class LocalDelegationCoordinatorTest {
         assertEquals(3, calls)
     }
 
-    @Test fun `authorization failure quarantines delegated worker for the rest of the turn`() = runTest {
+    @Test fun `authorization failure blocks same credential across coordinators but credential change retries`() = runTest {
         var calls = 0
-        val coordinator = LocalDelegationCoordinator(
+        var active = target.copy(uid = "auth-blocked-worker", token = "bad-token")
+        fun coordinator() = LocalDelegationCoordinator(
             source,
             { config.copy(researchEnabled = false, maxLocalModelCalls = 6) },
-            { listOf(target) },
+            { listOf(active) },
             { _, _, _ ->
                 calls++
                 error("OpenRouter denied access (HTTP 403)")
             }
         )
 
-        val first = runCatching { coordinator.delegate(target, "first", 256, emptyList(), "first") }.exceptionOrNull()
-        val second = runCatching { coordinator.delegate(target, "second", 256, emptyList(), "second") }.exceptionOrNull()
+        val first = runCatching { coordinator().delegate(active, "first", 256, emptyList(), "first") }.exceptionOrNull()
+        val second = runCatching { coordinator().delegate(active, "second", 256, emptyList(), "second") }.exceptionOrNull()
 
         assertTrue(first?.message.orEmpty().contains("CANCELED_NO_RESULT"))
         assertTrue(second?.message.orEmpty().contains("CANCELED_NO_RESULT"))
-        assertEquals(11, calls)
+        assertEquals(1, calls)
+
+        active = active.copy(token = "rotated-token")
+        runCatching { coordinator().delegate(active, "after credential rotation", 256, emptyList(), "third") }
+        assertEquals(2, calls)
     }
 
     @Test fun `retired model is quarantined and delegation immediately fails over`() = runTest {
@@ -507,7 +512,7 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.delegate(target, "first", 256, emptyList(), "first"))
         assertEquals("recovered", coordinator.delegate(target, "second", 256, emptyList(), "second"))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == target.uid })
         assertEquals(2, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -583,7 +588,7 @@ class LocalDelegationCoordinatorTest {
         )
 
         assertEquals("bounded recovery", coordinator.executeTask(target, "task", 256))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == target.uid })
         assertEquals(1, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -608,7 +613,7 @@ class LocalDelegationCoordinatorTest {
             "usable fallback answer"
         })
         assertEquals("usable fallback answer", coordinator.executeTask(target, "Read a page", 256))
-        assertEquals(6, failedCalls)
+        assertEquals(1, failedCalls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -672,7 +677,7 @@ class LocalDelegationCoordinatorTest {
         })
         coordinator.executeTask(target, "first", 256)
         coordinator.executeTask(target, "second", 256)
-        assertEquals(11, calls)
+        assertEquals(1, calls)
     }
 
     @Test fun `pinned unavailable worker never substitutes another provider`() = runTest {
@@ -710,7 +715,7 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.delegate(target, "task", 256, emptyList(), "interactive"))
         assertEquals("recovered", coordinator.delegate(target, "follow-up", 256, emptyList(), "interactive-follow-up"))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == target.uid })
         assertEquals(2, dispatched.count { it == fallback.uid })
         assertEquals(listOf(fallback.uid, fallback.uid), dispatched.takeLast(2))
         assertEquals(1, recoveryPrompts)
@@ -739,7 +744,7 @@ class LocalDelegationCoordinatorTest {
 
         assertTrue(first.contains("primary model only"))
         assertTrue(second.contains("primary model only"))
-        assertEquals(6, generations)
+        assertEquals(1, generations)
         assertEquals(1, recoveryPrompts)
         assertFalse(coordinator.researchAvailable())
     }

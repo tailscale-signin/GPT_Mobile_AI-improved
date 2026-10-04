@@ -221,17 +221,15 @@ class ReadUrlToolTest {
     }
 
     @Test
-    fun `non-2xx missing location binary and oversize responses are errors`() = runBlocking {
+    fun `non-2xx missing location and binary responses are errors`() = runBlocking {
         val notFound = server { it.respond(404, "text/plain", "no") }
         val missingLocation = server { it.respond(302, "text/plain", "") }
         val binary = server { it.respond(200, "application/octet-stream", "abc") }
-        val oversize = server { it.respond(200, "text/plain", "a".repeat(1024 * 1024 + 1)) }
 
         val cases = listOf(
             notFound.url("fixture.test", "/") to "HTTP 404",
             missingLocation.url("fixture.test", "/") to "missing Location",
-            binary.url("fixture.test", "/") to "binary content",
-            oversize.url("fixture.test", "/") to "too large"
+            binary.url("fixture.test", "/") to "binary content"
         )
 
         cases.forEachIndexed { index, (url, message) ->
@@ -240,6 +238,25 @@ class ReadUrlToolTest {
             assertTrue(result.isError)
             assertContains(result.text(), message)
         }
+    }
+
+    @Test
+    fun `oversized text response returns bounded partial evidence instead of failing`() = runBlocking {
+        val oversize = server { it.respond(200, "text/plain", "a".repeat(1024 * 1024 + 1)) }
+        val reader = tool(allowTestLoopback = true)
+        val result = reader.execute(
+            "oversize",
+            buildJsonObject {
+                put("url", oversize.url("fixture.test", "/"))
+                put("includeLinks", true)
+            }
+        )
+
+        assertFalse(result.isError)
+        val payload = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals("true", payload.getValue("truncated").jsonPrimitive.content)
+        assertTrue(payload.getValue("content").jsonPrimitive.content.isNotBlank())
+        assertTrue(payload.getValue("content").jsonPrimitive.content.toByteArray().size <= 64 * 1024)
     }
 
     @Test

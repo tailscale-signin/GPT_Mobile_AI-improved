@@ -49,6 +49,10 @@ data class DelegationBenchmarkMetrics(
     val workerSpeedUsesReportedTokens: Boolean = false,
     val reviewerScore: Int? = null,
     val reviewerEvaluations: Int = 0,
+    val reviewerCalls: Int = 0,
+    val reviewerInputTokens: Long = 0,
+    val reviewerOutputTokens: Long = 0,
+    val reviewerEstimated: Boolean = false,
     val diagnosticEvents: List<DelegationBenchmarkEvent> = emptyList()
 )
 

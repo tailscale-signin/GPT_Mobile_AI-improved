@@ -62,6 +62,7 @@ class DelegationBenchmarkRunnerTest {
             openPrimary = { _, _ -> error("Tool test must not call primary") },
             workerTokens = { 100L to 20L },
             workerCalls = { 1 },
+            reviewerUsage = { ReviewerBenchmarkUsage(calls = 2, inputTokens = 120, outputTokens = 30, estimated = true) },
             telemetry = {
                 WorkerBenchmarkTelemetry(
                     durationMs = 250,
@@ -75,6 +76,10 @@ class DelegationBenchmarkRunnerTest {
         val sample = runner.run(delegationBenchmarkSuite()[1])
         val metrics = sample.delegation!!
         assertTrue(metrics.workerSpeedUsesReportedTokens)
+        assertEquals(2, metrics.reviewerCalls)
+        assertEquals(120L, metrics.reviewerInputTokens)
+        assertEquals(30L, metrics.reviewerOutputTokens)
+        assertTrue(metrics.reviewerEstimated)
         assertTrue(metrics.diagnosticEvents.any { it.type == "CASE_START" })
         assertTrue(metrics.diagnosticEvents.any { it.type == "FIXTURE_TOOL" })
         assertTrue(metrics.diagnosticEvents.any { it.type == "FIRST_TEXT" })

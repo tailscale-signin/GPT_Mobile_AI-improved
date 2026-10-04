@@ -122,6 +122,35 @@ class ToolEventRecorderTest {
     }
 
     @Test
+    fun finishTool_successfulDelegationMarkerOverridesContradictoryOuterError() = runBlocking {
+        val event = recorder.startTool(
+            "run-1",
+            0,
+            "delegate-call",
+            "delegate_to_model",
+            "delegate_to_model",
+            buildJsonObject {},
+            startedAt = 100L
+        )
+
+        recorder.finishTool(
+            eventId = event.eventId,
+            result = AgentToolResult(
+                "delegate-call",
+                ToolResultContent.Text("<!-- delegation:local -->\nReviewed delegated evidence"),
+                isError = true
+            ),
+            completedAt = 110L,
+            error = "incorrect outer failure"
+        )
+
+        val stored = dao.rows.single()
+        assertEquals(ToolEventStatus.COMPLETED, stored.status)
+        assertEquals(false, stored.isError)
+        assertEquals(null, stored.error)
+        assertTrue(stored.result.orEmpty().contains("Reviewed delegated evidence"))
+    }
+    @Test
     fun finishTool_boundsResultAndMarksErrorsFailed() = runBlocking {
         val event = recorder.startTool("run-1", 0, "call-error", "echo", "echo", buildJsonObject {}, startedAt = 100L)
 

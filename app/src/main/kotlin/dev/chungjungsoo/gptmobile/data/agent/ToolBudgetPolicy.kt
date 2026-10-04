@@ -45,6 +45,7 @@ object ToolBudgetPolicy {
 
     fun buildWrapUpPrompt(remainingAllowance: Int): String =
         "You have $remainingAllowance tool call(s) remaining before your hard limit. " +
-            "Begin wrapping up your response now. Do not perform any further file inspections, web searches, or tool calls. " +
-            "Synthesize your findings and provide your final answer now. If work remains, ask the user whether to continue in a new response."
+            "Prioritize only essential remaining calls and avoid starting broad new research. " +
+            "If the available evidence is already sufficient, stop calling tools and synthesize the final answer now. " +
+            "If essential evidence will not fit in the remaining allowance, state what is missing and ask whether to continue in a new response."
 }

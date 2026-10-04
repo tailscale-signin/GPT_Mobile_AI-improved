@@ -109,10 +109,11 @@ class ReadUrlTool(
                 if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status")
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
                 if (!isTextContent(contentType)) throw ReadUrlException("binary content rejected")
-                val bytes = readBounded(response)
-                val rawText = bytes.toString(contentType.charsetOrUtf8())
+                val boundedBody = readBounded(response, current.host.orEmpty())
+                val rawText = boundedBody.bytes.toString(contentType.charsetOrUtf8())
                 val text = if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
-                val plainText = truncateUtf8(normalizeWhitespace(text), MAX_OUTPUT_BYTES)
+                val normalizedText = normalizeWhitespace(text)
+                val plainText = truncateUtf8(normalizedText, MAX_OUTPUT_BYTES)
                 val content = if (includeLinks) {
                     val linkText = if (isHtmlContent(contentType)) {
                         Regex("""<a\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(rawText).joinToString("\n") { it.value }
@@ -123,7 +124,7 @@ class ReadUrlTool(
                         buildJsonObject {
                             put("url", current.toString())
                             put("content", plainText)
-                            put("truncated", plainText.toByteArray().size < normalizeWhitespace(text).toByteArray().size)
+                            put("truncated", boundedBody.truncated || plainText.toByteArray().size < normalizedText.toByteArray().size)
                             put("links", JsonArray(researchLinks(linkText, current.toString()).filter { it.length <= 2048 }.take(32).map(::JsonPrimitive)))
                         }
                     )
@@ -181,23 +182,30 @@ class ReadUrlTool(
         return addresses
     }
 
-    private suspend fun readBounded(response: HttpResponse): ByteArray {
+    private suspend fun readBounded(response: HttpResponse, host: String): BoundedBody {
         val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-        if (contentLength != null && contentLength > MAX_BODY_BYTES) throw ReadUrlException("response too large")
+        var truncated = contentLength != null && contentLength > MAX_BODY_BYTES
         val channel = response.bodyAsChannel()
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val read = channel.readAvailable(buffer, 0, buffer.size)
+        while (output.size() < MAX_BODY_BYTES) {
+            val read = channel.readAvailable(buffer, 0, minOf(buffer.size, MAX_BODY_BYTES - output.size()))
             if (read == -1) break
             if (read == 0) {
                 yield()
                 continue
             }
             output.write(buffer, 0, read)
-            if (output.size() > MAX_BODY_BYTES) throw ReadUrlException("response too large")
         }
-        return output.toByteArray()
+        if (output.size() >= MAX_BODY_BYTES) truncated = true
+        if (truncated) {
+            AppLogRecorder.record(
+                "ReadUrl",
+                "Read bounded oversized source · host=${host.take(160)} · retainedBytes=${output.size()} · maxBytes=$MAX_BODY_BYTES",
+                "W"
+            )
+        }
+        return BoundedBody(output.toByteArray(), truncated)
     }
 
     private fun parseUrl(arguments: JsonObject): URI? {
@@ -346,6 +354,11 @@ private class ReadUrlException(message: String) : Exception(message)
 private data class ReadUrlRequest(
     val client: HttpClient,
     val response: HttpResponse
+)
+
+private data class BoundedBody(
+    val bytes: ByteArray,
+    val truncated: Boolean
 )
 
 private fun androidHtmlToText(html: String): String {

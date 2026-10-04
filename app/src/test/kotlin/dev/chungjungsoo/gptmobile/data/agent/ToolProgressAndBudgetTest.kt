@@ -45,7 +45,7 @@ class ToolProgressAndBudgetTest {
         val exhausted = tool.execute("read-next", buildJsonObject {})
         assertTrue(exhausted.isError)
         assertTrue(exhausted.outputBudgetExhausted)
-        assertEquals(OUTPUT_BUDGET_EXHAUSTED, (exhausted.content as ToolResultContent.Text).text)
+        assertTrue((exhausted.content as ToolResultContent.Text).text.contains("Tool-result byte budget exhausted"))
     }
 
     @Test fun `zero or sub-codepoint budgets never produce an empty error`() = runBlocking {
@@ -109,6 +109,83 @@ class ToolProgressAndBudgetTest {
         assertEquals("", truncateUtf8("😀", 3))
     }
 
+    @Test fun `delegation handoff survives nested result budget exhaustion`() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 6, maxToolOutputBytes = 16))
+        val child = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("web_search", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(callId, ToolResultContent.Text("0123456789abcdef"), false)
+        })
+        val delegate = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("delegate_to_model", "", buildJsonObject {})
+            override val managesExecutionBudget = true
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                val childResult = child.execute("$callId:search", arguments)
+                assertFalse(childResult.isError)
+                assertTrue(childResult.outputBudgetExhausted)
+                return AgentToolResult(callId, ToolResultContent.Text("grounded research summary"), false)
+            }
+        })
+
+        val result = delegate.execute("delegate", buildJsonObject {})
+
+        assertFalse(result.isError)
+        assertTrue(result.outputBudgetExhausted)
+        assertEquals(16, result.toolResultBudgetUsedBytes)
+        assertEquals(16, result.toolResultBudgetLimitBytes)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("grounded research summary"))
+    }
+
+    @Test fun `call budget respects finalization reserve and stays distinct from output budget`() = runBlocking {
+        var executions = 0
+        val budget = ToolExecutionBudget(
+            AgentRunLimits(maxToolCalls = 3, finalResponseToolCallReserve = 1, maxToolOutputBytes = 1024)
+        )
+        val tool = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("search", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("ok"), false)
+            }
+        })
+
+        assertFalse(tool.execute("1", buildJsonObject {}).isError)
+        val lastAllowed = tool.execute("2", buildJsonObject {})
+        assertFalse(lastAllowed.isError)
+        assertTrue(lastAllowed.toolCallBudgetExhausted)
+        assertFalse(lastAllowed.outputBudgetExhausted)
+        assertEquals(2, lastAllowed.toolCallBudgetUsed)
+        assertEquals(2, lastAllowed.toolCallBudgetLimit)
+        assertEquals(3, lastAllowed.toolCallBudgetConfigured)
+        assertEquals(1, lastAllowed.toolCallBudgetReserved)
+
+        val blocked = tool.execute("3", buildJsonObject {})
+        assertTrue(blocked.isError)
+        assertTrue(blocked.toolCallBudgetExhausted)
+        assertFalse(blocked.outputBudgetExhausted)
+        assertEquals(2, blocked.toolCallBudgetUsed)
+        assertEquals(2, blocked.toolCallBudgetLimit)
+        assertTrue((blocked.content as ToolResultContent.Text).text.contains("2/2 executable calls used"))
+        assertEquals(2, executions)
+    }
+
+    @Test fun `successful delegation marker cannot leave shared budget wrapper as an error`() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4, maxToolOutputBytes = 1024))
+        val delegate = budget.bind(object : AgentTool {
+            override val definition = AgentToolDefinition("delegate_to_model", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) =
+                AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("<!-- delegation:local -->\nreviewed evidence"),
+                    isError = true
+                )
+        })
+
+        val result = delegate.execute("delegate", buildJsonObject {})
+
+        assertFalse(result.isError)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("reviewed evidence"))
+    }
     @Test fun `approval waiting is outside tool execution timeout and cancellation propagates`() = runBlocking {
         val budget = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 5))
         val tool = object : AgentTool {

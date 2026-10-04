@@ -12,11 +12,38 @@ import org.junit.Test
 
 class DelegationGitHubPolicyTest {
     @Test
-    fun `local first keeps native and MCP GitHub available for primary recovery`() {
-        val tools = listOf(tool("delegate_to_model"), tool("github__work", "github"), tool("mcp__github__create_pull_request"), tool("calculate_expression"))
-        assertEquals(tools.take(3), primaryDelegationTools(tools, true, 0))
+    fun `local first keeps aggregate web search and GitHub available for primary recovery`() {
+        val delegate = tool("delegate_to_model")
+        val aggregateWeb = tool("web_search")
+        val readUrl = tool("read_url")
+        val remoteReadUrl = tool("mcp__reader__read_url", "read_url", connectionUid = "remote-reader")
+        val directEngine = tool("mcp__brave__web_search", "brave_web_search")
+        val extraReader = tool("mcp__firecrawl__scrape", "firecrawl_scrape")
+        val githubNative = tool("github__work", "github")
+        val githubMcp = tool("mcp__github__create_pull_request")
+        val calculator = tool("calculate_expression")
+        val tools = listOf(delegate, aggregateWeb, readUrl, remoteReadUrl, directEngine, extraReader, githubNative, githubMcp, calculator)
+
+        assertEquals(
+            listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp),
+            primaryDelegationTools(tools, true, 0)
+        )
         assertEquals(tools, primaryDelegationTools(tools, false, 0))
-        assertEquals(tools, primaryDelegationTools(tools, true, 100))
+        assertEquals(
+            listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp, calculator),
+            primaryDelegationTools(tools, true, 100)
+        )
+    }
+
+    @Test
+    fun `combined synthesis cannot recursively expose delegation`() {
+        val delegate = tool("delegate_to_model")
+        val search = tool("web_search")
+        val read = tool("read_url")
+        val tools = listOf(delegate, search, read)
+
+        assertEquals(listOf(search, read), synthesisSafeTools(tools, "combined-synthesis:run-1"))
+        assertEquals(tools, synthesisSafeTools(tools, "normal-run"))
     }
 
     @Test
@@ -54,12 +81,13 @@ class DelegationGitHubPolicyTest {
     private fun tool(
         name: String,
         realName: String = name,
-        connectionName: String? = null
+        connectionName: String? = null,
+        connectionUid: String? = null
     ): ResolvedAgentTool {
         val agent = object : AgentTool {
             override val definition = AgentToolDefinition(name, "Test tool", JsonObject(emptyMap()))
             override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("ok"), false)
         }
-        return ResolvedAgentTool(agent, null, connectionName, realName, name)
+        return ResolvedAgentTool(agent, connectionUid, connectionName, realName, name)
     }
 }

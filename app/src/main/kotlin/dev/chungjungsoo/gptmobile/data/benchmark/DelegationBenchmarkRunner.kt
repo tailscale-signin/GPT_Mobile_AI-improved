@@ -28,6 +28,13 @@ fun delegationBenchmarkSuite(): List<BenchmarkCase> = listOf(
     BenchmarkCase("delegation-research", "Research → handoff → final answer", "delegation", "")
 )
 
+internal data class ReviewerBenchmarkUsage(
+    val calls: Int = 0,
+    val inputTokens: Long = 0,
+    val outputTokens: Long = 0,
+    val estimated: Boolean = false
+)
+
 /** Uses the conversation coordinator with synthetic evidence and no connected MCP/device tools. */
 internal class DelegationBenchmarkRunner(
     private val createCoordinator: (List<AgentTool>) -> LocalDelegationCoordinator,
@@ -36,6 +43,7 @@ internal class DelegationBenchmarkRunner(
     private val openPrimary: suspend (List<ConversationTurn>, List<AgentTool>) -> AgentProviderSession,
     private val workerTokens: () -> Pair<Long, Long>,
     private val workerCalls: () -> Int,
+    private val reviewerUsage: () -> ReviewerBenchmarkUsage = { ReviewerBenchmarkUsage() },
     private val workerConfigKey: String = benchmarkConfigKey(target),
     private val telemetry: () -> WorkerBenchmarkTelemetry = { WorkerBenchmarkTelemetry() },
     private val now: () -> Long = { System.nanoTime() / 1_000_000 }
@@ -98,10 +106,16 @@ internal class DelegationBenchmarkRunner(
             val workerInputDelta = after.first - before.first
             val workerOutputDelta = after.second - before.second
             val reviewerScores = coordinator.reviewerScoresSnapshot()
+            val reviewerTokens = reviewerUsage()
             val reviewerScore = reviewerScores.takeIf { it.isNotEmpty() }?.let { values ->
                 ((values.sum().toDouble() / values.size).coerceIn(0.0, 100.0) + 0.5).toInt()
             }
-            reviewerScore?.let { event("REVIEWER_SCORE", "score=$it evaluations=${reviewerScores.size}") }
+            reviewerScore?.let {
+                event(
+                    "REVIEWER_SCORE",
+                    "score=$it evaluations=${reviewerScores.size} reviewerCalls=${reviewerTokens.calls} reviewerInputTokens=${reviewerTokens.inputTokens} reviewerOutputTokens=${reviewerTokens.outputTokens} estimated=${reviewerTokens.estimated}"
+                )
+            }
             if ((timing.firstTextMs ?: 0L) > 3_000L) event("INSIGHT_SLOW_FIRST_TEXT", "firstTextMs=${timing.firstTextMs}; investigate prompt evaluation, connection latency, model warmup, or context size", "WARN")
             if ((timing.decodeTokensPerSecond ?: Double.MAX_VALUE) < 10.0) event("INSIGHT_LOW_THROUGHPUT", "tokPerSec=${timing.decodeTokensPerSecond}; consider a faster delegate/runtime or lower worker context", "WARN")
             if (fixtureCalls > successfulCalls) event("INSIGHT_TOOL_USABILITY", "successfulFixtureCalls=$successfulCalls fixtureCalls=$fixtureCalls; inspect tool selection or argument generation", "WARN")
@@ -120,6 +134,10 @@ internal class DelegationBenchmarkRunner(
                     timing.speedUsesReportedTokens,
                     reviewerScore = reviewerScore,
                     reviewerEvaluations = reviewerScores.size,
+                    reviewerCalls = reviewerTokens.calls,
+                    reviewerInputTokens = reviewerTokens.inputTokens,
+                    reviewerOutputTokens = reviewerTokens.outputTokens,
+                    reviewerEstimated = reviewerTokens.estimated,
                     diagnosticEvents = (diagnosticEvents + timing.events).sortedBy { it.elapsedMs }.takeLast(80)
                 )
             )

@@ -216,7 +216,10 @@ class MultiEngineSearchToolTest {
         }
         val result = MultiEngineSearchTool(engines).execute("parent", buildJsonObject { put("query", "news") })
         assertEquals(1, dispatched)
-        assertTrue(result.outputBudgetExhausted)
+        assertTrue(result.toolCallBudgetExhausted)
+        assertFalse(result.outputBudgetExhausted)
+        assertEquals(2, result.toolCallBudgetUsed)
+        assertEquals(2, result.toolCallBudgetLimit)
         assertFalse(result.isError)
     }
 

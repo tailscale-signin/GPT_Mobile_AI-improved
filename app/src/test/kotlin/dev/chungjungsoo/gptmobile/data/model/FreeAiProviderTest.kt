@@ -44,6 +44,11 @@ class FreeAiProviderTest {
     }
 
     @Test
+    fun `LLM7 does not advertise unsupported tool definitions`() {
+        assertFalse(FreeAiProvider.LLM7.supportsTools)
+        assertTrue(FreeAiProvider.KILO.supportsTools)
+    }
+    @Test
     fun `only exact approved endpoints resolve to Free providers`() {
         assertEquals(FreeAiProvider.KILO, FreeAiProvider.fromApiUrl(" ${FreeAiProvider.KILO.apiUrl}/ "))
         assertEquals(FreeAiProvider.KILO, FreeAiProvider.fromApiUrl(FreeAiProvider.KILO.chatCompletionsUrl))

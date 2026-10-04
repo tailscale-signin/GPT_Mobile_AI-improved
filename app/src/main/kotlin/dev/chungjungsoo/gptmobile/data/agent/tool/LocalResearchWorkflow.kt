@@ -44,6 +44,25 @@ internal class LocalResearchWorkflow(
         var noResearchNeeded = false
         var toolsExhausted = false
         var toolUnavailable = false
+        fun budgetLimitNote(result: AgentToolResult): String = when {
+            result.toolCallBudgetExhausted -> {
+                val usage = if (result.toolCallBudgetUsed != null && result.toolCallBudgetLimit != null) {
+                    " (${result.toolCallBudgetUsed}/${result.toolCallBudgetLimit} executable calls used)"
+                } else {
+                    ""
+                }
+                "The shared tool-call limit was reached$usage."
+            }
+            result.outputBudgetExhausted -> {
+                val usage = if (result.toolResultBudgetUsedBytes != null && result.toolResultBudgetLimitBytes != null) {
+                    " (${result.toolResultBudgetUsedBytes}/${result.toolResultBudgetLimitBytes} bytes used)"
+                } else {
+                    ""
+                }
+                "The shared tool-result byte budget was reached$usage."
+            }
+            else -> "The shared tool budget was reached."
+        }
         val enabledAtStart = stillEnabled()
         if (!enabledAtStart) {
             return LocalResearchResult(
@@ -64,9 +83,9 @@ internal class LocalResearchWorkflow(
             return try {
                 tool.tool.execute("$callId:$suffix", arguments).also { result ->
                     rawBytes += result.content.researchText().toByteArray().size
-                    if (result.outputBudgetExhausted) {
+                    if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) {
                         toolsExhausted = true
-                        notes += "The shared tool budget was reached."
+                        notes += budgetLimitNote(result)
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -218,8 +237,11 @@ internal class LocalResearchWorkflow(
                                     } catch (_: Exception) {
                                         null
                                     }
-                                    if (response?.outputBudgetExhausted == true) {
-                                        toolsExhausted = true
+                                    response?.let { budgeted ->
+                                        if (budgeted.toolCallBudgetExhausted || budgeted.outputBudgetExhausted) {
+                                            toolsExhausted = true
+                                            notes += budgetLimitNote(budgeted)
+                                        }
                                     }
                                     if (response == null || response.isError) continue
                                     val payload = response.content.researchPayload()
@@ -270,7 +292,9 @@ internal class LocalResearchWorkflow(
                     notes += "Only $successfulReads of $requestedVerifiedPages requested pages could be verified; remaining evidence is search snippets."
                 }
             }
-            if (toolsExhausted) notes += "The shared tool budget was reached."
+            if (toolsExhausted && notes.none { it.startsWith("The shared tool-") }) {
+                notes += "Research stopped after the shared tool budget was reached."
+            }
             if (toolUnavailable && sources.isEmpty()) {
                 brief = ""
                 notes += "Live research could not be verified. Do not answer as if sourced web research succeeded."

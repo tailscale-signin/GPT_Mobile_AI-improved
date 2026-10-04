@@ -34,6 +34,16 @@ internal fun preferNativeGitHubForTask(
     return tools.filterNot { it.isShellExecutionTool() }
 }
 
+internal fun synthesisSafeTools(
+    tools: List<ResolvedAgentTool>,
+    runId: String
+): List<ResolvedAgentTool> =
+    if (runId.startsWith("combined-synthesis:")) {
+        tools.filterNot { it.realToolName == "delegate_to_model" }
+    } else {
+        tools
+    }
+
 /** Keep repository actions callable even when the primary delegates its research. */
 internal fun primaryDelegationTools(
     tools: List<ResolvedAgentTool>,
@@ -42,8 +52,19 @@ internal fun primaryDelegationTools(
 ): List<ResolvedAgentTool> = tools.filter { tool ->
     when {
         !localResearch || tool.isGitHubTool() -> true
-        processingOwnership < 35 -> tool.realToolName == "delegate_to_model"
-        else -> !tool.isWebSearchEngine() && !tool.isResearchPageReader()
+        tool.realToolName == "delegate_to_model" -> true
+        tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true
+        tool.connectionUid == null && tool.realToolName == "read_url" -> true
+        processingOwnership < 35 -> false
+        else -> {
+            val description = tool.tool.definition.description
+            val researchLikeByIdentity =
+                isCrawlerTool(tool.realToolName, description) ||
+                    isNamedWebSearch(tool.realToolName, description) ||
+                    isCrawlerTool(tool.modelToolName, description) ||
+                    isNamedWebSearch(tool.modelToolName, description)
+            !researchLikeByIdentity && !tool.isWebSearchEngine() && !tool.isResearchPageReader()
+        }
     }
 }
 

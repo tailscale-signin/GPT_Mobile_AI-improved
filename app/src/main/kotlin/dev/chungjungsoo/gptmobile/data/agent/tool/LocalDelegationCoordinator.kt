@@ -68,7 +68,7 @@ internal class LocalDelegationCoordinator(
         private const val SAME_DELEGATE_RETRY_DELAY_MS = 1_000L
         private const val MAX_CONSECUTIVE_EMPTY_RESPONSES = 2
         private const val RUNTIME_NOT_READY_COOLDOWN_MS = 5 * 60_000L
-        private const val NOT_DOWNLOADED_COOLDOWN_MS = 30 * 60_000L
+        private const val NOT_DOWNLOADED_COOLDOWN_MS = 60_000L
 
         // Readiness belongs to the runtime/model installation, not to one chat turn.
         // Sharing this cache prevents a new coordinator from probing the same missing
@@ -302,20 +302,17 @@ internal class LocalDelegationCoordinator(
             throw cancelled
         } catch (failure: Exception) {
             val message = failure.message.orEmpty()
-            val cooldownMs = if (
+            val packageNotInstalled =
                 message.contains("not downloaded", ignoreCase = true) ||
-                message.contains("package", ignoreCase = true) &&
-                message.contains("missing", ignoreCase = true)
-            ) {
-                NOT_DOWNLOADED_COOLDOWN_MS
-            } else {
-                RUNTIME_NOT_READY_COOLDOWN_MS
-            }
+                    message.contains("no installed local model", ignoreCase = true) ||
+                    message.contains("local model file is missing", ignoreCase = true) ||
+                    message.contains("package", ignoreCase = true) && message.contains("missing", ignoreCase = true)
+            val cooldownMs = if (packageNotInstalled) NOT_DOWNLOADED_COOLDOWN_MS else RUNTIME_NOT_READY_COOLDOWN_MS
             runtimeNotReadyUntilMs[readinessKey] = now + cooldownMs
             if (logFailure) {
                 AppLogRecorder.record(
                     "Delegation",
-                    "Worker candidate skipped · target=${candidate.uid} · type=${candidate.compatibleType} · reason=RUNTIME_NOT_READY · cooldownMs=$cooldownMs · ${failure.javaClass.simpleName}: $message",
+                    "Worker candidate filtered before ranking · target=${candidate.uid} · type=${candidate.compatibleType} · reason=${if (packageNotInstalled) "PACKAGE_NOT_INSTALLED" else "RUNTIME_NOT_READY"} · recheckMs=$cooldownMs · ${failure.javaClass.simpleName}: $message",
                     "W"
                 )
             }

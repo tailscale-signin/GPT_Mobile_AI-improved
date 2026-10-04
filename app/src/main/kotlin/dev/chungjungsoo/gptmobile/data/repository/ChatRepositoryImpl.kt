@@ -1215,16 +1215,13 @@ class ChatRepositoryImpl(
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = userMessages.lastOrNull()
             val synthesisRun = runId.startsWith("combined-synthesis:")
-            val taskRoutedTools = preferNativeGitHubForTask(
-                resolvedTools,
-                latestUser?.content.orEmpty()
-            ).let { tools ->
-                if (synthesisRun) {
-                    tools.filterNot { it.realToolName == "delegate_to_model" }
-                } else {
-                    tools
-                }
-            }
+            val taskRoutedTools = synthesisSafeTools(
+                preferNativeGitHubForTask(
+                    resolvedTools,
+                    latestUser?.content.orEmpty()
+                ),
+                runId
+            )
             if (taskRoutedTools.size != resolvedTools.size) {
                 AppLogRecorder.record(
                     "GitHub",

@@ -512,7 +512,7 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.delegate(target, "first", 256, emptyList(), "first"))
         assertEquals("recovered", coordinator.delegate(target, "second", 256, emptyList(), "second"))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == target.uid })
         assertEquals(2, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -588,7 +588,7 @@ class LocalDelegationCoordinatorTest {
         )
 
         assertEquals("bounded recovery", coordinator.executeTask(target, "task", 256))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == target.uid })
         assertEquals(1, dispatched.count { it == fallback.uid })
         assertEquals(fallback.uid, dispatched.last())
     }
@@ -613,7 +613,7 @@ class LocalDelegationCoordinatorTest {
             "usable fallback answer"
         })
         assertEquals("usable fallback answer", coordinator.executeTask(target, "Read a page", 256))
-        assertEquals(6, failedCalls)
+        assertEquals(1, failedCalls)
         assertFalse(coordinator.researchAvailable())
     }
 
@@ -715,7 +715,7 @@ class LocalDelegationCoordinatorTest {
 
         assertEquals("recovered", coordinator.delegate(target, "task", 256, emptyList(), "interactive"))
         assertEquals("recovered", coordinator.delegate(target, "follow-up", 256, emptyList(), "interactive-follow-up"))
-        assertEquals(6, dispatched.count { it == target.uid })
+        assertEquals(1, dispatched.count { it == target.uid })
         assertEquals(2, dispatched.count { it == fallback.uid })
         assertEquals(listOf(fallback.uid, fallback.uid), dispatched.takeLast(2))
         assertEquals(1, recoveryPrompts)
@@ -744,7 +744,7 @@ class LocalDelegationCoordinatorTest {
 
         assertTrue(first.contains("primary model only"))
         assertTrue(second.contains("primary model only"))
-        assertEquals(6, generations)
+        assertEquals(1, generations)
         assertEquals(1, recoveryPrompts)
         assertFalse(coordinator.researchAvailable())
     }

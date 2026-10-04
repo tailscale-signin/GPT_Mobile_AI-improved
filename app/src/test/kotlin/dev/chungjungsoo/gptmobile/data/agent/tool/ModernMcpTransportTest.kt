@@ -63,16 +63,18 @@ class ModernMcpTransportTest {
 
     @Test fun legacyAdvertisedVersionsFallBackAndCacheTheDecision() = runBlocking {
         var requests = 0
-        HttpClient(MockEngine { request ->
-            requests++
-            val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
-            val reply = buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", body.getValue("id"))
-                put("result", obj("""{"resultType":"complete","supportedVersions":["2024-11-05","2025-03-26"]}"""))
+        HttpClient(
+            MockEngine { request ->
+                requests++
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val reply = buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", body.getValue("id"))
+                    put("result", obj("""{"resultType":"complete","supportedVersions":["2024-11-05","2025-03-26"]}"""))
             }
             respond(reply.toString(), headers = headersOf("Content-Type", "application/json"))
-        }).use { client ->
+            }
+        ).use { client ->
             val transport = ModernMcpTransport(client)
             assertFalse(transport.supports(config))
             assertFalse(transport.supports(config))
@@ -81,18 +83,21 @@ class ModernMcpTransportTest {
     }
 
     @Test fun incompatibleVersionsRemainAnError() = runBlocking {
-        HttpClient(MockEngine { request ->
-            val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
-            val reply = buildJsonObject {
-                put("jsonrpc", "2.0")
-                put("id", body.getValue("id"))
-                put("result", obj("""{"resultType":"complete","supportedVersions":["2099-01-01"]}"""))
+        HttpClient(
+            MockEngine { request ->
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val reply = buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", body.getValue("id"))
+                    put("result", obj("""{"resultType":"complete","supportedVersions":["2099-01-01"]}"""))
             }
             respond(reply.toString(), headers = headersOf("Content-Type", "application/json"))
-        }).use { client ->
+            }
+        ).use { client ->
             assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.isFailure)
         }
     }
+
 
     @Test fun legacyProbeFallsBackButModernHeaderErrorsDoNot() = runBlocking {
         HttpClient(MockEngine { respond("legacy session missing", HttpStatusCode.BadRequest) }).use { client ->

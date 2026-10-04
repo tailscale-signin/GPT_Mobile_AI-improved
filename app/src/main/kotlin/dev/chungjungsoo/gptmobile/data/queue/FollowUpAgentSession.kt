@@ -4,7 +4,9 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 
 /** Applies admitted additions at request boundaries without interrupting or repeating tool calls. */
@@ -44,7 +46,14 @@ class FollowUpAgentSession(
                 val calls = exchange.calls.filterNot { it.callId in replayedCallIds }
                 if (calls.isEmpty()) null else AgentToolExchange(calls, exchange.results.filter { result -> calls.any { it.callId == result.callId } })
             }
-            active.streamRound(tools, newExchanges).collect { event ->
+            var providerFailure: Throwable? = null
+            // Catch only upstream failures. A finally block that emits usage can
+            // mask cancellation or a downstream collector failure.
+            active.streamRound(tools, newExchanges).catch { error ->
+                if (error is CancellationException) throw error
+                providerFailure = error
+            }.collect { event ->
+                if (failed && event !is ProviderEvent.Usage) return@collect
                 when (event) {
                     ProviderEvent.Completed -> completed = true
                     is ProviderEvent.Failed -> {
@@ -72,6 +81,9 @@ class FollowUpAgentSession(
             if (inputUsage != null || outputUsage != null || totalUsage != null || decodeSpeed != null) {
                 emit(ProviderEvent.Usage(inputUsage, outputUsage, totalUsage, cumulative = false, decodeTokensPerSecond = decodeSpeed))
             }
+            // Keep observed usage even when the provider throws before completion,
+            // then propagate the original error to AgentRunner's bounded recovery.
+            providerFailure?.let { throw it }
             if (failed || (!completed && !toolCalled)) return@flow
             if (toolCalled) {
                 // Return control so pending tools execute exactly once before a handoff.
@@ -87,7 +99,9 @@ class FollowUpAgentSession(
                     return@flow
                 }
             }
-            emit(ProviderEvent.TextDelta("\n\n"))
+            // A formatting-only delta would make a silent round look like an
+            // answer and incorrectly disable recovery after the follow-up handoff.
+            if (answerTail.isNotEmpty()) emit(ProviderEvent.TextDelta("\n\n"))
         } while (true)
     }
 }

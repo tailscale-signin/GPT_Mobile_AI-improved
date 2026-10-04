@@ -213,9 +213,10 @@ internal class LocalDelegationCoordinator(
                     if (delegationCanceledByUser.get()) return primaryOnlyHandoff()
                     reviewerScores.add(assessment.score)
                 }
+                val accountedInputTokens = maxOf(observedInputTokens, estimatedInput.toLong())
                 AppLogRecorder.record(
                     "Delegation",
-                    "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · attempt=${attempt + 1}/${retryLimit + 1} · observedInputTokens=$observedInputTokens"
+                    "REVIEWER_SCORE · score=${assessment.score} · verdict=${assessment.verdict} · reviewer=${reviewer.uid} · delegate=${delegate.uid} · attempt=${attempt + 1}/${retryLimit + 1} · inputTokens=$accountedInputTokens · inputEstimated=${observedInputTokens <= 0} · retryPolicy=transport_or_schema_only"
                 )
                 return buildString {
                     val thresholdVerdict = if (assessment.score < config.reviewerMinimumScore) "BELOW_THRESHOLD" else assessment.verdict

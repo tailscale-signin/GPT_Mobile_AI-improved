@@ -75,6 +75,7 @@ internal class LocalDelegationCoordinator(
         // LiteRT/QNN package on every response.
         private val runtimeNotReadyUntilMs = ConcurrentHashMap<String, Long>()
         private val permanentlyUnavailableWorkers = ConcurrentHashMap.newKeySet<String>()
+        private val sessionUnavailableWorkers = ConcurrentHashMap.newKeySet<String>()
     }
 
     private val localCalls = AtomicInteger()
@@ -104,11 +105,15 @@ internal class LocalDelegationCoordinator(
     private fun automaticFallbackAllowed(config: ModelDelegationSettings): Boolean =
         config.targetProfileUid.isBlank() || config.fallbackToAnotherProfile
 
-    private fun availabilityKey(profile: PlatformV2): String =
-        "${profile.uid}|${profile.compatibleType}|${profile.model.trim()}|${profile.apiUrl}"
+    private fun availabilityKey(profile: PlatformV2): String {
+        val credentialFingerprint = profile.token?.hashCode() ?: profile.secretRef?.hashCode() ?: 0
+        return "${profile.uid}|${profile.compatibleType}|${profile.model.trim()}|${profile.apiUrl}|$credentialFingerprint"
+    }
 
-    private fun isPermanentlyUnavailable(profile: PlatformV2): Boolean =
-        availabilityKey(profile) in permanentlyUnavailableWorkers
+    private fun isPermanentlyUnavailable(profile: PlatformV2): Boolean {
+        val key = availabilityKey(profile)
+        return key in permanentlyUnavailableWorkers || key in sessionUnavailableWorkers
+    }
 
     private fun primaryOnlyHandoff(partialNotes: List<String> = emptyList()): String = buildString {
         append("Delegation was canceled. Continue this turn with the primary model only and do not call delegate_to_model again.")
@@ -626,6 +631,15 @@ internal class LocalDelegationCoordinator(
                 (classified.softEmpty && emptyCount >= MAX_CONSECUTIVE_EMPTY_RESPONSES)
         if (shouldQuarantine) {
             quarantinedWorkerUids += failedUid
+        }
+        if (classified.authBlocked) {
+            val unavailableProfile = profiles().firstOrNull { it.uid == failedUid } ?: target
+            sessionUnavailableWorkers += availabilityKey(unavailableProfile)
+            AppLogRecorder.record(
+                "Delegation",
+                "Worker marked unavailable for this app session · target=$failedUid · model=${unavailableProfile.model.take(120)} · reason=${message.take(180)}",
+                "W"
+            )
         }
         if (classified.permanentlyUnavailable) {
             val unavailableProfile = profiles().firstOrNull { it.uid == failedUid } ?: target

@@ -1,0 +1,87 @@
+name: Reconcile reliability with main
+on:
+  push:
+    branches: [fix/live-diagnostics-gateway-multisearch]
+    paths: [.github/workflows/reconcile-reliability-main.yml]
+permissions:
+  contents: write
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/live-diagnostics-gateway-multisearch
+          fetch-depth: 0
+      - name: Merge inspected main commit and resolve only reviewed overlaps
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge --no-commit --no-ff cd8d7ab36ffc77a1934ba7240d610bae994707d5 || test -f .git/MERGE_HEAD
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          allowed = {
+              'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MultiEngineSearchTool.kt',
+              'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MultiEngineSearchToolTest.kt',
+              'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MultiEngineSearchToolTest.kt',
+              'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt',
+          }
+          conflicts = subprocess.check_output(['git', 'diff', '--name-only', '--diff-filter=U'], text=True).splitlines()
+          assert set(conflicts) <= allowed, ('Unexpected conflicts; no automatic resolution', conflicts)
+          for path in conflicts:
+              subprocess.run(['git', 'checkout', '--ours', '--', path], check=True)
+              subprocess.run(['git', 'add', '--', path], check=True)
+          p = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/ModelTokenComparison.kt')
+          text = p.read_text().replace('/** One row per exact model ID, independent of role, provider profile or retry. */', '/** One row per normalized model ID; versions and quantizations remain distinct. */')
+          text = text.replace('val providers: List<String>\n', 'val providers: List<String>,\n    val startedAt: Long = 0L\n')
+          text = text.replace('"model:$it"', '"model:${it.lowercase(java.util.Locale.ROOT)}"')
+          text = text.replace('providers = requests.map { it.provider }.distinct()\n', 'providers = requests.map { it.provider }.distinct(),\n                startedAt = requests.first().startedAt\n')
+          p.write_text(text)
+          p = Path('app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt')
+          text = p.read_text()
+          if 'internal data class TokenComparisonRow(' not in text:
+              adapter = '''internal data class TokenComparisonRow(
+              val model: String,
+              val inputTokens: Long,
+              val outputTokens: Long,
+              val requestCount: Int,
+              val startedAt: Long,
+              val estimated: Boolean
+          )
+
+          internal fun tokenComparisonRows(
+              requests: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>
+          ): List<TokenComparisonRow> = dev.chungjungsoo.gptmobile.data.accounting.compareModelTokens(requests).map { row ->
+              TokenComparisonRow(row.model, row.inputTokens, row.outputTokens, row.requests, row.startedAt, row.estimated)
+          }
+
+          '''
+              marker = 'internal fun isTelemetryNotice(message: String): Boolean ='
+              assert text.count(marker) == 1
+              text = text.replace(marker, adapter + marker)
+              p.write_text(text)
+          PY
+          git add app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/ModelTokenComparison.kt app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt
+          git diff --cached --check
+          test -z "$(git diff --name-only --diff-filter=U)"
+      - name: Validate Python and regex contracts
+        run: |
+          python3 -m pip install -r gateway/requirements.txt
+          python3 -m unittest discover -s gateway/tests
+          python3 scripts/check_android_regex.py
+      - name: Commit reconciled branch and package source
+        run: |
+          git rm .github/workflows/reconcile-reliability-main.yml
+          git commit -m 'merge: preserve main ownership batching and model aliases with bounded search'
+          git push origin HEAD:refs/heads/fix/live-diagnostics-gateway-multisearch
+          mkdir -p /tmp/reconciled
+          git diff cd8d7ab36ffc77a1934ba7240d610bae994707d5..HEAD --binary > /tmp/reconciled/reliability-fixes.patch
+          git ls-files -z -- app/src/main/kotlin app/src/test/kotlin gateway LICENSE | tar --null -T - -czf /tmp/reconciled/source.tar.gz
+          git rev-parse HEAD > /tmp/reconciled/commit.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reconciled-reliability-source
+          path: /tmp/reconciled/
+          retention-days: 1

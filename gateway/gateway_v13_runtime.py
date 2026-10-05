@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import time
 
 
@@ -121,10 +122,21 @@ def fit_context(payload, n_ctx, counter, default_output=12288, emergency=False):
             "saved_input_tokens": max(0, before - tokens)}
 
 
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON object key")
+        result[key] = value
+    return result
+
+
 def validate_completion_tools(data, payload):
     choices = data.get("choices") if isinstance(data, dict) else None
     if not isinstance(choices, list) or not choices:
         raise GatewayContractError("Backend returned no completion choice.", "malformed_completion", 502)
+    if len(choices) != 1:
+        raise GatewayContractError("Multiple completion choices are not supported.", "multiple_choices", 502)
     catalog = {t["function"]["name"]: t["function"] for t in payload.get("tools", [])}
     seen = set()
     for choice in choices:
@@ -134,7 +146,8 @@ def validate_completion_tools(data, payload):
         for key in ("content", "reasoning_content", "reasoning"):
             if message.get(key) is not None and not isinstance(message[key], str):
                 raise GatewayContractError("Completion text must be a string.", "malformed_completion", 502)
-        calls = message.get("tool_calls") or []
+        calls = message.get("tool_calls")
+        calls = [] if calls is None else calls
         if not isinstance(calls, list):
             raise GatewayContractError("Malformed tool_calls payload.", "invalid_tool_call", 502)
         for call in calls:
@@ -148,9 +161,9 @@ def validate_completion_tools(data, payload):
                 raise GatewayContractError("Tool call IDs must be present and unique.", "invalid_tool_call", 502)
             seen.add(call_id)
             try:
-                args = json.loads(fn.get("arguments", ""))
+                args = json.loads(fn.get("arguments", ""), object_pairs_hook=_unique_json_object)
             except (ValueError, TypeError):
-                raise GatewayContractError("Tool arguments are incomplete or invalid JSON.", "invalid_tool_arguments", 502)
+                raise GatewayContractError("Tool arguments are incomplete, ambiguous or invalid JSON.", "invalid_tool_arguments", 502)
             if not isinstance(args, dict):
                 raise GatewayContractError("Tool arguments must be a JSON object.", "invalid_tool_arguments", 502)
             required = catalog[name].get("parameters", {}).get("required", [])
@@ -159,6 +172,22 @@ def validate_completion_tools(data, payload):
             if choice.get("finish_reason") not in {"tool_calls", "stop"}:
                 raise GatewayContractError("An unfinished tool call cannot be executed.", "incomplete_tool_call", 502)
     return data
+
+
+def visible_answer_text(message):
+    """Inspect the answer channel without promoting hidden reasoning into an answer."""
+    text = message.get("content") or ""
+    if not isinstance(text, str):
+        return ""
+    text = text.strip()
+    while True:
+        opening = re.match(r"^<(think|analysis)>", text, re.IGNORECASE)
+        if not opening:
+            return text
+        closing = re.search(r"</" + opening.group(1) + r">", text[opening.end():], re.IGNORECASE)
+        if not closing:
+            return ""
+        text = text[opening.end() + closing.end():].strip()
 
 
 class CompletionStream:
@@ -170,6 +199,12 @@ class CompletionStream:
         self.finish = None
         self.received = False
         self.visible_characters = 0
+        self.reasoning_characters = 0
+        self.tool_characters = 0
+
+    @property
+    def generated_characters(self):
+        return self.visible_characters + self.reasoning_characters + self.tool_characters
 
     def accept(self, data):
         if not isinstance(data, dict):
@@ -179,35 +214,75 @@ class CompletionStream:
         for key in ("id", "model", "created", "usage", "timings"):
             if key in data:
                 if key in {"usage", "timings"} and isinstance(data[key], dict):
-                    self.meta[key] = {**(self.meta.get(key) or {}), **data[key]}
+                    previous = self.meta.get(key)
+                    self.meta[key] = {**(previous if isinstance(previous, dict) else {}), **data[key]}
                 elif data[key] is not None:
                     self.meta[key] = data[key]
-        for choice in data.get("choices", []):
+        choices = data.get("choices", [])
+        if not isinstance(choices, list):
+            raise GatewayContractError("Malformed streamed choices.", "malformed_stream", 502)
+        for choice in choices:
+            if not isinstance(choice, dict):
+                raise GatewayContractError("Malformed streamed choice.", "malformed_stream", 502)
             if choice.get("index", 0) != 0:
                 raise GatewayContractError("Multiple streamed choices are not supported.", "multiple_choices", 502)
-            delta = choice.get("delta") or choice.get("message") or {}
+            delta = choice.get("delta")
+            if delta is None:
+                delta = choice.get("message")
+            if delta is None:
+                delta = {}
+            if not isinstance(delta, dict):
+                raise GatewayContractError("Malformed streamed delta.", "malformed_stream", 502)
             for key in ("content", "reasoning_content", "reasoning"):
                 part = delta.get(key)
+                if part is not None and not isinstance(part, str):
+                    raise GatewayContractError("Streamed text must be a string.", "malformed_stream", 502)
                 if isinstance(part, str):
+                    if self.finish is not None and part:
+                        raise GatewayContractError("Output arrived after the finish marker.", "malformed_stream", 502)
                     self.message[key] = self.message.get(key, "") + part
-                    self.visible_characters += len(part)
+                    if key == "content":
+                        self.visible_characters += len(part)
+                    else:
+                        self.reasoning_characters += len(part)
                     self.received = self.received or bool(part)
-            for fragment in delta.get("tool_calls") or []:
+            fragments = delta.get("tool_calls")
+            fragments = [] if fragments is None else fragments
+            if not isinstance(fragments, list):
+                raise GatewayContractError("Malformed streamed tool calls.", "invalid_tool_call", 502)
+            for fragment in fragments:
+                if self.finish is not None or not isinstance(fragment, dict):
+                    raise GatewayContractError("Invalid or late tool fragment.", "invalid_tool_call", 502)
                 index = fragment.get("index", 0)
-                if not isinstance(index, int) or index < 0 or index > 127:
+                if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index > 127:
                     raise GatewayContractError("Invalid streamed tool index.", "invalid_tool_call", 502)
                 call = self.calls.setdefault(index, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
-                if fragment.get("id"):
-                    if call["id"] and call["id"] != fragment["id"]:
-                        raise GatewayContractError("Tool ID changed within one stream.", "invalid_tool_call", 502)
+                if fragment.get("id") is not None:
+                    if not isinstance(fragment["id"], str) or (call["id"] and call["id"] != fragment["id"]):
+                        raise GatewayContractError("Tool ID changed or is invalid within one stream.", "invalid_tool_call", 502)
                     call["id"] = fragment["id"]
-                fn = fragment.get("function") or {}
+                fn = fragment.get("function")
+                fn = {} if fn is None else fn
+                if not isinstance(fn, dict):
+                    raise GatewayContractError("Malformed streamed tool function.", "invalid_tool_call", 502)
                 for key in ("name", "arguments"):
+                    if fn.get(key) is not None and not isinstance(fn[key], str):
+                        raise GatewayContractError("Malformed streamed tool text.", "invalid_tool_call", 502)
                     if isinstance(fn.get(key), str):
                         call["function"][key] += fn[key]
+                        self.tool_characters += len(fn[key])
                 self.received = True
             if choice.get("finish_reason") is not None:
-                self.finish = choice["finish_reason"]
+                finish = choice["finish_reason"]
+                if not isinstance(finish, str) or not finish or (self.finish is not None and self.finish != finish):
+                    raise GatewayContractError("Conflicting or invalid finish marker.", "malformed_stream", 502)
+                self.finish = finish
+
+    def mark_done(self):
+        # Some compatible servers send only [DONE]. Accept that explicit terminal
+        # signal for text, never as authority to execute unfinished tool fragments.
+        if self.finish is None and not self.calls:
+            self.finish = "stop"
 
     def result(self):
         if self.finish is None:
@@ -224,27 +299,40 @@ def consume_sse(lines, on_progress=lambda state: None, cancelled=lambda: False):
     for raw in lines:
         if cancelled():
             raise InterruptedError("Model request cancelled while receiving output.")
-        line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        try:
+            line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        except UnicodeDecodeError as exc:
+            raise GatewayContractError("Invalid UTF-8 in backend stream.", "malformed_stream", 502) from exc
+        if not isinstance(line, str):
+            raise GatewayContractError("Invalid backend stream line.", "malformed_stream", 502)
+        line = line.rstrip("\r\n")
         if line.startswith("data:"):
-            fields.append(line[5:].lstrip())
+            value = line[5:].lstrip()
+            if value.strip() == "[DONE]" and not fields:
+                state.mark_done()
+                break
+            fields.append(value)
         elif not line and fields:
             value = "\n".join(fields)
             fields.clear()
-            if value == "[DONE]":
-                break
             try:
                 data = json.loads(value)
             except ValueError as exc:
                 raise GatewayContractError("Invalid JSON in backend SSE event.", "malformed_stream", 502) from exc
             state.accept(data)
             on_progress(state)
-    if fields and fields != ["[DONE]"]:
+    if cancelled():
+        raise InterruptedError("Model request cancelled while receiving output.")
+    if fields:
         raise GatewayContractError("Backend stream ended inside an SSE event.", "incomplete_stream", 502)
     return state.result()
 
 
 def completion_chunks(data, chunk_chars=2048):
     """Deliver every output character, with usage once and one terminal marker."""
+    if isinstance(chunk_chars, bool) or not isinstance(chunk_chars, int) or chunk_chars <= 0:
+        raise ValueError("chunk_chars must be a positive integer")
+
     def encode(value):
         return "data: " + json.dumps(value, ensure_ascii=False) + "\n\n"
     if data.get("error"):
@@ -255,6 +343,11 @@ def completion_chunks(data, chunk_chars=2048):
             "created": data.get("created", int(time.time())), "model": data.get("model", "")}
     choices = data.get("choices") or [{}]
     message = choices[0].get("message") or {}
+    if not visible_answer_text(message) and not message.get("tool_calls"):
+        yield encode({"error": {"message": "Backend completed without a visible answer or executable tool call.", "code": "empty_completion"}})
+        yield "data: [DONE]\n\n"
+        return
+
     def event(delta, finish=None):
         return {**base, "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
     yield encode(event({"role": "assistant"}))

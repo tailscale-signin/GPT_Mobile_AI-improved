@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -24,13 +25,17 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Children must already be bound to the run's shared budget and permission gate. */
-class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC(), private val parallel: Boolean = true, private val deduplicate: Boolean = true, private val afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null, private val canExecute: () -> Boolean = { true }, private val remainingBytes: () -> Int = { Int.MAX_VALUE }) : AgentTool {
+class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC(), private val parallel: Boolean = true, private val deduplicate: Boolean = true, private val afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null, private val canExecute: () -> Boolean = { true }, private val remainingBytes: () -> Int = { Int.MAX_VALUE }, private val engineTimeoutMillis: Long = 20_000L) : AgentTool {
+    init {
+        require(engineTimeoutMillis > 0L)
+    }
+
     private val reliability = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
     private val blockedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         "web_search",
-        "Search all available web search engines in one request, ranked by observed reliability. Returns deduplicated sources and each engine's status. An unavailable engine does not discard other results.",
+        "Run one query across all selected compatible web search engines with bounded concurrency and shared permissions/budgets. Returns deduplicated sources and each engine's status. maxResults limits each engine. A failed or slow engine does not discard successful results.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -68,15 +73,15 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         }
     )
 
-    // Per-turn, short-lived single-flight cache. Identical searches by preparation and
-    // synthesis share evidence; changed filters and failed searches remain independent.
+    // Per-turn single flight. Fixed lock stripes avoid retaining a mutex for every
+    // distinct query ever attempted; only successful evidence enters the bounded cache.
     private val resultCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, AgentToolResult>>()
-    private val queryLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private val queryLocks = Array(32) { Mutex() }
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if (!deduplicate) return search(callId, arguments)
         val key = JsonObject(arguments.toSortedMap()).toString()
-        return queryLocks.getOrPut(key) { Mutex() }.withLock {
+        return queryLocks[(key.hashCode() and Int.MAX_VALUE) % queryLocks.size].withLock {
             val now = clock.millis()
             resultCache[key]?.takeIf { now - it.first in 0..30_000L }?.let {
                 return@withLock it.second.copy(callId = callId, sharedResult = true)
@@ -123,22 +128,28 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         ) {
             return@coroutineScope AgentToolResult(callId, ToolResultContent.Text("Use valid host names and a recency within the supported calendar range."), true)
         }
-        val engineCap = if (remainingBytes() < 16 * 1024) 1 else engines.size.coerceAtLeast(1)
-        val selected = engines.filter { (blockedUntil[it.modelToolName] ?: 0) <= clock.millis() }
+        // Do not silently drop engine three and later. Each selected child still
+        // passes its existing consent and shared-budget wrapper before execution.
+        val selected = engines.distinctBy { it.selectionId() }
             .sortedByDescending { reliability[it.modelToolName]?.get() ?: 0 }
-            .take(engineCap)
-        val permits = Semaphore(if (parallel) selected.size.coerceAtLeast(1) else 1)
+        val permits = Semaphore(if (parallel) 3 else 1)
         val responses = selected.mapIndexed { index, engine ->
             async {
                 permits.withPermit {
                     try {
+                        if ((blockedUntil[engine.modelToolName] ?: 0L) > clock.millis()) {
+                            return@withPermit engine to AgentToolResult(callId, ToolResultContent.Text("Engine cooling down after an authentication or subscription failure."), true)
+                        }
                         if (!canExecute() || remainingBytes() < 1024) {
                             return@withPermit engine to AgentToolResult(callId, ToolResultContent.Text("Search skipped: insufficient remaining run budget."), true, outputBudgetExhausted = true)
                         }
                         val adapter = requireNotNull(WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition))
                         val mapped = adapter.arguments(arguments, clock)
-                        val result = engine.tool.execute("$callId:engine:$index", mapped)
-                        reliability.getOrPut(engine.modelToolName) { java.util.concurrent.atomic.AtomicInteger() }.addAndGet(if (result.isError) -1 else 1)
+                        val result = withTimeoutOrNull(engineTimeoutMillis) {
+                            engine.tool.execute("$callId:engine:$index", mapped)
+                        } ?: AgentToolResult(callId, ToolResultContent.Text("Engine timed out; other engine results remain available."), true)
+                        reliability.getOrPut(engine.modelToolName) { java.util.concurrent.atomic.AtomicInteger() }
+                            .updateAndGet { (it + if (result.isError) -1 else 1).coerceIn(-20, 20) }
                         val detail = result.content.toString()
                         if (result.isError && Regex("HTTP (401|402|403)").containsMatchIn(detail)) {
                             blockedUntil[engine.modelToolName] = clock.millis() + 5 * 60_000L
@@ -152,7 +163,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 }
             }
         }.awaitAll()
-        val seen = mutableSetOf<String>()
+        val sourceIndexes = mutableMapOf<String, Int>()
         val sources = mutableListOf<JsonElement>()
         val statuses = responses.map { (engine, result) ->
             val label = engine.connectionName ?: "Built-in search"
@@ -174,7 +185,16 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 .take(maxResults)
             extracted.forEach { source ->
                 val url = (source["url"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
-                if (!deduplicate || seen.add(canonicalSearchUrl(url))) sources += JsonObject(source + ("engine" to JsonPrimitive(label)))
+                val key = canonicalSearchUrl(url)
+                val previous = sourceIndexes[key].takeIf { deduplicate }
+                if (previous == null) {
+                    sourceIndexes[key] = sources.size
+                    sources += JsonObject(source + mapOf("engine" to JsonPrimitive(label), "engines" to JsonArray(listOf(JsonPrimitive(label)))))
+                } else {
+                    val existing = sources[previous] as JsonObject
+                    val labels = ((existing["engines"] as? JsonArray).orEmpty() + JsonPrimitive(label)).distinct()
+                    sources[previous] = JsonObject(existing + ("engines" to JsonArray(labels)))
+                }
             }
             buildJsonObject {
                 put("engine", label)
@@ -195,7 +215,20 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                 }
             }
         }
-        val crawl = afterSearch?.invoke(callId, sources.filterIsInstance<JsonObject>())
+        // Crawling is an optional enrichment: it must never erase successful search
+        // evidence. External cancellation still stops the entire operation promptly.
+        val crawl = if (afterSearch != null && sources.isNotEmpty()) {
+            try {
+                withTimeoutOrNull(30_000L) { afterSearch.invoke(callId, sources.filterIsInstance<JsonObject>()) }
+                    ?: crawlUnavailable("Page enrichment timed out; search results were preserved.")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                crawlUnavailable("Page enrichment failed; search results were preserved.")
+            }
+        } else {
+            null
+        }
         AgentToolResult(
             callId,
             ToolResultContent.Json(
@@ -203,6 +236,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                     put("query", query)
                     put("engines", JsonArray(statuses))
                     put("results", JsonArray(sources))
+                    if (selected.isEmpty()) put("notice", "No selected compatible search engines are available.")
                     crawl?.let { put("pages", it) }
                 }
             ),
@@ -216,6 +250,12 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
             toolResultBudgetUsedBytes = responses.mapNotNull { it.second.toolResultBudgetUsedBytes }.maxOrNull(),
             toolResultBudgetLimitBytes = responses.mapNotNull { it.second.toolResultBudgetLimitBytes }.maxOrNull()
         )
+    }
+
+    private fun crawlUnavailable(message: String): JsonObject = buildJsonObject {
+        put("owner", "search")
+        put("status", "unavailable")
+        put("notice", message)
     }
 }
 

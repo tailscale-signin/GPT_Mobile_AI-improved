@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.updateAssistantSlot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
 
 // Target frame budgets for streaming token batching:
@@ -86,7 +87,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     var terminalError: String? = null
 
     try {
-        collect { chunk ->
+        takeWhile { chunk ->
             when (chunk) {
                 is ApiState.ProgressCheckpoint -> {
                     buffer.appendProgress(chunk.text, chunk.modelAuthored)
@@ -151,13 +152,17 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 else -> {}
             }
-        }
+            // A terminal event is final even when a provider leaves its socket or
+            // flow open. Stop upstream now; finally still publishes buffered text.
+            !isCompletedSuccessfully && terminalError == null
+        }.collect {}
     } finally {
         buffer.flush(onUpdate)
     }
 
+    val completedError = terminalError
     return when {
-        terminalError != null -> ApiStateFlowOutcome.Failed(terminalError)
+        completedError != null -> ApiStateFlowOutcome.Failed(completedError)
         isCompletedSuccessfully && !buffer.hasResponse -> ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
         isCompletedSuccessfully -> ApiStateFlowOutcome.Completed
         else -> ApiStateFlowOutcome.Incomplete

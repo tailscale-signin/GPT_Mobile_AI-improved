@@ -11,7 +11,10 @@ import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -202,7 +205,7 @@ class MultiEngineSearchToolTest {
         assertEquals(0, calls)
     }
 
-    @Test fun `per query engine cap prevents broad fanout and merges duplicate sources`() = runBlocking {
+    @Test fun `all selected engines run and duplicate sources retain provenance despite a failed engine`() = runBlocking {
         val queried = mutableSetOf<String>()
         fun search(name: String, url: String) = engine(name) { id, args ->
             queried += name
@@ -234,11 +237,13 @@ class MultiEngineSearchToolTest {
         }
         val result = MultiEngineSearchTool(listOf(search("one", "https://example.org/doc?utm_source=one"), search("two", "https://example.org/doc#section"), broken))
             .execute("parent", buildJsonObject { put("query", "Compose") })
-        assertEquals(setOf("one", "two"), queried)
+        assertEquals(setOf("one", "two", "broken"), queried)
         assertFalse(result.isError)
         val json = (result.content as ToolResultContent.Json).value.jsonObject
-        assertEquals(1, (json["results"] as JsonArray).size)
-        assertEquals(2, (json["engines"] as JsonArray).size)
+        val sources = json["results"] as JsonArray
+        assertEquals(1, sources.size)
+        assertEquals(JsonArray(listOf(JsonPrimitive("one"), JsonPrimitive("two"))), sources.first().jsonObject["engines"])
+        assertEquals(3, (json["engines"] as JsonArray).size)
         assertEquals("parent", result.callId)
     }
 
@@ -283,5 +288,75 @@ class MultiEngineSearchToolTest {
         assertTrue(web.copy(realToolName = "github_search_code").isWebSearchEngine())
         assertTrue(web.copy(realToolName = "brave_web_search").isWebSearchEngine())
         assertEquals(listOf("web_search"), aggregateWebSearch(listOf(web)).map { it.modelToolName })
+    }
+
+    @Test fun `one timed out engine cannot discard the other engine evidence`() = runBlocking {
+        var slowClosed = false
+        val slow = engine("slow") { _, _ ->
+            try {
+                awaitCancellation()
+            } finally {
+                slowClosed = true
+            }
+        }
+        val fast = engine("fast") { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/fast\nDescription: Complete"), false)
+        }
+        val result = withTimeout(1_000) {
+            MultiEngineSearchTool(listOf(slow, fast), engineTimeoutMillis = 25L)
+                .execute("timeout", buildJsonObject { put("query", "test") })
+        }
+        assertTrue(slowClosed)
+        assertFalse(result.isError)
+        val json = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(1, (json["results"] as JsonArray).size)
+        assertTrue((json["engines"] as JsonArray).any { it.jsonObject["status"] == JsonPrimitive("unavailable") })
+    }
+
+    @Test fun `optional crawling failure does not turn search evidence into an error`() = runBlocking {
+        val search = engine("search") { id, _ ->
+            AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/doc\nDescription: Complete"), false)
+        }
+        val result = MultiEngineSearchTool(listOf(search), afterSearch = { _, _ -> error("Crawler failed") })
+            .execute("crawl", buildJsonObject { put("query", "test") })
+        assertFalse(result.isError)
+        val json = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(1, (json["results"] as JsonArray).size)
+        assertEquals(JsonPrimitive("unavailable"), json.getValue("pages").jsonObject["status"])
+    }
+
+    @Test fun `parent cancellation propagates rather than becoming engine failure`() = runBlocking {
+        var closed = false
+        val hanging = engine("hanging") { _, _ ->
+            try {
+                awaitCancellation()
+            } finally {
+                closed = true
+            }
+        }
+        var cancelled = false
+        try {
+            withTimeout(50L) {
+                MultiEngineSearchTool(listOf(hanging), engineTimeoutMillis = 10_000L)
+                    .execute("cancel", buildJsonObject { put("query", "test") })
+            }
+        } catch (_: TimeoutCancellationException) {
+            cancelled = true
+        }
+        assertTrue(cancelled)
+        assertTrue(closed)
+    }
+
+    @Test fun `sequential mode still visits every unique selected engine`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val engines = (1..4).map { index ->
+            engine("engine$index") { id, _ ->
+                calls += "engine$index"
+                AgentToolResult(id, ToolResultContent.Text("source"), false)
+            }
+        }
+        MultiEngineSearchTool(engines + engines.first(), parallel = false)
+            .execute("sequential", buildJsonObject { put("query", "test") })
+        assertEquals(listOf("engine1", "engine2", "engine3", "engine4"), calls)
     }
 }

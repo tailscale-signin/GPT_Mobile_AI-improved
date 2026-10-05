@@ -5,6 +5,10 @@ internal class TerminalStreamDrain(
     private val graceMillis: Long = 1000L,
     private val nowNanos: () -> Long = System::nanoTime
 ) {
+    init {
+        require(graceMillis >= 0L) { "Terminal stream grace must not be negative" }
+    }
+
     private var terminalAt: Long? = null
 
     fun markTerminal() {

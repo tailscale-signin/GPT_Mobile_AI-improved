@@ -7,6 +7,9 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import java.net.URI
 import java.time.Clock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -145,9 +148,10 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                         }
                         val adapter = requireNotNull(WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition))
                         val mapped = adapter.arguments(arguments, clock)
+                        val childId = "$callId:engine:$index"
                         val result = withTimeoutOrNull(engineTimeoutMillis) {
-                            engine.tool.execute("$callId:engine:$index", mapped)
-                        } ?: AgentToolResult(callId, ToolResultContent.Text("Engine timed out; other engine results remain available."), true)
+                            engine.tool.execute(childId, mapped)
+                        } ?: AgentToolResult(childId, ToolResultContent.Text("Engine timed out; other engine results remain available."), true)
                         reliability.getOrPut(engine.modelToolName) { java.util.concurrent.atomic.AtomicInteger() }
                             .updateAndGet { (it + if (result.isError) -1 else 1).coerceIn(-20, 20) }
                         val detail = result.content.toString()
@@ -155,6 +159,9 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
                             blockedUntil[engine.modelToolName] = clock.millis() + 5 * 60_000L
                         }
                         engine to result
+                    } catch (_: TimeoutCancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        engine to AgentToolResult(callId, ToolResultContent.Text("Search engine timed out; other results are preserved."), true)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {

@@ -44,6 +44,42 @@ def events(*values, done=True):
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_reasoning_is_not_visible_and_short_answers_are_valid(self):
+        from gateway_v13_runtime import CompletionStream, visible_answer_text
+        stream = CompletionStream()
+        stream.accept({'choices': [{'delta': {'reasoning_content': 'private reasoning'}}]})
+        self.assertEqual(stream.visible_characters, 0)
+        self.assertGreater(stream.observed_characters, 0)
+        self.assertEqual(visible_answer_text('<think>unfinished thought'), '')
+        self.assertEqual(visible_answer_text('<think>thought</think>OK'), 'OK')
+
+    def test_owner_partition_preserves_ids_and_rejects_unknown_calls(self):
+        from gateway_v13_runtime import partition_owned_tool_calls
+        calls = [dict(call(name='search_web'), id='local'), dict(call(name='location_get'), id='phone')]
+        local, client = partition_owned_tool_calls(calls, [('search_web', 'gateway_mcp'), ('location_get', 'client_owned')])
+        self.assertEqual([item['id'] for item in local], ['local'])
+        self.assertEqual([item['id'] for item in client], ['phone'])
+        local[0]['function']['name'] = 'changed'
+        self.assertEqual(calls[0]['function']['name'], 'search_web')
+        with self.assertRaises(GatewayContractError):
+            partition_owned_tool_calls(calls, [('search_web', None), ('location_get', 'client_owned')])
+
+    def test_terminal_without_done_closes_after_grace_and_retains_usage(self):
+        closed = threading.Event()
+        response = Mock(status_code=200, headers={'content-type': 'text/event-stream'})
+        def lines(**kwargs):
+            yield from list(events({'choices': [{'delta': {'content': 'OK'}, 'finish_reason': 'stop'}]}, {'choices': [], 'usage': {'completion_tokens': 2}}))[:-2]
+            closed.wait(2)
+        response.iter_lines.side_effect = lines
+        response.close.side_effect = closed.set
+        session = Mock(); session.post.return_value = response
+        output = post_chat(session, 'http://backend', {'tools': []}, connect_timeout=1, idle_timeout=2,
+                           deadline_seconds=3, cancelled=lambda: False, progress=lambda e: None, terminal_grace_seconds=0.05)
+        self.assertTrue(closed.is_set())
+        self.assertEqual(output.json()['choices'][0]['message']['content'], 'OK')
+        self.assertEqual(output.json()['usage']['completion_tokens'], 2)
+        session.post.assert_called_once()
+
     def test_explicit_large_output_is_preserved(self):
         body = request()
         report = fit_context(body, 32768, lambda p: (1000, 'test'))
@@ -160,6 +196,25 @@ class V13IntegrationTests(_IntegrationBase):
         self.client = TestClient(self.gateway.app)
         self.client.__enter__()
 
+    def test_empty_answer_synthesis_is_bounded_and_never_claims_verified_research(self):
+        body = request()
+        empty = Mock(status_code=200, ok=True)
+        empty.json.return_value = {'choices': [{'message': {'content': '<think>unfinished'}, 'finish_reason': 'stop'}]}
+        with patch.object(self.gateway, 'http_post', return_value=empty) as post, patch.object(self.gateway, 'apply_context_guard'):
+            status, data = self.gateway.run_clean_terminal_synthesis('local', body, body['messages'], body['messages'], 'answer', [], single_attempt=True)
+        self.assertEqual(status, 502)
+        self.assertEqual(data['error']['code'], 'empty_completion')
+        self.assertNotIn('verified', data['error']['message'])
+        post.assert_called_once()
+
+    def test_synthesis_accepts_short_answer_and_propagates_cancellation(self):
+        self.assertEqual(self.gateway._usable_synthesis_content({'choices': [{'message': {'content': 'OK'}}]}), 'OK')
+        body = request()
+        with patch.object(self.gateway, 'http_post', side_effect=InterruptedError('cancelled')) as post, patch.object(self.gateway, 'apply_context_guard'):
+            with self.assertRaises(InterruptedError):
+                self.gateway.run_clean_terminal_synthesis('local', body, body['messages'], body['messages'], 'answer', [])
+        post.assert_called_once()
+
     def test_invalid_body_returns_400_before_job_creation(self):
         for body in [[], {}, dict(request(), n=2)]:
             response = self.client.post('/v1/chat/completions', json=body, headers={'Authorization': 'Bearer ' + self.token_a})
@@ -167,7 +222,7 @@ class V13IntegrationTests(_IntegrationBase):
 
     def test_version_and_readiness(self):
         headers = {'Authorization': 'Bearer ' + self.token_a}
-        self.assertEqual(self.client.get('/gateway/v13', headers=headers).json()['version'], '13.0.0')
+        self.assertEqual(self.client.get('/gateway/v13', headers=headers).json()['version'], '13.1.0')
         with patch.object(self.gateway, 'http_get', return_value=Mock(status_code=503)):
             self.assertEqual(self.client.get('/gateway/ready', headers=headers).status_code, 503)
         self.assertEqual(self.client.get('/gateway/ready').status_code, 401)

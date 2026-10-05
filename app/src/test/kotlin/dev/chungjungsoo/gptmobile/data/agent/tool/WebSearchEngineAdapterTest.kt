@@ -8,6 +8,7 @@ import java.time.ZoneOffset
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -23,6 +24,17 @@ internal fun marketplaceSearchFixtures(): List<JsonObject> = requireNotNull(
 ).bufferedReader().use { reader -> (Json.parseToJsonElement(reader.readText()) as JsonArray).map { it.jsonObject } }
 
 class WebSearchEngineAdapterTest {
+    @Test
+    fun `multi search recognizes web schemas without hiding memory search`() {
+        val schema = buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject { put("query", buildJsonObject { put("type", "string") }) })
+            put("required", JsonArray(listOf(JsonPrimitive("query"))))
+        }
+        org.junit.Assert.assertNotNull(WebSearchEngineAdapter.forTool("multi_search", AgentToolDefinition("multi_search", "Search several web search engines", schema)))
+        org.junit.Assert.assertNull(WebSearchEngineAdapter.forTool("multi_search", AgentToolDefinition("multi_search", "Search stored memory records", schema)))
+    }
+
     @Test
     fun `every marketplace search tool has a tested provider contract`() {
         val expected = McpPresetCatalog.presets.flatMap { preset -> preset.webSearchToolNames.map { preset.id to it } }.toSet()

@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 
 class OpenAIAPIImpl @Inject constructor(
@@ -252,14 +253,19 @@ class OpenAIAPIImpl @Inject constructor(
 
                     // Success - read SSE stream
                     val channel = response.bodyAsChannel()
+                    val terminalDrain = TerminalStreamDrain()
                     while (!channel.isClosedForRead) {
-                        val line = channel.readLine() ?: break
+                        val remaining = terminalDrain.remainingMillis()
+                        val line = if (remaining == null) {
+                            channel.readLine()
+                        } else {
+                            withTimeoutOrNull(remaining) { channel.readLine() }
+                        } ?: break
                         val data = SseUtils.extractSseData(line) ?: continue
 
                         // OpenAI sends "[DONE]" as final message
                         if (data == "[DONE]") {
                             receivedTerminal = true
-                            if (receivedToolCalls) emit(ChatCompletionChunk(streamFinished = true))
                             break
                         }
 
@@ -283,6 +289,7 @@ class OpenAIAPIImpl @Inject constructor(
                             decoded.copy(error = error.copy(message = config.readableProviderError(error.message, error.code)))
                         } ?: decoded
                         receivedTerminal = receivedTerminal || chunk.error != null || chunk.choices.orEmpty().any { it.finishReason != null }
+                        if (receivedTerminal) terminalDrain.markTerminal()
                         receivedAnswer = receivedAnswer || chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() }
                         receivedError = receivedError || chunk.error != null
                         reachedOutputLimit = reachedOutputLimit || chunk.choices.orEmpty().any { it.finishReason == "length" }
@@ -294,7 +301,9 @@ class OpenAIAPIImpl @Inject constructor(
                         } else {
                             emit(chunk)
                         }
+                        if (receivedError) break
                     }
+                    if (receivedTerminal && receivedToolCalls && !receivedError) emit(ChatCompletionChunk(streamFinished = true))
 
                     if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before a completion marker")
                     if (parseFailures > 0 && !receivedAssistantPayload && !receivedError) {

@@ -3,7 +3,7 @@ param(
     [string]$Python = 'python'
 )
 $ErrorActionPreference = 'Stop'
-$Names = @('gateway.py', 'gateway_v13.py', 'gateway_v13_runtime.py', 'gateway_v13_transport.py', 'gateway_security.py', 'requirements.txt')
+$Names = @('gateway.py', 'gateway_v13.py', 'gateway_v13_runtime.py', 'gateway_v13_transport.py', 'gateway_multisearch.py', 'gateway_security.py', 'requirements.txt')
 $Parent = Split-Path -Parent ([System.IO.Path]::GetFullPath($Destination))
 foreach ($Name in $Names) {
     $Source = Join-Path $PSScriptRoot $Name

@@ -1,6 +1,6 @@
 # Local gateway 13.0
 
-`gateway_v13.py` is the canonical server; `gateway.py` is its stable launcher. Install the v13 runtime/transport modules and `gateway_security.py` alongside it. See [V13_UPGRADE.md](V13_UPGRADE.md) for installation, behavior changes and rollback. V12 and v10 files are retained for historical compatibility.
+`gateway_v13.py` is the canonical server; `gateway.py` is its stable launcher. Install the v13 runtime/transport modules, `gateway_multisearch.py`, and `gateway_security.py` alongside it. See [V13_UPGRADE.md](V13_UPGRADE.md) for installation, behavior changes and rollback. V12 and v10 files are retained for historical compatibility.
 
 Use Python 3.12 or newer and an isolated environment:
 

@@ -78,7 +78,7 @@ internal class WebSearchEngineAdapter private constructor(
 
     companion object {
         private val marketplaceNames by lazy { McpPresetCatalog.presets.flatMap { it.webSearchToolNames }.toSet() }
-        private val aliases = setOf("brave_search", "bing_search", "google_search", "tavily-search", "exa_search", "duckduckgo_search")
+        private val aliases = setOf("brave_search", "bing_search", "google_search", "tavily-search", "exa_search", "duckduckgo_search", "multi_search", "web_search_multi", "multi_web_search", "search_engine_batch")
         private val COUNT_KEYS = listOf("maxResults", "max_results", "numResults", "num_results", "count", "limit", "num")
         private val INCLUDE_KEYS = listOf("includeDomains", "include_domains")
         private val EXCLUDE_KEYS = listOf("excludeDomains", "exclude_domains")
@@ -86,10 +86,15 @@ internal class WebSearchEngineAdapter private constructor(
         fun forTool(realToolName: String, definition: AgentToolDefinition): WebSearchEngineAdapter? {
             val name = realToolName.lowercase()
             if (isCrawlerTool(name)) return null
+            if (name in setOf("multi_search", "search_engine_batch") &&
+                !Regex("(?i)web|internet|search engine").containsMatchIn(definition.description)
+            ) {
+                return null
+            }
             if (name !in marketplaceNames && name !in aliases && !isNamedWebSearch(name, definition.description)) return null
             val schema = definition.inputSchema
             val properties = schema["properties"] as? JsonObject ?: return null
-            val queryKeys = if (name == "deep_search_exa") listOf("objective") else listOf("query", "q", "search_query", "searchQuery", "queries")
+            val queryKeys = if (name == "deep_search_exa") listOf("objective") else listOf("query", "q", "search_query", "searchQuery", "queries", "searches", "search_query_batch")
             val queryKey = queryKeys.firstOrNull { it in properties } ?: return null
             val querySchema = properties[queryKey] as? JsonObject ?: return null
             // Verify query and required parameter shapes before hiding the original tool.

@@ -14,6 +14,27 @@ class GatewayContractError(ValueError):
         self.status = status
 
 
+def visible_answer_text(content):
+    """Reasoning-only, whitespace and tool markup are not a user-visible answer."""
+    if not isinstance(content, str):
+        return ""
+    text = re.sub(r"<(think|analysis|reasoning)(?:\s[^>]*)?>.*?(?:</\1>|$)", "", content, flags=re.I | re.S)
+    text = re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.I | re.S)
+    return re.sub(r"</(?:think|analysis|reasoning)>", "", text, flags=re.I).strip()
+
+
+def partition_owned_tool_calls(calls, routes):
+    """Keep call IDs and order. No unknown call may leak into a client handoff."""
+    if len(calls) != len(routes):
+        raise GatewayContractError("Tool ownership count mismatch.", "invalid_tool_ownership", 502)
+    local, client = [], []
+    for call, (name, owner) in zip(calls, routes):
+        if call.get("function", {}).get("name") != name or owner not in {"gateway_mcp", "llama_native", "client_owned"}:
+            raise GatewayContractError("No authorized executor owns a requested tool.", "unauthorized_tool_call", 502)
+        (client if owner == "client_owned" else local).append(copy.deepcopy(call))
+    return local, client
+
+
 def validate_chat_request(payload):
     if not isinstance(payload, dict):
         raise GatewayContractError("The request body must be a JSON object.")
@@ -242,7 +263,7 @@ class CompletionStream:
                         raise GatewayContractError("Output arrived after the finish marker.", "malformed_stream", 502)
                     self.message[key] = self.message.get(key, "") + part
                     if key == "content":
-                        self.visible_characters += len(part)
+                        self.visible_characters = len(visible_answer_text(self.message[key]))
                     else:
                         self.reasoning_characters += len(part)
                     self.received = self.received or bool(part)

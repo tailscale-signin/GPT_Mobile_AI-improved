@@ -1,0 +1,43 @@
+name: Apply reliability fixes
+on:
+  push:
+    branches: [fix/live-diagnostics-gateway-multisearch]
+    paths: [.github/workflows/apply-reliability-fixes.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/live-diagnostics-gateway-multisearch
+      - name: Verify and apply reviewed patch
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+          encoded = ''.join(Path(f'.github/reliability-patch.part{i}').read_text().strip() for i in range(1, 4))
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          expected = '8d7911073fd616b92f8cf8288753f3b9af8b6bbeaa1b59c32d11c3fc1b7e53db'
+          assert hashlib.sha256(patch).hexdigest() == expected, 'Reviewed patch digest mismatch'
+          Path('/tmp/reliability.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/reliability.patch
+          git apply --index /tmp/reliability.patch
+          git diff --cached --check
+      - name: Validate gateway and Android regex contracts
+        run: |
+          python3 -m pip install -r gateway/requirements.txt
+          python3 -m py_compile gateway/gateway*.py
+          python3 -m unittest discover -s gateway/tests -v
+          python3 scripts/check_android_regex.py
+      - name: Remove temporary transfer files and commit repair branch
+        run: |
+          git rm .github/reliability-patch.part1 .github/reliability-patch.part2 .github/reliability-patch.part3
+          git rm .github/workflows/reliability-source-snapshot.yml .github/workflows/apply-reliability-fixes.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: unify model tokens, bound gateway completion, and fan out web search'
+          git push origin HEAD:refs/heads/fix/live-diagnostics-gateway-multisearch

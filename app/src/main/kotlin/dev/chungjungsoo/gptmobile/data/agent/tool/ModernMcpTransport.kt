@@ -71,9 +71,16 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         val discovered = try {
             val discovery = rpc(config, "server/discover", JsonObject(emptyMap()))
-            val versions = (discovery["supportedVersions"] as? JsonArray).orEmpty()
-                .mapNotNull { version -> (version as? JsonPrimitive)?.takeIf { it.isString }?.content }
+            val advertised = discovery["supportedVersions"]
+            require(advertised == null || advertised is JsonArray) { "MCP supportedVersions must be an array." }
+            val versions = (advertised as? JsonArray).orEmpty().map { version ->
+                require(version is JsonPrimitive && version.isString) { "MCP supportedVersions must contain strings." }
+                version.content
+            }
             when {
+                // A successful probe with no versions is inconclusive. Let the
+                // SDK initialize and negotiate before declaring incompatibility.
+                versions.isEmpty() -> null
                 VERSION in versions -> discovery
                 versions.any { it in LEGACY_VERSIONS } -> null
                 else -> error("Server has no mutually supported MCP version. Advertised: ${versions.joinToString().ifEmpty { "none" }}")

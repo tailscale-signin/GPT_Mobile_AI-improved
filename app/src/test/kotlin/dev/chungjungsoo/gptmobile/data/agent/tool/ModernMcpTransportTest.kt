@@ -82,6 +82,42 @@ class ModernMcpTransportTest {
         }
     }
 
+    @Test fun missingDiscoveryVersionsUseStandardInitialization() = runBlocking {
+        val methods = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                if (request.method.value == "GET") return@MockEngine respond("", HttpStatusCode.MethodNotAllowed)
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val method = body.getValue("method").jsonPrimitive.content
+                methods += method
+                if (method == "notifications/initialized") {
+                    respond("", HttpStatusCode.Accepted)
+                } else {
+                    val result = when (method) {
+                        "server/discover" -> obj("""{"resultType":"complete"}""")
+                        "initialize" -> obj("""{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"legacy-bridge","version":"1"}}""")
+                        "tools/list" -> obj("""{"tools":[{"name":"echo","inputSchema":{"type":"object"}}]}""")
+                        else -> error("Unexpected MCP method: $method")
+                    }
+                    val reply = buildJsonObject {
+                        put("jsonrpc", "2.0")
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }
+                    respond(reply.toString(), headers = headersOf("Content-Type", "application/json"))
+                }
+            }
+        ).use { client ->
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            try {
+                assertEquals(listOf("echo"), manager.listTools(config).map { it.name })
+                assertEquals(listOf("server/discover", "initialize", "notifications/initialized", "tools/list"), methods)
+            } finally {
+                manager.closeAll()
+            }
+        }
+    }
+
     @Test fun incompatibleVersionsRemainAnError() = runBlocking {
         HttpClient(
             MockEngine { request ->

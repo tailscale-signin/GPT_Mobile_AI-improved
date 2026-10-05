@@ -88,7 +88,9 @@ internal class WebSearchEngineAdapter private constructor(
             if (isCrawlerTool(name)) return null
             if (name in setOf("multi_search", "search_engine_batch") &&
                 !Regex("(?i)web|internet|search engine").containsMatchIn(definition.description)
-            ) return null
+            ) {
+                return null
+            }
             if (name !in marketplaceNames && name !in aliases && !isNamedWebSearch(name, definition.description)) return null
             val schema = definition.inputSchema
             val properties = schema["properties"] as? JsonObject ?: return null

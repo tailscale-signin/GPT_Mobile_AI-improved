@@ -62,3 +62,17 @@ class MultiSearchTests(unittest.TestCase):
         cancel = threading.Event(); cancel.set()
         with self.assertRaises(InterruptedError):
             run_searches([('slow', {})], execute, cancelled=cancel)
+
+    def test_pre_cancelled_request_dispatches_no_engine(self):
+        cancel = threading.Event()
+        cancel.set()
+        calls = []
+        with self.assertRaises(InterruptedError):
+            run_searches([("engine", {})], lambda *a, **kw: calls.append(a), cancelled=cancel)
+        self.assertEqual(calls, [])
+
+    def test_nonpositive_deadline_is_rejected_before_dispatch(self):
+        calls = []
+        with self.assertRaises(ValueError):
+            run_searches([("engine", {})], lambda *a, **kw: calls.append(a), timeout_seconds=0)
+        self.assertEqual(calls, [])

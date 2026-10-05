@@ -91,6 +91,10 @@ def _sources(value):
 
 def run_searches(targets, execute, *, cancelled=None, progress=None, timeout_seconds=20.0):
     """Bound wall time/concurrency; one failure never erases another engine's data."""
+    if cancelled is not None and cancelled.is_set():
+        raise InterruptedError("Multi-engine search cancelled before dispatch")
+    if timeout_seconds <= 0:
+        raise ValueError("Search timeout must be positive")
     stop = threading.Event()
     deadline = time.monotonic() + timeout_seconds
     pending = {}
@@ -100,7 +104,7 @@ def run_searches(targets, execute, *, cancelled=None, progress=None, timeout_sec
     attempt_lock = threading.Lock()
 
     def invoke(name, args):
-        if stop.is_set():
+        if stop.is_set() or (cancelled is not None and cancelled.is_set()):
             raise InterruptedError("Search cancelled before dispatch")
         with attempt_lock:
             attempted.add(name)
@@ -108,6 +112,8 @@ def run_searches(targets, execute, *, cancelled=None, progress=None, timeout_sec
 
     def fill():
         while len(pending) < 2 and not stop.is_set():
+            if cancelled is not None and cancelled.is_set():
+                raise InterruptedError("Multi-engine search cancelled before dispatch")
             item = next(waiting, None)
             if item is None:
                 break

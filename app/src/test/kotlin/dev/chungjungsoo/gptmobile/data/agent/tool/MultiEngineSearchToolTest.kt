@@ -42,22 +42,20 @@ class MultiEngineSearchToolTest {
             ResolvedAgentTool(tool, name, name, name, tool.definition.name)
         }
         assertEquals(listOf("web_search"), aggregateWebSearch(engines).map { it.modelToolName })
-        val responses = engines.chunked(2).map { batch ->
-            MultiEngineSearchTool(batch, Clock.fixed(Instant.parse("2026-08-01T12:00:00Z"), ZoneOffset.UTC)).execute(
-                "all",
-                buildJsonObject {
-                    put("query", "local model speed")
-                    put("maxResults", 2)
-                    put("includeDomains", JsonArray(listOf(JsonPrimitive("example.org"))))
-                    put("recencyDays", 2)
-                }
-            )
-        }
-        assertTrue(responses.none { it.isError })
+        val response = MultiEngineSearchTool(engines, Clock.fixed(Instant.parse("2026-08-01T12:00:00Z"), ZoneOffset.UTC)).execute(
+            "all",
+            buildJsonObject {
+                put("query", "local model speed")
+                put("maxResults", 2)
+                put("includeDomains", JsonArray(listOf(JsonPrimitive("example.org"))))
+                put("recencyDays", 2)
+            }
+        )
+        assertFalse(response.isError)
         assertEquals(fixtures.size, queried.size)
-        val payloads = responses.map { (it.content as ToolResultContent.Json).value.jsonObject }
-        assertEquals(fixtures.size, payloads.sumOf { (it["results"] as JsonArray).size })
-        val statuses = payloads.flatMap { (it["engines"] as JsonArray).map { status -> status.jsonObject } }
+        val payload = (response.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(fixtures.size, (payload["results"] as JsonArray).size)
+        val statuses = (payload["engines"] as JsonArray).map { status -> status.jsonObject }
         assertTrue(statuses.all { it.getValue("status") == JsonPrimitive("completed") })
         assertEquals(4, statuses.count { "unsupportedFilters" in it })
     }

@@ -30,7 +30,7 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         "web_search",
-        "Search up to two available web search engines, ranked by observed reliability. Returns deduplicated sources and each engine's status. An unavailable engine does not discard other results.",
+        "Search all available web search engines in one request, ranked by observed reliability. Returns deduplicated sources and each engine's status. An unavailable engine does not discard other results.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -123,11 +123,11 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         ) {
             return@coroutineScope AgentToolResult(callId, ToolResultContent.Text("Use valid host names and a recency within the supported calendar range."), true)
         }
-        val engineCap = if (remainingBytes() < 16 * 1024) 1 else 2
+        val engineCap = if (remainingBytes() < 16 * 1024) 1 else engines.size.coerceAtLeast(1)
         val selected = engines.filter { (blockedUntil[it.modelToolName] ?: 0) <= clock.millis() }
             .sortedByDescending { reliability[it.modelToolName]?.get() ?: 0 }
             .take(engineCap)
-        val permits = Semaphore(if (parallel) 2 else 1)
+        val permits = Semaphore(if (parallel) selected.size.coerceAtLeast(1) else 1)
         val responses = selected.mapIndexed { index, engine ->
             async {
                 permits.withPermit {

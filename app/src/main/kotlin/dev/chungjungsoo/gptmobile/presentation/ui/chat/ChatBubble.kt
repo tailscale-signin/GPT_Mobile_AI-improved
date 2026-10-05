@@ -1020,8 +1020,9 @@ internal fun ChatDebugDiagnosticsCard(
 private fun TokenComparisonPanel(
     requests: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>
 ) {
-    val totalInput = requests.sumOf { it.inputTokens.toLong() }
-    val totalOutput = requests.sumOf { it.outputTokens.toLong() }
+    val rows = tokenComparisonRows(requests)
+    val totalInput = rows.sumOf { it.inputTokens }
+    val totalOutput = rows.sumOf { it.outputTokens }
     val totalTokens = totalInput + totalOutput
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text("Token Comparison", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -1029,20 +1030,44 @@ private fun TokenComparisonPanel(
             "All Requests",
             "${requests.size} · $totalInput input / $totalOutput output / $totalTokens total"
         )
-        requests.sortedBy { it.startedAt }.forEach { request ->
-            val requestTotal = request.inputTokens.toLong() + request.outputTokens.toLong()
+        rows.forEach { row ->
+            val requestTotal = row.inputTokens + row.outputTokens
             val share = if (totalTokens > 0L) requestTotal * 100.0 / totalTokens else 0.0
-            val source = request.kind
-                .replace('_', ' ')
-                .replaceFirstChar { it.uppercase() }
-            val estimate = if (request.estimated) " · estimated" else ""
+            val estimate = if (row.estimated) " · estimated" else ""
+            val requestCount = if (row.requestCount > 1) " · ${row.requestCount} requests" else ""
             dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
-                "$source · ${request.model}",
-                "${request.inputTokens} in / ${request.outputTokens} out / $requestTotal total · ${"%.1f".format(share)}%$estimate"
+                row.model,
+                "${row.inputTokens} in / ${row.outputTokens} out / $requestTotal total · ${"%.1f".format(share)}%$requestCount$estimate"
             )
         }
     }
 }
+
+internal data class TokenComparisonRow(
+    val model: String,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val requestCount: Int,
+    val startedAt: Long,
+    val estimated: Boolean
+)
+
+internal fun tokenComparisonRows(
+    requests: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>
+): List<TokenComparisonRow> = requests
+    .groupBy { it.model.trim().lowercase() }
+    .map { (_, group) ->
+        val ordered = group.sortedBy { it.startedAt }
+        TokenComparisonRow(
+            model = ordered.first().model.trim().ifBlank { "Unknown model" },
+            inputTokens = ordered.sumOf { it.inputTokens.toLong() },
+            outputTokens = ordered.sumOf { it.outputTokens.toLong() },
+            requestCount = ordered.size,
+            startedAt = ordered.first().startedAt,
+            estimated = ordered.any { it.estimated }
+        )
+    }
+    .sortedBy { it.startedAt }
 
 internal fun isTelemetryNotice(message: String): Boolean =
     message.startsWith("Local: ") && message.contains("tok/s")

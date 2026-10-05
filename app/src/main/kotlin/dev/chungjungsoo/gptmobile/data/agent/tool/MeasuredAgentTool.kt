@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolPayloadMetrics
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.CancellationException
@@ -12,9 +14,11 @@ class MeasuredAgentTool(
     private val delegate: AgentTool,
     private val nanoTime: () -> Long = System::nanoTime,
     private val onMeasured: (AgentToolResult) -> Unit = {}
-) : AgentTool {
+) : AgentTool, OwnedAgentTool {
     override val definition = delegate.definition
     override val managesExecutionBudget = delegate.managesExecutionBudget
+    override val executionOwner: AgentToolExecutionOwner =
+        (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val started = nanoTime()

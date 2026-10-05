@@ -92,6 +92,15 @@ interface AgentTool {
     suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult
 }
 
+enum class AgentToolExecutionOwner {
+    CLIENT,
+    GATEWAY
+}
+
+interface OwnedAgentTool : AgentTool {
+    val executionOwner: AgentToolExecutionOwner
+}
+
 data class AgentToolExchange(
     val calls: List<ProviderEvent.ToolCall>,
     val results: List<AgentToolResult>

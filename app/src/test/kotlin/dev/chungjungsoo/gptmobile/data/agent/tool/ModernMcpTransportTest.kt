@@ -134,6 +134,43 @@ class ModernMcpTransportTest {
         }
     }
 
+    @Test fun discoveryMethodNotFoundFallsBackWithLegacyHttpStatuses() = runBlocking {
+        for (status in listOf(HttpStatusCode.OK, HttpStatusCode.BadRequest, HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed)) {
+            var requests = 0
+            HttpClient(
+                MockEngine {
+                    requests++
+                    respond(
+                        """{"error":{"code":-32601,"message":"Method not found"}}""",
+                        status,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
+            ).use { client ->
+                val transport = ModernMcpTransport(client)
+                assertFalse(transport.supports(config))
+                assertFalse(transport.supports(config))
+                assertEquals(1, requests)
+            }
+        }
+    }
+
+    @Test fun authenticationErrorsNeverTriggerMethodNotFoundFallback() = runBlocking {
+        for (status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden)) {
+            HttpClient(
+                MockEngine {
+                    respond(
+                        """{"error":{"code":-32601,"message":"Access denied"}}""",
+                        status,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
+            ).use { client ->
+                assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is ModernMcpError)
+            }
+        }
+    }
+
     @Test fun legacyProbeFallsBackButModernHeaderErrorsDoNot() = runBlocking {
         HttpClient(MockEngine { respond("legacy session missing", HttpStatusCode.BadRequest) }).use { client ->
             assertFalse(ModernMcpTransport(client).supports(config))

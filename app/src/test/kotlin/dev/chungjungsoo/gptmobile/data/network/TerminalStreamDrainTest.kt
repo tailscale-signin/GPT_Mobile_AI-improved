@@ -18,4 +18,9 @@ class TerminalStreamDrainTest {
         now = 1_500_000_000L
         assertEquals(0L, drain.remainingMillis())
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `negative terminal stream grace is rejected`() {
+        TerminalStreamDrain(graceMillis = -1L)
+    }
 }

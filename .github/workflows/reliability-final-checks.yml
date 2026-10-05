@@ -1,0 +1,54 @@
+name: Reliability final checks
+on:
+  push:
+    branches: [fix/live-diagnostics-gateway-multisearch]
+    paths: [.github/workflows/reliability-final-checks.yml]
+permissions:
+  contents: write
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/live-diagnostics-gateway-multisearch
+      - name: Apply reviewed edge-case fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              assert text.count(old) == 1, (path, 'source changed')
+              p.write_text(text.replace(old, new))
+          replace('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebSearchEngineAdapter.kt',
+                  '            ) return null\n            if (name !in marketplaceNames',
+                  '            ) {\n                return null\n            }\n            if (name !in marketplaceNames')
+          replace('gateway/gateway_multisearch.py',
+                  '    stop = threading.Event()\n',
+                  '    if cancelled is not None and cancelled.is_set():\n        raise InterruptedError("Multi-engine search cancelled before dispatch")\n    if timeout_seconds <= 0:\n        raise ValueError("Search timeout must be positive")\n    stop = threading.Event()\n')
+          replace('gateway/gateway_multisearch.py',
+                  '        if stop.is_set():\n',
+                  '        if stop.is_set() or (cancelled is not None and cancelled.is_set()):\n')
+          replace('gateway/gateway_multisearch.py',
+                  '        while len(pending) < 2 and not stop.is_set():\n',
+                  '        while len(pending) < 2 and not stop.is_set():\n            if cancelled is not None and cancelled.is_set():\n                raise InterruptedError("Multi-engine search cancelled before dispatch")\n')
+          p = Path('gateway/tests/test_gateway_multisearch.py')
+          p.write_text(p.read_text() + '\n    def test_pre_cancelled_request_dispatches_no_engine(self):\n        cancel = threading.Event()\n        cancel.set()\n        calls = []\n        with self.assertRaises(InterruptedError):\n            run_searches([("engine", {})], lambda *a, **kw: calls.append(a), cancelled=cancel)\n        self.assertEqual(calls, [])\n\n    def test_nonpositive_deadline_is_rejected_before_dispatch(self):\n        calls = []\n        with self.assertRaises(ValueError):\n            run_searches([("engine", {})], lambda *a, **kw: calls.append(a), timeout_seconds=0)\n        self.assertEqual(calls, [])\n')
+          PY
+          git diff --check
+      - name: Validate gateway
+        run: |
+          python3 -m pip install -r gateway/requirements.txt
+          python3 -m py_compile gateway/gateway*.py
+          python3 -m unittest discover -s gateway/tests -v
+          python3 scripts/check_android_regex.py
+      - name: Commit branch-only refinements and remove temporary workflow
+        run: |
+          git add app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebSearchEngineAdapter.kt gateway/gateway_multisearch.py gateway/tests/test_gateway_multisearch.py
+          git rm .github/workflows/reliability-final-checks.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: reject cancelled search before dispatch and satisfy Kotlin formatting'
+          git push origin HEAD:refs/heads/fix/live-diagnostics-gateway-multisearch

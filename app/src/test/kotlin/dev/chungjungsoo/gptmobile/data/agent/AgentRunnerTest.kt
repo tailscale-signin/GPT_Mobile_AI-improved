@@ -906,6 +906,44 @@ class AgentRunnerTest {
         assertEquals(10, usage.outputTokens)
     }
 
+    @Test
+    fun `mixed owner tool calls execute as separate batches and preserve result order`() = runBlocking {
+        val executionOrder = mutableListOf<String>()
+        val session = session { _, exchanges ->
+            flow {
+                if (exchanges.isEmpty()) {
+                    emit(toolCall("client-1", "client"))
+                    emit(toolCall("gateway-1", "gateway"))
+                    emit(toolCall("client-2", "client"))
+                    emit(toolCall("gateway-2", "gateway"))
+                    emit(ProviderEvent.Completed)
+                } else {
+                    emit(ProviderEvent.TextDelta("done"))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxConcurrentTools = 4)).run(
+            session,
+            listOf(
+                tool("client", owner = AgentToolExecutionOwner.CLIENT) { id, _ ->
+                    executionOrder += id
+                    AgentToolResult(id, ToolResultContent.Text(id), false)
+                },
+                tool("gateway", owner = AgentToolExecutionOwner.GATEWAY) { id, _ ->
+                    executionOrder += id
+                    AgentToolResult(id, ToolResultContent.Text(id), false)
+                }
+            )
+        ).toList()
+
+        assertEquals(listOf("client-1", "client-2", "gateway-1", "gateway-2"), executionOrder)
+        assertEquals(
+            listOf("client-1", "gateway-1", "client-2", "gateway-2"),
+            events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.call.callId }
+        )
+    }
+
     private fun session(
         stream: (List<AgentToolDefinition>, List<AgentToolExchange>) -> Flow<ProviderEvent>
     ): AgentProviderSession = object : AgentProviderSession {
@@ -923,10 +961,12 @@ class AgentRunnerTest {
 
     private fun tool(
         name: String = "lookup",
+        owner: AgentToolExecutionOwner = AgentToolExecutionOwner.CLIENT,
         execute: suspend (String, JsonObject) -> AgentToolResult = { callId, _ ->
             AgentToolResult(callId, ToolResultContent.Text("ok"), isError = false)
         }
-    ): AgentTool = object : AgentTool {
+    ): AgentTool = object : OwnedAgentTool {
+        override val executionOwner = owner
         override val definition = AgentToolDefinition(
             name = name,
             description = "test tool",

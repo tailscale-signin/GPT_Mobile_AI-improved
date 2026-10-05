@@ -15,7 +15,7 @@ from gateway_v13_runtime import (GatewayContractError, compact_history, fit_cont
                                 validate_chat_request, validate_completion_tools,
                                 consume_sse, completion_chunks)
 from gateway_v13_transport import post_chat
-from gateway_security import current_device
+from gateway_security import DeviceStore, current_device
 from test_gateway_security import GatewayIntegrationTests as _IntegrationBase
 
 
@@ -180,11 +180,13 @@ class RuntimeTests(unittest.TestCase):
 
 class V13IntegrationTests(_IntegrationBase):
     def setUp(self):
-        # Reuse all real authorization contracts against the new application.
-        super().setUp()
-        self.client.__exit__(None, None, None)
-        for item in reversed(self.patches):
-            item.stop()
+        # Reuse the inherited authorization tests without starting a throwaway
+        # v12 TestClient first; some Starlette/AnyIO versions block entering the
+        # preliminary client even though it is immediately discarded here.
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = DeviceStore(Path(self.temp.name) / 'auth.sqlite3')
+        self.a, self.token_a = self.store.issue('Phone A')
+        self.b, self.token_b = self.store.issue('Phone B')
         with patch.dict(os.environ, {'MCP_PREWARM_ON_STARTUP': 'false', 'GATEWAY_JOB_DB': str(Path(self.temp.name) / 'v13jobs.sqlite3')}):
             self.gateway = importlib.import_module('gateway_v13')
         self.patches = [patch('gateway_security.device_store', self.store), patch.object(self.gateway, 'device_store', self.store),
@@ -194,7 +196,13 @@ class V13IntegrationTests(_IntegrationBase):
         from fastapi.testclient import TestClient
         self.gateway.app.middleware_stack = None
         self.client = TestClient(self.gateway.app)
-        self.client.__enter__()
+
+    def tearDown(self):
+        self.client.close()
+        for item in reversed(self.patches):
+            item.stop()
+        self.gateway.app.middleware_stack = None
+        self.temp.cleanup()
 
     def test_empty_answer_synthesis_is_bounded_and_never_claims_verified_research(self):
         body = request()

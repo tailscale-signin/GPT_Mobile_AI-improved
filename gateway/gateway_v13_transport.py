@@ -91,13 +91,27 @@ def _completion_issue(data):
     return None
 
 
-def post_chat(session, url, payload, *, connect_timeout, idle_timeout, deadline_seconds, cancelled, progress, finish_grace_seconds=2.0):
+def post_chat(
+    session,
+    url,
+    payload,
+    *,
+    connect_timeout,
+    idle_timeout,
+    deadline_seconds,
+    cancelled,
+    progress,
+    finish_grace_seconds=2.0,
+    terminal_grace_seconds=None,
+):
     """One model round, at most one repair, and one shared deadline/output allowance.
 
     Sequential model tool calls prevent gateway/client ownership mixtures. A single
     composite web_search call can still fan out to multiple authorized engines.
     This layer never executes tools or replays tool side effects.
     """
+    if terminal_grace_seconds is not None:
+        finish_grace_seconds = terminal_grace_seconds
     if deadline_seconds <= 0 or finish_grace_seconds <= 0:
         raise ValueError("Transport deadlines must be positive")
     deadline_at = time.monotonic() + deadline_seconds

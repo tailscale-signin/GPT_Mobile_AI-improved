@@ -14,8 +14,9 @@ class GatewayContractError(ValueError):
         self.status = status
 
 
-def visible_answer_text(content):
+def visible_answer_text(value):
     """Reasoning-only, whitespace and tool markup are not a user-visible answer."""
+    content = value.get("content") if isinstance(value, dict) else value
     if not isinstance(content, str):
         return ""
     text = re.sub(r"<(think|analysis|reasoning)(?:\s[^>]*)?>.*?(?:</\1>|$)", "", content, flags=re.I | re.S)
@@ -195,22 +196,6 @@ def validate_completion_tools(data, payload):
     return data
 
 
-def visible_answer_text(message):
-    """Inspect the answer channel without promoting hidden reasoning into an answer."""
-    text = message.get("content") or ""
-    if not isinstance(text, str):
-        return ""
-    text = text.strip()
-    while True:
-        opening = re.match(r"^<(think|analysis)>", text, re.IGNORECASE)
-        if not opening:
-            return text
-        closing = re.search(r"</" + opening.group(1) + r">", text[opening.end():], re.IGNORECASE)
-        if not closing:
-            return ""
-        text = text[opening.end() + closing.end():].strip()
-
-
 class CompletionStream:
     """Reassemble OpenAI SSE deltas without executing partial tool fragments."""
     def __init__(self):
@@ -226,6 +211,10 @@ class CompletionStream:
     @property
     def generated_characters(self):
         return self.visible_characters + self.reasoning_characters + self.tool_characters
+
+    @property
+    def observed_characters(self):
+        return self.generated_characters
 
     def accept(self, data):
         if not isinstance(data, dict):

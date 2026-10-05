@@ -310,7 +310,9 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                 // Gateway job affinity changes as metadata arrives, so this remains round-scoped.
                 val llamaGatewayHeaders = if (isLlama) {
-                    gatewayPerformanceHeaders + capturedGatewayJobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty()
+                    gatewayPerformanceHeaders +
+                        capturedGatewayJobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty() +
+                        if (requestTools.isNullOrEmpty()) emptyMap() else mapOf("X-Gateway-Allow-Local-Tools" to "false")
                 } else {
                     emptyMap()
                 }

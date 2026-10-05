@@ -549,14 +549,22 @@ class AgentRunner(
     private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>): List<AgentToolResult> {
         val semaphore = Semaphore(limits.maxConcurrentTools)
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
+        val order = calls.mapIndexed { index, call -> call.callId to index }.toMap()
+        fun ownerOf(call: ProviderEvent.ToolCall): AgentToolExecutionOwner =
+            (tools[call.name] as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
         return coroutineScope {
-            calls.map { call ->
-                async {
-                    perTool.getValue(call.name).withPermit {
-                        semaphore.withPermit { executeBounded(call, tools[call.name]) }
-                    }
+            calls.groupBy(::ownerOf)
+                .flatMap { (_, ownedCalls) ->
+                    ownedCalls.map { call ->
+                        async {
+                            perTool.getValue(call.name).withPermit {
+                                semaphore.withPermit { call to executeBounded(call, tools[call.name]) }
+                            }
+                        }
+                    }.awaitAll()
                 }
-            }.awaitAll()
+                .sortedBy { order.getValue(it.first.callId) }
+                .map { it.second }
         }
     }
 

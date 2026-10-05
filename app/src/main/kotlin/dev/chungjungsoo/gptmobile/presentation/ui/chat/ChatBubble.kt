@@ -1043,6 +1043,21 @@ private fun TokenComparisonPanel(
     }
 }
 
+internal data class TokenComparisonRow(
+    val model: String,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val requestCount: Int,
+    val startedAt: Long,
+    val estimated: Boolean
+)
+
+internal fun tokenComparisonRows(
+    requests: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>
+): List<TokenComparisonRow> = dev.chungjungsoo.gptmobile.data.accounting.compareModelTokens(requests).map { row ->
+    TokenComparisonRow(row.model, row.inputTokens, row.outputTokens, row.requests, row.startedAt, row.estimated)
+}
+
 internal fun isTelemetryNotice(message: String): Boolean =
     message.startsWith("Local: ") && message.contains("tok/s")
 

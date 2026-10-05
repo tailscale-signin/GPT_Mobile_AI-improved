@@ -160,8 +160,9 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
         buffer.flush(onUpdate)
     }
 
+    val completedError = terminalError
     return when {
-        terminalError != null -> ApiStateFlowOutcome.Failed(terminalError)
+        completedError != null -> ApiStateFlowOutcome.Failed(completedError)
         isCompletedSuccessfully && !buffer.hasResponse -> ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
         isCompletedSuccessfully -> ApiStateFlowOutcome.Completed
         else -> ApiStateFlowOutcome.Incomplete
@@ -311,7 +312,7 @@ private class StreamingMessageBuffer(
         if (last?.type == type && last.toolSequence == null) {
             timeline[timeline.lastIndex] = last.copy(content = last.content + chunk)
         } else {
-            timeline += AssistantTimelineItem(type, content = chunk)
+            timeline += AssistantTimelineItem(type = type, content = chunk)
         }
         timelineVersion += 1
     }

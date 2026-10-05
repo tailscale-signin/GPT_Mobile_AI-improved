@@ -226,7 +226,9 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
             } catch (_: Exception) {
                 crawlUnavailable("Page enrichment failed; search results were preserved.")
             }
-        } else null
+        } else {
+            null
+        }
         AgentToolResult(
             callId,
             ToolResultContent.Json(

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import time
 
 
@@ -11,6 +12,27 @@ class GatewayContractError(ValueError):
         super().__init__(message)
         self.code = code
         self.status = status
+
+
+def visible_answer_text(content):
+    """Reasoning-only, whitespace and tool markup are not a user-visible answer."""
+    if not isinstance(content, str):
+        return ""
+    text = re.sub(r"<(think|analysis|reasoning)(?:\s[^>]*)?>.*?(?:</\1>|$)", "", content, flags=re.I | re.S)
+    text = re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.I | re.S)
+    return re.sub(r"</(?:think|analysis|reasoning)>", "", text, flags=re.I).strip()
+
+
+def partition_owned_tool_calls(calls, routes):
+    """Keep call IDs and order. No unknown call may leak into a client handoff."""
+    if len(calls) != len(routes):
+        raise GatewayContractError("Tool ownership count mismatch.", "invalid_tool_ownership", 502)
+    local, client = [], []
+    for call, (name, owner) in zip(calls, routes):
+        if call.get("function", {}).get("name") != name or owner not in {"gateway_mcp", "llama_native", "client_owned"}:
+            raise GatewayContractError("No authorized executor owns a requested tool.", "unauthorized_tool_call", 502)
+        (client if owner == "client_owned" else local).append(copy.deepcopy(call))
+    return local, client
 
 
 def validate_chat_request(payload):
@@ -170,6 +192,7 @@ class CompletionStream:
         self.finish = None
         self.received = False
         self.visible_characters = 0
+        self.observed_characters = 0
 
     def accept(self, data):
         if not isinstance(data, dict):
@@ -190,7 +213,9 @@ class CompletionStream:
                 part = delta.get(key)
                 if isinstance(part, str):
                     self.message[key] = self.message.get(key, "") + part
-                    self.visible_characters += len(part)
+                    self.observed_characters += len(part)
+                    if key == "content":
+                        self.visible_characters = len(visible_answer_text(self.message[key]))
                     self.received = self.received or bool(part)
             for fragment in delta.get("tool_calls") or []:
                 index = fragment.get("index", 0)
@@ -205,6 +230,7 @@ class CompletionStream:
                 for key in ("name", "arguments"):
                     if isinstance(fn.get(key), str):
                         call["function"][key] += fn[key]
+                        self.observed_characters += len(fn[key])
                 self.received = True
             if choice.get("finish_reason") is not None:
                 self.finish = choice["finish_reason"]

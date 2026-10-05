@@ -225,6 +225,16 @@ private fun fixtureTool(code: String): AgentTool = object : AgentTool {
     }
 }
 
+/** Infrastructure errors are not model-quality failures, even in full-suite mode. */
+internal fun benchmarkInfrastructureFailure(sample: BenchmarkSample): Boolean {
+    if (sample.outcome == BenchmarkOutcome.PASSED) return false
+    val detail = listOfNotNull(sample.error).plus(sample.delegation?.diagnosticEvents.orEmpty().map { it.message }).joinToString("\n")
+    return listOf(
+        "unable to resolve host", "unknownhostexception", "no route to host", "connection refused",
+        "sslhandshakeexception", "certificate verification failed", "http 401", "http 403", "invalid api key"
+    ).any { detail.contains(it, ignoreCase = true) }
+}
+
 /** Preserve completed samples, but do not send the rest of a suite to a blocked provider. */
 suspend fun runBenchmarkSuite(
     suite: List<BenchmarkCase>,
@@ -235,6 +245,9 @@ suspend fun runBenchmarkSuite(
     for ((index, test) in suite.withIndex()) {
         val sample = runCase(index, test)
         onSample(sample)
+        if (benchmarkInfrastructureFailure(sample)) {
+            return "Provider connectivity or authentication is unavailable; remaining cases were skipped. ${sample.error.orEmpty()}"
+        }
         if (stopOnError && (sample.outcome == BenchmarkOutcome.ERROR || sample.outcome == BenchmarkOutcome.TIMED_OUT)) {
             return sample.error ?: "The provider could not complete the benchmark request."
         }

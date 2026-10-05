@@ -1020,25 +1020,24 @@ internal fun ChatDebugDiagnosticsCard(
 private fun TokenComparisonPanel(
     requests: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation>
 ) {
-    val totalInput = requests.sumOf { it.inputTokens.toLong() }
-    val totalOutput = requests.sumOf { it.outputTokens.toLong() }
+    val models = dev.chungjungsoo.gptmobile.data.accounting.compareModelTokens(requests)
+    val totalInput = models.sumOf { it.inputTokens }
+    val totalOutput = models.sumOf { it.outputTokens }
     val totalTokens = totalInput + totalOutput
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text("Token Comparison", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
             "All Requests",
-            "${requests.size} · $totalInput input / $totalOutput output / $totalTokens total"
+            "${models.sumOf { it.requests }} requests · ${models.size} models · $totalInput input / $totalOutput output / $totalTokens total"
         )
-        requests.sortedBy { it.startedAt }.forEach { request ->
-            val requestTotal = request.inputTokens.toLong() + request.outputTokens.toLong()
-            val share = if (totalTokens > 0L) requestTotal * 100.0 / totalTokens else 0.0
-            val source = request.kind
-                .replace('_', ' ')
-                .replaceFirstChar { it.uppercase() }
-            val estimate = if (request.estimated) " · estimated" else ""
+        models.forEach { model ->
+            val share = if (totalTokens > 0L) model.totalTokens * 100.0 / totalTokens else 0.0
+            val estimate = if (model.estimated) " · includes estimates" else ""
+            val roles = model.roles.joinToString(" / ") { it.replace('_', ' ').replaceFirstChar(Char::uppercase) }
             dev.chungjungsoo.gptmobile.presentation.ui.setting.MetricLine(
-                "$source · ${request.model}",
-                "${request.inputTokens} in / ${request.outputTokens} out / $requestTotal total · ${"%.1f".format(share)}%$estimate"
+                model.model,
+                "${model.inputTokens} in / ${model.outputTokens} out / ${model.totalTokens} total · ${"%.1f".format(share)}%" +
+                    " · ${model.requests} requests · $roles$estimate"
             )
         }
     }

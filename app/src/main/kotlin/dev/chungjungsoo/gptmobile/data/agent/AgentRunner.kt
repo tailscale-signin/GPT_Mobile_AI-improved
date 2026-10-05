@@ -89,6 +89,7 @@ class AgentRunner(
         var toolMayHaveExecuted = initialToolMayHaveExecuted
         var retriedWithoutTools = initialRetriedWithoutTools
         var roundRecoveryAttempted = false
+        var emptyAnswerRecoveryAttempted = false
         var finalResponseRequested = false
         var roundLimitFinalizationAttempted = false
         var wrapUpNoticeEmitted = false
@@ -189,6 +190,18 @@ class AgentRunner(
             }
             val calls = round.calls
             if (calls.isEmpty()) {
+                if (round.completed && !round.textEmitted) {
+                    if (!emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
+                        emptyAnswerRecoveryAttempted = true
+                        finalResponseRequested = true
+                        exposedDefinitions = emptyList()
+                        executableToolByName = emptyMap()
+                        emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
+                        continue
+                    }
+                    emit(failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model."))
+                    return
+                }
                 if (round.completed) emit(AgentRunEvent.Provider(ProviderEvent.Completed))
                 return
             }
@@ -522,7 +535,7 @@ class AgentRunner(
                 ProviderEvent.Completed -> completed = true
 
                 else -> {
-                    if (event is ProviderEvent.TextDelta && event.text.isNotEmpty()) textEmitted = true
+                    if (event is ProviderEvent.TextDelta && event.text.isNotBlank()) textEmitted = true
                     emit(AgentRunEvent.Provider(event))
                 }
             }

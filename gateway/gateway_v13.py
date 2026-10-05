@@ -28,9 +28,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from gateway_security import DeviceAuthentication, current_device, device_store
 from gateway_v13_transport import post_chat as v13_post_chat
+from gateway_multisearch import plan_searches, run_searches
 from gateway_v13_runtime import (
     GatewayContractError, validate_chat_request, compact_history, fit_context,
     validate_completion_tools, consume_sse, completion_chunks,
+    visible_answer_text, partition_owned_tool_calls,
 )
 
 request_policy = contextvars.ContextVar("gateway_v13_request_policy", default={})
@@ -2435,7 +2437,7 @@ SINGLEFLIGHT_MAX_REQUEST_KEYS = 256
 # v7.5 REMOTE-CLIENT CONTINUITY + RESUMABLE PROGRESS
 # ------------------------------------------------------------
 
-GATEWAY_VERSION = "13.0.0"
+GATEWAY_VERSION = "13.1.0"
 V13_BACKEND_STREAMING = os.getenv("GATEWAY_BACKEND_STREAMING", "true").lower() not in {"false", "0", "off"}
 V13_DELEGATE_DEADLINE_SECONDS = max(10, int(os.getenv("GATEWAY_DELEGATE_DEADLINE_SECONDS", "120")))
 V13_MODEL_DEADLINE_SECONDS = max(10, int(os.getenv("GATEWAY_MODEL_DEADLINE_SECONDS", "300")))
@@ -6133,7 +6135,21 @@ def get_all_mcp_tools(force_refresh=False):
 # MCP EXECUTION
 # ============================================================
 
-def execute_mcp_tool(
+def execute_mcp_tool(full_tool_name, arguments, progress_callback=None, cancel_event=None):
+    # Discovery is cached and contains enabled gateway servers only. Direct client
+    # tools are never added to this server-side search surface.
+    with mcp_cache_lock:
+        catalog = list(mcp_tools_cache or [])
+    targets = plan_searches(full_tool_name, arguments or {}, catalog)
+    if len(targets) > 1:
+        return run_searches(
+            targets, _execute_mcp_tool_single, cancelled=cancel_event,
+            progress=progress_callback,
+        )
+    return _execute_mcp_tool_single(full_tool_name, arguments, progress_callback, cancel_event)
+
+
+def _execute_mcp_tool_single(
     full_tool_name,
     arguments,
     progress_callback=None,
@@ -11952,8 +11968,8 @@ def _usable_synthesis_content(data):
     if message.get("tool_calls"):
         return None
     raw = str(message.get("content") or "")
-    clean = strip_plaintext_tool_markup(raw).strip()
-    if len(clean) < HARD_SYNTHESIS_MIN_PROSE_CHARS:
+    clean = visible_answer_text(strip_plaintext_tool_markup(raw))
+    if not clean:
         return None
     return clean
 
@@ -11984,6 +12000,8 @@ def _raw_synthesis_prompt(clean_payload):
                 "v9 synthesis /apply-template failed: "
                 f"HTTP {response.status_code}: {_bounded_response_text(response)}"
             )
+    except (InterruptedError, GatewayContractError):
+        raise
     except Exception as exc:
         logger.warning(f"v9 synthesis /apply-template exception: {exc}")
 
@@ -11998,39 +12016,13 @@ def _raw_synthesis_prompt(clean_payload):
 
 
 def _deterministic_evidence_fallback(model, latest_user_text, observations):
-    """Last-resort user-facing answer. Never expose an internal retry message."""
-    items = _unique_synthesis_observations(observations)
-    lines = [
-        "I completed the available research and preserved the verified findings.",
-    ]
-    if latest_user_text:
-        lines.append("For your request, the evidence I could verify is:")
-
-    for observation in items[-10:]:
-        title = gateway_tool_display_name(observation.get("tool_name", "Evidence"))
-        result = str(observation.get("result", "")).strip()
-        result = re.sub(r"\s+", " ", result)
-        if len(result) > 700:
-            result = result[:697] + "..."
-        if result:
-            lines.append(f"- {title}: {result}")
-
-    if len(lines) <= 2:
-        lines.append(
-            "The model could not produce a reliable prose synthesis from the retained evidence. "
-            "No additional tool actions were performed after the research stop condition."
-        )
-    else:
-        lines.append(
-            "I have not treated any unverified or missing detail as confirmed."
-        )
-
+    """Never label unreviewed tool output as a verified, completed answer."""
     _v9_metric("hard_synthesis_deterministic_fallbacks")
-    return 200, _synthesis_response(
-        model,
-        "\n".join(lines),
-        "chatcmpl-gateway-v9-deterministic",
-    )
+    return 502, {"error": {
+        "message": "The model could not produce a visible answer after bounded finalization. No tool actions were repeated during finalization. Please retry or choose another model.",
+        "type": "gateway_completion_error",
+        "code": "empty_completion",
+    }}
 
 
 def run_clean_terminal_synthesis(
@@ -12041,6 +12033,7 @@ def run_clean_terminal_synthesis(
     latest_user_text,
     observations,
     progress_callback=None,
+    single_attempt=False,
 ):
     """v9 hard synthesis: chat(no-tools) -> raw completion -> deterministic prose."""
     clean_payload = build_clean_synthesis_payload(
@@ -12063,7 +12056,7 @@ def run_clean_terminal_synthesis(
     compatible.pop("parallel_tool_calls", None)
     chat_variants.append(compatible)
 
-    for attempt, request_payload in enumerate(chat_variants[:CLEAN_SYNTHESIS_ATTEMPTS], start=1):
+    for attempt, request_payload in enumerate(chat_variants[:1 if single_attempt else CLEAN_SYNTHESIS_ATTEMPTS], start=1):
         emit_progress(
             progress_callback,
             "synthesis",
@@ -12101,9 +12094,14 @@ def run_clean_terminal_synthesis(
                 "v9 hard synthesis chat response contained no usable prose; "
                 "falling back without re-entering the tool loop"
             )
+        except (InterruptedError, GatewayContractError):
+            raise
         except Exception as exc:
             _v9_metric("hard_synthesis_chat_failures")
             logger.warning(f"v9 hard synthesis chat exception: {exc}")
+
+    if single_attempt:
+        return _deterministic_evidence_fallback(model, latest_user_text, observations)
 
     # Bypass chat/tool-call parsing entirely. llama.cpp documents /apply-template
     # + /completion as a supported way to turn chat messages into a raw prompt.
@@ -12135,8 +12133,8 @@ def run_clean_terminal_synthesis(
                 )
                 continue
             raw = response.json()
-            content = strip_plaintext_tool_markup(str(raw.get("content") or "")).strip()
-            if len(content) >= HARD_SYNTHESIS_MIN_PROSE_CHARS:
+            content = visible_answer_text(strip_plaintext_tool_markup(str(raw.get("content") or "")))
+            if content:
                 _v9_metric("hard_synthesis_raw_completion_success")
                 return 200, _synthesis_response(
                     model,
@@ -12144,6 +12142,8 @@ def run_clean_terminal_synthesis(
                     "chatcmpl-gateway-v9-raw-synthesis",
                 )
             _v9_metric("hard_synthesis_raw_completion_failures")
+        except (InterruptedError, GatewayContractError):
+            raise
         except Exception as exc:
             _v9_metric("hard_synthesis_raw_completion_failures")
             logger.warning(f"v9 raw synthesis exception: {exc}")
@@ -15003,6 +15003,16 @@ def _process_chat_payload_core(
             )
 
         if not tool_calls:
+            if not visible_answer_text(strip_plaintext_tool_markup(str(message.get("content") or ""))):
+                emit_progress(
+                    progress_callback, "synthesis", "No visible answer received; finalizing once without tool execution",
+                    event="empty_answer_recovery", status="running", stage="synthesizing",
+                )
+                return run_clean_terminal_synthesis(
+                    model, payload, payload.get("messages", []), original_messages,
+                    latest_user_text, tool_learning_observations, progress_callback,
+                    single_attempt=True,
+                )
             logger.info(
                 "Model returned final response"
             )
@@ -15244,7 +15254,22 @@ def _process_chat_payload_core(
         client_owned = [name for name, route in tool_routes if route == "client_owned"]
         unknown = [name for name, route in tool_routes if route is None]
 
-        if client_owned:
+        deferred_client_calls = []
+        if not unknown:
+            gateway_calls, owned_client_calls = partition_owned_tool_calls(tool_calls, tool_routes)
+            if gateway_calls and owned_client_calls:
+                deferred_client_calls = owned_client_calls
+                tool_calls = gateway_calls
+                message["tool_calls"] = gateway_calls
+                choices[0]["message"] = message
+                client_owned = []
+                emit_progress(
+                    progress_callback, "tool_routing", "Separating gateway and client tool execution",
+                    event="tool_batch_partitioned", status="running", stage="researching",
+                    gateway_calls=len(gateway_calls), deferred_client_calls=len(deferred_client_calls),
+                )
+
+        if client_owned and not unknown:
             logger.info(
                 "Client-owned tool call(s) selected "
                 f"during phase={tool_phase}: {client_owned}"
@@ -16364,6 +16389,10 @@ def _process_chat_payload_core(
                                 f"{function_name}"
                             )
 
+                        engine_calls = result.get("gateway_engine_calls") if isinstance(result, dict) else None
+                        if type(engine_calls) is int:
+                            total_tool_call_count += max(0, min(engine_calls, len(full_local_names)) - 1)
+
                         tool_text = (
                             tool_result_to_text(
                                 result
@@ -17058,6 +17087,20 @@ def _process_chat_payload_core(
                             route,
                     }
                 )
+
+        if deferred_client_calls:
+            # These calls have NOT been executed. Replan only their intent using
+            # the client-only catalog, after the gateway results are in history.
+            # Never send a mixed batch or silently discard the gateway evidence.
+            append_system_instruction(
+                payload["messages"],
+                "The gateway portion of the preceding plan is complete. The following client tool calls were deferred and have NOT run. "
+                "Use the client-only tools now to perform the still-needed actions, without repeating completed gateway actions. "
+                "Pending client calls: " + json.dumps(deferred_client_calls, ensure_ascii=False),
+            )
+            tool_phase = "remote"
+            set_tool_phase(payload, tool_phase, local_tools, client_tools, routing_override)
+            continue
 
         # ----------------------------------------------------
         # v7.7 PIPELINED READ-AHEAD

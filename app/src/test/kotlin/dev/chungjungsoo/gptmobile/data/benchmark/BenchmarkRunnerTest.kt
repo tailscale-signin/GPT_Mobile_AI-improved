@@ -31,6 +31,24 @@ class BenchmarkRunnerTest {
     private val toolTest = benchmarkSuite(BenchmarkMode.QUICK).first { it.id == "tool" }
 
     @Test
+    fun `infrastructure outage stops remaining cases even when quality failures should continue`() = kotlinx.coroutines.runBlocking {
+        var calls = 0
+        val saved = mutableListOf<BenchmarkSample>()
+        val reason = runBenchmarkSuite(
+            benchmarkSuite(BenchmarkMode.FULL),
+            { _, test ->
+                calls++
+                BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.ERROR, error = "Network error: Unable to resolve host.")
+            },
+            { saved += it },
+            stopOnError = false
+        )
+        org.junit.Assert.assertEquals(1, calls)
+        org.junit.Assert.assertEquals(1, saved.size)
+        org.junit.Assert.assertTrue(reason.orEmpty().contains("remaining cases were skipped"))
+    }
+
+    @Test
     fun `connection abort retries once before any output and retains attempted usage`() = runTest {
         var opened = 0
         val runner = BenchmarkRunner({ _, _ ->

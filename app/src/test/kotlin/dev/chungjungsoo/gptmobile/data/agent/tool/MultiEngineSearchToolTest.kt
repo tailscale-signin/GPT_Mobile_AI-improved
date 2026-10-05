@@ -26,6 +26,45 @@ import org.junit.Test
 
 class MultiEngineSearchToolTest {
     @Test
+    fun `one stalled engine preserves other engines and all enabled engines are queried`() = runBlocking {
+        val queried = mutableSetOf<String>()
+        val engines = (1..4).map { index ->
+            engine("engine-$index") { id, _ ->
+                queried += id
+                if (index == 2) kotlinx.coroutines.awaitCancellation()
+                AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/$index\nDescription: Result"), false)
+            }
+        }
+        val result = MultiEngineSearchTool(engines, engineTimeoutMillis = 30L).execute("fanout", buildJsonObject { put("query", "one query") })
+        assertEquals(4, queried.size)
+        assertFalse(result.isError)
+        val value = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(3, (value["results"] as JsonArray).size)
+        assertEquals(4, (value["engines"] as JsonArray).size)
+    }
+
+    @Test
+    fun `an inner MCP timeout does not cancel successful sibling searches`() = runBlocking {
+        val tool = MultiEngineSearchTool(
+            listOf(
+                engine("inner-timeout") { _, _ -> kotlinx.coroutines.withTimeout(10L) { kotlinx.coroutines.awaitCancellation() } },
+                engine("working") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/ok\nDescription: Result"), false) }
+            ),
+            engineTimeoutMillis = 1000L
+        )
+        assertFalse(tool.execute("nested", buildJsonObject { put("query", "same query") }).isError)
+    }
+
+    @Test
+    fun `parent cancellation is not swallowed as an engine failure`() = runBlocking {
+        val tool = MultiEngineSearchTool(listOf(engine("slow") { _, _ -> kotlinx.coroutines.awaitCancellation() }), engineTimeoutMillis = 10_000L)
+        val result = kotlinx.coroutines.withTimeoutOrNull(30L) {
+            tool.execute("cancel", buildJsonObject { put("query", "cancel me") })
+        }
+        org.junit.Assert.assertNull(result)
+    }
+
+    @Test
     fun `all enabled marketplace engines dispatch through one web search and normalize results`() = runBlocking {
         val queried = mutableSetOf<String>()
         val fixtures = marketplaceSearchFixtures()
@@ -42,7 +81,7 @@ class MultiEngineSearchToolTest {
             ResolvedAgentTool(tool, name, name, name, tool.definition.name)
         }
         assertEquals(listOf("web_search"), aggregateWebSearch(engines).map { it.modelToolName })
-        val responses = engines.chunked(2).map { batch ->
+        val responses = listOf(engines).map { batch ->
             MultiEngineSearchTool(batch, Clock.fixed(Instant.parse("2026-08-01T12:00:00Z"), ZoneOffset.UTC)).execute(
                 "all",
                 buildJsonObject {

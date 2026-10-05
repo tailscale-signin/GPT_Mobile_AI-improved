@@ -1,6 +1,7 @@
 """Cancellable streamed backend transport used by the v13 model-slot gate."""
 import copy
 import json
+import socket
 import threading
 import time
 
@@ -9,7 +10,7 @@ from gateway_v13_runtime import GatewayContractError, consume_sse, validate_comp
 
 
 def post_chat(session, url, payload, *, connect_timeout, idle_timeout,
-              deadline_seconds, cancelled, progress):
+              deadline_seconds, cancelled, progress, terminal_grace_seconds=1.0):
     request = copy.deepcopy(payload)
     request["stream"] = True
     request["stream_options"] = {"include_usage": True}
@@ -17,8 +18,24 @@ def post_chat(session, url, payload, *, connect_timeout, idle_timeout,
     finished = threading.Event()
     expired = threading.Event()
     stopped = threading.Event()
+    terminal_drained = threading.Event()
+    observed_state = {"state": None, "finished_at": None}
     response = session.post(url, json=request, stream=True,
                             timeout=(connect_timeout, min(idle_timeout, deadline_seconds)))
+
+    def interrupt_response():
+        # HTTPResponse.close alone can wait for a blocking reader's lock. Interrupt
+        # the underlying socket first when urllib3 exposes one; other transports
+        # still receive close and retain the normal finite socket timeout.
+        raw = getattr(response, "raw", None)
+        fp = getattr(getattr(raw, "_fp", None), "fp", None)
+        sock = getattr(getattr(fp, "raw", None), "_sock", None)
+        try:
+            if isinstance(sock, socket.socket):
+                sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        response.close()
 
     def watch():
         while not finished.wait(0.1):
@@ -26,9 +43,11 @@ def post_chat(session, url, payload, *, connect_timeout, idle_timeout,
                 stopped.set()
             elif time.monotonic() - started >= deadline_seconds:
                 expired.set()
+            elif observed_state["finished_at"] is not None and time.monotonic() - observed_state["finished_at"] >= terminal_grace_seconds:
+                terminal_drained.set()
             else:
                 continue
-            response.close()
+            interrupt_response()
             return
 
     watcher = threading.Thread(target=watch, name="gateway-v13-model-watchdog", daemon=True)
@@ -39,7 +58,10 @@ def post_chat(session, url, payload, *, connect_timeout, idle_timeout,
     def observed(state):
         nonlocal last_progress, last_size
         now = time.monotonic()
-        size = state.visible_characters + len(state.calls)
+        observed_state["state"] = state
+        if state.finish is not None and observed_state["finished_at"] is None:
+            observed_state["finished_at"] = now
+        size = state.observed_characters + len(state.calls)
         if state.received and size != last_size and (last_progress == 0 or now - last_progress >= 0.25):
             progress({"phase": "model_output", "event": "model_output_progress", "status": "running",
                       "stage": "generating", "message": "Receiving model output",
@@ -54,8 +76,15 @@ def post_chat(session, url, payload, *, connect_timeout, idle_timeout,
             return response
         content_type = response.headers.get("content-type", "").lower()
         if "text/event-stream" in content_type:
-            data = consume_sse(response.iter_lines(chunk_size=256), observed,
-                               lambda: cancelled() or stopped.is_set() or expired.is_set())
+            try:
+                data = consume_sse(response.iter_lines(chunk_size=256), observed,
+                                   lambda: cancelled() or stopped.is_set() or expired.is_set())
+            except Exception as exc:
+                state = observed_state["state"]
+                recoverable_close = not isinstance(exc, GatewayContractError) or exc.code == "incomplete_stream"
+                if not terminal_drained.is_set() or state is None or state.finish is None or not recoverable_close:
+                    raise
+                data = state.result()
         else:
             data = response.json()
         if stopped.is_set() or cancelled():

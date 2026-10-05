@@ -7,6 +7,9 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import java.net.URI
 import java.time.Clock
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -14,6 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -24,13 +28,16 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Children must already be bound to the run's shared budget and permission gate. */
-class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC(), private val parallel: Boolean = true, private val deduplicate: Boolean = true, private val afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null, private val canExecute: () -> Boolean = { true }, private val remainingBytes: () -> Int = { Int.MAX_VALUE }) : AgentTool {
+class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, private val clock: Clock = Clock.systemUTC(), private val parallel: Boolean = true, private val deduplicate: Boolean = true, private val afterSearch: (suspend (String, List<JsonObject>) -> JsonObject)? = null, private val canExecute: () -> Boolean = { true }, private val remainingBytes: () -> Int = { Int.MAX_VALUE }, private val engineTimeoutMillis: Long = 20_000L) : AgentTool {
+    init {
+        require(engineTimeoutMillis > 0)
+    }
     private val reliability = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
     private val blockedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
     override val managesExecutionBudget = true
     override val definition = AgentToolDefinition(
         "web_search",
-        "Search up to two available web search engines, ranked by observed reliability. Returns deduplicated sources and each engine's status. An unavailable engine does not discard other results.",
+        "Search all enabled compatible web search engines with the same query, within the remaining run budget and with bounded concurrency. Returns deduplicated sources and each engine's status. An unavailable engine does not discard other results.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -123,27 +130,34 @@ class MultiEngineSearchTool(private val engines: List<ResolvedAgentTool>, privat
         ) {
             return@coroutineScope AgentToolResult(callId, ToolResultContent.Text("Use valid host names and a recency within the supported calendar range."), true)
         }
-        val engineCap = if (remainingBytes() < 16 * 1024) 1 else 2
-        val selected = engines.filter { (blockedUntil[it.modelToolName] ?: 0) <= clock.millis() }
+        val selected = engines.distinctBy { it.connectionUid to it.realToolName }
             .sortedByDescending { reliability[it.modelToolName]?.get() ?: 0 }
-            .take(engineCap)
         val permits = Semaphore(if (parallel) 2 else 1)
         val responses = selected.mapIndexed { index, engine ->
             async {
                 permits.withPermit {
                     try {
+                        if ((blockedUntil[engine.modelToolName] ?: 0L) > clock.millis()) {
+                            return@withPermit engine to AgentToolResult(callId, ToolResultContent.Text("Search skipped: engine authentication cooldown."), true)
+                        }
                         if (!canExecute() || remainingBytes() < 1024) {
                             return@withPermit engine to AgentToolResult(callId, ToolResultContent.Text("Search skipped: insufficient remaining run budget."), true, outputBudgetExhausted = true)
                         }
                         val adapter = requireNotNull(WebSearchEngineAdapter.forTool(engine.realToolName, engine.tool.definition))
                         val mapped = adapter.arguments(arguments, clock)
-                        val result = engine.tool.execute("$callId:engine:$index", mapped)
+                        val childId = "$callId:engine:$index"
+                        val result = withTimeoutOrNull(engineTimeoutMillis) {
+                            engine.tool.execute(childId, mapped)
+                        } ?: AgentToolResult(childId, ToolResultContent.Text("Search engine timed out after $engineTimeoutMillis ms; other engine results are preserved."), true)
                         reliability.getOrPut(engine.modelToolName) { java.util.concurrent.atomic.AtomicInteger() }.addAndGet(if (result.isError) -1 else 1)
                         val detail = result.content.toString()
                         if (result.isError && Regex("HTTP (401|402|403)").containsMatchIn(detail)) {
                             blockedUntil[engine.modelToolName] = clock.millis() + 5 * 60_000L
                         }
                         engine to result
+                    } catch (_: TimeoutCancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        engine to AgentToolResult(callId, ToolResultContent.Text("Search engine timed out; other results are preserved."), true)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {

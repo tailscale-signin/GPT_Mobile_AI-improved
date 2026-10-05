@@ -34,12 +34,13 @@ def call(arguments='{"accuracy":"precise"}', name="location_get"):
     return {"id": "a", "type": "function", "function": {"name": name, "arguments": arguments}}
 
 
-def events(*values):
+def events(*values, done=True):
     for value in values:
         yield 'data: ' + json.dumps(value)
         yield ''
-    yield 'data: [DONE]'
-    yield ''
+    if done:
+        yield 'data: [DONE]'
+        yield ''
 
 
 class RuntimeTests(unittest.TestCase):
@@ -102,7 +103,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(data['usage']['completion_tokens'], 8)
 
     def test_truncated_stream_never_becomes_success(self):
-        for lines in [events({'choices': [{'delta': {'content': 'partial'}}]}), ['data: {']]:
+        for lines in [events({'choices': [{'delta': {'content': 'partial'}}]}, done=False), ['data: {']]:
             with self.assertRaises(GatewayContractError):
                 consume_sse(lines)
 
@@ -137,7 +138,8 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaises(InterruptedError):
             post_chat(session, 'http://backend', request(), connect_timeout=1, idle_timeout=1,
                       deadline_seconds=2, cancelled=lambda: True, progress=lambda e: None)
-        response.close.assert_called_once()
+        session.post.assert_not_called()
+        response.close.assert_not_called()
 
 
 class V13IntegrationTests(_IntegrationBase):

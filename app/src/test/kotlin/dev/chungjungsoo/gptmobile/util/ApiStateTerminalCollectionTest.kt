@@ -85,7 +85,12 @@ class ApiStateTerminalCollectionTest {
         var visible = "not updated"
         var thoughts = ""
         val outcome = flowOf(ApiState.Thinking("Reasoning only"), ApiState.Done)
-            .collectApiStateUpdates(onUpdate = { text, thinking, _ -> visible = text; thoughts = thinking })
+            .collectApiStateUpdates(
+                onUpdate = { text, thinking, _ ->
+                    visible = text
+                    thoughts = thinking
+                }
+            )
         assertTrue(outcome is ApiStateFlowOutcome.Failed)
         assertEquals("", visible)
         assertEquals("Reasoning only", thoughts)

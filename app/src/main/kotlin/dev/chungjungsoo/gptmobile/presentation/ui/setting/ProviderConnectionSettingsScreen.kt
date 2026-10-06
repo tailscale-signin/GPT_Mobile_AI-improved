@@ -11,19 +11,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -50,6 +49,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -73,7 +73,7 @@ fun ProviderConnectionSettingsScreen(
                     title = { Text("Provider settings") },
                     navigationIcon = {
                         IconButton(onClick = onNavigationClick) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                         }
                     }
                 )
@@ -117,7 +117,7 @@ fun ProviderConnectionSettingsScreen(
                 title = { Text("Provider Options") },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -136,7 +136,7 @@ fun ProviderConnectionSettingsScreen(
                 ) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Icon(Icons.Default.SmartToy, contentDescription = null)
+                            Icon(Icons.Rounded.SmartToy, contentDescription = null)
                             Text(connection.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             SettingsHelpIcon("Connection details are shared by every child AI profile. Model behavior stays inside each profile.")
                         }
@@ -182,7 +182,7 @@ fun ProviderConnectionSettingsScreen(
                                 value = apiUrl,
                                 onValueChange = { apiUrl = it },
                                 label = { Text("API HTTP Base URL") },
-                                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                                leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
@@ -197,19 +197,19 @@ fun ProviderConnectionSettingsScreen(
                                         value = key,
                                         onValueChange = { value -> keys = keys.toMutableList().apply { set(index, value) } },
                                         label = { Text("API key ${index + 1}") },
-                                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                                        leadingIcon = { Icon(Icons.Rounded.Key, contentDescription = null) },
                                         modifier = Modifier.weight(1f),
                                         enabled = loaded && !saving,
                                         singleLine = true,
                                         visualTransformation = PasswordVisualTransformation()
                                     )
                                     IconButton(onClick = { keys = keys.filterIndexed { i, _ -> i != index }.ifEmpty { listOf("") } }, enabled = loaded && !saving) {
-                                        Icon(Icons.Default.Delete, "Remove API key ${index + 1}")
+                                        Icon(Icons.Rounded.Delete, "Remove API key ${index + 1}")
                                     }
                                 }
                             }
                             TextButton(onClick = { keys = keys + "" }, enabled = loaded && !saving) {
-                                Icon(Icons.Default.Add, null)
+                                Icon(Icons.Rounded.Add, null)
                                 Text(" API")
                             }
                         }
@@ -237,7 +237,7 @@ fun ProviderConnectionSettingsScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.Save, contentDescription = null)
+                            Icon(Icons.Rounded.Save, contentDescription = null)
                             Text(if (saving) " Saving…" else " Save Provider Connection")
                         }
                     }
@@ -285,7 +285,7 @@ fun ProviderConnectionSettingsScreen(
                             Text("Removes this provider, its saved credentials, and linked AI profiles.", style = MaterialTheme.typography.bodySmall)
                         }
                         TextButton(onClick = { confirmDelete = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                             Text("Delete", color = MaterialTheme.colorScheme.error)
                         }
                     }

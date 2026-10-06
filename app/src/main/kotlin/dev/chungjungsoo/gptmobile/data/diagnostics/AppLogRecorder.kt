@@ -185,6 +185,8 @@ internal fun isKnownAndroidDiagnosticNoise(line: String): Boolean {
 
 private val KNOWN_ANDROID_NOISE = listOf(
     "windowonbackdispatcher",
+    "d/adpflog",
+    "d/insetscontroller",
     "sendcancelifrunning",
     "imetracker",
     "image decoding logging dropped",

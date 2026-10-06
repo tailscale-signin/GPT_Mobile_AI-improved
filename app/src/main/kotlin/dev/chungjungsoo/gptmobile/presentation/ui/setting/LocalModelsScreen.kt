@@ -19,19 +19,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Storefront
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,6 +62,7 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.catalog.ModelCatalogParser
 import dev.chungjungsoo.gptmobile.data.catalog.hasMtp
 import dev.chungjungsoo.gptmobile.data.huggingface.HuggingFaceUrls
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadDialogHost
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelDownloadStatus
 import dev.chungjungsoo.gptmobile.presentation.ui.localmodel.LocalModelRequirements
@@ -159,7 +159,7 @@ fun LocalModelsScreen(
                                         Text("Your next AI can run on this device.", style = MaterialTheme.typography.titleMedium)
                                         Text("Choose a compatible model to get started.", style = MaterialTheme.typography.bodySmall)
                                         Button(onClick = { marketplace = true }) {
-                                            Icon(Icons.Outlined.Storefront, null)
+                                            Icon(Icons.Rounded.Storefront, null)
                                             Text("Browse marketplace")
                                         }
                                     }
@@ -254,26 +254,26 @@ fun LocalModelsScreen(
                             }
                         }
                         if (marketplaceTab == 1) {
-                        item(key = "search") {
-                            ModelCatalogSearch(
-                                query = uiState.searchQuery,
-                                selectedFilter = uiState.filter,
-                                selectedSource = uiState.source,
-                                isSearchingHuggingFace = uiState.isSearchingHuggingFace,
-                                huggingFaceSearchError = uiState.huggingFaceSearchError,
-                                onQueryChange = viewModel::updateSearchQuery,
-                                onFilterChange = viewModel::updateFilter,
-                                onSourceChange = viewModel::updateModelSource,
-                                onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
-                            )
-                        }
-                        item(key = "account") {
-                            HuggingFaceAccountSection(
-                                hasToken = uiState.hasHuggingFaceToken,
-                                onAddToken = viewModel::openAccessTokenDialog,
-                                onRemoveToken = viewModel::removeHuggingFaceAccessToken
-                            )
-                        }
+                            item(key = "search") {
+                                ModelCatalogSearch(
+                                    query = uiState.searchQuery,
+                                    selectedFilter = uiState.filter,
+                                    selectedSource = uiState.source,
+                                    isSearchingHuggingFace = uiState.isSearchingHuggingFace,
+                                    huggingFaceSearchError = uiState.huggingFaceSearchError,
+                                    onQueryChange = viewModel::updateSearchQuery,
+                                    onFilterChange = viewModel::updateFilter,
+                                    onSourceChange = viewModel::updateModelSource,
+                                    onRefreshHuggingFace = viewModel::refreshHuggingFaceSearch
+                                )
+                            }
+                            item(key = "account") {
+                                HuggingFaceAccountSection(
+                                    hasToken = uiState.hasHuggingFaceToken,
+                                    onAddToken = viewModel::openAccessTokenDialog,
+                                    onRemoveToken = viewModel::removeHuggingFaceAccessToken
+                                )
+                            }
                         }
                         val marketplaceItems = when (marketplaceTab) {
                             0 -> emptyList()
@@ -386,10 +386,10 @@ private fun LocalModelsTopBar(
                 modifier = Modifier.padding(4.dp),
                 onClick = onNavigationClick
             ) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
+                Icon(imageVector = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.go_back))
             }
         },
-        actions = { if (!marketplace) IconButton(onClick = onMarketplace) { Icon(Icons.Outlined.Storefront, "Open model marketplace", tint = MaterialTheme.colorScheme.primary) } },
+        actions = { if (!marketplace) IconButton(onClick = onMarketplace) { Icon(Icons.Rounded.Storefront, "Open model marketplace", tint = MaterialTheme.colorScheme.primary) } },
         scrollBehavior = scrollBehavior
     )
 }
@@ -473,7 +473,7 @@ private fun ModelCatalogSearch(
             }
             if (selectedSource == LocalModelSource.HUGGING_FACE) {
                 IconButton(onClick = onRefreshHuggingFace, enabled = !isSearchingHuggingFace) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Hugging Face search")
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Refresh Hugging Face search")
                 }
             }
         }
@@ -499,7 +499,7 @@ private fun ModelCatalogSearch(
                     }
                 )
             },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -622,7 +622,7 @@ private fun CustomModelImportSection(
             Spacer(modifier = Modifier.width(8.dp))
             Button(onClick = onImportClick) {
                 Icon(
-                    imageVector = Icons.Default.Add,
+                    imageVector = Icons.Rounded.Add,
                     contentDescription = null,
                     modifier = Modifier.padding(end = 4.dp)
                 )
@@ -670,7 +670,7 @@ private fun LocalModelItem(
                     color = MaterialTheme.colorScheme.primaryContainer
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Memory,
+                        imageVector = Icons.Rounded.Memory,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(9.dp).size(22.dp)

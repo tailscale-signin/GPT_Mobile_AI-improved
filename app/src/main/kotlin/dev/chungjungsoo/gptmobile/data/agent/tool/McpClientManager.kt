@@ -137,7 +137,7 @@ class McpClientManager internal constructor(
     private suspend fun recordCatalog(config: McpConnectionConfig, tools: List<Tool>) {
         val fingerprint = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(tools.sortedBy { it.name }.joinToString { it.toString() })
         val changed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { trust?.observeCatalog(config.connectionUid, fingerprint) == true }
-        if (changed) _health.value = _health.value + (config.connectionUid to (_health.value[config.connectionUid] ?: McpConnectionHealth()).copy(lastError = "Tool catalog changed; remembered permissions were revoked. Review the updated schemas."))
+        if (changed) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "Tool catalog refreshed · savedPermissions=retained")
     }
 
     suspend fun callTool(

@@ -29,20 +29,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.HourglassEmpty
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.PendingActions
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.HourglassEmpty
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.PendingActions
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -72,6 +71,7 @@ import dev.chungjungsoo.gptmobile.data.model.AgentPlan
 import dev.chungjungsoo.gptmobile.data.model.AgentPlanStatus
 import dev.chungjungsoo.gptmobile.data.model.AgentStepStatus
 import dev.chungjungsoo.gptmobile.data.model.AgentTaskStep
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 /**
  * AgentPlanCard - Enhanced agent workflow execution display featuring:
@@ -145,7 +145,7 @@ fun AgentPlanCard(
                         }
                         AgentPlanStatus.COMPLETED -> {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                imageVector = Icons.Rounded.CheckCircle,
                                 contentDescription = "Status: Completed",
                                 tint = Color(0xFF4CAF50),
                                 modifier = Modifier.size(20.dp)
@@ -153,7 +153,7 @@ fun AgentPlanCard(
                         }
                         AgentPlanStatus.FAILED -> {
                             Icon(
-                                imageVector = Icons.Default.Error,
+                                imageVector = Icons.Rounded.Error,
                                 contentDescription = "Status: Failed",
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(20.dp)
@@ -161,7 +161,7 @@ fun AgentPlanCard(
                         }
                         AgentPlanStatus.WAITING_USER_INPUT -> {
                             Icon(
-                                imageVector = Icons.Default.Warning,
+                                imageVector = Icons.Rounded.Warning,
                                 contentDescription = "Status: Waiting for input",
                                 tint = Color(0xFFFF9800),
                                 modifier = Modifier.size(20.dp)
@@ -169,7 +169,7 @@ fun AgentPlanCard(
                         }
                         AgentPlanStatus.NOT_STARTED -> {
                             Icon(
-                                imageVector = Icons.Default.PendingActions,
+                                imageVector = Icons.Rounded.PendingActions,
                                 contentDescription = "Status: Not started",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 modifier = Modifier.size(20.dp)
@@ -205,7 +205,7 @@ fun AgentPlanCard(
                     }
 
                     Icon(
-                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        imageVector = if (isExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                         contentDescription = if (isExpanded) "Collapse plan steps" else "Expand plan steps",
                         modifier = Modifier.size(22.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -282,7 +282,9 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
             .then(
                 if (stepBorderColor != Color.Transparent) {
                     Modifier.border(1.dp, stepBorderColor, RoundedCornerShape(10.dp))
-                } else Modifier
+                } else {
+                    Modifier
+                }
             )
             .clickable(enabled = hasDetails, role = Role.Button) {
                 isStepExpanded = !isStepExpanded
@@ -324,7 +326,7 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
                     }
                     AgentStepStatus.SUCCESS -> {
                         Icon(
-                            imageVector = Icons.Default.CheckCircle,
+                            imageVector = Icons.Rounded.CheckCircle,
                             contentDescription = "Step Succeeded",
                             tint = Color(0xFF4CAF50),
                             modifier = Modifier.size(18.dp)
@@ -332,7 +334,7 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
                     }
                     AgentStepStatus.FAILED -> {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = Icons.Rounded.Close,
                             contentDescription = "Step Failed",
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(18.dp)
@@ -340,7 +342,7 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
                     }
                     AgentStepStatus.PENDING -> {
                         Icon(
-                            imageVector = Icons.Default.HourglassEmpty,
+                            imageVector = Icons.Rounded.HourglassEmpty,
                             contentDescription = "Step Pending",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.size(16.dp)
@@ -348,7 +350,7 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
                     }
                     AgentStepStatus.SKIPPED -> {
                         Icon(
-                            imageVector = Icons.Default.PlayArrow,
+                            imageVector = Icons.Rounded.PlayArrow,
                             contentDescription = "Step Skipped",
                             tint = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.size(16.dp)
@@ -377,7 +379,7 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Code,
+                            imageVector = Icons.Rounded.Code,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
                             modifier = Modifier.size(12.dp)
@@ -394,7 +396,7 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
 
             if (hasDetails) {
                 Icon(
-                    imageVector = if (isStepExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    imageVector = if (isStepExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                     contentDescription = if (isStepExpanded) "Collapse step details" else "Expand step details",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier.size(18.dp)
@@ -424,7 +426,7 @@ private fun AgentTaskStepRow(step: AgentTaskStep) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Code,
+                                imageVector = Icons.Rounded.Code,
                                 contentDescription = "Tool name",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(13.dp)

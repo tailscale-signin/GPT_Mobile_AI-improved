@@ -15,13 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
 fun ArchivedConversationsBar(
@@ -79,7 +79,7 @@ fun ArchivedConversationsBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.Archive,
+                    imageVector = Icons.Rounded.Archive,
                     contentDescription = stringResource(R.string.archived_chats),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
@@ -137,7 +137,7 @@ fun ArchivedConversationsBar(
                                     onClick = { onUnarchiveChat(chatRoom) }
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Unarchive,
+                                        imageVector = Icons.Rounded.Unarchive,
                                         contentDescription = stringResource(R.string.unarchive_chat),
                                         tint = MaterialTheme.colorScheme.primary
                                     )
@@ -146,7 +146,7 @@ fun ArchivedConversationsBar(
                                     onClick = { onDeleteChat(chatRoom) }
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Delete,
+                                        imageVector = Icons.Rounded.Delete,
                                         contentDescription = stringResource(R.string.delete),
                                         tint = MaterialTheme.colorScheme.error
                                     )

@@ -18,13 +18,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -55,6 +54,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventError
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.time.Instant
 import java.util.Locale
@@ -175,7 +175,7 @@ internal data class ToolServiceInfo(
     val badgeColor: Color,
     val textColor: Color = Color.White,
     val isGateway: Boolean = false,
-    val iconRes: Int? = null,
+    val iconRes: Int? = null
 )
 
 @Composable
@@ -183,7 +183,7 @@ internal fun resolveToolServiceInfo(
     toolName: String,
     modelToolName: String,
     connectionNameSnapshot: String? = null,
-    connectionUidSnapshot: String? = null,
+    connectionUidSnapshot: String? = null
 ): ToolServiceInfo {
     val rawName = toolName.ifBlank { modelToolName }.trim()
     val isGatewayTool = connectionUidSnapshot?.startsWith("gateway:", ignoreCase = true) == true
@@ -230,7 +230,7 @@ internal fun resolveToolServiceInfo(
             badgeColor = Color(0xFF1565C0),
             textColor = Color.White,
             isGateway = true,
-            iconRes = R.drawable.ic_gateway_server,
+            iconRes = R.drawable.ic_gateway_server
         )
     } else {
         ToolServiceInfo(
@@ -240,7 +240,7 @@ internal fun resolveToolServiceInfo(
             badgeColor = badgeColor,
             textColor = toolDef.textColor,
             isGateway = false,
-            iconRes = null,
+            iconRes = null
         )
     }
 }
@@ -249,11 +249,11 @@ internal fun resolveToolServiceInfo(
 internal fun ToolServiceCircleIcon(
     info: ToolServiceInfo,
     modifier: Modifier = Modifier,
-    sizeDp: Int = 24,
+    sizeDp: Int = 24
 ) {
     Box(
-        modifier = modifier.size(sizeDp.dp).clip(CircleShape).background(info.badgeColor),
-        contentAlignment = Alignment.Center,
+        modifier = modifier.size(sizeDp.dp).clip(CircleShape).background(if (info.isGateway) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center
     ) {
         Icon(
             painter = painterResource(
@@ -264,8 +264,8 @@ internal fun ToolServiceCircleIcon(
                 }
             ),
             contentDescription = if (info.isGateway) "Gateway tool" else null,
-            tint = if (info.isGateway) Color.White else Color.Unspecified,
-            modifier = Modifier.size((sizeDp * 0.7).dp),
+            tint = if (info.isGateway) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.size((sizeDp * 0.7).dp)
         )
     }
 }
@@ -276,19 +276,19 @@ internal fun ToolStatusIndicator(state: ToolCallState, modifier: Modifier = Modi
         is ToolCallState.Running -> CircularProgressIndicator(
             modifier = modifier.size(16.dp),
             strokeWidth = 2.dp,
-            color = MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.colorScheme.primary
         )
         is ToolCallState.Failed, is ToolCallState.Canceled -> Icon(
-            imageVector = Icons.Default.Close,
+            imageVector = Icons.Rounded.Close,
             contentDescription = "Failed",
-            tint = Color(0xFFD32F2F),
-            modifier = modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.error,
+            modifier = modifier.size(18.dp)
         )
         is ToolCallState.Completed -> Icon(
-            imageVector = Icons.Default.Check,
+            imageVector = Icons.Rounded.Check,
             contentDescription = "Completed",
-            tint = Color(0xFF2E7D32),
-            modifier = modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = modifier.size(18.dp)
         )
     }
 }
@@ -343,7 +343,7 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
         firstEvent.toolName,
         firstEvent.modelToolName,
         firstEvent.connectionNameSnapshot,
-        firstEvent.connectionUidSnapshot,
+        firstEvent.connectionUidSnapshot
     )
     val overallState = remember(events) {
         when {
@@ -364,8 +364,8 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.15f))
-            .semantics { contentDescription = traceBlockDescription },
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .semantics { contentDescription = traceBlockDescription }
     ) {
         Row(
             modifier = Modifier
@@ -376,15 +376,15 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
                     contentDescription = if (isExpanded) labels.collapseToolTrace else labels.expandToolTrace
                 }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             ToolServiceCircleIcon(primaryServiceInfo)
             Spacer(Modifier.width(8.dp))
             Text(
                 text = summary,
                 style = MaterialTheme.typography.titleSmall,
-                color = Color.White.copy(alpha = 0.9f),
-                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
             ToolStatusIndicator(overallState)
@@ -392,8 +392,8 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = if (isExpanded) labels.collapse else labels.expand,
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.rotate(rotationAngle),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.rotate(rotationAngle)
             )
         }
         AnimatedVisibility(isExpanded, enter = expandVertically(), exit = shrinkVertically()) {
@@ -405,13 +405,13 @@ fun ToolTraceBlock(events: List<ToolEvent>, modifier: Modifier = Modifier, conte
                             onValueChange = { query = it },
                             label = { Text(searchToolTrace) },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = searchToolTrace },
+                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = searchToolTrace }
                         )
                         Spacer(Modifier.height(8.dp))
                     }
                     val filteredEvents = filterToolEvents(events, query)
                     if (filteredEvents.isEmpty()) {
-                        Text(noMatchingToolCalls, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+                        Text(noMatchingToolCalls, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         val displayItems = groupConsecutiveToolEvents(filteredEvents)
                         displayItems.forEach { item ->
@@ -441,21 +441,21 @@ private fun ToolTraceRepeatedGroupCard(group: ToolTraceDisplayItem.RepeatedGroup
     }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.07f)),
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { isGroupExpanded = !isGroupExpanded },
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "🔧 ${group.events.size}x ${group.toolName}",
                     style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
                 ToolStatusIndicator(groupStatus)
@@ -463,8 +463,8 @@ private fun ToolTraceRepeatedGroupCard(group: ToolTraceDisplayItem.RepeatedGroup
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = if (isGroupExpanded) labels.collapse else labels.expand,
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.rotate(rotationAngle),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.rotate(rotationAngle)
                 )
             }
             AnimatedVisibility(isGroupExpanded, enter = expandVertically(), exit = shrinkVertically()) {
@@ -501,7 +501,7 @@ private fun toolTraceLabels() = ToolTraceLabels(
     stringResource(R.string.tool_trace_arguments),
     stringResource(R.string.tool_trace_result),
     ToolTraceLabels.Default.exportHeader,
-    stringResource(R.string.tool_trace_timing_started_at),
+    stringResource(R.string.tool_trace_timing_started_at)
 )
 
 @Composable
@@ -509,8 +509,8 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
     val callDescription = stringResource(R.string.tool_trace_call_content_description, event.callId, event.status.lowercase(Locale.ROOT))
     val serviceInfo = resolveToolServiceInfo(event.toolName, event.modelToolName, event.connectionNameSnapshot, event.connectionUidSnapshot)
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.07f)),
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp).semantics { contentDescription = callDescription },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp).semantics { contentDescription = callDescription }
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -524,8 +524,8 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(6.dp))
                 ToolStatusIndicator(event.toToolCallState())
@@ -551,13 +551,13 @@ private fun ToolTraceEventCard(event: ToolEvent, labels: ToolTraceLabels) {
 
 @Composable
 private fun ToolTraceLine(label: String, value: String) {
-    Text("$label: $value", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+    Text("$label: $value", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
 private fun ToolTraceBlockText(label: String, value: String) {
-    Text("$label:", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f), modifier = Modifier.padding(top = 8.dp))
-    Text(boundedText(value), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = Color.White.copy(alpha = 0.9f), maxLines = 6, overflow = TextOverflow.Ellipsis)
+    Text("$label:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+    Text(boundedText(value), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurface, maxLines = 6, overflow = TextOverflow.Ellipsis)
 }
 
 internal fun filterToolEvents(events: List<ToolEvent>, query: String): List<ToolEvent> {
@@ -575,7 +575,7 @@ internal fun filterToolEvents(events: List<ToolEvent>, query: String): List<Tool
             event.arguments,
             event.result,
             event.error,
-            timingLabel(event, ToolTraceLabels.Default),
+            timingLabel(event, ToolTraceLabels.Default)
         ).any { normalizedQuery in it.lowercase(Locale.ROOT) }
     }
 }
@@ -584,7 +584,7 @@ internal fun toolTraceStatusSummary(
     events: List<ToolEvent>,
     labels: ToolTraceLabels = ToolTraceLabels.Default,
     primaryServiceInfo: ToolServiceInfo? = null,
-    overallState: ToolCallState = ToolCallState.Completed,
+    overallState: ToolCallState = ToolCallState.Completed
 ): String {
     val count = events.size
     if (events.isEmpty()) return "0 ${labels.calls}"
@@ -779,14 +779,14 @@ data class ToolTraceLabels(
     val arguments: String,
     val result: String,
     val exportHeader: (Int) -> String,
-    val startedAt: String,
+    val startedAt: String
 ) {
     companion object {
         val Default = ToolTraceLabels(
             "Expand tool trace", "Collapse tool trace", "Expand", "Collapse", "tool call", "tool calls",
             "running", "failed", "completed with errors", "canceled", "completed", "Status", "Call ID",
             "Connection", "Tool", "Model tool", "Timing", "Error", "Arguments", "Result",
-            { count -> "Tool calls ($count)" }, "started at",
+            { count -> "Tool calls ($count)" }, "started at"
         )
     }
 }
@@ -801,7 +801,7 @@ private fun ToolTraceBlockPreview() {
             toolName = "web_search", modelToolName = "web_search",
             arguments = "{\"query\": \"Compose preview\"}", result = "Found results for Compose preview",
             resultType = ToolEventResultType.TEXT, status = ToolEventStatus.COMPLETED, sequence = 0,
-            startedAt = Instant.now().epochSecond - 5, completedAt = Instant.now().epochSecond,
+            startedAt = Instant.now().epochSecond - 5, completedAt = Instant.now().epochSecond
         )
         Box(Modifier.padding(16.dp)) { ToolTraceBlock(listOf(mockEvent)) }
     }
@@ -816,7 +816,7 @@ private fun ToolTraceBlockRunningPreview() {
             connectionUidSnapshot = null, connectionNameSnapshot = null,
             toolName = "calculate_expression", modelToolName = "calculate_expression",
             arguments = "{\"expression\": \"2 + 2\"}", result = null, resultType = null,
-            status = ToolEventStatus.RUNNING, sequence = 0, startedAt = Instant.now().epochSecond,
+            status = ToolEventStatus.RUNNING, sequence = 0, startedAt = Instant.now().epochSecond
         )
         Box(Modifier.padding(16.dp)) { ToolTraceBlock(listOf(mockEvent)) }
     }

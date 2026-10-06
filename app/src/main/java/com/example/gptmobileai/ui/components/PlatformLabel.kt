@@ -10,12 +10,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Computer
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +26,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 /**
  * Pure domain representation of supported AI platforms.
@@ -49,11 +49,11 @@ enum class AIPlatform(val displayName: String, val identifier: String) {
  */
 val AIPlatform.icon: ImageVector
     get() = when (this) {
-        AIPlatform.OPENAI -> Icons.Default.Cloud
-        AIPlatform.ANTHROPIC -> Icons.Default.Security
-        AIPlatform.LOCAL_LLM -> Icons.Default.PhoneAndroid
-        AIPlatform.OLLAMA -> Icons.Default.Computer
-        AIPlatform.CUSTOM -> Icons.Default.Devices
+        AIPlatform.OPENAI -> Icons.Rounded.Cloud
+        AIPlatform.ANTHROPIC -> Icons.Rounded.Security
+        AIPlatform.LOCAL_LLM -> Icons.Rounded.PhoneAndroid
+        AIPlatform.OLLAMA -> Icons.Rounded.Computer
+        AIPlatform.CUSTOM -> Icons.Rounded.Devices
     }
 
 /**

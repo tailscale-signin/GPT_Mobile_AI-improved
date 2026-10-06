@@ -26,7 +26,7 @@ class DelegationGitHubPolicyTest {
 
         assertEquals(
             listOf(delegate, aggregateWeb, readUrl, githubNative, githubMcp, calculator),
-            primaryDelegationTools(tools, true, 0)
+            primaryDelegationTools(tools, true, 25)
         )
         assertEquals(tools, primaryDelegationTools(tools, false, 0))
         assertEquals(
@@ -36,15 +36,23 @@ class DelegationGitHubPolicyTest {
     }
 
     @Test
-    fun `location and other authorized tools remain usable at every delegation ownership level`() {
+    fun `partial delegation retains authorized location and other primary tools`() {
         val location = tool("device_location")
         val remoteLocation = tool("mcp__phone__get_location", "get_location", connectionUid = "phone")
         val calculator = tool("calculate_expression")
         val memory = tool("memory")
         val tools = listOf(location, remoteLocation, calculator, memory)
-        listOf(0, 25, 35, 65, 100).forEach { ownership ->
+        listOf(25, 35, 65, 100).forEach { ownership ->
             assertEquals(tools, primaryDelegationTools(tools, true, ownership))
         }
+    }
+
+    @Test
+    fun `maximum delegation exposes only the helper before the final pass`() {
+        val delegate = tool("delegate_to_model")
+        val tools = listOf(delegate, tool("github"), tool("web_search"), tool("device_location"), tool("calculate_expression"))
+        assertEquals(listOf(delegate), primaryDelegationTools(tools, true, 0))
+        assertEquals(tools, primaryDelegationTools(tools, false, 0))
     }
 
     @Test
@@ -88,6 +96,13 @@ class DelegationGitHubPolicyTest {
         assertTrue(gitHubCapabilityRefusal(task, "I cannot do it because **no GitHub integration, Git CLI, shell, or remote repository write tools are enabled**."))
         assertFalse(gitHubCapabilityRefusal(task, "Created the GitHub draft PR successfully."))
         assertFalse(gitHubCapabilityRefusal("Explain this error message", "No GitHub integration is enabled."))
+    }
+
+    @Test fun `maximum delegation final pass has no tools even when follow ups are enabled`() {
+        val tools = listOf(tool("delegate_to_model"), tool("web_search"), tool("read_url"), tool("github"), tool("device_location"))
+        assertTrue(reviewedSynthesisTools(tools, 0, false).isEmpty())
+        assertTrue(reviewedSynthesisTools(tools, 0, true).isEmpty())
+        assertEquals(listOf(tools[3], tools[4]), reviewedSynthesisTools(tools, 50, false))
     }
 
     private fun tool(

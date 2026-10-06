@@ -4,8 +4,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Clear
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -19,6 +18,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Preview
 @Composable
@@ -49,7 +49,7 @@ fun TokenInputField(
         trailingIcon = {
             if (value.isNotBlank()) {
                 IconButton(onClick = onClearClick) {
-                    Icon(Icons.Outlined.Clear, contentDescription = stringResource(R.string.clear_token))
+                    Icon(Icons.Rounded.Clear, contentDescription = stringResource(R.string.clear_token))
                 }
             }
         }

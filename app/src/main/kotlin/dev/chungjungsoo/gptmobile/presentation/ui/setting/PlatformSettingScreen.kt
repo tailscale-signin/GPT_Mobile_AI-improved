@@ -16,40 +16,40 @@
 
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import android.content.pm.PackageManager
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Label
-import androidx.compose.material.icons.filled.AllInbox
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Calculate
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Numbers
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Label
+import androidx.compose.material.icons.rounded.AllInbox
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Calculate
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Numbers
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,7 +57,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ListItem
@@ -71,22 +70,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -104,6 +103,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.common.SettingItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.util.PERMISSION_ACCESS_LOCAL_NETWORK
 import dev.chungjungsoo.gptmobile.util.formatPlatformTimeout
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
@@ -222,11 +222,11 @@ fun PlatformSettingScreen(
                         ProfileSectionTitle(title = "Debug & performance")
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             FilledTonalButton(onClick = onNavigateToUsage, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Default.BarChart, null)
+                                Icon(Icons.Rounded.BarChart, null)
                                 Text("Usage", Modifier.padding(start = 8.dp))
                             }
                             FilledTonalButton(onClick = onNavigateToBenchmarks, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Outlined.Speed, null)
+                                Icon(Icons.Rounded.Speed, null)
                                 Text("Benchmarks", Modifier.padding(start = 8.dp))
                             }
                         }
@@ -257,7 +257,7 @@ fun PlatformSettingScreen(
                         showLeadingIcon = true,
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Label,
+                                imageVector = Icons.AutoMirrored.Rounded.Label,
                                 contentDescription = stringResource(R.string.platform_name)
                             )
                         }
@@ -381,7 +381,7 @@ fun PlatformSettingScreen(
                     PreferenceListSwitch(
                         title = "Delegation mode",
                         description = if (features.delegation.enabled) "Allow this profile to use a delegate" else "Enable delegation in Settings to use helpers",
-                        icon = Icons.Default.Build,
+                        icon = Icons.Rounded.Build,
                         enabled = platformData.enabled,
                         isChecked = behavior.delegationEnabled,
                         onCheckedChange = { settingViewModel.updateProfileBehavior(behavior.copy(delegationEnabled = it)) }
@@ -448,7 +448,7 @@ fun PlatformSettingScreen(
                             showLeadingIcon = true,
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Outlined.Numbers,
+                                    imageVector = Icons.Rounded.Numbers,
                                     contentDescription = stringResource(R.string.max_tokens)
                                 )
                             }
@@ -463,7 +463,7 @@ fun PlatformSettingScreen(
                             showLeadingIcon = true,
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Outlined.Speed,
+                                    imageVector = Icons.Rounded.Speed,
                                     contentDescription = stringResource(R.string.accelerator)
                                 )
                             }
@@ -554,7 +554,7 @@ fun PlatformSettingScreen(
                             showLeadingIcon = true,
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Outlined.Tune,
+                                    imageVector = Icons.Rounded.Tune,
                                     contentDescription = stringResource(R.string.ollama_advanced_options)
                                 )
                             }
@@ -571,7 +571,7 @@ fun PlatformSettingScreen(
                             showLeadingIcon = true,
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Outlined.Tune,
+                                    imageVector = Icons.Rounded.Tune,
                                     contentDescription = stringResource(R.string.llama_advanced_settings)
                                 )
                             }
@@ -595,7 +595,7 @@ fun PlatformSettingScreen(
                                 modifier = Modifier.height(64.dp),
                                 title = stringResource(R.string.batch_mode),
                                 description = stringResource(R.string.batch_mode_description),
-                                icon = Icons.Default.AllInbox,
+                                icon = Icons.Rounded.AllInbox,
                                 enabled = platformData.enabled,
                                 isChecked = platformData.batchMode,
                                 onCheckedChange = {
@@ -632,7 +632,7 @@ fun PlatformSettingScreen(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.disable_all_tools),
                         description = stringResource(R.string.disable_all_tools_description),
-                        icon = Icons.Default.Build,
+                        icon = Icons.Rounded.Build,
                         enabled = supportsTools && platformData.enabled,
                         isChecked = platformData.disableAllTools,
                         onCheckedChange = { settingViewModel.toggleDisableAllTools() }
@@ -643,7 +643,7 @@ fun PlatformSettingScreen(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.disable_remote_tools),
                         description = stringResource(R.string.disable_remote_tools_description),
-                        icon = Icons.Default.Language,
+                        icon = Icons.Rounded.Language,
                         enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
                         isChecked = platformData.disableRemoteTools,
                         onCheckedChange = { settingViewModel.toggleDisableRemoteTools() }
@@ -653,7 +653,7 @@ fun PlatformSettingScreen(
                         modifier = Modifier.height(64.dp),
                         title = stringResource(R.string.disable_local_tools),
                         description = stringResource(R.string.disable_local_tools_description),
-                        icon = Icons.Default.Calculate,
+                        icon = Icons.Rounded.Calculate,
                         enabled = supportsTools && platformData.enabled && !platformData.disableAllTools,
                         isChecked = platformData.disableLocalTools,
                         onCheckedChange = { settingViewModel.toggleDisableLocalTools() }
@@ -680,7 +680,7 @@ fun PlatformSettingScreen(
                         modifier = Modifier.height(72.dp),
                         title = "Device location",
                         description = "Allow this AI profile to request the phone's current GPS location when needed.",
-                        icon = Icons.Default.LocationOn,
+                        icon = Icons.Rounded.LocationOn,
                         enabled = supportsTools && platformData.enabled && !platformData.disableAllTools && !platformData.disableLocalTools,
                         isChecked = toolBindingState.deviceLocationEnabled,
                         onCheckedChange = { enabled ->
@@ -1111,7 +1111,7 @@ fun PlatformTopAppBar(
         navigationIcon = {
             IconButton(onClick = onNavigationClick) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = stringResource(R.string.arrow_icon)
                 )
             }
@@ -1119,7 +1119,7 @@ fun PlatformTopAppBar(
         actions = {
             IconButton(onClick = { expanded = true }) {
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
+                    imageVector = Icons.Rounded.MoreVert,
                     contentDescription = stringResource(R.string.options)
                 )
             }
@@ -1173,7 +1173,7 @@ fun PreferenceSwitchWithContainer(
                 thumbContent = {
                     if (isChecked) {
                         Icon(
-                            imageVector = Icons.Outlined.Check,
+                            imageVector = Icons.Rounded.Check,
                             contentDescription = null,
                             modifier = Modifier.size(SwitchDefaults.IconSize)
                         )
@@ -1249,7 +1249,7 @@ fun PreferenceListSwitch(
                 thumbContent = {
                     if (isChecked) {
                         Icon(
-                            imageVector = Icons.Outlined.Check,
+                            imageVector = Icons.Rounded.Check,
                             contentDescription = null,
                             modifier = Modifier.size(SwitchDefaults.IconSize)
                         )

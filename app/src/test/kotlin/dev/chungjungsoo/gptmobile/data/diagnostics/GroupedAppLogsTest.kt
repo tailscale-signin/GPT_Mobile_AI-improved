@@ -30,4 +30,17 @@ class GroupedAppLogsTest {
         assertEquals(2, groups.last().repetitions)
         assertEquals(listOf(events.first(), events.last()), groups.last().rawDetails)
     }
+
+    @Test fun `background telemetry failures group without dropping their original details`() {
+        val entries = listOf(
+            AppLogEntry(1000, "E", "Android", "E/TransportRuntime.CctTransportBackend: Couldn't open connection"),
+            AppLogEntry(1001, "E", "Android", "E/TransportRuntime.CctTransportBackend: java.net.ConnectException"),
+            AppLogEntry(1002, "I", "Model", "Completed"),
+            AppLogEntry(2000, "E", "Android", "E/TransportRuntime.CctTransportBackend: at upload()")
+        )
+        val groups = groupAppLogs(entries)
+        assertEquals(2, groups.size)
+        assertEquals(3, groups.last().repetitions)
+        assertEquals(3, groups.last().rawDetails.size)
+    }
 }

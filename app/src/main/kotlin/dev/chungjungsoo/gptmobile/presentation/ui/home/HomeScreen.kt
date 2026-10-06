@@ -45,26 +45,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.AddComment
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Dns
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Forum
-import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddComment
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -75,10 +72,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItem
@@ -92,6 +87,7 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -147,6 +143,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatMarkdown
 import dev.chungjungsoo.gptmobile.util.getPlatformName
@@ -298,27 +295,39 @@ fun HomeScreen(
             if (!chatListState.isSelectionMode && !chatListState.isSearchMode) {
                 PrimaryTabRow(
                     selectedTabIndex = currentTab.ordinal,
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    indicator = {
+                        TabRowDefaults.PrimaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(currentTab.ordinal, matchContentSize = true),
+                            width = androidx.compose.ui.unit.Dp.Unspecified,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    },
                     divider = { HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)) }
                 ) {
                     Tab(
+                        selectedContentColor = MaterialTheme.colorScheme.onPrimary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.65f),
                         selected = currentTab == HomeTab.CHATS,
                         onClick = { homeViewModel.selectTab(HomeTab.CHATS) },
                         text = { Text(stringResource(R.string.chats)) },
                         icon = {
                             Icon(
-                                imageVector = Icons.Outlined.ChatBubbleOutline,
+                                imageVector = Icons.Rounded.ChatBubbleOutline,
                                 contentDescription = stringResource(R.string.chats)
                             )
                         }
                     )
                     Tab(
+                        selectedContentColor = MaterialTheme.colorScheme.onPrimary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.65f),
                         selected = currentTab == HomeTab.FAVORITES,
                         onClick = { homeViewModel.selectTab(HomeTab.FAVORITES) },
                         text = { Text(stringResource(R.string.favorites)) },
                         icon = {
                             Icon(
-                                imageVector = if (currentTab == HomeTab.FAVORITES) Icons.Filled.Star else Icons.Outlined.Star,
+                                imageVector = if (currentTab == HomeTab.FAVORITES) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                                 contentDescription = stringResource(R.string.favorites)
                             )
                         }
@@ -611,7 +620,7 @@ private fun CompletedGenerationNavigator(
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             ) {
                                 Icon(
-                                    Icons.Filled.ChatBubble,
+                                    Icons.Rounded.ChatBubble,
                                     contentDescription = null,
                                     modifier = Modifier.padding(7.dp).size(17.dp)
                                 )
@@ -648,15 +657,15 @@ private fun CompletedGenerationNavigator(
                 modifier = Modifier.size(52.dp)
             ) {
                 Icon(
-                    Icons.Filled.ChatBubble,
+                    Icons.Rounded.ChatBubble,
                     contentDescription = if (items.size == 1) "Open finished AI response" else "Show ${items.size} finished AI responses",
                     modifier = Modifier.size(25.dp)
                 )
             }
             Surface(
                 shape = CircleShape,
-                color = Color(0xFFE53935),
-                contentColor = Color.White,
+                color = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
                 shadowElevation = 3.dp,
                 modifier = Modifier.align(Alignment.TopEnd)
             ) {
@@ -713,8 +722,9 @@ fun FancySwipeChatCard(
     )
 
     // Full-color swipe backgrounds
-    val archiveColor = Color(0xFF00BCD4)
-    val deleteColor = Color(0xFFF44336)
+    val archiveColor = MaterialTheme.colorScheme.primary
+    val deleteColor = MaterialTheme.colorScheme.error
+    val swipeContentColor = if (isSwipingEndToStart) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
 
     // Card surface tint dynamically reacting to swipe progress
     val cardContainerColor = when {
@@ -766,13 +776,13 @@ fun FancySwipeChatCard(
                                 .size(44.dp)
                                 .shadow(4.dp, CircleShape)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.25f)),
+                                .background(swipeContentColor.copy(alpha = 0.25f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Archive,
+                                imageVector = Icons.Rounded.Archive,
                                 contentDescription = stringResource(R.string.archive_chat),
-                                tint = Color.White,
+                                tint = swipeContentColor,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -780,7 +790,7 @@ fun FancySwipeChatCard(
                             text = stringResource(R.string.archive_chat),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = swipeContentColor
                         )
                     }
                 } else if (isDeleteTarget) {
@@ -796,20 +806,20 @@ fun FancySwipeChatCard(
                             text = stringResource(R.string.delete),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = swipeContentColor
                         )
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
                                 .shadow(4.dp, CircleShape)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.25f)),
+                                .background(swipeContentColor.copy(alpha = 0.25f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Delete,
+                                imageVector = Icons.Rounded.Delete,
                                 contentDescription = stringResource(R.string.delete),
-                                tint = Color.White,
+                                tint = swipeContentColor,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -873,7 +883,7 @@ private fun ChatListItem(
             ) {
                 if (chatRoom.isFavorite) {
                     Icon(
-                        imageVector = Icons.Filled.PushPin,
+                        imageVector = Icons.Rounded.PushPin,
                         contentDescription = stringResource(R.string.pinned_chat),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
@@ -968,13 +978,13 @@ private fun ConversationModeSymbol(
     hasUnreadResponse: Boolean
 ) {
     val (icon, description) = if (hasUnreadResponse) {
-        Icons.Filled.ChatBubble to "Unread AI response"
+        Icons.Rounded.ChatBubble to "Unread AI response"
     } else {
         when {
-            chatRoom.conversationMode == ConversationMode.COMBINED -> Icons.Outlined.Hub to "Combined conversation"
-            chatRoom.enabledPlatform.size > 1 -> Icons.Outlined.Forum to "Multiple AI conversation"
-            isServerChat -> Icons.Outlined.Dns to "Local or server AI conversation"
-            else -> Icons.Outlined.ChatBubbleOutline to "Conversation"
+            chatRoom.conversationMode == ConversationMode.COMBINED -> Icons.Rounded.Hub to "Combined conversation"
+            chatRoom.enabledPlatform.size > 1 -> Icons.Rounded.Forum to "Multiple AI conversation"
+            isServerChat -> Icons.Rounded.Dns to "Local or server AI conversation"
+            else -> Icons.Rounded.ChatBubbleOutline to "Conversation"
         }
     }
     Box(modifier = Modifier.size(34.dp), contentAlignment = Alignment.Center) {
@@ -1065,7 +1075,7 @@ fun FavoritesList(
             }
             IconButton(onClick = onAddGroupClick) {
                 Icon(
-                    imageVector = Icons.Filled.Add,
+                    imageVector = Icons.Rounded.Add,
                     contentDescription = stringResource(R.string.add_group),
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -1242,7 +1252,7 @@ fun FavoriteDetailDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close))
+                            Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.close))
                         }
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -1269,7 +1279,7 @@ fun FavoriteDetailDialog(
                             }
                         }) {
                             Icon(
-                                imageVector = Icons.Outlined.ContentCopy,
+                                imageVector = Icons.Rounded.ContentCopy,
                                 contentDescription = stringResource(R.string.copy_text),
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -1279,9 +1289,9 @@ fun FavoriteDetailDialog(
                         Box {
                             IconButton(onClick = { showGroupDropdown = true }) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Folder,
+                                    imageVector = Icons.Rounded.Folder,
                                     contentDescription = stringResource(R.string.group_name),
-                                    tint = if (currentGroup != null) Color.Cyan else MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = if (currentGroup != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             DropdownMenu(
@@ -1290,7 +1300,7 @@ fun FavoriteDetailDialog(
                             ) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.none_group)) },
-                                    leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                                    leadingIcon = { Icon(Icons.Rounded.Folder, contentDescription = null) },
                                     onClick = {
                                         onAssignGroup(null)
                                         showGroupDropdown = false
@@ -1301,9 +1311,9 @@ fun FavoriteDetailDialog(
                                         text = { Text(group) },
                                         leadingIcon = {
                                             Icon(
-                                                Icons.Filled.Folder,
+                                                Icons.Rounded.Folder,
                                                 contentDescription = null,
-                                                tint = if (currentGroup == group) Color.Cyan else MaterialTheme.colorScheme.primary
+                                                tint = if (currentGroup == group) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary
                                             )
                                         },
                                         onClick = {
@@ -1318,7 +1328,7 @@ fun FavoriteDetailDialog(
                         // View in Chat
                         IconButton(onClick = onViewInChat) {
                             Icon(
-                                imageVector = Icons.Outlined.ChatBubbleOutline,
+                                imageVector = Icons.Rounded.ChatBubbleOutline,
                                 contentDescription = stringResource(R.string.view_in_chat),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1327,7 +1337,7 @@ fun FavoriteDetailDialog(
                         // Delete / Unfavorite
                         IconButton(onClick = onUnfavorite) {
                             Icon(
-                                imageVector = Icons.Outlined.Delete,
+                                imageVector = Icons.Rounded.Delete,
                                 contentDescription = stringResource(R.string.delete),
                                 tint = MaterialTheme.colorScheme.error
                             )
@@ -1525,7 +1535,7 @@ fun NewChatButton(expanded: Boolean, onClick: () -> Unit) {
     ExtendedFloatingActionButton(
         onClick = onClick,
         expanded = expanded,
-        icon = { Icon(Icons.Outlined.AddComment, stringResource(R.string.new_chat)) },
+        icon = { Icon(Icons.Rounded.AddComment, stringResource(R.string.new_chat)) },
         shape = RoundedCornerShape(24.dp),
         containerColor = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1550,6 +1560,7 @@ fun HomeTopBar(
 ) {
     if (chatListState.isSelectionMode) {
         TopAppBar(
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, scrolledContainerColor = MaterialTheme.colorScheme.primary, titleContentColor = MaterialTheme.colorScheme.onPrimary, navigationIconContentColor = MaterialTheme.colorScheme.onPrimary, actionIconContentColor = MaterialTheme.colorScheme.onPrimary),
             title = { Text(stringResource(R.string.chats_selected, selectedChatCount)) },
             navigationIcon = {
                 IconButton(onClick = onCloseSelectionMode) {
@@ -1559,16 +1570,17 @@ fun HomeTopBar(
             actions = {
                 if (canDuplicate) {
                     IconButton(onClick = onDuplicateClick) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.duplicate))
+                        Icon(Icons.Rounded.ContentCopy, contentDescription = stringResource(R.string.duplicate))
                     }
                 }
                 IconButton(onClick = onDeleteClick) {
-                    Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.delete))
+                    Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.delete))
                 }
             }
         )
     } else if (chatListState.isSearchMode) {
         TopAppBar(
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, scrolledContainerColor = MaterialTheme.colorScheme.primary, titleContentColor = MaterialTheme.colorScheme.onPrimary, navigationIconContentColor = MaterialTheme.colorScheme.onPrimary, actionIconContentColor = MaterialTheme.colorScheme.onPrimary),
             title = {
                 TextField(
                     value = searchQuery,
@@ -1589,13 +1601,14 @@ fun HomeTopBar(
         )
     } else {
         TopAppBar(
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, scrolledContainerColor = MaterialTheme.colorScheme.primary, titleContentColor = MaterialTheme.colorScheme.onPrimary, navigationIconContentColor = MaterialTheme.colorScheme.onPrimary, actionIconContentColor = MaterialTheme.colorScheme.onPrimary),
             title = { },
             actions = {
-                FilledTonalIconButton(onClick = onSearchToggle, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f), contentColor = MaterialTheme.colorScheme.primary)) {
+                IconButton(onClick = onSearchToggle, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)) {
                     Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.search))
                 }
-                FilledTonalIconButton(onClick = onSettingClick, colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f), contentColor = MaterialTheme.colorScheme.primary)) {
-                    Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.settings))
+                IconButton(onClick = onSettingClick, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)) {
+                    Icon(Icons.Rounded.Settings, contentDescription = stringResource(R.string.settings))
                 }
             },
             scrollBehavior = scrollBehavior

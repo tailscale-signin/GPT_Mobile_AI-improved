@@ -17,14 +17,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.List
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +67,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelCatalogPicker
 import dev.chungjungsoo.gptmobile.util.pinnedExitUntilCollapsedScrollBehavior
 import kotlinx.serialization.encodeToString
@@ -363,7 +363,7 @@ fun AddPlatformScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
                         Text(stringResource(R.string.new_provider_connection))
                     }
 
@@ -415,7 +415,7 @@ fun AddPlatformScreen(
                                 if (apiTokens.size > 1) {
                                     IconButton(onClick = { apiTokens.removeAt(index) }) {
                                         Icon(
-                                            imageVector = Icons.Filled.Delete,
+                                            imageVector = Icons.Rounded.Delete,
                                             contentDescription = stringResource(R.string.remove_api_key),
                                             tint = MaterialTheme.colorScheme.error
                                         )
@@ -425,7 +425,7 @@ fun AddPlatformScreen(
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton(onClick = { apiTokens.add("") }) {
-                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                                 Text(stringResource(R.string.add_api_key))
                             }
                         }
@@ -466,7 +466,7 @@ fun AddPlatformScreen(
                                 onClick = { showSuggestedModels = true },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                Icon(Icons.Rounded.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                                 Text(stringResource(R.string.choose_model))
                             }
                             DropdownMenu(
@@ -491,7 +491,7 @@ fun AddPlatformScreen(
                             onClick = { showOpenRouterPicker = true },
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         ) {
-                            Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Icon(Icons.Rounded.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                             Text(text = stringResource(R.string.openrouter_browse_models))
                         }
                     } else if (clientType == ClientType.LLAMA) {
@@ -499,7 +499,7 @@ fun AddPlatformScreen(
                             onClick = { showLlamaPicker = true },
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         ) {
-                            Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Icon(Icons.Rounded.List, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                             Text(text = stringResource(R.string.llama_select_router_model))
                         }
                     }
@@ -641,7 +641,7 @@ private fun AddPlatformTopBar(
         title = { Text(modifier = Modifier.padding(4.dp), text = title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
             IconButton(modifier = Modifier.padding(4.dp), onClick = onNavigationClick) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.go_back))
+                Icon(imageVector = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.go_back))
             }
         },
         actions = {

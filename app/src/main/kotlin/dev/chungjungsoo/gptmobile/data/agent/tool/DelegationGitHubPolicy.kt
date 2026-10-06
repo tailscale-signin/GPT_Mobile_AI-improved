@@ -44,13 +44,14 @@ internal fun synthesisSafeTools(
         tools
     }
 
-/** Keep repository actions callable even when the primary delegates its research. */
+/** Partial delegation keeps recovery tools; maximum delegation reserves work for the helper. */
 internal fun primaryDelegationTools(
     tools: List<ResolvedAgentTool>,
     localResearch: Boolean,
     processingOwnership: Int
 ): List<ResolvedAgentTool> = tools.filter { tool ->
     when {
+        localResearch && processingOwnership == 0 -> tool.realToolName == "delegate_to_model"
         !localResearch || tool.isGitHubTool() -> true
         tool.realToolName == "delegate_to_model" -> true
         tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true
@@ -66,6 +67,17 @@ internal fun primaryDelegationTools(
         }
     }
 }
+
+/** The final pass cannot restart work already completed by the delegate and reviewer. */
+internal fun reviewedSynthesisTools(tools: List<ResolvedAgentTool>, processingOwnership: Int, followUpsEnabled: Boolean): List<ResolvedAgentTool> =
+    if (processingOwnership == 0) {
+        emptyList()
+    } else {
+        tools.filterNot {
+            it.realToolName == "delegate_to_model" ||
+                (!followUpsEnabled && (it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search" || it.realToolName == "read_url"))
+        }
+    }
 
 internal fun gitHubCapabilityRefusal(task: String, response: String): Boolean {
     if (!isGitHubTask(task)) return false

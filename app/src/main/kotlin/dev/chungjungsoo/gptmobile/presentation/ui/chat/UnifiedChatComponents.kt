@@ -25,15 +25,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.FormatQuote
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -55,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.util.UUID
 
 /**
@@ -134,7 +132,7 @@ fun QuotedMessagePreview(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Icon(
-                imageVector = Icons.Default.FormatQuote,
+                imageVector = Icons.Rounded.FormatQuote,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
@@ -168,7 +166,7 @@ fun QuotedMessagePreview(
                 modifier = Modifier.size(24.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    imageVector = Icons.Rounded.Close,
                     contentDescription = stringResource(R.string.cancel),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
@@ -204,7 +202,7 @@ fun QueuedMessagesStrip(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Schedule,
+                        imageVector = Icons.Rounded.Schedule,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(14.dp)
@@ -252,7 +250,7 @@ fun QueuedMessagesStrip(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
+                                    imageVector = Icons.Rounded.Close,
                                     contentDescription = stringResource(R.string.cancel),
                                     modifier = Modifier.size(12.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -312,7 +310,7 @@ fun UnifiedModelPickerDialog(
                                 badgeText = stringResource(R.string.model_badge_local),
                                 badgeColor = MaterialTheme.colorScheme.secondaryContainer,
                                 badgeTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                icon = Icons.Default.PhoneAndroid,
+                                icon = Icons.Rounded.PhoneAndroid,
                                 subtitle = listOfNotNull(local.parameterSize, local.formattedSize).joinToString(" • ").ifBlank { null },
                                 onClick = { selectedId = local.id }
                             )
@@ -337,7 +335,7 @@ fun UnifiedModelPickerDialog(
                                 badgeText = stringResource(R.string.model_badge_ollama),
                                 badgeColor = MaterialTheme.colorScheme.tertiaryContainer,
                                 badgeTextColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                                icon = Icons.Default.Cloud,
+                                icon = Icons.Rounded.Cloud,
                                 subtitle = meta,
                                 onClick = { selectedId = ollama.id }
                             )

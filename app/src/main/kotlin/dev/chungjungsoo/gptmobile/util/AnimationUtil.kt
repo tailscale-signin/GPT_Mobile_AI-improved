@@ -58,9 +58,7 @@ object AnimationUtil {
     /**
      * Calculates the staggered delay for a given segment index.
      */
-    fun calculateStaggeredDelay(index: Int, baseDelay: Long = 0L): Long {
-        return baseDelay + (SEGMENT_DELAY_MS * index)
-    }
+    fun calculateStaggeredDelay(index: Int, baseDelay: Long = 0L): Long = baseDelay + (SEGMENT_DELAY_MS * index)
 
     /**
      * Animation parameters for per-segment fade-in.

@@ -10,6 +10,7 @@ import android.location.LocationManager
 import android.location.LocationRequest
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import java.util.concurrent.Executor
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -77,6 +78,19 @@ class DeviceLocationProviderTest {
         listeners.getValue("network").onLocationChanged(fix("network"))
         runCurrent()
         assertEquals("network", result.await()!!.provider)
+        assertEquals(listeners.values.toSet(), removed)
+    }
+
+    @Test fun `parallel models share one fix and later calls reuse it without requesting GPS again`() = runTest {
+        val firstModel = async { provider.getCurrentLocation() }
+        val secondModel = async { provider.getCurrentLocation() }
+        runCurrent()
+        listeners.getValue("gps").onLocationChanged(fix("gps"))
+        runCurrent()
+        val location = firstModel.await()
+        assertEquals(location, secondModel.await())
+        assertEquals(location, provider.getCurrentLocation())
+        verify(exactly = 3) { manager.requestLocationUpdates(any<String>(), any<LocationRequest>(), any<Executor>(), any<LocationListener>()) }
         assertEquals(listeners.values.toSet(), removed)
     }
 

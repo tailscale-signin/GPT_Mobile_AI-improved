@@ -27,26 +27,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -54,7 +54,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -94,6 +93,7 @@ import dev.chungjungsoo.gptmobile.data.catalog.McpPreset
 import dev.chungjungsoo.gptmobile.data.catalog.McpPresetCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.McpPricingType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
 
 /**
@@ -120,7 +120,7 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
 
     return when (iconName) {
         "online_search" -> ServiceBrand(
-            iconVector = Icons.Default.TravelExplore,
+            iconVector = Icons.Rounded.TravelExplore,
             brandColor = Color(0xFF00B0FF),
             containerColor = Color(0xFF00B0FF).copy(alpha = 0.15f)
         )
@@ -135,73 +135,73 @@ fun getServiceBrand(iconName: String, category: McpCategory): ServiceBrand {
             containerColor = Color(0xFFFF5722).copy(alpha = 0.15f)
         )
         "folder" -> ServiceBrand(
-            iconVector = Icons.Default.Folder,
+            iconVector = Icons.Rounded.Folder,
             brandColor = Color(0xFF0288D1),
             containerColor = Color(0xFF0288D1).copy(alpha = 0.15f)
         )
         "postgres" -> ServiceBrand(
-            iconVector = Icons.Default.Dns,
+            iconVector = Icons.Rounded.Dns,
             brandColor = Color(0xFF336791),
             containerColor = Color(0xFF336791).copy(alpha = 0.15f)
         )
         "puppeteer" -> ServiceBrand(
-            iconVector = Icons.Default.Public,
+            iconVector = Icons.Rounded.Public,
             brandColor = Color(0xFF00D8A2),
             containerColor = Color(0xFF00D8A2).copy(alpha = 0.15f)
         )
         "fetch" -> ServiceBrand(
-            iconVector = Icons.Default.Download,
+            iconVector = Icons.Rounded.Download,
             brandColor = Color(0xFF7C4DFF),
             containerColor = Color(0xFF7C4DFF).copy(alpha = 0.15f)
         )
         "pearls" -> ServiceBrand(
-            iconVector = Icons.Default.AccountTree,
+            iconVector = Icons.Rounded.AccountTree,
             brandColor = MaterialTheme.colorScheme.primary,
             containerColor = MaterialTheme.colorScheme.primaryContainer
         )
         "memory" -> ServiceBrand(
-            iconVector = Icons.Default.Psychology,
+            iconVector = Icons.Rounded.Psychology,
             brandColor = Color(0xFFEC407A),
             containerColor = Color(0xFFEC407A).copy(alpha = 0.15f)
         )
         "exa" -> ServiceBrand(
-            iconVector = Icons.Default.Search,
+            iconVector = Icons.Rounded.Search,
             brandColor = Color(0xFF6200EE),
             containerColor = Color(0xFF6200EE).copy(alpha = 0.15f)
         )
         "terminal" -> ServiceBrand(
-            iconVector = Icons.Default.Terminal,
+            iconVector = Icons.Rounded.Terminal,
             brandColor = Color(0xFF00C853),
             containerColor = Color(0xFF00C853).copy(alpha = 0.15f)
         )
         else -> when (category) {
             McpCategory.SEARCH -> ServiceBrand(
-                iconVector = Icons.Default.TravelExplore,
+                iconVector = Icons.Rounded.TravelExplore,
                 brandColor = Color(0xFF0288D1),
                 containerColor = Color(0xFF0288D1).copy(alpha = 0.15f)
             )
             McpCategory.DEVELOPMENT -> ServiceBrand(
-                iconVector = Icons.Default.Code,
+                iconVector = Icons.Rounded.Code,
                 brandColor = Color(0xFF6200EE),
                 containerColor = Color(0xFF6200EE).copy(alpha = 0.15f)
             )
             McpCategory.DATABASE -> ServiceBrand(
-                iconVector = Icons.Default.Dns,
+                iconVector = Icons.Rounded.Dns,
                 brandColor = Color(0xFF336791),
                 containerColor = Color(0xFF336791).copy(alpha = 0.15f)
             )
             McpCategory.SYSTEM -> ServiceBrand(
-                iconVector = Icons.Default.Terminal,
+                iconVector = Icons.Rounded.Terminal,
                 brandColor = Color(0xFF00897B),
                 containerColor = Color(0xFF00897B).copy(alpha = 0.15f)
             )
             McpCategory.BROWSER -> ServiceBrand(
-                iconVector = Icons.Default.Public,
+                iconVector = Icons.Rounded.Public,
                 brandColor = Color(0xFF00B0FF),
                 containerColor = Color(0xFF00B0FF).copy(alpha = 0.15f)
             )
             McpCategory.MEMORY, McpCategory.THREADING, McpCategory.PRODUCTIVITY -> ServiceBrand(
-                iconVector = Icons.Default.Psychology,
+                iconVector = Icons.Rounded.Psychology,
                 brandColor = Color(0xFFFF6D00),
                 containerColor = Color(0xFFFF6D00).copy(alpha = 0.15f)
             )
@@ -288,14 +288,14 @@ fun McpMarketplaceScreen(
                     placeholder = { Text("Search MCP tools, capabilities, keywords…") },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.Search,
+                            imageVector = Icons.Rounded.Search,
                             contentDescription = "Search"
                         )
                     },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                                Icon(Icons.Rounded.Close, contentDescription = "Clear")
                             }
                         }
                     },
@@ -478,7 +478,7 @@ private fun McpMarketplaceTopBar(
         navigationIcon = {
             IconButton(onClick = onNavigationClick) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = stringResource(R.string.go_back)
                 )
             }
@@ -519,9 +519,9 @@ fun PricingBadge(pricing: McpPricingType) {
 @Composable
 fun PricingIcon(pricing: McpPricingType, modifier: Modifier = Modifier.size(16.dp), tint: Color = MaterialTheme.colorScheme.primary) {
     when (pricing) {
-        McpPricingType.FREE -> Icon(Icons.Default.Check, contentDescription = null, modifier = modifier, tint = tint)
-        McpPricingType.FREE_WITH_SIGNUP -> Icon(Icons.Default.Key, contentDescription = null, modifier = modifier, tint = tint)
-        McpPricingType.PAID -> Icon(Icons.Default.Star, contentDescription = null, modifier = modifier, tint = tint)
+        McpPricingType.FREE -> Icon(Icons.Rounded.Check, contentDescription = null, modifier = modifier, tint = tint)
+        McpPricingType.FREE_WITH_SIGNUP -> Icon(Icons.Rounded.Key, contentDescription = null, modifier = modifier, tint = tint)
+        McpPricingType.PAID -> Icon(Icons.Rounded.Star, contentDescription = null, modifier = modifier, tint = tint)
     }
 }
 
@@ -551,12 +551,12 @@ fun ServiceIcon(
             Icon(
                 imageVector = brand.iconVector,
                 contentDescription = null,
-                tint = brand.brandColor,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(26.dp)
             )
         } else {
             Icon(
-                imageVector = Icons.Default.Extension,
+                imageVector = Icons.Rounded.Extension,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(26.dp)
@@ -638,7 +638,7 @@ fun McpMarketplaceDetailCard(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Check,
+                            imageVector = Icons.Rounded.Check,
                             contentDescription = if (preset.isPreinstalled) "Built in" else "Installed",
                             modifier = Modifier.size(16.dp)
                         )
@@ -651,7 +651,7 @@ fun McpMarketplaceDetailCard(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = Icons.Rounded.Add,
                             contentDescription = "Add",
                             modifier = Modifier.size(16.dp)
                         )
@@ -819,7 +819,7 @@ fun McpMarketplaceDetailCard(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
                             contentDescription = "Open docs",
                             modifier = Modifier.size(14.dp)
                         )
@@ -840,7 +840,7 @@ fun McpMarketplaceDetailCard(
                             style = MaterialTheme.typography.labelSmall
                         )
                         Icon(
-                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
@@ -941,7 +941,7 @@ fun McpPresetConfigureDialog(
                     }
 
                     IconButton(onClick = onDismissRequest) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                        Icon(Icons.Rounded.Close, contentDescription = "Close")
                     }
                 }
 
@@ -1110,7 +1110,7 @@ fun McpPresetConfigureDialog(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp)
                         )
@@ -1151,7 +1151,7 @@ fun McpPresetConfigureDialog(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = Icons.Rounded.Add,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )

@@ -33,7 +33,6 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.SharedToolCallBroker
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.isGitHubTool
-import dev.chungjungsoo.gptmobile.data.agent.tool.isResearchPageReader
 import dev.chungjungsoo.gptmobile.data.agent.tool.isWebSearchEngine
 import dev.chungjungsoo.gptmobile.data.agent.tool.preferNativeGitHubForTask
 import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
@@ -1270,14 +1269,21 @@ class ChatRepositoryImpl(
                 FactRecall()
             }
             if (recalled.facts.isNotEmpty()) emit(ApiState.MemoryRecalled(recalled.references))
-            val processingOwnership = effectiveDelegationSettings().processingOwnership
+            val initialDelegationSettings = effectiveDelegationSettings()
+            val processingOwnership = initialDelegationSettings.processingOwnership
+            val requiresReviewedPreparation = !synthesisRun && initialDelegationSettings.enabled && processingOwnership == 0 && taskRoutedTools.any { it.realToolName == "delegate_to_model" }
             var localResearch = !synthesisRun &&
                 taskRoutedTools.any { it.realToolName == "delegate_to_model" } &&
                 processingOwnership < 100 &&
                 localDelegation.researchAvailable()
-            var exposedTools = orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools))
-                .let { primaryDelegationTools(it, localResearch, processingOwnership) }
-                .sortedBy { it.realToolName != "delegate_to_model" }
+            var reviewedPreparationUnavailable = requiresReviewedPreparation && !localResearch
+            var exposedTools = if (reviewedPreparationUnavailable) {
+                emptyList()
+            } else {
+                orderPrimaryTools(dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools))
+                    .let { primaryDelegationTools(it, localResearch, processingOwnership) }
+                    .sortedBy { it.realToolName != "delegate_to_model" }
+            }
             val projectInstructions = latestUser?.let { knowledge?.scopeForChat(it.chatId) }
                 ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
             fun baseSystemPrompt(): String {
@@ -1288,7 +1294,9 @@ class ChatRepositoryImpl(
                     ""
                 }
                 val delegationInstruction = if (localResearch) {
-                    val ownershipInstruction = if (processingOwnership <= 25) {
+                    val ownershipInstruction = if (processingOwnership == 0) {
+                        "Delegation is set to 100%. The delegate owns task preparation and authorized tool work, followed by independent review. Your role is only to write the final response from the reviewed handoff. Do not restart research or perform direct tool actions."
+                    } else if (processingOwnership <= 25) {
                         "This profile is configured Local-first. Prefer delegate_to_model for research, repository inspection, document reading, result analysis, and other read-only multi-step work. Let the helper use its enabled tools and return a compact brief. Use the enabled primary GitHub integration for repository writes/actions and to recover when a helper lacks GitHub access. A helper capability error describes only that helper, not the primary tool catalog. Call the available integration to complete authorized actions; do not substitute git/gh commands for execution. Use other direct primary tools mainly for writes/actions, user-visible side effects, or when the delegate explicitly reports that the needed capability is unavailable or a delegate-specific limit was reached while shared tool capacity remains. Do not repeat work already completed by the helper."
                     } else {
                         "Use delegate_to_model for any further web research; avoid repeating research already sufficient for the answer. If the helper reports an unavailable capability or delegate-specific limit and direct recovery tools are exposed, use aggregate web_search and read_url only to recover missing evidence while shared tool capacity remains."
@@ -1307,7 +1315,8 @@ class ChatRepositoryImpl(
                     platform.systemPrompt,
                     exposedTools.map { it.modelToolName },
                     compact = localResearch || limits.contextTokens < 4096
-                ) + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction + synthesisInstruction
+                ) + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction + synthesisInstruction +
+                    if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
             }
             val memorySettings = factVault?.state?.value
             val canRecallDocuments = !privateConversation &&
@@ -1335,11 +1344,13 @@ class ChatRepositoryImpl(
             }
             if (localResearch && contextPlan.tools.none { it.name == "delegate_to_model" }) {
                 localResearch = false
-                exposedTools = dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools)
+                reviewedPreparationUnavailable = requiresReviewedPreparation
+                exposedTools = if (reviewedPreparationUnavailable) emptyList() else dev.chungjungsoo.gptmobile.data.agent.tool.aggregateWebSearch(taskRoutedTools)
                 requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt())
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
                 AppLogRecorder.record("Tools", "Tool catalog replanned · resolved=${resolvedTools.size} · exposed=${exposedTools.size} · contextSelected=${contextPlan.tools.size} · omittedByContext=${exposedTools.size - contextPlan.tools.size} · profile=${platform.uid}")
             }
+            if (reviewedPreparationUnavailable) emit(ApiState.Notice("100% delegation requires an available helper and independent review. Check the delegate, reviewer and context settings, then retry.", persistent = true))
             if (settingRepository.getDebugMode()) emit(ApiState.Notice(contextPlan.notice, persistent = true))
             // Reserve one run-scoped tool slot for final synthesis before local delegation
             // starts. Local research must not consume the last tool allowance needed to
@@ -1437,7 +1448,7 @@ class ChatRepositoryImpl(
             }
             var preparedEvidenceComplete = false
             val delegationConfig = effectiveDelegationSettings()
-            if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && !isGitHubTask(latestUser.content) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
+            if (localResearch && delegationConfig.automaticResearch && latestUser?.content?.isNotBlank() == true && (processingOwnership == 0 || !isGitHubTask(latestUser.content)) && contextPlan.tools.any { it.name == "delegate_to_model" }) {
                 emit(ApiState.Notice("Local model is planning research and preparing evidence…", persistent = false))
                 val call = ProviderEvent.ToolCall("$runId:local-preparation", "delegate_to_model", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(latestUser.content)) })
                 val event = trace.start(call)
@@ -1474,10 +1485,11 @@ class ChatRepositoryImpl(
                     // delegate tool. Reuse authorized/budgeted tools, without reexecuting
                     // any completed action or claiming research succeeded.
                     localResearch = false
-                    exposedTools = orderPrimaryTools(aggregatedTools.filterNot { research.handoff.startsWith("[REVIEW_REJECTED]") && it.realToolName == "delegate_to_model" })
-                    requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt())
+                    reviewedPreparationUnavailable = processingOwnership == 0 && !localDelegation.primaryOnlyRequested()
+                    exposedTools = if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) emptyList() else orderPrimaryTools(aggregatedTools.filterNot { (localDelegation.primaryOnlyRequested() || research.handoff.startsWith("[REVIEW_REJECTED]")) && it.realToolName == "delegate_to_model" })
+                    requestPlatform = platform.copy(systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt() + if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "\nPreparation or review failed. Do not present rejected delegate claims as verified facts. Explain the limitation and the need to retry or choose a working delegate/reviewer." else "")
                     contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
-                    emit(ApiState.Notice("Delegated preparation failed. The main profile can use its enabled tools to recover.", persistent = true))
+                    emit(ApiState.Notice(if (processingOwnership == 0 && !localDelegation.primaryOnlyRequested()) "Delegate preparation or review could not finish. The primary will explain the limitation using the available evidence." else "Delegated preparation failed. The main profile can use its enabled tools to recover.", persistent = true))
                 }
                 if (research.handoff.isNotBlank()) {
                     appendPreparedEvidence(research.handoff)
@@ -1493,15 +1505,16 @@ class ChatRepositoryImpl(
             }
             // A completed handoff is evidence-only by default. Do not advertise calls
             // which the shared budget cannot execute, or repeat finished research.
-            if (!toolBudget.canExecute() || preparedEvidenceComplete) {
-                exposedTools = if (!toolBudget.canExecute()) {
+            if (!toolBudget.canExecute() || preparedEvidenceComplete || (synthesisRun && delegationConfig.enabled && processingOwnership == 0)) {
+                exposedTools = if (!toolBudget.canExecute() || processingOwnership == 0) {
                     emptyList()
                 } else {
-                    exposedTools.filterNot {
-                        it.realToolName == "delegate_to_model" ||
-                            (followUps == null && (it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search"))
-                    }
+                    dev.chungjungsoo.gptmobile.data.agent.tool.reviewedSynthesisTools(exposedTools, processingOwnership, followUps != null)
                 }
+                requestPlatform = requestPlatform.copy(
+                    systemPrompt = recalled.prefix() + documentContext + baseSystemPrompt() +
+                        if (preparedEvidenceComplete && processingOwnership == 0) "\nThe delegate has completed preparation and independent review. Write the final answer from that reviewed handoff. Do not start tools, more research, or another delegate." else ""
+                )
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             }
             val effectiveTools = aggregatedTools

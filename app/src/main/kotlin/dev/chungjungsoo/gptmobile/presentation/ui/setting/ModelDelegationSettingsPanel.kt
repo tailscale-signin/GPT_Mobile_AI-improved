@@ -10,17 +10,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
@@ -50,6 +49,7 @@ import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlin.math.roundToInt
 
 @Composable
@@ -118,14 +118,14 @@ internal fun ModelDelegationSettingsContent(
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
-                        Icon(Icons.Default.AutoAwesome, "", Modifier.padding(12.dp))
+                        Icon(Icons.Rounded.AutoAwesome, "", Modifier.padding(12.dp))
                     }
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Model Delegation", style = MaterialTheme.typography.headlineSmall)
                             SettingsHelpIcon("A delegate can research, read pages, and compress tool results so the main model receives a focused answer with evidence.")
                         }
-                        Text(if (config.enabled) "${100 - config.processingOwnership} Delegation Amount · ${config.strategy} Research Depth" else "Turn On To Give Tasks To A Delegate", style = MaterialTheme.typography.bodyMedium)
+                        Text(if (config.enabled) "${100 - config.processingOwnership}% Delegation Amount · ${config.strategy} Research Depth" else "Turn On To Give Tasks To A Delegate", style = MaterialTheme.typography.bodyMedium)
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
@@ -142,10 +142,10 @@ internal fun ModelDelegationSettingsContent(
                     }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusPill(Icons.Default.Memory, "Up to ${config.effectiveLocalModelCalls()} delegate calls")
-                    StatusPill(Icons.Default.Bolt, "Compact evidence brief")
-                    if (config.remoteWorkersAllowed()) StatusPill(Icons.Default.Cloud, "Remote workers on")
-                    if (config.reviewerEnabled) StatusPill(Icons.Default.AutoAwesome, "Reviewer on")
+                    StatusPill(Icons.Rounded.Memory, "Up to ${config.effectiveLocalModelCalls()} delegate calls")
+                    StatusPill(Icons.Rounded.Bolt, "Compact evidence brief")
+                    if (config.remoteWorkersAllowed()) StatusPill(Icons.Rounded.Cloud, "Remote workers on")
+                    if (config.reviewerEnabled) StatusPill(Icons.Rounded.AutoAwesome, "Reviewer on")
                 }
             }
         }
@@ -154,13 +154,13 @@ internal fun ModelDelegationSettingsContent(
                 selected = settingsTab == 0,
                 onClick = { settingsTab = 0 },
                 text = { Text("Delegation") },
-                icon = { Icon(Icons.Default.Bolt, null) }
+                icon = { Icon(Icons.Rounded.Bolt, null) }
             )
             Tab(
                 selected = settingsTab == 1,
                 onClick = { settingsTab = 1 },
                 text = { Text("Reviewer") },
-                icon = { Icon(Icons.Default.AutoAwesome, null) }
+                icon = { Icon(Icons.Rounded.AutoAwesome, null) }
             )
         }
 
@@ -200,7 +200,7 @@ internal fun ModelDelegationSettingsContent(
             Card(shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionHeading("Reviewer", "Use a second, different model to fact-check the delegate before the handoff reaches the primary model.")
-                    LocalToolToggle("Enable Reviewer", config.reviewerEnabled, !busy) { value ->
+                    LocalToolToggle("Enable Reviewer", config.reviewerEnabled, !busy && config.processingOwnership != 0) { value ->
                         onChange {
                             it.copy(
                                 reviewerEnabled = value,
@@ -224,7 +224,7 @@ internal fun ModelDelegationSettingsContent(
                         val selectedReviewer = reviewerEligible.firstOrNull { it.uid == config.reviewerProfileUid }
                         if (selectedReviewer == null) {
                             Text(
-                                "Choose a reviewer profile that uses a different model from the delegate. If no reviewer is available, the delegate context is marked unverified and receives a Reviewer Score of 0.",
+                                "Choose a reviewer profile that uses a different model from the delegate. At 100% delegation, a reviewer is required before the final handoff. If none is available, the result is marked unverified.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -275,7 +275,7 @@ internal fun ModelDelegationSettingsContent(
                         0..100,
                         5,
                         !busy,
-                        "Less → More. Recommended: 80. Higher values favor the delegate for research and tool results; the main model writes the final answer. This is a routing preference, not a guaranteed token percentage."
+                        "Higher values move more work to the delegate. At 100%, the delegate prepares the task, a reviewer checks it, and the primary only writes the final answer."
                     ) { value -> onChange { it.withDelegationAmount(value) } }
                     DelegationSlider(
                         "Research Depth",
@@ -308,7 +308,7 @@ internal fun ModelDelegationSettingsContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     TextButton(onClick = { onReset() }, enabled = !busy) {
-                        Icon(Icons.Default.RestartAlt, null)
+                        Icon(Icons.Rounded.RestartAlt, null)
                         Text("Restore Recommended Defaults", Modifier.padding(start = 8.dp))
                     }
                 }
@@ -317,7 +317,7 @@ internal fun ModelDelegationSettingsContent(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) { SectionHeading("Advanced Controls", "Fine-tune budgets, timeouts, and research breadth.") }
-                        IconButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.testTag("delegation_advanced")) { Icon(if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Toggle advanced controls") }
+                        IconButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.testTag("delegation_advanced")) { Icon(if (showAdvanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, "Toggle advanced controls") }
                     }
                     if (!showAdvanced) {
                         Text("${config.maxOutputTokens} target output tokens per helper call · ${config.maxConcurrentDelegates} concurrent workers. Expand to customize limits.", style = MaterialTheme.typography.bodySmall)
@@ -354,7 +354,7 @@ internal fun ModelDelegationSettingsContent(
                         DelegationSlider("Pause Threshold For Low Battery", config.lowBatteryThresholdPercent, 0..50, 1, !busy) { value -> onChange { it.copy(lowBatteryThresholdPercent = value) } }
                         Text("Requests for missing or unauthorized models stop immediately. Final answers use the main profile's output limit.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            FilterChip(selected = false, onClick = { onReset() }, label = { Text("Reset Recommended Defaults") }, leadingIcon = { Icon(Icons.Default.RestartAlt, null) }, enabled = !busy)
+                            FilterChip(selected = false, onClick = { onReset() }, label = { Text("Reset Recommended Defaults") }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null) }, enabled = !busy)
                         }
                     }
                 }

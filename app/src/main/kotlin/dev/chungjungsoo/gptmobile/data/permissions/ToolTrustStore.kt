@@ -13,10 +13,10 @@ class ToolTrustStore @Inject constructor(@ApplicationContext context: Context) {
     private val preferences = context.getSharedPreferences("tool_always_allow", Context.MODE_PRIVATE)
     fun allows(connection: ToolConnection, tool: String): Boolean = preferences.getBoolean(providerKey(connection), false) || preferences.getBoolean(key(connection, tool), false)
     fun allow(connection: ToolConnection, tool: String) {
-        check(preferences.edit().putBoolean(key(connection, tool), true).putString("label:" + key(connection, tool), "${connection.name} · $tool · permanent").commit())
+        check(preferences.edit().putBoolean(key(connection, tool), true).putString("label:" + key(connection, tool), "${connection.name} · $tool · all models · permanent").commit())
     }
     fun allowProvider(connection: ToolConnection) {
-        check(preferences.edit().putBoolean(providerKey(connection), true).putString("label:" + providerKey(connection), "${connection.name} · all tools · permanent").commit())
+        check(preferences.edit().putBoolean(providerKey(connection), true).putString("label:" + providerKey(connection), "${connection.name} · all tools · all models · permanent").commit())
     }
     fun allowScoped(connection: ToolConnection, tool: String, scope: ScopedToolGrant, now: Long = System.currentTimeMillis()) {
         require(scope.chatId > 0 && scope.schemaHash.isNotBlank())
@@ -32,7 +32,6 @@ class ToolTrustStore @Inject constructor(@ApplicationContext context: Context) {
         val key = "catalog:$connectionUid"
         val previous = preferences.getString(key, null)
         val changed = previous != null && previous != fingerprint
-        if (changed) revoke(connectionUid)
         check(preferences.edit().putString(key, fingerprint).commit())
         return changed
     }

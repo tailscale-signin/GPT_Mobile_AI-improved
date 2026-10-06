@@ -10,12 +10,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,21 +46,20 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalTextStyle
@@ -110,6 +103,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.contentDescription
@@ -131,7 +125,6 @@ import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
-import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -142,6 +135,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -200,7 +194,6 @@ fun ChatScreen(
             onOpenConversation(it, true)
         }
     }
-    androidx.activity.compose.BackHandler { chatViewModel.leaveConversation(onBackAction) }
     val delegationRecoveryRequests by chatViewModel.pendingDelegationRecovery.collectAsStateWithLifecycle()
     delegationRecoveryRequests.firstOrNull { it.chatId == chatRoom.id }?.let { request ->
         DelegationRecoveryDialog(
@@ -264,6 +257,7 @@ fun ChatScreen(
     var entryPositioned by remember { mutableStateOf(false) }
     var targetResponseOffset by remember { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    var showExportOptions by remember { mutableStateOf(false) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
@@ -304,6 +298,60 @@ fun ChatScreen(
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
+    var inspectedCombinedTurn by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
+    var inspectedCombinedProfileUid by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
+    var combinedTargetSelected by rememberSaveable(chatRoom.id, chatViewModel.targetMessageId) { mutableStateOf(false) }
+    LaunchedEffect(isLoaded, hasTargetAssistant) {
+        if (isLoaded && hasTargetAssistant && !combinedTargetSelected) {
+            if (chatRoom.conversationMode == ConversationMode.COMBINED) {
+                val turnIndex = groupedMessages.assistantMessages.indexOfFirst { responses ->
+                    responses.any { it.id == chatViewModel.targetMessageId }
+                }
+                val target = groupedMessages.assistantMessages.getOrNull(turnIndex)
+                    ?.firstOrNull { it.id == chatViewModel.targetMessageId }
+                val question = groupedMessages.userMessages.getOrNull(turnIndex)
+                if (target != null && !target.isCombinedSynthesis() && question != null) {
+                    inspectedCombinedTurn = chatMessagePairKey(question, turnIndex)
+                    inspectedCombinedProfileUid = target.platformType
+                }
+            }
+            combinedTargetSelected = true
+        }
+    }
+    val inspectedTurnIndex = groupedMessages.userMessages.withIndex().indexOfFirst { (index, message) ->
+        chatMessagePairKey(message, index) == inspectedCombinedTurn
+    }
+    val inspectableProfiles = if (inspectedCombinedProfileUid != null) {
+        combinedResponseProfiles(
+            responses = groupedMessages.assistantMessages.getOrNull(inspectedTurnIndex).orEmpty(),
+            platformUids = chatViewModel.enabledPlatformsInChat,
+            profileNames = emptyMap(),
+            participatingUids = activePlatformUids.toSet() - disabledPlatformUids,
+            preparing = inspectedTurnIndex == lastMessageIndex && !isIdle,
+            runsById = agentRunsById
+        )
+    } else {
+        emptyList()
+    }
+    val inspectingCombinedSource = chatRoom.conversationMode == ConversationMode.COMBINED &&
+        (inspectableProfiles.size > 1 || groupedMessages.assistantMessages.getOrNull(inspectedTurnIndex).orEmpty().any { it.isCombinedSynthesis() }) &&
+        inspectableProfiles.any { it.uid == inspectedCombinedProfileUid }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(inspectingCombinedSource) {
+        if (inspectingCombinedSource) {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
+    }
+    val onBackFromChat: () -> Unit = {
+        if (inspectingCombinedSource) {
+            inspectedCombinedTurn = null
+            inspectedCombinedProfileUid = null
+        } else {
+            chatViewModel.leaveConversation(onBackAction)
+        }
+    }
+    androidx.activity.compose.BackHandler(onBack = onBackFromChat)
     var previousMessageCount by rememberSaveable { mutableIntStateOf(groupedMessages.userMessages.size) }
     var requestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterNotificationPermission by rememberSaveable { mutableStateOf(false) }
@@ -347,6 +395,12 @@ fun ChatScreen(
     }
 
     val scope = rememberCoroutineScope()
+    if (showExportOptions) {
+        ChatExportDialog(onDismiss = { showExportOptions = false }) { format ->
+            showExportOptions = false
+            scope.launch { exportChat(context, chatViewModel, format) }
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         chatViewModel.refreshLocalNetworkRequirement()
@@ -430,11 +484,11 @@ fun ChatScreen(
                 isTitleCustomized = chatRoom.isTitleCustomized,
                 isMenuItemEnabled = chatRoom.id > 0,
                 isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
-                onBackAction = { chatViewModel.leaveConversation(onBackAction) },
+                onBackAction = onBackFromChat,
                 scrollBehavior = scrollBehavior,
                 onChatTitleItemClick = chatViewModel::openChatTitleDialog,
                 onChatModelItemClick = chatViewModel::openChatModelDialog,
-                onExportChatItemClick = { scope.launch { exportChat(context, chatViewModel) } },
+                onExportChatItemClick = { showExportOptions = true },
                 onDisablePlatformClick = {
                     Toast.makeText(context, R.string.disable_platform, Toast.LENGTH_SHORT).show()
                 }
@@ -511,6 +565,13 @@ fun ChatScreen(
                         debugMemorySources = debugMemorySources,
                         showReasoning = featureSettings.showReasoning,
                         combinedMode = chatRoom.conversationMode == ConversationMode.COMBINED,
+                        selectedCombinedProfileUid = inspectedCombinedProfileUid.takeIf {
+                            inspectingCombinedSource && inspectedCombinedTurn == chatMessagePairKey(message, index)
+                        },
+                        onCombinedProfileClick = { uid ->
+                            inspectedCombinedTurn = chatMessagePairKey(message, index).takeIf { uid != null }
+                            inspectedCombinedProfileUid = uid
+                        },
                         smartSuggestionsEnabled = featureSettings.smartSuggestions,
                         isUserTyping = chatViewModel.question.text.isNotEmpty(),
                         targetMessageId = chatViewModel.targetMessageId,
@@ -529,7 +590,7 @@ fun ChatScreen(
                         onInspectContext = onInspectContext?.let { inspect ->
                             { run -> inspect(chatRoom.id, run) }
                         },
-                        onFavoriteClick = { chatViewModel.toggleMessageFavorite(index, indexStates.getOrElse(index) { 0 }) },
+                        onFavoriteClick = chatViewModel::toggleMessageFavorite,
                         onFavoriteLongPress = {
                             Toast.makeText(context, R.string.favorite, Toast.LENGTH_SHORT).show()
                         },
@@ -565,37 +626,43 @@ fun ChatScreen(
                 }
             }
 
-            ChatInputBox(
+            CombinedChatComposer(
+                visible = !inspectingCombinedSource,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .onSizeChanged { composerHeightPx = it.height },
-                inputState = chatViewModel.question,
-                chatEnabled = canUseChat,
-                sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
-                isRunning = !isIdle,
-                queuedPromptCount = queuedPromptCount,
-                selectedAttachments = selectedAttachments,
-                onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
-                onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
-                onCancelButtonClick = chatViewModel::cancelActiveRuns
+                    .onSizeChanged { composerHeightPx = it.height }
             ) {
-                if (!requestedNotificationPermission &&
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ChatInputBox(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding(),
+                    inputState = chatViewModel.question,
+                    chatEnabled = canUseChat && !inspectingCombinedSource,
+                    sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
+                    isRunning = !isIdle,
+                    queuedPromptCount = queuedPromptCount,
+                    selectedAttachments = selectedAttachments,
+                    onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
+                    onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
+                    onCancelButtonClick = chatViewModel::cancelActiveRuns
                 ) {
-                    sendAfterNotificationPermission = true
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else if (needsLocalNetworkAccess &&
-                    Build.VERSION.SDK_INT >= 37 &&
-                    ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    sendAfterLocalNetworkPermission = true
-                    localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
-                } else {
-                    chatViewModel.askQuestion()
-                    focusManager.clearFocus()
+                    if (!requestedNotificationPermission &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        sendAfterNotificationPermission = true
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else if (needsLocalNetworkAccess &&
+                        Build.VERSION.SDK_INT >= 37 &&
+                        ContextCompat.checkSelfPermission(context, PERMISSION_ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        sendAfterLocalNetworkPermission = true
+                        localNetworkPermissionLauncher.launch(PERMISSION_ACCESS_LOCAL_NETWORK)
+                    } else {
+                        chatViewModel.askQuestion()
+                        focusManager.clearFocus()
+                    }
                 }
             }
         }
@@ -768,6 +835,8 @@ private fun ChatMessagePair(
     debugSettings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(),
     showReasoning: Boolean = true,
     combinedMode: Boolean = false,
+    selectedCombinedProfileUid: String? = null,
+    onCombinedProfileClick: (String?) -> Unit = {},
     smartSuggestionsEnabled: Boolean = true,
     isUserTyping: Boolean = false,
     targetMessageId: Int = -1,
@@ -780,40 +849,48 @@ private fun ChatMessagePair(
     onSelectText: (String) -> Unit,
     onRetry: (Int, Int) -> Unit,
     onInspectContext: ((String) -> Unit)? = null,
-    onFavoriteClick: () -> Unit,
+    onFavoriteClick: (Int, Int) -> Unit,
     onFavoriteLongPress: () -> Unit,
     onShowPreviousRevision: (Int, Int) -> Unit,
     onShowNextRevision: (Int, Int) -> Unit,
     onContinueClick: () -> Unit = {},
     onActionClick: (String) -> Unit = {}
 ) {
-    val combinedSynthesisIndex = assistantMessages.indexOfFirst { response ->
-        response.currentRunId?.startsWith(ChatViewModel.COMBINED_RUN_PREFIX) == true ||
-            response.combinedSources.isNotEmpty()
+    val combinedSynthesisIndex = assistantMessages.indexOfFirst { it.isCombinedSynthesis() }
+    val participatingUids = activePlatformUids - disabledPlatformUids
+    val combinedProfiles = if (combinedMode) {
+        combinedResponseProfiles(
+            responses = assistantMessages,
+            platformUids = enabledPlatformsInChat,
+            profileNames = enabledPlatformLookup.mapValues { it.value.name },
+            participatingUids = participatingUids,
+            preparing = isActiveMessage && !isIdle,
+            runsById = agentRunsById
+        )
+    } else {
+        emptyList()
     }
-    val activeSlotIndexes = enabledPlatformsInChat.mapIndexedNotNull { index, uid ->
-        index.takeIf { uid in activePlatformUids && uid !in disabledPlatformUids }
-    }
+    val hasCombinedTabs = combinedMode && (combinedSynthesisIndex >= 0 || combinedProfiles.size > 1)
+    val selectedProfile = combinedProfiles.firstOrNull { it.uid == selectedCombinedProfileUid }.takeIf { hasCombinedTabs }
+    val isSourceResponse = selectedProfile != null
+    val isCombinedConversation = hasCombinedTabs && !isSourceResponse
+    val combinedStatus = combinedAnswerStatus(assistantMessages.getOrNull(combinedSynthesisIndex), combinedProfiles, agentRunsById)
     val targetAssistantIndex = assistantMessages.indexOfFirst { targetMessageId > 0 && it.id == targetMessageId }
-    val isCombinedConversation = combinedMode &&
-        (targetAssistantIndex < 0 || targetAssistantIndex == combinedSynthesisIndex) &&
-        (combinedSynthesisIndex >= 0 || (isActiveMessage && activeSlotIndexes.size > 1))
     val displayPlatformIndex = when {
+        selectedProfile != null -> selectedProfile.assistantIndex
+        isCombinedConversation -> combinedSynthesisIndex.takeIf { it >= 0 } ?: combinedProfiles.firstOrNull()?.assistantIndex ?: 0
         targetAssistantIndex >= 0 -> targetAssistantIndex
-        combinedSynthesisIndex >= 0 -> combinedSynthesisIndex
-        isCombinedConversation -> activeSlotIndexes.firstOrNull() ?: platformIndexState
         else -> platformIndexState
     }
-    val selectedAssistantMessage = assistantMessages.getOrNull(displayPlatformIndex)
+    val selectedAssistantMessage = if (selectedProfile != null) selectedProfile.message else assistantMessages.getOrNull(displayPlatformIndex)
     val isTargetAssistantResponse = targetMessageId > 0 && selectedAssistantMessage?.id == targetMessageId
     val responseInsetPx = with(LocalDensity.current) { 12.dp.roundToPx() }
-    val synthesisStarted =
-        isCombinedConversation &&
-            selectedAssistantMessage?.currentRunId?.startsWith(ChatViewModel.COMBINED_RUN_PREFIX) == true
+    val synthesisStarted = isCombinedConversation && combinedSynthesisIndex >= 0
     val assistantContent = when {
-        selectedAssistantMessage == null -> ""
+        isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
-        else -> selectedAssistantMessage.effectiveContent()
+        isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
+        else -> selectedAssistantMessage?.effectiveContent().orEmpty()
     }
     val assistantThoughts = if (isCombinedConversation && !synthesisStarted) {
         ""
@@ -828,54 +905,30 @@ private fun ChatMessagePair(
     val selectedRunId = selectedAssistantMessage?.effectiveRunId()
     val agentRun = selectedRunId?.let(agentRunsById::get)
     val activeAgentRun = if (isCombinedConversation) {
-        activeSlotIndexes
-            .asSequence()
-            .mapNotNull { index -> assistantMessages.getOrNull(index)?.currentRunId?.let(activeAgentRuns::get) }
-            .firstOrNull()
+        assistantMessages.asSequence().mapNotNull { it.currentRunId?.let(activeAgentRuns::get) }.firstOrNull()
     } else {
         selectedRunId?.let(activeAgentRuns::get)
     }
     val toolEvents = selectedRunId?.let(toolEventsByRun::get).orEmpty()
-    val canShowPreviousRevision = !isCombinedConversation &&
+    val canShowPreviousRevision = !hasCombinedTabs &&
         (
             selectedAssistantMessage?.let { assistantMessage ->
                 assistantMessage.revisions.isNotEmpty() &&
                     assistantMessage.activeRevisionIndex < assistantMessage.revisions.lastIndex
             } ?: false
             )
-    val canShowNextRevision = !isCombinedConversation &&
+    val canShowNextRevision = !hasCombinedTabs &&
         (
             selectedAssistantMessage?.let { assistantMessage ->
                 assistantMessage.revisions.isNotEmpty() &&
                     assistantMessage.activeRevisionIndex != ACTIVE_REVISION_LATEST
             } ?: false
             )
-    val selectedPlatformUid = enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
-    val isCurrentPlatformLoading = if (isCombinedConversation) {
-        activeSlotIndexes.any { index ->
-            loadingStates.getOrNull(index) == ChatViewModel.LoadingState.Loading
-        }
-    } else {
-        loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } ==
-            ChatViewModel.LoadingState.Loading
-    }
-    val combinedSources = if (isCombinedConversation) {
-        selectedAssistantMessage?.combinedSources
-            ?.takeIf { it.isNotEmpty() }
-            ?: assistantMessages.take(enabledPlatformsInChat.size).mapIndexedNotNull { index, response ->
-                val content = response.effectiveContent().trim()
-                if (content.isBlank() || isAssistantErrorMessage(content)) return@mapIndexedNotNull null
-                val uid = enabledPlatformsInChat.getOrNull(index) ?: return@mapIndexedNotNull null
-                if (uid !in activePlatformUids || uid in disabledPlatformUids) return@mapIndexedNotNull null
-                CombinedModelResponse(
-                    platformUid = uid,
-                    platformName = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
-                    modelName = enabledPlatformLookup[uid]?.model.orEmpty(),
-                    content = content
-                )
-            }
-    } else {
-        emptyList()
+    val selectedPlatformUid = selectedProfile?.uid ?: enabledPlatformsInChat.getOrElse(displayPlatformIndex) { "" }
+    val isCurrentPlatformLoading = when {
+        isCombinedConversation -> combinedStatus == CombinedResponseStatus.GENERATING
+        isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
+        else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
@@ -920,46 +973,41 @@ private fun ChatMessagePair(
                     .fillMaxWidth()
 
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
-                    if (isCombinedConversation) {
-                        Surface(
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            shape = RoundedCornerShape(18.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
-                        ) {
-                            Text(
-                                text = stringResource(
-                                    R.string.combined_models_label,
-                                    combinedSources.size.takeIf { it > 0 } ?: activeSlotIndexes.size
-                                ),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
-                    } else if (enabledPlatformsInChat.size > 1) {
-                        Row(
-                            modifier = Modifier
-                                .padding(horizontal = 8.dp)
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                        ) {
-                            enabledPlatformsInChat.forEachIndexed { platformIndex, uid ->
-                                PlatformButton(
-                                    isLoading = isActiveMessage && loadingStates[platformIndex] == ChatViewModel.LoadingState.Loading,
-                                    name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
-                                    selected = platformIndexState == platformIndex,
-                                    disabled = uid in disabledPlatformUids,
-                                    onPlatformClick = { onPlatformClick(messageIndex, platformIndex) },
-                                    onPlatformLongPress = { onPlatformLongPress(uid) }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
+                if (hasCombinedTabs) {
+                    CombinedProfileBubbles(
+                        profiles = combinedProfiles,
+                        selectedUid = selectedProfile?.uid,
+                        combinedStatus = combinedStatus,
+                        animateArrival = isActiveMessage && !isIdle,
+                        onSelectProfile = onCombinedProfileClick,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
+                        if (enabledPlatformsInChat.size > 1) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 8.dp)
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                            ) {
+                                enabledPlatformsInChat.forEachIndexed { platformIndex, uid ->
+                                    PlatformButton(
+                                        isLoading = isActiveMessage && loadingStates.getOrNull(platformIndex) == ChatViewModel.LoadingState.Loading,
+                                        name = enabledPlatformLookup[uid]?.name ?: stringResource(R.string.unknown),
+                                        selected = platformIndexState == platformIndex,
+                                        disabled = uid in disabledPlatformUids,
+                                        onPlatformClick = { onPlatformClick(messageIndex, platformIndex) },
+                                        onPlatformLongPress = { onPlatformLongPress(uid) }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
                             }
                         }
                     }
@@ -967,17 +1015,21 @@ private fun ChatMessagePair(
                 OpponentChatBubble(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .alpha(if (!isCombinedConversation && selectedPlatformUid in disabledPlatformUids) 0.5f else 1f)
+                        .alpha(if (!hasCombinedTabs && selectedPlatformUid in disabledPlatformUids) 0.5f else 1f)
                         .padding(horizontal = 2.dp)
                         .widthIn(max = maximumOpponentChatBubbleWidth),
-                    canEdit = canUseChat && isIdle,
-                    canRetry = !isCombinedConversation &&
+                    canEdit = canUseChat && isIdle && !isSourceResponse,
+                    canRetry = !hasCombinedTabs &&
                         canUseChat &&
                         (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) &&
                         !isCurrentPlatformLoading &&
                         selectedPlatformUid in activePlatformUids &&
                         selectedPlatformUid !in disabledPlatformUids,
-                    isLoading = activeAgentRun != null || (isActiveMessage && isCurrentPlatformLoading && agentRun?.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)),
+                    isLoading = if (hasCombinedTabs) {
+                        isCurrentPlatformLoading
+                    } else {
+                        activeAgentRun != null || (isCurrentPlatformLoading && agentRun?.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED))
+                    },
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
@@ -1026,22 +1078,15 @@ private fun ChatMessagePair(
                         onInspectContext?.let { inspect -> { inspect(id) } }
                     },
                     onEditClick = { onEditAssistant(messageIndex, displayPlatformIndex) },
-                    onFavoriteClick = onFavoriteClick,
+                    onFavoriteClick = { onFavoriteClick(messageIndex, displayPlatformIndex) },
                     onFavoriteLongPress = onFavoriteLongPress,
                     onShowPreviousRevision = { onShowPreviousRevision(messageIndex, displayPlatformIndex) },
                     onShowNextRevision = { onShowNextRevision(messageIndex, displayPlatformIndex) },
                     isUserTyping = isUserTyping,
-                    isLastMessage = isActiveMessage,
-                    onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled },
-                    onActionClick = onActionClick.takeIf { smartSuggestionsEnabled }
+                    isLastMessage = isActiveMessage && !isSourceResponse,
+                    onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
+                    onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
-
-                if (isCombinedConversation && combinedSources.isNotEmpty()) {
-                    CombinedResponsesPanel(
-                        responses = combinedSources,
-                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 6.dp)
-                    )
-                }
             }
         }
     }
@@ -1068,87 +1113,6 @@ private fun ArchivedHistoryHeader(
                 contentDescription = "Show older conversation history ($hiddenTurnCount hidden)"
             }
         )
-    }
-}
-
-@Composable
-private fun CombinedResponsesPanel(
-    responses: List<CombinedModelResponse>,
-    modifier: Modifier = Modifier
-) {
-    var expanded by rememberSaveable(responses.map { it.platformUid }) { mutableStateOf(false) }
-
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable { expanded = !expanded },
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.82f)
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = stringResource(R.string.combined_model_responses),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = responses.size.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(end = 6.dp)
-                )
-                Icon(
-                    imageVector = Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .graphicsLayer {
-                            rotationZ = if (expanded) 180f else 0f
-                        }
-                )
-            }
-
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(260)) + expandVertically(),
-                exit = fadeOut(tween(180)) + shrinkVertically()
-            ) {
-                Column(
-                    modifier = Modifier.padding(top = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    responses.forEach { response ->
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.62f)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = buildString {
-                                        append(response.platformName)
-                                        if (response.modelName.isNotBlank()) {
-                                            append(" · ")
-                                            append(response.modelName)
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                ChatMarkdown(
-                                    content = response.content,
-                                    modifier = Modifier.padding(top = 6.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1247,7 +1211,7 @@ private fun ChatTopBar(
                 text = title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                color = if (isTitleCustomized) Color(0xFF67E8F9) else Color.Unspecified,
+                color = if (isTitleCustomized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
                     .clickable(enabled = isMenuItemEnabled, onClick = onChatTitleItemClick)
@@ -1255,18 +1219,13 @@ private fun ChatTopBar(
             )
         },
         navigationIcon = {
-            FilledIconButton(
+            IconButton(
                 onClick = onBackAction,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ),
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(40.dp)
+                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.padding(start = 8.dp).size(44.dp)
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = stringResource(R.string.go_back),
                     modifier = Modifier.size(21.dp)
                 )
@@ -1278,7 +1237,7 @@ private fun ChatTopBar(
                 onClick = onChatModelItemClick
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Build,
+                    imageVector = Icons.Rounded.Build,
                     tint = MaterialTheme.colorScheme.primary,
                     contentDescription = "Conversation settings"
                 )
@@ -1286,7 +1245,7 @@ private fun ChatTopBar(
             IconButton(
                 onClick = { isDropDownMenuExpanded = isDropDownMenuExpanded.not() }
             ) {
-                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.options), tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.options), tint = MaterialTheme.colorScheme.primary)
             }
 
             ChatDropdownMenu(
@@ -1304,6 +1263,7 @@ private fun ChatTopBar(
                 }
             )
         },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
         scrollBehavior = scrollBehavior
     )
 }
@@ -1369,7 +1329,7 @@ fun ChatBubbleDropdownMenu(
             enabled = canEdit,
             leadingIcon = {
                 Icon(
-                    Icons.Outlined.Edit,
+                    Icons.Rounded.Edit,
                     contentDescription = stringResource(R.string.edit)
                 )
             },
@@ -1396,17 +1356,18 @@ fun ChatBubbleDropdownMenu(
     }
 }
 
-private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel) {
+private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
     try {
-        val (fileName, fileContent) = chatViewModel.exportChat(
-            toolTraceLabels = context.toolTraceLabels(),
-            legacyOrderNotice = context.getString(R.string.legacy_assistant_order_unavailable)
-        )
+        val (fileName, fileContent) = chatViewModel.exportChat(format)
+        if (fileContent.isBlank()) {
+            Toast.makeText(context, "No AI responses to export yet.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val file = File(context.getExternalFilesDir(null), fileName)
         withContext(Dispatchers.IO) { file.writeText(fileContent) }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/markdown"
+            type = if (format == ChatExportFormat.PLAIN_TEXT) "text/plain" else "text/markdown"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -1555,7 +1516,7 @@ fun ChatInputBox(
                             ) {
                                 if (showStop) {
                                     Icon(
-                                        imageVector = Icons.Filled.Stop,
+                                        imageVector = Icons.Rounded.Stop,
                                         contentDescription = stringResource(R.string.cancel_active_runs)
                                     )
                                 } else {
@@ -1646,7 +1607,7 @@ internal fun FileThumbnail(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.remove),
                         tint = MaterialTheme.colorScheme.onError,
                         modifier = Modifier.size(10.dp)

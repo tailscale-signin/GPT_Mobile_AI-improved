@@ -15,13 +15,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.rounded.Archive
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -121,9 +121,9 @@ fun SwipeableChatRow(
                     SwipeToDismissBoxValue.Settled -> Alignment.Center
                 }
                 val icon = when (dismissState.targetValue) {
-                    SwipeToDismissBoxValue.StartToEnd -> Icons.Default.Archive
-                    SwipeToDismissBoxValue.EndToStart -> Icons.Outlined.Delete
-                    SwipeToDismissBoxValue.Settled -> Icons.Default.Archive
+                    SwipeToDismissBoxValue.StartToEnd -> Icons.Rounded.Archive
+                    SwipeToDismissBoxValue.EndToStart -> Icons.Rounded.Delete
+                    SwipeToDismissBoxValue.Settled -> Icons.Rounded.Archive
                 }
                 val iconTint = when (dismissState.targetValue) {
                     SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -216,7 +216,7 @@ private fun ChatRowContent(
             ) {
                 if (chatRoom.isFavorite) {
                     Icon(
-                        imageVector = Icons.Filled.PushPin,
+                        imageVector = Icons.Rounded.PushPin,
                         contentDescription = stringResource(R.string.pinned_chat),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
@@ -290,7 +290,7 @@ private fun ChatRowContent(
             if (showArchiveButton) {
                 IconButton(onClick = onArchiveClick) {
                     Icon(
-                        imageVector = Icons.Default.Archive,
+                        imageVector = Icons.Rounded.Archive,
                         contentDescription = stringResource(R.string.archive_chat),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                     )

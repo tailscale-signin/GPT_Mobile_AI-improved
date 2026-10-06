@@ -54,8 +54,8 @@ interface ToolApprovalDao {
     @Query("UPDATE tool_approvals SET state = 'EXECUTING' WHERE id = :id AND state = 'APPROVED'")
     suspend fun claim(id: String): Int
 
-    @Query("SELECT a.state FROM tool_approvals a JOIN agent_runs previous ON previous.run_id = a.runId JOIN agent_runs target_run ON target_run.run_id = :runId WHERE previous.chat_id = target_run.chat_id AND previous.user_message_id = target_run.user_message_id AND a.connection = :connection AND a.tool = :tool AND a.argumentHash = :hash AND a.state IN ('PENDING', 'APPROVED', 'EXECUTING', 'COMPLETED', 'OUTCOME_UNKNOWN', 'INTERRUPTED') LIMIT 1")
-    suspend fun previousMatchingAction(runId: String, connection: String, tool: String, hash: String): String?
+    @Query("SELECT a.state FROM tool_approvals a JOIN agent_runs previous ON previous.run_id = a.runId JOIN agent_runs target_run ON target_run.run_id = :runId WHERE previous.chat_id = target_run.chat_id AND previous.user_message_id = target_run.user_message_id AND a.connection = :connection AND a.tool = :tool AND a.argumentHash = :hash AND a.id != :excludeId AND a.state IN ('PENDING', 'APPROVED', 'EXECUTING', 'COMPLETED', 'OUTCOME_UNKNOWN', 'INTERRUPTED') LIMIT 1")
+    suspend fun previousMatchingAction(runId: String, connection: String, tool: String, hash: String, excludeId: String = ""): String?
 
     @Query("UPDATE tool_approvals SET state = :state WHERE id = :id AND state = 'EXECUTING'")
     suspend fun finish(id: String, state: String)
@@ -93,14 +93,26 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         if (request.state != "PENDING") return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         requireNotNull(trust) { "Persistent tool permissions are unavailable." }.allowProvider(connection)
-        dao.decide(id, "APPROVED")
+        approveWaiting(connection.connectionUid, id)
     }
     suspend fun alwaysAllow(id: String) {
         val request = dao.observe(id).first() ?: return
         if (request.state != "PENDING") return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         requireNotNull(trust) { "Persistent tool permissions are unavailable." }.allow(connection, request.tool)
-        dao.decide(id, "APPROVED")
+        approveWaiting(connection.connectionUid, id, request.tool)
+    }
+    private suspend fun approveWaiting(connectionUid: String, approvedId: String, tool: String? = null) {
+        // All models share these grants. Release prompts already queued by parallel runs.
+        submissionMutex.withLock {
+            dao.decide(approvedId, "APPROVED")
+            dao.pending().first().filter { request ->
+                requestConnections[request.id] == connectionUid && (tool == null || request.tool == tool)
+            }.forEach { request ->
+                val previous = dao.previousMatchingAction(request.runId, request.connection, request.tool, request.argumentHash, request.id)
+                dao.decide(request.id, if (previous == null) "APPROVED" else "DENIED")
+            }
+        }
     }
     suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
@@ -123,6 +135,10 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val hash = ScopedToolGrant.canonicalHash(arguments)
         val inserted = submissionMutex.withLock {
             val previous = dao.previousMatchingAction(runId, connection.name, tool, hash)
+            val trusted = policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true
+            // Permanent permission must never prompt again. Keep the duplicate-action
+            // guard: already-dispatched writes in this turn are rejected, not repeated.
+            if (trusted && previous != null) return@withLock -1L
             val request = ToolApproval(
                 id,
                 runId,

@@ -14,7 +14,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -40,31 +39,29 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.HelpOutline
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
@@ -92,7 +89,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
@@ -117,6 +113,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.hasUnavailableAssistantOrder
 import dev.chungjungsoo.gptmobile.data.localruntime.DiagnosticsTelemetryProvider
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
@@ -512,7 +509,7 @@ fun OpponentChatBubble(
                             },
                             label = { Text("All of the above", maxLines = 1) },
                             leadingIcon = {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                             },
                             interactionSource = allInteractionSource,
                             colors = AssistChipDefaults.assistChipColors(
@@ -528,13 +525,13 @@ fun OpponentChatBubble(
 
                         dynamicActions.forEach { action ->
                             val icon = when (action.iconType) {
-                                ActionIconType.SEARCH -> Icons.Default.Search
-                                ActionIconType.SUMMARIZE -> Icons.Default.Description
-                                ActionIconType.EXPLAIN -> Icons.Default.HelpOutline
-                                ActionIconType.CONFIRM -> Icons.Default.Check
-                                ActionIconType.CANCEL -> Icons.Default.Close
-                                ActionIconType.OPTION -> Icons.Default.AutoAwesome
-                                ActionIconType.DEFAULT -> Icons.AutoMirrored.Filled.ArrowForward
+                                ActionIconType.SEARCH -> Icons.Rounded.Search
+                                ActionIconType.SUMMARIZE -> Icons.Rounded.Description
+                                ActionIconType.EXPLAIN -> Icons.Rounded.HelpOutline
+                                ActionIconType.CONFIRM -> Icons.Rounded.Check
+                                ActionIconType.CANCEL -> Icons.Rounded.Close
+                                ActionIconType.OPTION -> Icons.Rounded.AutoAwesome
+                                ActionIconType.DEFAULT -> Icons.AutoMirrored.Rounded.ArrowForward
                             }
 
                             val chipInteractionSource = remember { MutableInteractionSource() }
@@ -649,7 +646,7 @@ fun OpponentChatBubble(
                             label = { Text("Continue") },
                             icon = {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    Icons.AutoMirrored.Rounded.ArrowForward,
                                     contentDescription = "Continue",
                                     modifier = Modifier.size(14.dp)
                                 )
@@ -676,7 +673,7 @@ fun OpponentChatBubble(
                         ) {
                             IconButton(enabled = canShowPreviousRevision, onClick = onShowPreviousRevision) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
                                     stringResource(R.string.previous_revision),
                                     tint = MaterialTheme.colorScheme.primary.copy(alpha = if (canShowPreviousRevision) 1f else 0.38f)
                                 )
@@ -688,7 +685,7 @@ fun OpponentChatBubble(
                             )
                             IconButton(enabled = canShowNextRevision, onClick = onShowNextRevision) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                                     stringResource(R.string.next_revision),
                                     tint = MaterialTheme.colorScheme.primary.copy(alpha = if (canShowNextRevision) 1f else 0.38f)
                                 )
@@ -805,20 +802,7 @@ fun GPTMobileIcon(loading: Boolean) {
                 trackColor = Color.Transparent
             )
         }
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(R.drawable.ic_gpt_mobile_no_padding),
-                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onPrimaryContainer),
-                contentDescription = null,
-                modifier = Modifier.size(22.dp)
-            )
-        }
+        dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
     }
 }
 
@@ -928,7 +912,7 @@ private fun FavoriteIcon(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+            if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
             stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
             tint = MaterialTheme.colorScheme.primary.copy(alpha = if (isFavorite) 1f else 0.7f)
         )
@@ -940,7 +924,7 @@ private fun FavoriteIcon(
 }
 
 @Composable private fun EditTextIcon(onClick: () -> Unit) = IconButton(onClick = onClick) {
-    Icon(Icons.Outlined.Edit, stringResource(R.string.edit), tint = MaterialTheme.colorScheme.primary)
+    Icon(Icons.Rounded.Edit, stringResource(R.string.edit), tint = MaterialTheme.colorScheme.primary)
 }
 
 @Composable
@@ -1128,7 +1112,7 @@ private fun MessageActionsToggle(expanded: Boolean, onClick: () -> Unit) {
     )
     IconButton(onClick = onClick, modifier = Modifier.size(34.dp).alpha(opacity)) {
         Icon(
-            Icons.Default.MoreHoriz,
+            Icons.Rounded.MoreHoriz,
             if (expanded) "Collapse message actions" else "Show message actions",
             Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.primary

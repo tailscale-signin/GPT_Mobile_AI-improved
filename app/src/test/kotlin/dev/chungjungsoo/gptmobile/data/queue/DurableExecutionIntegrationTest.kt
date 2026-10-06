@@ -220,7 +220,7 @@ class DurableExecutionIntegrationTest {
     }
 
     @Test
-    fun `trusted retry of a matching write still asks before repeating its side effect`() = runBlocking {
+    fun `trusted retry rejects an already dispatched write without prompting again`() = runBlocking {
         database.pendingPromptDao().enqueue(prompt())
         val turn = database.agentPersistenceDao().persistAgentTurn(request())
         val run = turn.runs.single()
@@ -231,10 +231,32 @@ class DurableExecutionIntegrationTest {
         val args = buildJsonObject { put("path", "notes.txt") }
         assertTrue(manager.authorize("c", run.runId, "first", "write_file", args))
         manager.finish(run.runId, "first", false)
-        val repeated = async { manager.authorize("c", "retry", "second", "write_file", args) }
+        assertFalse(manager.authorize("c", "retry", "second", "write_file", args))
+        assertTrue(manager.pending.first().isEmpty())
+    }
+
+    @Test
+    fun `permanent tool grant releases parallel model requests and can be revoked`() = runBlocking {
+        database.pendingPromptDao().enqueue(prompt())
+        val run = database.agentPersistenceDao().persistAgentTurn(request()).runs.single()
+        database.agentRunDao().upsert(run.copy(runId = "other-model"))
+        val connection = ToolConnection("c", "Server", "server", "MCP", "https://example.com/mcp", "NONE", null, null)
+        database.toolConnectionDao().upsertConnection(connection)
+        val trust = dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore(RuntimeEnvironment.getApplication())
+        trust.revoke("c")
+        val manager = ToolApprovalManager(database, ToolConnectionRepository(database.toolConnectionDao(), mockk<SecretVault>(relaxed = true)), trust)
+        val first = async { manager.authorize("c", run.runId, "one", "write_file", buildJsonObject { put("path", "one.txt") }) }
+        val second = async { manager.authorize("c", "other-model", "two", "write_file", buildJsonObject { put("path", "two.txt") }) }
+        val waiting = kotlinx.coroutines.withTimeout(10000) { manager.pending.first { it.size == 2 } }
+        manager.alwaysAllow(waiting.first().id)
+        assertTrue(first.await())
+        assertTrue(second.await())
+        assertTrue(manager.pending.first().isEmpty())
+        assertTrue(manager.authorize("c", "other-model", "three", "write_file", buildJsonObject { put("path", "three.txt") }))
+        trust.revoke("c")
+        val afterRevoke = async { manager.authorize("c", "other-model", "four", "write_file", buildJsonObject { put("path", "four.txt") }) }
         val pending = kotlinx.coroutines.withTimeout(10000) { manager.pending.first { it.isNotEmpty() }.single() }
-        assertTrue(pending.argumentPreview.contains("OUTCOME_UNKNOWN"))
         manager.decide(pending.id, false)
-        assertFalse(repeated.await())
+        assertFalse(afterRevoke.await())
     }
 }

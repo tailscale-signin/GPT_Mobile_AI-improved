@@ -15,16 +15,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -40,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.domain.unified.MessageQueueStatus
 import dev.chungjungsoo.gptmobile.domain.unified.QueuedMessage
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,14 +55,14 @@ fun MessageQueueScreen(
                 title = { Text("Message Queue (${queuedMessages.size})") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
                     val hasCompleted = queuedMessages.any { it.status is MessageQueueStatus.Completed || it.status is MessageQueueStatus.Cancelled }
                     if (hasCompleted) {
                         IconButton(onClick = { viewModel.clearCompletedQueue() }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Clear Completed")
+                            Icon(Icons.Rounded.Delete, contentDescription = "Clear Completed")
                         }
                     }
                 }
@@ -174,18 +173,18 @@ private fun QueuedMessageCard(
             ) {
                 if (item.status is MessageQueueStatus.Pending) {
                     IconButton(onClick = onCancel, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Clear, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.outline)
+                        Icon(Icons.Rounded.Clear, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.outline)
                     }
                 }
 
                 if (item.status is MessageQueueStatus.Error) {
                     IconButton(onClick = onRetry, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.Refresh, contentDescription = "Retry", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
 
                 IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Rounded.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }

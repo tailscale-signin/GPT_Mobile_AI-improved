@@ -16,13 +16,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.outlined.Router
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Router
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,6 +42,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.theme.defaultSpatialSpec
 import dev.chungjungsoo.gptmobile.presentation.theme.fastEffectsSpec
 import kotlinx.coroutines.delay
@@ -139,10 +139,10 @@ fun InlineExecutionTrace(
                 shape = RoundedCornerShape(18.dp),
                 color = when {
                     debugMode && expanded && isReviewerResult && debugSettings.debugShowReviewerTrace ->
-                        androidx.compose.ui.graphics.Color(0xFFFFEA00).copy(alpha = 0.13f)
-                    delegatedTool && expanded -> androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.18f)
+                        MaterialTheme.colorScheme.tertiary.copy(alpha = 0.13f)
+                    delegatedTool && expanded -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                     failed -> MaterialTheme.colorScheme.errorContainer
-                    isDelegation -> androidx.compose.ui.graphics.Color(0xFFFFD54F).copy(alpha = 0.10f)
+                    isDelegation -> MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh
                 },
                 modifier = Modifier.fillMaxWidth().animateContentSize(defaultSpatialSpec())
@@ -151,12 +151,12 @@ fun InlineExecutionTrace(
                 Column(Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(
-                            if (isRemoteDelegation) Icons.Outlined.Router else toolActivityIcon(event.toolName),
+                            if (isRemoteDelegation) Icons.Rounded.Router else toolActivityIcon(event.toolName),
                             null,
-                            tint = if (isDelegation) androidx.compose.ui.graphics.Color(0xFFFFC107) else MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
-                        Text(summary, modifier = Modifier.weight(1f), color = if (debugMode && isReviewerResult) androidx.compose.ui.graphics.Color(0xFFFFEA00) else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(summary, modifier = Modifier.weight(1f), color = if (debugMode && isReviewerResult) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (running) {
                             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                 (1..3).forEach { index -> Text("•", color = MaterialTheme.colorScheme.primary.copy(alpha = if (index <= dots) 1f else 0.15f)) }
@@ -164,11 +164,11 @@ fun InlineExecutionTrace(
                         } else {
                             Icon(
                                 if (failed) {
-                                    Icons.Default.Close
+                                    Icons.Rounded.Close
                                 } else if (event.status == ToolEventStatus.CANCELED) {
-                                    Icons.Default.Remove
+                                    Icons.Rounded.Remove
                                 } else {
-                                    Icons.Default.Check
+                                    Icons.Rounded.Check
                                 },
                                 contentDescription = status,
                                 tint = if (failed) {
@@ -181,7 +181,7 @@ fun InlineExecutionTrace(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        Icon(if (expanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                        Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     }
                     AnimatedVisibility(
                         visible = expanded,
@@ -193,8 +193,8 @@ fun InlineExecutionTrace(
                             val isFollowUp = event.toolName == "follow_up_context"
                             if (debugMode && isFollowUp) {
                                 Text("Follow-up prompt", style = MaterialTheme.typography.labelMedium)
-                                Text(event.arguments, color = androidx.compose.ui.graphics.Color(0xFF00FFE5), style = MaterialTheme.typography.bodySmall)
-                                event.result?.let { Text(it, color = androidx.compose.ui.graphics.Color(0xFF00FFE5), style = MaterialTheme.typography.bodySmall) }
+                                Text(event.arguments, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
+                                event.result?.let { Text(it, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall) }
                             }
                             if (debugMode) Text("Call ${event.callId} · Run ${event.runId} · #${event.sequence}", style = MaterialTheme.typography.bodySmall)
                             metrics?.let {
@@ -240,12 +240,7 @@ fun InlineExecutionTrace(
                                     ReviewerDebugText(reviewerText, Modifier.padding(top = 6.dp))
                                 }
                                 if (showDelegationTrace) {
-                                    Text(
-                                        delegateText,
-                                        color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(top = 6.dp)
-                                    )
+                                    DebugActivityCard("", delegateText, reviewer = false, modifier = Modifier.padding(top = 6.dp))
                                 }
                             } else if (debugMode && isDelegation) {
                                 Text(
@@ -304,7 +299,7 @@ internal fun DebugMemorySourcesBubble(
                     overflow = TextOverflow.Ellipsis
                 )
                 Icon(
-                    if (expanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                    if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
                     null,
                     tint = DebugMemoryPink,
                     modifier = Modifier.size(24.dp)

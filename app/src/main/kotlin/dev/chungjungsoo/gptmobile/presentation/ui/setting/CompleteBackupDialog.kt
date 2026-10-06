@@ -10,13 +10,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Backup
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -42,6 +41,7 @@ import androidx.compose.ui.window.Dialog
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.backup.BackupStatus
 import dev.chungjungsoo.gptmobile.data.backup.CompleteBackupSection
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import java.text.DateFormat
 import java.util.Date
 
@@ -72,7 +72,7 @@ fun CompleteBackupDialog(
             ) {
                 Text(stringResource(R.string.backup_and_restore), style = MaterialTheme.typography.headlineSmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
                     Text(
                         if (state.passwordProtectionEnabled) "Your password is saved securely in the app and included inside the encrypted backup. Use it to restore after reinstall or on another device." else "Encryption is off. The backup includes readable app data and your saved password. Enable encryption to protect it.",
                         modifier = Modifier.padding(start = 10.dp),
@@ -105,7 +105,7 @@ fun CompleteBackupDialog(
                                     enabled = !state.isBusy,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(Icons.Outlined.Restore, null)
+                                    Icon(Icons.Rounded.Restore, null)
                                     Column(
                                         Modifier.weight(1f).padding(start = 10.dp),
                                         horizontalAlignment = Alignment.Start
@@ -134,7 +134,7 @@ fun CompleteBackupDialog(
                             enabled = state.canBackup,
                             modifier = Modifier.fillMaxWidth().testTag("backup_all")
                         ) {
-                            Icon(Icons.Outlined.Backup, null)
+                            Icon(Icons.Rounded.Backup, null)
                             Text("Backup", Modifier.padding(start = 8.dp))
                         }
                         OutlinedButton(
@@ -142,14 +142,14 @@ fun CompleteBackupDialog(
                             enabled = !state.isBusy,
                             modifier = Modifier.fillMaxWidth().testTag("restore_all")
                         ) {
-                            Icon(Icons.Outlined.Restore, null)
+                            Icon(Icons.Rounded.Restore, null)
                             Text("Restore", Modifier.padding(start = 8.dp))
                         }
                     }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary)
                     Text("Encrypt backup", Modifier.weight(1f).padding(start = 10.dp))
                     Switch(
                         checked = state.passwordProtectionEnabled,
@@ -216,7 +216,7 @@ private fun BackupSelectionDialog(
         onDismissRequest = onCancel,
         icon = {
             Icon(
-                if (action == BackupAction.BACKUP) Icons.Outlined.Backup else Icons.Outlined.Restore,
+                if (action == BackupAction.BACKUP) Icons.Rounded.Backup else Icons.Rounded.Restore,
                 null,
                 tint = MaterialTheme.colorScheme.primary
             )

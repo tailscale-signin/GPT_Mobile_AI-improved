@@ -11,19 +11,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.SettingsSuggest
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.SettingsSuggest
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -43,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.model.AppFeature
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +60,7 @@ fun AdvancedSettingsScreen(
                 title = { Text("Advanced Settings") },
                 navigationIcon = {
                     IconButton(onClick = onNavigationClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -75,45 +75,45 @@ fun AdvancedSettingsScreen(
                 AdvancedGroupCard(
                     title = "Privacy & Storage",
                     subtitle = "Device unlock, screenshot protection, local storage size, and preview cleanup.",
-                    icon = Icons.Default.Storage
+                    icon = Icons.Rounded.Storage
                 ) {
                     PrivacyStoragePanel(embedded = true)
                 }
             }
             item {
-                AdvancedGroupCard("Reading & Motion", "", Icons.Default.Tune) {
-                    FeatureSwitch(AppFeature.SMOOTH_STREAMING, settings.smoothStreaming, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.CENTER_UNREAD, settings.centerUnread, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.RESPONSE_ANIMATION, settings.responseAnimation, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.EDGE_FADES, settings.edgeFades, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.MESSAGE_TIMESTAMPS, settings.messageTimestamps, Icons.Default.Tune, viewModel::updateFeature)
+                AdvancedGroupCard("Reading & Motion", "", Icons.Rounded.Tune) {
+                    FeatureSwitch(AppFeature.SMOOTH_STREAMING, settings.smoothStreaming, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.CENTER_UNREAD, settings.centerUnread, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.RESPONSE_ANIMATION, settings.responseAnimation, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.EDGE_FADES, settings.edgeFades, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.MESSAGE_TIMESTAMPS, settings.messageTimestamps, Icons.Rounded.Tune, viewModel::updateFeature)
                 }
             }
             item {
-                AdvancedGroupCard("Research & Efficiency", "", Icons.Default.Tune) {
-                    FeatureSwitch(AppFeature.QUEUED_FOLLOW_UPS, settings.queuedFollowUps, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.PARALLEL_SEARCH, settings.parallelSearch, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.DEDUPLICATE_SEARCH, settings.deduplicateSearch, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.GITHUB_CONDITIONAL_READS, settings.githubConditionalReads, Icons.Default.Tune, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.GITHUB_BLOB_CACHE, settings.githubBlobCache, Icons.Default.Tune, viewModel::updateFeature)
+                AdvancedGroupCard("Research & Efficiency", "", Icons.Rounded.Tune) {
+                    FeatureSwitch(AppFeature.QUEUED_FOLLOW_UPS, settings.queuedFollowUps, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.PARALLEL_SEARCH, settings.parallelSearch, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.DEDUPLICATE_SEARCH, settings.deduplicateSearch, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.GITHUB_CONDITIONAL_READS, settings.githubConditionalReads, Icons.Rounded.Tune, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.GITHUB_BLOB_CACHE, settings.githubBlobCache, Icons.Rounded.Tune, viewModel::updateFeature)
                 }
             }
             item {
                 AdvancedGroupCard(
                     title = "Background & Notifications",
                     subtitle = "Control work that can continue outside the foreground.",
-                    icon = Icons.Default.Schedule
+                    icon = Icons.Rounded.Schedule
                 ) {
                     FeatureSwitch(
                         feature = AppFeature.BACKGROUND_GENERATION,
                         enabled = settings.backgroundGeneration,
-                        icon = Icons.Default.Schedule,
+                        icon = Icons.Rounded.Schedule,
                         onChange = viewModel::updateFeature
                     )
                     FeatureSwitch(
                         feature = AppFeature.RESPONSE_NOTIFICATIONS,
                         enabled = settings.responseNotifications,
-                        icon = Icons.Default.Notifications,
+                        icon = Icons.Rounded.Notifications,
                         onChange = viewModel::updateFeature
                     )
                 }
@@ -122,12 +122,12 @@ fun AdvancedSettingsScreen(
                 AdvancedGroupCard(
                     title = "Conversation Intelligence",
                     subtitle = "Automatic organization and response assistance.",
-                    icon = Icons.Default.AutoAwesome
+                    icon = Icons.Rounded.AutoAwesome
                 ) {
-                    FeatureSwitch(AppFeature.AUTOMATIC_TITLES, settings.automaticConversationTitles, Icons.Default.AutoAwesome, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.ARCHIVE_OLDER_REPLIES, settings.archiveOlderAssistantReplies, Icons.Default.Storage, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.SHOW_REASONING, settings.showReasoning, Icons.Default.AutoAwesome, viewModel::updateFeature)
-                    FeatureSwitch(AppFeature.SMART_SUGGESTIONS, settings.smartSuggestions, Icons.Default.SettingsSuggest, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.AUTOMATIC_TITLES, settings.automaticConversationTitles, Icons.Rounded.AutoAwesome, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.ARCHIVE_OLDER_REPLIES, settings.archiveOlderAssistantReplies, Icons.Rounded.Storage, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.SHOW_REASONING, settings.showReasoning, Icons.Rounded.AutoAwesome, viewModel::updateFeature)
+                    FeatureSwitch(AppFeature.SMART_SUGGESTIONS, settings.smartSuggestions, Icons.Rounded.SettingsSuggest, viewModel::updateFeature)
                 }
             }
         }
@@ -161,7 +161,7 @@ private fun AdvancedGroupCard(
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     if (subtitle.isNotBlank()) SettingsHelpIcon(subtitle)
                 }
-                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse $title" else "Expand $title", tint = MaterialTheme.colorScheme.primary)
+                Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse $title" else "Expand $title", tint = MaterialTheme.colorScheme.primary)
             }
             AnimatedVisibility(expanded) { Column { content() } }
         }

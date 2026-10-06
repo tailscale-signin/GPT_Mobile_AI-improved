@@ -10,9 +10,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +32,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import kotlinx.coroutines.delay
 
@@ -93,7 +93,7 @@ internal fun AssistantChronologicalContent(
                     }
                 }
                 IconButton(onClick = { onExpandedChange(!expanded) }) {
-                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "Collapse activity" else "Expand activity", tint = MaterialTheme.colorScheme.primary)
+                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse activity" else "Expand activity", tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -132,26 +132,9 @@ internal fun AssistantChronologicalContent(
                     }
                     AssistantTimelineItemType.NOTICE -> if (item.delegationInvocationId != null) {
                         if (debugMode && expanded) {
-                            val reviewer = item.content.contains("Reviewer", true) ||
-                                item.delegationProfile.orEmpty().contains("Reviewer", true)
+                            val reviewer = item.delegationProfile.orEmpty().endsWith(" · Reviewer", true)
                             val visible = if (reviewer) debugSettings.debugShowReviewerTrace else debugSettings.debugShowDelegationTrace
-                            if (visible) {
-                                val traceColor = if (reviewer) {
-                                    androidx.compose.ui.graphics.Color(0xFFFFEA00)
-                                } else {
-                                    androidx.compose.ui.graphics.Color(0xFF4CAF50)
-                                }
-                                Text(
-                                    "${item.delegationProfile.orEmpty()} · ${if (reviewer) "Reviewer" else "Delegation"}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = traceColor
-                                )
-                                if (reviewer) {
-                                    ReviewerDebugText(item.content, Modifier.padding(vertical = 8.dp))
-                                } else {
-                                    Text(item.content, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = traceColor)
-                                }
-                            }
+                            if (visible) DebugActivityCard(item.delegationProfile.orEmpty(), item.content, reviewer)
                         }
                     } else if (expanded && !item.statusSummary && !isContextDiagnostic(item.content)) {
                         if (item.recalledFacts.isNotEmpty()) {

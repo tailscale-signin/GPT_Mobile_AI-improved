@@ -11,19 +11,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -37,8 +35,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 internal fun ToolApprovalDialog(
     approval: ToolApproval,
     onDeny: () -> Unit,
@@ -48,7 +48,6 @@ internal fun ToolApprovalDialog(
     onAllowInConversation: () -> Unit = {}
 ) {
     var allowProvider by remember(approval.id) { mutableStateOf(false) }
-    var advanced by remember(approval.id) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDeny,
         icon = {
@@ -81,7 +80,7 @@ internal fun ToolApprovalDialog(
                 ) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Security, null, tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Rounded.Security, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
                             Text("Requested action", style = MaterialTheme.typography.titleSmall)
                         }
@@ -92,35 +91,19 @@ internal fun ToolApprovalDialog(
                         )
                     }
                 }
-                TextButton(onClick = onAllowInConversation) { Text("Allow here for 1 hour") }
-                Text("Limited to this conversation, action, repository and tool schema.", style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = {
-                    advanced = !advanced
-                    allowProvider = false
-                }) { Text(if (advanced) "Hide permanent permissions" else "Permanent permissions…") }
-                if (advanced) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(checked = allowProvider, onCheckedChange = { allowProvider = it })
-                        Column(Modifier.weight(1f)) {
-                            Text("Allow all from this provider", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "Future actions from ${approval.connection} can run without another prompt.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    TextButton(
-                        onClick = onAlwaysAllowTool,
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Always allow this tool")
-                    }
+                Text(
+                    "Allow once for this action, or remember it for every model. Change this anytime in Plugins/Tools → Permissions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FilledTonalButton(onClick = onAlwaysAllowTool, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Always allow this tool · all models")
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = allowProvider, onCheckedChange = { allowProvider = it })
+                    Text("Always allow all tools from ${approval.connection}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         },
@@ -128,7 +111,7 @@ internal fun ToolApprovalDialog(
             FilledTonalButton(
                 onClick = if (allowProvider) onAlwaysAllowProvider else onAllowOnce
             ) {
-                Text(if (allowProvider) "Allow provider" else "Allow once")
+                Text(if (allowProvider) "Always allow provider" else "Allow once")
             }
         },
         dismissButton = { OutlinedButton(onClick = onDeny) { Text("Deny") } }
@@ -151,7 +134,7 @@ internal fun FreeToolConsentDialog(
                 color = if (unlocked) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
             ) {
                 Icon(
-                    imageVector = if (unlocked) Icons.Outlined.CheckCircle else Icons.Outlined.Lock,
+                    imageVector = if (unlocked) Icons.Rounded.CheckCircle else Icons.Rounded.Lock,
                     contentDescription = null,
                     modifier = Modifier.padding(14.dp).size(30.dp),
                     tint = if (unlocked) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
@@ -166,7 +149,7 @@ internal fun FreeToolConsentDialog(
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    "Data tracking is on at the free provider: requests and tool results may be logged under its data policy. You can disable this tool in Options at any time.",
+                    "Data tracking is on at the free provider: requests and tool results may be logged under its data policy. You can revoke this permission in Plugins/Tools at any time.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -183,7 +166,7 @@ internal fun FreeToolConsentDialog(
                             valueRange = 0f..1f
                         )
                         Text(
-                            if (unlocked) "Acknowledged. This profile + tool permission will be remembered." else "Move the slider fully to the right to continue.",
+                            if (unlocked) "Acknowledged. This tool permission will be remembered for all models." else "Move the slider fully to the right to continue.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

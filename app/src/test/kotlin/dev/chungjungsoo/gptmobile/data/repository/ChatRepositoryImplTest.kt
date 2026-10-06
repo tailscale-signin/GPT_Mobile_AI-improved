@@ -28,6 +28,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChunk
+import dev.chungjungsoo.gptmobile.data.dto.google.common.Content
+import dev.chungjungsoo.gptmobile.data.dto.google.common.Part
 import dev.chungjungsoo.gptmobile.data.dto.google.request.GenerateContentRequest
 import dev.chungjungsoo.gptmobile.data.dto.google.response.Candidate
 import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
@@ -229,7 +231,7 @@ class ChatRepositoryImplTest {
         facts.prepareTurn("I prefer Kotlin", 1, 1)
         val saved = facts.state.value.facts
         assertTrue(saved.isNotEmpty())
-        val api = RecordingOpenAIAPI()
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Answer"), finishReason = "stop")))))))
         val states = createRepository(openAIAPI = api, factVault = facts).completeChat(
             userMessages = listOf(MessageV2(id = 2, chatId = 1, content = "I prefer Rust. What language do I prefer?", platformType = null)),
             assistantMessages = emptyList(),
@@ -271,7 +273,7 @@ class ChatRepositoryImplTest {
         }
         val facts = dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository(storage, dev.chungjungsoo.gptmobile.data.rag.KnowledgeGraphEngine())
         facts.setEnabled(true)
-        val api = FakeGroqAPI(emptyFlow())
+        val api = FakeGroqAPI(flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(0, GroqDelta(content = "Summary"), finishReason = "stop")))))
         val attachment = ChatAttachment("/unused.txt", "/unused.txt", "Memo", "text/plain", 40, extractedText = "I prefer Rust. I live in Lisbon.")
         createRepository(groqAPI = api, factVault = facts).completeChat(
             userMessages = listOf(MessageV2(id = 9, chatId = 1, content = "Summarize this memo", platformType = null, attachments = listOf(attachment))),
@@ -401,7 +403,9 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `local documents reach native history and current prompt exactly once`() = runBlocking {
-        val runtime = FakeLocalRuntime()
+        val runtime = FakeLocalRuntime().apply {
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Summary"), LocalRuntimeEvent.Done))
+        }
         val repository = createRepository(
             localRuntime = runtime,
             localModelRepository = FakeLocalModelRepository(downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm"))
@@ -693,7 +697,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `google request includes configured safety settings`() = runBlocking {
-        val googleAPI = FakeGoogleAPI()
+        val googleAPI = FakeGoogleAPI(flowOf(GenerateContentResponse(candidates = listOf(Candidate(content = Content(parts = listOf(Part.text("Answer"))), finishReason = "STOP")))))
         val repository = createRepository(googleAPI = googleAPI)
 
         repository.completeChat(
@@ -775,7 +779,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `failed historical turn is excluded from subsequent inline budget checks`() = runBlocking {
-        val openAIAPI = RecordingOpenAIAPI()
+        val openAIAPI = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Answer"), finishReason = "stop")))))))
         val repository = createRepository(openAIAPI = openAIAPI)
         val tempDir = kotlin.io.path.createTempDirectory("context-inline-budget").toFile().apply {
             deleteOnExit()
@@ -828,7 +832,7 @@ class ChatRepositoryImplTest {
             runId = "test-run"
         ).toList().filterNot { it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
-        assertEquals(listOf(ApiState.Loading, ApiState.Done), states)
+        assertEquals(listOf(ApiState.Loading, ApiState.Success("Answer"), ApiState.Done), states)
         assertEquals(1, openAIAPI.streamChatCompletionCalls)
     }
 

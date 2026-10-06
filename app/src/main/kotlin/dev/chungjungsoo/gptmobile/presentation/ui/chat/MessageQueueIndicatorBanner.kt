@@ -24,17 +24,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.HourglassEmpty
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.HourglassEmpty
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,7 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.data.queue.GenerationQueueItem
-import dev.chungjungsoo.gptmobile.data.queue.QueuedMessageStatus
+import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 /**
  * Visual banner and expandable drawer displaying queued messages waiting to be sent
@@ -117,8 +112,11 @@ fun MessageQueueIndicatorBanner(
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Text(
-                        text = if (queuedItems.size == 1) "1 message queued for generation"
-                        else "${queuedItems.size} messages in generation queue",
+                        text = if (queuedItems.size == 1) {
+                            "1 message queued for generation"
+                        } else {
+                            "${queuedItems.size} messages in generation queue"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -138,7 +136,7 @@ fun MessageQueueIndicatorBanner(
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Stop,
+                            imageVector = Icons.Rounded.Stop,
                             contentDescription = "Stop & clear queue",
                             modifier = Modifier.size(14.dp)
                         )
@@ -187,7 +185,7 @@ fun MessageQueueIndicatorBanner(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.HourglassEmpty,
+                                    imageVector = Icons.Rounded.HourglassEmpty,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(16.dp)
@@ -216,7 +214,7 @@ fun MessageQueueIndicatorBanner(
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
+                                    imageVector = Icons.Rounded.Close,
                                     contentDescription = "Remove from queue",
                                     tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(16.dp)

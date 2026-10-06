@@ -182,4 +182,13 @@ class ModelDelegationSettingsTest {
         assertEquals(4000, defaults.primaryReplayTokens)
         assertEquals(512, defaults.primaryReplayResultTokens)
     }
+
+    @Test
+    fun maximumDelegationRequiresPreparationAndIndependentReview() {
+        val result = ModelDelegationSettings(automaticResearch = false, researchEnabled = false, reviewerEnabled = false).withDelegationAmount(100).normalized()
+        assertEquals(0, result.processingOwnership)
+        assertEquals(true, result.automaticResearch)
+        assertEquals(true, result.researchEnabled)
+        assertEquals(true, result.reviewerEnabled)
+    }
 }

@@ -5,6 +5,17 @@ internal fun isGitHubTask(task: String): Boolean =
     Regex("\\b(github|git|repository|repositories|repo|pull[ -]request|draft[ -]pr|commit|branch)\\b", RegexOption.IGNORE_CASE)
         .containsMatchIn(task)
 
+/** Short follow-ups inherit repository intent without contaminating a new web question. */
+internal fun repositoryRoutingTask(currentTask: String, previousTasks: List<String>): String {
+    if (isGitHubTask(currentTask)) return currentTask
+    if (!continuationOnly(currentTask)) return currentTask
+    val previous = previousTasks.asReversed().firstOrNull { it.isNotBlank() && !continuationOnly(it) }
+    return if (previous != null && isGitHubTask(previous)) "$previous\n$currentTask" else currentTask
+}
+
+private fun continuationOnly(task: String): Boolean =
+    Regex("^(?:please\\s+)?(?:continue|retry|try again|finish(?: it| that| this)?|fix(?: it| that| this)?|go ahead|do it|proceed|yes|push|merge|publish|check again)[.!?\\s]*$", RegexOption.IGNORE_CASE).matches(task.trim())
+
 internal fun ResolvedAgentTool.isGitHubTool(): Boolean =
     realToolName.contains("github", ignoreCase = true) ||
         modelToolName.contains("github", ignoreCase = true) ||
@@ -30,7 +41,10 @@ internal fun preferNativeGitHubForTask(
     tools: List<ResolvedAgentTool>,
     task: String
 ): List<ResolvedAgentTool> {
-    if (!isGitHubTask(task) || tools.none { it.isGitHubTool() }) return tools
+    // Repository catalogs are large and misleading to small llama models during
+    // ordinary web questions. Keep them out of both the schema and executor maps.
+    if (!isGitHubTask(task)) return tools.filterNot { it.isGitHubTool() }
+    if (tools.none { it.isGitHubTool() }) return tools
     return tools.filterNot { it.isShellExecutionTool() }
 }
 

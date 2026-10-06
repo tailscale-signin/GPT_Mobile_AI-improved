@@ -38,6 +38,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -223,6 +225,7 @@ fun OpponentChatBubble(
     timeline: List<AssistantTimelineItem> = emptyList(),
     attachments: List<String> = emptyList(),
     agentRun: AgentRun? = null,
+    generationTiming: GenerationTiming? = responseGenerationTiming(agentRun),
     runNotices: List<ChatRunNotice> = emptyList(),
     toolEvents: List<ToolEvent> = emptyList(),
     locationToolEvents: List<ToolEvent> = toolEvents,
@@ -382,6 +385,21 @@ fun OpponentChatBubble(
                         shape = RoundedCornerShape(32.dp)
                     )
             ) {
+                AnimatedVisibility(
+                    visible = activityExpanded && generationTiming != null,
+                    enter = fadeIn(tween(1000)),
+                    exit = fadeOut(tween(500))
+                ) {
+                    val now = dev.chungjungsoo.gptmobile.presentation.ui.setting.rememberLiveClock(activityExpanded && generationTiming?.completedAt == null)
+                    generationTiming?.let { timing ->
+                        Text(
+                            workedTimeText((timing.completedAt ?: now / 1000) - timing.startedAt),
+                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
                 val hasUnavailableOrder = remember(contentTimeline, text, visibleThoughts, processToolEvents) {
                     hasUnavailableAssistantOrder(contentTimeline, text, visibleThoughts, processToolEvents.isNotEmpty())
                 }
@@ -478,52 +496,54 @@ fun OpponentChatBubble(
                     enter = fadeIn(tween(180)),
                     exit = fadeOut(tween(500))
                 ) {
-                    Row(
+                    LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .horizontalScroll(rememberScrollState()),
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val allInteractionSource = remember { MutableInteractionSource() }
-                        val allPressed by allInteractionSource.collectIsPressedAsState()
-                        val allPulse = suggestionHoldPulseAlpha(allPressed)
-                        LaunchedEffect(allInteractionSource, dynamicActions) {
-                            allInteractionSource.interactions.collect { interaction ->
-                                when (interaction) {
-                                    is PressInteraction.Press -> startHighlight("all of the above", dynamicActions.joinToString(" ") { it.actionPrompt })
-                                    is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
+                        if (dynamicActions.size > 1 && dynamicActions.none { it.isOption }) {
+                            item(key = "ask-all") {
+                                val allInteractionSource = remember { MutableInteractionSource() }
+                                val allPressed by allInteractionSource.collectIsPressedAsState()
+                                val allPulse = suggestionHoldPulseAlpha(allPressed)
+                                LaunchedEffect(allInteractionSource, dynamicActions) {
+                                    allInteractionSource.interactions.collect { interaction ->
+                                        when (interaction) {
+                                            is PressInteraction.Press -> startHighlight("all of the above", dynamicActions.joinToString(" ") { it.actionPrompt })
+                                            is PressInteraction.Release, is PressInteraction.Cancel -> reverseHighlight()
+                                        }
+                                    }
                                 }
+                                AssistChip(
+                                    onClick = {
+                                        actionDismissed = true
+                                        onActionClick?.invoke(
+                                            buildString {
+                                                append("Please address each of these: ")
+                                                append(dynamicActions.joinToString("; ") { it.actionPrompt })
+                                            }
+                                        )
+                                    },
+                                    label = { Text("Ask all", maxLines = 1) },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    },
+                                    interactionSource = allInteractionSource,
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = if (allPressed) Color(0xFFFFD54F).copy(alpha = allPulse) else MaterialTheme.colorScheme.primaryContainer,
+                                        labelColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
+                                        leadingIconContentColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
+                                    ),
+                                    border = BorderStroke(
+                                        if (allPressed) 2.dp else 1.dp,
+                                        if (allPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                )
                             }
                         }
-                        AssistChip(
-                            onClick = {
-                                actionDismissed = true
-                                onActionClick?.invoke(
-                                    buildString {
-                                        append("Please do all of the following: ")
-                                        append(dynamicActions.joinToString("; ") { it.actionPrompt })
-                                    }
-                                )
-                            },
-                            label = { Text("All of the above", maxLines = 1) },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                            },
-                            interactionSource = allInteractionSource,
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = if (allPressed) Color(0xFFFFD54F).copy(alpha = allPulse) else MaterialTheme.colorScheme.primaryContainer,
-                                labelColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer,
-                                leadingIconContentColor = if (allPressed) Color(0xFF3E2723) else MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            border = BorderStroke(
-                                if (allPressed) 2.dp else 1.dp,
-                                if (allPressed) Color(0xFFFFB300) else MaterialTheme.colorScheme.outlineVariant
-                            )
-                        )
-
-                        dynamicActions.forEach { action ->
+                        items(dynamicActions, key = { it.actionPrompt }) { action ->
                             val icon = when (action.iconType) {
                                 ActionIconType.SEARCH -> Icons.Rounded.Search
                                 ActionIconType.SUMMARIZE -> Icons.Rounded.Description
@@ -700,6 +720,7 @@ fun OpponentChatBubble(
 
 @Composable
 private fun suggestionHoldPulseAlpha(pressed: Boolean): Float {
+    if (!pressed) return 1f
     val transition = rememberInfiniteTransition(label = "suggestionHoldPulse")
     val pulse by transition.animateFloat(
         initialValue = 0.58f,

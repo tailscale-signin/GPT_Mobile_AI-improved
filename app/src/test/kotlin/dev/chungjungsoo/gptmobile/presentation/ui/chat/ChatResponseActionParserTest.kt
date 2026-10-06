@@ -1,13 +1,70 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.ActionIconType
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatResponseActionParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatResponseActionParserTest {
+
+    @Test
+    fun `combined response keeps distinct suggested questions from every profile`() {
+        val response = """
+            First model's evidence.
+            Next questions:
+            - **Archive search:** How can I search archived conversations?
+
+            Second model's evidence.
+            Next questions:
+            - **Archive search:** How can I search archived conversations?
+            - **Backup restore:** How can I restore a backup on another phone?
+        """.trimIndent()
+        assertEquals(listOf("Archive Search", "Backup Restore"), ChatResponseActionParser.extractDynamicActions(response, false).map { it.label })
+    }
+
+    @Test
+    fun `generated topic labels keep the complete specific follow-up questions`() {
+        val response = """
+            Archived conversations are compressed losslessly.
+
+            Next questions:
+            - **Archive search:** How can I search the text of compressed archived conversations?
+            - **Backup recovery:** How are archived conversations restored from a backup?
+        """.trimIndent()
+        val actions = ChatResponseActionParser.extractDynamicActions(response, false)
+        assertEquals(listOf("Archive Search", "Backup Recovery"), actions.map { it.label })
+        assertEquals("How can I search the text of compressed archived conversations?", actions[0].actionPrompt)
+        assertEquals("How are archived conversations restored from a backup?", actions[1].actionPrompt)
+    }
+
+    @Test
+    fun `single direct offer becomes a topic chip instead of disappearing`() {
+        val actions = ChatResponseActionParser.extractDynamicActions("Would you like me to explain Room transaction isolation?", false)
+        assertEquals(1, actions.size)
+        assertTrue(actions.single().label.contains("Isolation"))
+        assertEquals("explain Room transaction isolation", actions.single().actionPrompt)
+    }
+
+    @Test
+    fun `facts code examples and unknown user answers are not offered as actions`() {
+        assertTrue(ChatResponseActionParser.extractDynamicActions("Three facts:\n1. Paris is in France\n2. Rome is in Italy", false).isEmpty())
+        assertTrue(ChatResponseActionParser.extractDynamicActions("```text\nWould you like me to delete your backup?\n```", false).isEmpty())
+        assertTrue(ChatResponseActionParser.extractDynamicActions("Which Android version are you using?", false).isEmpty())
+        assertTrue(ChatResponseActionParser.extractDynamicActions("Would you like more details?", false).isEmpty())
+    }
+
+    @Test
+    fun `different full questions survive and Unicode topic words remain readable`() {
+        val response = """
+            Next questions:
+            - **Résumé export:** How can I export my résumé as plain text?
+            - **Résumé backup:** How can I back up my résumé conversation?
+        """.trimIndent()
+        val actions = ChatResponseActionParser.extractDynamicActions(response, false)
+        assertEquals(2, actions.size)
+        assertEquals("Résumé Export", actions[0].label)
+        assertTrue(actions.all { it.label.length <= 32 && it.actionPrompt.endsWith("?") })
+    }
 
     @Test
     fun `shouldShowContinuePrompt detects varied continue prompts`() {
@@ -45,7 +102,7 @@ class ChatResponseActionParserTest {
         assertEquals(3, actions.size)
 
         assertEquals("Search online for current documentation", actions[0].actionPrompt)
-        assertEquals("Search Online", actions[0].label)
+        assertEquals("Search Current Documentation", actions[0].label)
         assertEquals(ActionIconType.SEARCH, actions[0].iconType)
 
         assertEquals("Summarize key advantages and trade-offs", actions[1].actionPrompt)
@@ -67,10 +124,10 @@ class ChatResponseActionParserTest {
 
         val actions = ChatResponseActionParser.extractDynamicActions(response, isLoading = false)
         assertEquals(3, actions.size)
-        assertEquals("Search Web", actions[0].label)
+        assertEquals("Search Web References", actions[0].label)
         assertEquals("Search web for references", actions[0].actionPrompt)
-        assertEquals("Summarize Core", actions[1].label)
-        assertEquals("Deep Dive", actions[2].label)
+        assertEquals("Summarize Core Findings", actions[1].label)
+        assertEquals("Deep Dive Implementation", actions[2].label)
     }
 
     @Test
@@ -78,9 +135,9 @@ class ChatResponseActionParserTest {
         val response = "Would you like me to apply these changes? (Yes or No?)"
         val actions = ChatResponseActionParser.extractDynamicActions(response, isLoading = false)
         assertEquals(2, actions.size)
-        assertEquals("Yes", actions[0].label)
+        assertEquals("Apply Changes", actions[0].label)
         assertEquals(ActionIconType.CONFIRM, actions[0].iconType)
-        assertEquals("No", actions[1].label)
+        assertEquals("No thanks", actions[1].label)
         assertEquals(ActionIconType.CANCEL, actions[1].iconType)
     }
 
@@ -95,10 +152,10 @@ class ChatResponseActionParserTest {
         val actions = ChatResponseActionParser.extractDynamicActions(response, isLoading = false)
         assertEquals(2, actions.size)
         assertEquals("Look up official benchmarks", actions[0].actionPrompt)
-        assertEquals("Look Up", actions[0].label)
+        assertEquals("Look Official Benchmarks", actions[0].label)
         assertEquals(ActionIconType.SEARCH, actions[0].iconType)
         assertEquals("Provide practical examples", actions[1].actionPrompt)
-        assertEquals("Provide Practical", actions[1].label)
+        assertEquals("Practical Examples", actions[1].label)
     }
 
     @Test
@@ -109,7 +166,7 @@ class ChatResponseActionParserTest {
         assertTrue(actions.size in 2..4)
         assertEquals("Search Online", actions[0].label)
         assertEquals(ActionIconType.SEARCH, actions[0].iconType)
-        assertEquals("Summarize This", actions[1].label)
+        assertEquals("Summarize", actions[1].label)
         assertEquals(ActionIconType.SUMMARIZE, actions[1].iconType)
     }
 

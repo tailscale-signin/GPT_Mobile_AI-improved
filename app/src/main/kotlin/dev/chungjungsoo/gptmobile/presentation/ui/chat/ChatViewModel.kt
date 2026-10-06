@@ -1125,6 +1125,7 @@ class ChatViewModel @Inject constructor(
                         chatRepository.saveComposerDraft(_chatRoom.value.id, question.text.toString(), encoded, System.currentTimeMillis() / 1000)
                     }
                 }
+                if (_chatRoom.value.isArchived) chatRepository.setChatArchived(_chatRoom.value.id, true)
                 done()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1226,7 +1227,7 @@ class ChatViewModel @Inject constructor(
             .filter(String::isNotBlank)
             .joinToString("\n\n")
         val safeTitle = chatRoom.value.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
-        return "export_${safeTitle}_${System.currentTimeMillis()}.md" to content
+        return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to content
     }
 
     private fun completeChat(persistSnapshotFirst: Boolean = false) {
@@ -1814,7 +1815,7 @@ class ChatViewModel @Inject constructor(
             }
 
             val sources = activeRow.mapNotNull { (index, message) ->
-                val content = message.effectiveContent().trim()
+                val content = dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.effectiveContent()).trim()
                 if (content.isBlank() || isAssistantErrorMessage(content)) return@mapNotNull null
                 val uid = slotUids.getOrNull(index)
                     ?: message.platformType
@@ -1895,54 +1896,17 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val prompt = buildCombinedSynthesisPrompt(userMessage.content, sources)
-        val synthesisUserMessage = userMessage.copy(
-            id = 0,
-            content = prompt,
-            attachments = emptyList(),
-            createdAt = currentTimeStamp
-        )
-
-        agentRunCoordinator.start(
-            listOf(
-                AgentRunRequest(
-                    runId = synthesisRunId,
-                    chatId = userMessage.chatId,
-                    assistantMessage = persisted.assistantMessage,
-                    platform = leadPlatform,
-                    userMessages = listOf(synthesisUserMessage),
-                    assistantMessages = listOf(emptyList()),
-                    chatToolConfig = _chatToolConfig.value.copy(allToolsDisabled = true)
-                )
-            )
-        )
-    }
-
-    private fun buildCombinedSynthesisPrompt(
-        originalQuestion: String,
-        sources: List<CombinedModelResponse>
-    ): String = buildString {
-        appendLine("You are the lead AI in Combined Mode.")
-        appendLine("Create the single final response to the user's original request by synthesizing the candidate model responses below.")
-        appendLine("Use the strongest accurate details from all candidates, resolve disagreements carefully, remove duplication, and produce one coherent answer.")
-        appendLine("Do not mention the multi-model process unless the user explicitly asks about it.")
-        appendLine()
-        appendLine("Original user request:")
-        appendLine(originalQuestion)
-        appendLine()
-        sources.forEachIndexed { index, source ->
-            append("Candidate ")
-            append(index + 1)
-            append(" — ")
-            append(source.platformName)
-            if (source.modelName.isNotBlank()) {
-                append(" (")
-                append(source.modelName)
-                append(")")
-            }
-            appendLine(":")
-            appendLine(source.content.take(MAX_COMBINED_SOURCE_CHARS))
-            appendLine()
+        // Combined mode is a lossless presentation of the original contributions.
+        // Another model pass can silently omit unique details or impose a context cap.
+        val merged = withContext(Dispatchers.Default) { mergeCombinedResponses(sources) }
+        val completed = persisted.assistantMessage.copy(content = merged, createdAt = currentTimeStamp)
+        chatRepository.updateAgentMessage(completed)
+        chatRepository.finishQueuedAgentRun(synthesisRunId, AgentRunStatus.COMPLETED, currentTimeStamp, null)
+        _groupedMessages.update { current ->
+            updateAssistantSlot(current, turnIndex, leadIndex) { completed }
+        }
+        _agentRunsById.update { current ->
+            current + (synthesisRunId to persisted.run.copy(status = AgentRunStatus.COMPLETED, completedAt = currentTimeStamp))
         }
     }
 
@@ -1973,8 +1937,7 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        val latestTurnIndex = userTurnCount - 1
-        val latestAssistantMessages = grouped.assistantMessages.getOrNull(latestTurnIndex).orEmpty()
+        val latestAssistantMessages = grouped.assistantMessages.firstOrNull().orEmpty()
         if (latestAssistantMessages.isEmpty()) return
 
         val activeRunIds = agentRunCoordinator.activeRuns.value.keys
@@ -2001,52 +1964,34 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val contextStart = (userTurnCount - 3).coerceAtLeast(0)
-        val userContext = grouped.userMessages
-            .drop(contextStart)
-            .joinToString("\n") { it.content.trim() }
-            .takeIf(String::isNotBlank)
-            ?: return
-        val assistantContext = grouped.assistantMessages
-            .drop(contextStart)
-            .flatten()
+        val userContext = grouped.userMessages.firstOrNull()?.content?.trim()?.takeIf(String::isNotBlank) ?: return
+        val assistantContext = latestAssistantMessages
             .map { it.effectiveContent().trim() }
             .filter(String::isNotBlank)
             .joinToString("\n")
             .takeIf(String::isNotBlank)
             ?: return
+        val proposedTitle = latestAssistantMessages.asSequence()
+            .flatMap { message -> sequenceOf(message.effectiveContent()) + message.combinedSources.asSequence().map { it.content } }
+            .mapNotNull(dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject::extract)
+            .firstOrNull()
 
         autoTitleGenerationInFlight = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val activeUids = _activePlatformUids.value.toSet()
-                val platform = _platformsInApp.value.firstOrNull { it.uid in activeUids && it.enabled }
-                    ?: _platformsInApp.value.firstOrNull()
-                    ?: return@launch
-
-                val aiTitle = chatRepository.generateAiTitle(userContext, assistantContext, platform)
-                val titleWords = buildList<String> {
-                    fun addWords(value: String) {
-                        value.replace('\n', ' ')
-                            .trim()
-                            .split(Regex("\\s+"))
-                            .map { it.trim(',', '.', ':', ';', '-', '–', '—', '"', '\'', '(', ')', '[', ']') }
-                            .filter { it.isNotBlank() }
-                            .forEach { candidate ->
-                                if (size < 8 && none { it.equals(candidate, ignoreCase = true) }) add(candidate)
-                            }
-                    }
-                    addWords(aiTitle.orEmpty())
-                    if (size < 4) addWords(userContext)
-                    listOf("Conversation", "Request", "Discussion", "Details").forEach { filler ->
-                        if (size < 4 && none { it.equals(filler, ignoreCase = true) }) add(filler)
-                    }
-                }.take(8)
-                val cleaned = titleWords.joinToString(" ").take(64)
-                if (titleWords.size in 4..8 && !_chatRoom.value.isTitleCustomized) {
+                val aiTitle = proposedTitle ?: run {
+                    val platform = _platformsInApp.value.firstOrNull { it.uid in activeUids && it.enabled }
+                        ?: _platformsInApp.value.firstOrNull()
+                        ?: return@launch
+                    chatRepository.generateAiTitle(userContext, assistantContext, platform)
+                }
+                val cleaned = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(aiTitle.orEmpty())
+                    ?: dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(userContext)
+                if (cleaned != null && !_chatRoom.value.isTitleCustomized) {
                     _chatRoom.update { it.copy(title = cleaned, isTitleCustomized = true) }
                     chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = true)
-                    lastAutoTitleUserTurnCount = userTurnCount
+                    lastAutoTitleUserTurnCount = 1
                 }
             } finally {
                 autoTitleGenerationInFlight = false
@@ -2136,7 +2081,6 @@ class ChatViewModel @Inject constructor(
     }
     companion object {
         internal const val COMBINED_RUN_PREFIX = "combined-synthesis:"
-        private const val MAX_COMBINED_SOURCE_CHARS = 24_000
     }
 }
 

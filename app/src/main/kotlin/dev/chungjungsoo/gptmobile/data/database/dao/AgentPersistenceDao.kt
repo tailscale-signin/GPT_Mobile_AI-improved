@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
+import dev.chungjungsoo.gptmobile.data.chat.decodedArchiveText
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatPlatformModelV2
@@ -21,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.snapshotLatestAssistantRevision
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 @Dao
 interface AgentPersistenceDao {
@@ -49,7 +51,7 @@ interface AgentPersistenceDao {
     suspend fun getChatRoom(chatId: Int): ChatRoomV2?
 
     @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId ORDER BY created_at, message_id")
-    suspend fun getMessages(chatId: Int): List<MessageV2>
+    suspend fun rawGetMessages(chatId: Int): List<MessageV2>
 
     @Query("SELECT * FROM chat_platform_model_v2 WHERE chat_id = :chatId")
     suspend fun getModels(chatId: Int): List<ChatPlatformModelV2>
@@ -57,11 +59,14 @@ interface AgentPersistenceDao {
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND status = 'COMPLETED' ORDER BY created_at, run_id")
     suspend fun getCompletedRuns(chatId: Int): List<AgentRun>
 
+    @Query("SELECT failed.* FROM agent_runs failed WHERE failed.chat_id = :chatId AND failed.user_message_id IN (:userMessageIds) AND failed.status IN ('FAILED', 'CANCELED', 'INTERRUPTED') AND NOT EXISTS (SELECT 1 FROM agent_runs done WHERE done.assistant_message_id = failed.assistant_message_id AND done.status = 'COMPLETED' AND done.created_at > failed.created_at) ORDER BY failed.created_at, failed.run_id")
+    suspend fun getIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun>
+
     @Query("SELECT * FROM tool_events WHERE run_id IN (:runIds) ORDER BY run_id, sequence")
-    suspend fun getToolEvents(runIds: List<String>): List<ToolEvent>
+    suspend fun rawGetToolEvents(runIds: List<String>): List<ToolEvent>
 
     @Query("SELECT * FROM tool_events WHERE run_id = :runId ORDER BY sequence")
-    suspend fun getToolEventsForRun(runId: String): List<ToolEvent>
+    suspend fun rawGetToolEventsForRun(runId: String): List<ToolEvent>
 
     @Query(
         """
@@ -72,13 +77,13 @@ interface AgentPersistenceDao {
         ORDER BY agent_runs.created_at, agent_runs.run_id, tool_events.sequence
         """
     )
-    fun observeToolEventsForChat(chatId: Int): Flow<List<ToolEvent>>
+    fun rawObserveToolEventsForChat(chatId: Int): Flow<List<ToolEvent>>
 
     @Query("SELECT * FROM tool_events WHERE event_id = :eventId")
-    suspend fun getToolEventById(eventId: String): ToolEvent?
+    suspend fun rawGetToolEventById(eventId: String): ToolEvent?
 
     @Query("SELECT * FROM tool_events ORDER BY COALESCE(completed_at, started_at, 0) DESC, sequence DESC LIMIT :limit")
-    fun observeRecentToolEvents(limit: Int = 100): Flow<List<ToolEvent>>
+    fun rawObserveRecentToolEvents(limit: Int = 100): Flow<List<ToolEvent>>
 
     @Query(
         """
@@ -124,7 +129,7 @@ interface AgentPersistenceDao {
     suspend fun recoveryRun(runId: String): AgentRun?
 
     @Query("SELECT * FROM messages_v2 WHERE message_id = :messageId")
-    suspend fun recoveryMessage(messageId: Int): MessageV2?
+    suspend fun rawRecoveryMessage(messageId: Int): MessageV2?
 
     /** A canceled job or superseded assistant revision must never be resurrected. */
     @Transaction
@@ -152,7 +157,7 @@ interface AgentPersistenceDao {
     suspend fun activeRunCount(chatId: Int): Int
 
     @Query("SELECT * FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NOT NULL AND linked_message_id = (SELECT message_id FROM messages_v2 WHERE chat_id = :chatId AND platform_type IS NULL ORDER BY created_at DESC, message_id DESC LIMIT 1)")
-    suspend fun latestAssistantMessages(chatId: Int): List<MessageV2>
+    suspend fun rawLatestAssistantMessages(chatId: Int): List<MessageV2>
 
     /** Keep the handoff from primary replies to synthesis ahead of queued input. */
     @Transaction
@@ -306,6 +311,7 @@ interface AgentPersistenceDao {
     ) {
         updateMessage(assistantMessage)
         updateRunStatus(runId, status, startedAt, completedAt, terminalError)
+        if (getChatRoom(assistantMessage.chatId)?.isArchived == true) setArchivedWithCompression(assistantMessage.chatId, true)
     }
 
     @Query(
@@ -410,6 +416,66 @@ interface AgentPersistenceDao {
         return duplicate
     }
 
+    @Query("SELECT run_id FROM agent_runs WHERE chat_id=:chatId")
+    suspend fun archiveRunIds(chatId: Int): List<String>
+
+    @Query("UPDATE messages_v2 SET content=:content, thoughts=:thoughts, revisions=:revisions, timeline=:timeline, combined_sources=:sources WHERE message_id=:id")
+    suspend fun updateArchiveMessage(id: Int, content: String, thoughts: String, revisions: String, timeline: String, sources: String)
+
+    @Query("UPDATE tool_events SET arguments=:arguments, result=:result, error=:error WHERE event_id=:id")
+    suspend fun updateArchiveTool(id: String, arguments: String, result: String?, error: String?)
+
+    @Query("UPDATE chats_v2 SET is_archived=:archived WHERE chat_id=:chatId")
+    suspend fun updateArchiveFlag(chatId: Int, archived: Boolean)
+
+    @Query("DELETE FROM messages_search WHERE docid IN (SELECT message_id FROM messages_v2 WHERE chat_id=:chatId)")
+    suspend fun removeArchiveSearchIndex(chatId: Int)
+
+    @Transaction
+    suspend fun compactArchivedConversation(chatId: Int) {
+        if (getChatRoom(chatId)?.isArchived == true) setArchivedWithCompression(chatId, true)
+    }
+
+    @Transaction
+    suspend fun setArchivedWithCompression(chatId: Int, archived: Boolean) {
+        fun stored(value: String): String = if (archived) dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec.encode(value) else value
+        getMessages(chatId).forEach { message ->
+            updateArchiveMessage(
+                message.id,
+                stored(message.content),
+                stored(message.thoughts),
+                stored(dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevisionListConverter().fromList(message.revisions)),
+                stored(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineListConverter().fromList(message.timeline)),
+                stored(dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponseListConverter().fromList(message.combinedSources))
+            )
+        }
+        val runs = archiveRunIds(chatId)
+        if (runs.isNotEmpty()) {
+            getToolEvents(runs).forEach { event ->
+                updateArchiveTool(event.eventId, stored(event.arguments), event.result?.let(::stored), event.error?.let(::stored))
+            }
+        }
+        updateArchiveFlag(chatId, archived)
+        // Archived text is searched lazily after decompression; compressed text needs no FTS index.
+        if (archived) removeArchiveSearchIndex(chatId)
+    }
+
     @Update
     suspend fun updateMessage(message: MessageV2)
+
+    suspend fun getMessages(chatId: Int): List<MessageV2> = rawGetMessages(chatId).map { it.decodedArchiveText() }
+
+    suspend fun getToolEvents(runIds: List<String>): List<ToolEvent> = rawGetToolEvents(runIds).map { it.decodedArchiveText() }
+
+    suspend fun getToolEventsForRun(runId: String): List<ToolEvent> = rawGetToolEventsForRun(runId).map { it.decodedArchiveText() }
+
+    fun observeToolEventsForChat(chatId: Int): Flow<List<ToolEvent>> = rawObserveToolEventsForChat(chatId).map { messages -> messages.map { it.decodedArchiveText() } }
+
+    suspend fun getToolEventById(eventId: String): ToolEvent? = rawGetToolEventById(eventId)?.decodedArchiveText()
+
+    fun observeRecentToolEvents(limit: Int = 100): Flow<List<ToolEvent>> = rawObserveRecentToolEvents(limit).map { messages -> messages.map { it.decodedArchiveText() } }
+
+    suspend fun recoveryMessage(messageId: Int): MessageV2? = rawRecoveryMessage(messageId)?.decodedArchiveText()
+
+    suspend fun latestAssistantMessages(chatId: Int): List<MessageV2> = rawLatestAssistantMessages(chatId).map { it.decodedArchiveText() }
 }

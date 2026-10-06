@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -18,6 +17,7 @@ import androidx.compose.ui.res.stringResource
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.permissions.ToolPolicy
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 
 @Composable
 internal fun ToolPolicyDialog(connection: ToolConnection, onDismiss: () -> Unit, onResetGrants: () -> Unit = {}, onSave: (String, String) -> Unit) {

@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -20,7 +21,7 @@ fun ThemedAppIcon(modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     Box(modifier.background(colors.primary, CircleShape).semantics { contentDescription = "GPT Mobile" }) {
         Image(painterResource(R.drawable.ic_app_emblem_bubble), null, Modifier.fillMaxSize(), colorFilter = ColorFilter.tint(colors.onPrimary))
-        Image(painterResource(R.drawable.ic_app_emblem_face), null, Modifier.fillMaxSize(), colorFilter = ColorFilter.tint(colors.primary))
+        Image(painterResource(R.drawable.ic_app_emblem_face), null, Modifier.fillMaxSize(), colorFilter = ColorFilter.tint(Color.White))
         Image(painterResource(R.drawable.ic_app_emblem_details), null, Modifier.fillMaxSize(), colorFilter = ColorFilter.tint(colors.onSurface))
     }
 }

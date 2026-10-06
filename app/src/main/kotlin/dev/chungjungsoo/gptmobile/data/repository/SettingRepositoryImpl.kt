@@ -166,11 +166,14 @@ class SettingRepositoryImpl @Inject constructor(
     override fun observeLocalRuntimeBackend(): Flow<LocalRuntimeBackend> =
         settingDataSource.observeLocalRuntimeBackend()
 
-    override suspend fun getDebugMode(): Boolean = settingDataSource.getDebugMode()
+    override suspend fun getDebugMode(): Boolean = settingDataSource.getDebugMode().also(dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy::setEnabled)
 
-    override suspend fun updateDebugMode(enabled: Boolean) = settingDataSource.updateDebugMode(enabled)
+    override suspend fun updateDebugMode(enabled: Boolean) {
+        settingDataSource.updateDebugMode(enabled)
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(enabled)
+    }
 
-    override fun observeDebugMode(): Flow<Boolean> = settingDataSource.observeDebugMode()
+    override fun observeDebugMode(): Flow<Boolean> = settingDataSource.observeDebugMode().map { it.also(dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy::setEnabled) }
 
     override suspend fun getFeatureSettings(): AppFeatureSettings = settingDataSource.getFeatureSettings().also { dev.chungjungsoo.gptmobile.data.network.NetworkClient.diagnosticsEnabled = it.diagnosticsCollection }
 

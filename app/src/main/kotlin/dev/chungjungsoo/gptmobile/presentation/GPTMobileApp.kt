@@ -105,7 +105,7 @@ class GPTMobileApp :
                 conversationDeletion.delete(temporary)
             }
             toolApprovals.recover()
-            invocationLedger.dao.recover()
+            invocationLedger.recover()
             startup.pendingLocalPlatformActivator().start()
             secretMigrationErrors = runStartupMaintenance(
                 interruptPersistedWork = {

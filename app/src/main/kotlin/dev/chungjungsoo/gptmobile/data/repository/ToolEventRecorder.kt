@@ -55,7 +55,7 @@ class ToolEventRecorder @Inject constructor(
             connectionNameSnapshot = connectionName,
             toolName = toolName,
             modelToolName = modelToolName,
-            arguments = arguments.toString().boundUtf8(),
+            arguments = arguments.toString(),
             result = null,
             resultType = null,
             status = ToolEventStatus.RUNNING,
@@ -86,17 +86,24 @@ class ToolEventRecorder @Inject constructor(
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Tool",
-            "Finished ${normalizedResult.callId} · error=${normalizedResult.isError}",
+            "Finished ${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError}" +
+                if (normalizedResult.isError) " · reason=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(error.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError) "E" else "I"
         )
-        val content = (normalizedResult.traceContent ?: normalizedResult.content).serialized().forStorage()
-        val isCompletedEmpty = !normalizedResult.isError && normalizedResult.traceContent == null && content.value.isBlank()
-        val resultType = if (isCompletedEmpty) ToolEventResultType.EMPTY else content.type
+        val content = (normalizedResult.retainedContent ?: normalizedResult.content).serialized()
+        val display = (normalizedResult.traceContent ?: normalizedResult.content).serialized()
+        val checkpoint = content.value != display.value
+        val stored = if (checkpoint) dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.encode(content.value, content.type, display.value) else content.value
+        val resultType = when {
+            checkpoint -> ToolEventResultType.CHECKPOINT
+            !normalizedResult.isError && content.value.isBlank() -> ToolEventResultType.EMPTY
+            else -> content.type
+        }
 
         val affectedRows = dao.finishToolEvent(
             eventId = eventId,
             callId = normalizedResult.callId,
-            result = content.value,
+            result = stored,
             resultType = resultType,
             status = if (normalizedResult.isError) ToolEventStatus.FAILED else ToolEventStatus.COMPLETED,
             isError = normalizedResult.isError,
@@ -158,33 +165,5 @@ class ToolEventRecorder @Inject constructor(
         }
     }.toString()
 
-    private fun SerializedResult.forStorage(): SerializedResult {
-        val bounded = value.boundUtf8()
-        return SerializedResult(
-            value = bounded,
-            type = if (type != ToolEventResultType.TEXT && bounded != value) ToolEventResultType.TEXT else type
-        )
-    }
-
-    private fun String.boundUtf8(maxBytes: Int = MAX_STORED_BYTES): String {
-        var bytes = 0
-        val bounded = StringBuilder()
-        var index = 0
-        while (index < length) {
-            val codePoint = codePointAt(index)
-            val chars = Character.toChars(codePoint)
-            val size = String(chars).toByteArray(Charsets.UTF_8).size
-            if (bytes + size > maxBytes) break
-            bounded.append(chars)
-            bytes += size
-            index += chars.size
-        }
-        return bounded.toString()
-    }
-
     private data class SerializedResult(val value: String, val type: String)
-
-    private companion object {
-        const val MAX_STORED_BYTES = 64 * 1024
-    }
 }

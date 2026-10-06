@@ -6,6 +6,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -18,10 +19,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Router
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -38,6 +43,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chungjungsoo.gptmobile.data.agent.displayResult
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
@@ -76,20 +82,19 @@ fun InlineExecutionTrace(
                     recalled.forEach { fact ->
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer
+                            color = MaterialTheme.colorScheme.primaryContainer
                         ) {
-                            Text(
-                                "🧠 Recalled: ${fact.label}",
-                                Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
+                            Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Rounded.Psychology, "Recalled memory", tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(16.dp))
+                                Text(fact.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
                         }
                     }
                 }
             }
         }
         events.sortedBy { it.sequence }.forEach { event ->
+            val displayResult = remember(event.result, event.resultType) { event.displayResult() }
             val toolItem = timeline.firstOrNull { it.toolSequence == event.sequence }
             val metrics = toolItem?.toolMetrics
             val delegatedTool = debugMode && debugSettings.debugShowDelegationTrace && toolItem?.delegatedTool == true
@@ -109,11 +114,11 @@ fun InlineExecutionTrace(
             val isDelegation =
                 event.toolName.contains("delegate_to_model", true) ||
                     event.modelToolName.contains("delegate_to_model", true)
-            val isRemoteDelegation = isDelegation && (remoteDelegation || event.result.orEmpty().startsWith("<!-- delegation:remote -->"))
+            val isRemoteDelegation = isDelegation && (remoteDelegation || displayResult.orEmpty().startsWith("<!-- delegation:remote -->"))
             val isReviewerResult = isDelegation &&
                 (
-                    event.result.orEmpty().contains("[Reviewer Score:", ignoreCase = true) ||
-                        event.result.orEmpty().contains("Reviewer findings:", ignoreCase = true)
+                    displayResult.orEmpty().contains("[Reviewer Score:", ignoreCase = true) ||
+                        displayResult.orEmpty().contains("Reviewer findings:", ignoreCase = true)
                     )
             var dots by androidx.compose.runtime.remember(event.eventId) { mutableStateOf(1) }
             LaunchedEffect(running) {
@@ -122,14 +127,16 @@ fun InlineExecutionTrace(
                     dots = dots % 3 + 1
                 }
             }
-            val memoryIds = rememberedMemoryIdsFromToolResult(event.result)
+            val memoryIds = rememberedMemoryIdsFromToolResult(displayResult)
             val isMemoryRecall = isMemoryRecallTool(event.toolName) || isMemoryRecallTool(event.modelToolName) || memoryIds.isNotEmpty()
             val summary = if (debugMode) {
                 buildString {
-                    append(if (isMemoryRecall) "Memory recall · $status" else "${event.toolName} · $status")
-                    metrics?.durationMs?.let { append(" · ${it}ms") }
-                    metrics?.resultBytes?.let { append(" · $it bytes") }
-                    if (metrics?.shared == true) append(" · Shared")
+                    append(if (isMemoryRecall) "Memory" else "${event.toolName} · $status")
+                    if (!isMemoryRecall) {
+                        metrics?.durationMs?.let { append(" · ${it}ms") }
+                        metrics?.resultBytes?.let { append(" · $it bytes") }
+                        if (metrics?.shared == true) append(" · Shared")
+                    }
                 }
             } else {
                 friendlyToolActivity(event.toolName)
@@ -157,6 +164,17 @@ fun InlineExecutionTrace(
                             modifier = Modifier.size(20.dp)
                         )
                         Text(summary, modifier = Modifier.weight(1f), color = if (debugMode && isReviewerResult) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (debugMode && isMemoryRecall) {
+                            metrics?.durationMs?.let { duration ->
+                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)) {
+                                    Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Icon(Icons.Rounded.Schedule, "Execution time", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                                        Text("${duration}ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                            if (metrics?.shared == true) Icon(Icons.Rounded.Link, "Reused result", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        }
                         if (running) {
                             Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                 (1..3).forEach { index -> Text("•", color = MaterialTheme.colorScheme.primary.copy(alpha = if (index <= dots) 1f else 0.15f)) }
@@ -189,15 +207,15 @@ fun InlineExecutionTrace(
                         exit = shrinkVertically(defaultSpatialSpec()) + fadeOut(fastEffectsSpec())
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
-                            Text(event.connectionNameSnapshot ?: "Integrated tool", style = MaterialTheme.typography.labelLarge)
+                            if (!isMemoryRecall) Text(event.connectionNameSnapshot ?: "Integrated tool", style = MaterialTheme.typography.labelLarge)
                             val isFollowUp = event.toolName == "follow_up_context"
                             if (debugMode && isFollowUp) {
                                 Text("Follow-up prompt", style = MaterialTheme.typography.labelMedium)
                                 Text(event.arguments, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
-                                event.result?.let { Text(it, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall) }
+                                displayResult?.let { Text(it, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall) }
                             }
-                            if (debugMode) Text("Call ${event.callId} · Run ${event.runId} · #${event.sequence}", style = MaterialTheme.typography.bodySmall)
-                            metrics?.let {
+                            if (debugMode && !isMemoryRecall) Text("Call ${event.callId} · Run ${event.runId} · #${event.sequence}", style = MaterialTheme.typography.bodySmall)
+                            metrics?.takeUnless { isMemoryRecall }?.let {
                                 if (debugMode) Text("Arguments: ${it.argumentsCharacters} characters · ${it.argumentsBytes} UTF-8 bytes", style = MaterialTheme.typography.bodySmall)
                                 it.estimatedResultTokens?.let { tokens ->
                                     Text("Result: approximately $tokens tokens (character estimate, not billed usage).", style = MaterialTheme.typography.bodySmall)
@@ -211,9 +229,9 @@ fun InlineExecutionTrace(
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
-                            val mediaLinks = Regex("gptmobile://media/[a-f0-9-]{36}\\.(?:png|jpg|webp|mp3|wav|ogg)").findAll(event.result.orEmpty()).map { it.value }.distinct().take(8).toList()
+                            val mediaLinks = Regex("gptmobile://media/[a-f0-9-]{36}\\.(?:png|jpg|webp|mp3|wav|ogg)").findAll(displayResult.orEmpty()).map { it.value }.distinct().take(8).toList()
                             mediaLinks.forEach { link -> ChatMarkdown("[Open media result]($link)") }
-                            val debugResult = event.result
+                            val debugResult = displayResult
                                 .orEmpty()
                                 .removePrefix("<!-- delegation:remote -->")
                                 .removePrefix("<!-- delegation:local -->")
@@ -281,7 +299,8 @@ internal fun DebugMemorySourcesBubble(
     Surface(
         onClick = { expanded = !expanded },
         shape = RoundedCornerShape(18.dp),
-        color = DebugMemoryPink.copy(alpha = 0.13f),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.06f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize(defaultSpatialSpec())
@@ -289,19 +308,22 @@ internal fun DebugMemorySourcesBubble(
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("🧠", style = MaterialTheme.typography.bodyMedium)
+                Icon(Icons.Rounded.Psychology, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                 Text(
-                    "Memory recall · ${rows.size} ${if (rows.size == 1) "source" else "sources"}",
+                    "Memory sources",
                     modifier = Modifier.weight(1f),
-                    color = DebugMemoryPink,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+                    Text(rows.size.toString(), Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                }
                 Icon(
-                    if (expanded) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                    if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     null,
-                    tint = DebugMemoryPink,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -311,17 +333,11 @@ internal fun DebugMemorySourcesBubble(
                 exit = shrinkVertically(defaultSpatialSpec()) + fadeOut(fastEffectsSpec())
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "Memory sources",
-                        color = DebugMemoryPink,
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                    rows.forEachIndexed { index, row ->
-                        Text(
-                            "${index + 1}. $row",
-                            color = DebugMemoryPink,
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    rows.forEach { row ->
+                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Rounded.Description, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                            Text(row, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }

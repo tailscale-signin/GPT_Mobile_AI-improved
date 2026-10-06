@@ -97,7 +97,11 @@ fun LocalModelsScreen(
     val backend by runtimeViewModel.backend.collectAsStateWithLifecycle()
     val selectedArchitecture = architecture.ifBlank { if (backend == dev.chungjungsoo.gptmobile.data.model.LocalRuntimeBackend.QUALCOMM_QNN && qnnAvailable) "QNN" else "LiteRT" }
     androidx.compose.runtime.LaunchedEffect(selectedArchitecture) { viewModel.setNpuOnly(selectedArchitecture == "QNN") }
-    BackHandler(marketplace) { marketplace = false }
+    val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
+    val backFromModels: () -> Unit = {
+        if (marketplace) backFade.fade { marketplace = false } else onNavigationClick()
+    }
+    BackHandler(marketplace, onBack = backFromModels)
 
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -108,11 +112,11 @@ fun LocalModelsScreen(
     }
 
     Scaffold(
-        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = modifier.then(backFade.modifier).nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LocalModelsTopBar(
                 scrollBehavior = scrollBehavior,
-                onNavigationClick = { if (marketplace) marketplace = false else onNavigationClick() },
+                onNavigationClick = backFromModels,
                 marketplace = marketplace,
                 onMarketplace = { marketplace = true }
             )

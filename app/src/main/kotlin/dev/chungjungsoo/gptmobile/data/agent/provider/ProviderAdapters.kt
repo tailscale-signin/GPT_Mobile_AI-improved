@@ -148,6 +148,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                                 is ResponseInProgressEvent -> previousResponseId = event.response.id
                                 is ResponseCompletedEvent -> previousResponseId = event.response.id
                                 is ResponseFailedEvent -> previousResponseId = event.response.id
+                                is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseIncompleteEvent -> previousResponseId = event.response.id
                                 else -> Unit
                             }
                             assembler.accept(event).forEach { mapped ->
@@ -229,8 +230,6 @@ class OpenAICompatibleAdapter @Inject constructor(
         val isLlama = platform.compatibleType == ClientType.LLAMA
         val openRouterHeaders = if (isOpenRouter) {
             buildMap {
-                put("HTTP-Referer", "https://github.com/tailscale-signin/GPT_Mobile_AI-improved")
-                put("X-Title", "GPT Mobile AI Improved")
                 if (openRouterProviderSettings?.responseCachingEnabled == true) {
                     put("X-OpenRouter-Cache", "true")
                     put("X-OpenRouter-Cache-TTL", openRouterProviderSettings.cacheTtlSeconds.coerceIn(1, 86_400).toString())
@@ -600,7 +599,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     )
                                     continue
                                 }
-                                emit(ProviderEvent.Completed)
+                                if (lastFinishReason == "length") {
+                                    emit(ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request."))
+                                } else {
+                                    emit(ProviderEvent.Completed)
+                                }
                                 return@flow
                             } else {
                                 // The bounded recovery deadline elapsed. Preserve any
@@ -655,6 +658,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     lastFailedMessage = error.message
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
+                                    if (choice.finishReason == "length") {
+                                        roundFailed = true
+                                        lastFailedMessage = "The response reached its output limit. Saved output and tool results will be used to continue on the next request."
+                                    }
                                     val effectiveReasoning =
                                         if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null
                                     if (llamaReasoningParser != null) {

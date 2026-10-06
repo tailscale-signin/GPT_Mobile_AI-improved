@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
@@ -64,6 +66,9 @@ interface InvocationDao {
     @Query("UPDATE model_invocations SET status = 'INTERRUPTED' WHERE status = 'RUNNING'")
     suspend fun recover()
 
+    @Query("DELETE FROM model_invocations")
+    suspend fun clear()
+
     @Query("SELECT COALESCE(SUM(costMicros), 0) FROM model_invocations WHERE turnKey = :turnKey AND currency = :currency")
     suspend fun turnCost(turnKey: String, currency: String): Long
 
@@ -89,8 +94,18 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
     val active = liveRequests.asStateFlow()
 
     // Live observations never replace the database reservations used by the token allowance.
-    val diagnostics = combine(recent, active) { saved, live ->
-        (live.values + saved.filterNot { it.id in live || it.status == "RUNNING" }).distinctBy { it.id }.sortedByDescending { it.startedAt }.take(100)
+    val diagnostics = combine(recent, active, LocalDiagnosticsPolicy.state) { saved, live, enabled ->
+        if (enabled) (live.values + saved.filterNot { it.id in live || it.status == "RUNNING" }).distinctBy { it.id }.sortedByDescending { it.startedAt }.take(100) else emptyList()
+    }
+
+    suspend fun recover() {
+        val features = settings?.getFeatureSettings()
+        if (features?.spendBudget?.enforced == true || features?.tokenBudget?.normalized()?.totalRunTokens?.let { it != Int.MAX_VALUE } == true) {
+            dao.recover()
+        } else {
+            // Old diagnostic histories serve no purpose when no budget needs reservations.
+            dao.clear()
+        }
     }
     fun wrap(
         session: AgentProviderSession,
@@ -106,11 +121,16 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
     ): AgentProviderSession = object : AgentProviderSession {
         override val handlesToolsInternally = session.handlesToolsInternally
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+            val spend = settings?.getFeatureSettings()?.spendBudget ?: SpendBudgetSettings()
+            val retainAccounting = totalLimit != Int.MAX_VALUE || spend.enforced
+            if (!retainAccounting && !LocalDiagnosticsPolicy.enabled) {
+                emitAll(session.streamRound(tools, exchanges))
+                return@flow
+            }
             val replay = exchanges.sumOf { exchange ->
                 exchange.calls.sumOf { ContextBudgetService.estimate(it.arguments.toString()) } +
                     exchange.results.sumOf { ContextBudgetService.estimate(it.content.toString()) }
             }
-            val spend = settings?.getFeatureSettings()?.spendBudget ?: SpendBudgetSettings()
             spend.validate()
             val configured = spend.prices[profileUid]?.takeIf { it.model == model && System.currentTimeMillis() - it.checkedAt in 0..30L * 86400000 }
             val price = if (provider == "LITERT_LM") ModelPrice(model, 0, 0, "On-device inference", System.currentTimeMillis()) else configured
@@ -129,7 +149,7 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                 costMicros = reservedCost, currency = spend.currency, priceSource = price?.let { "${it.source} · ${it.checkedAt}" }
             )
             try {
-                dao.reserve(record, totalLimit, spend)
+                if (retainAccounting) dao.reserve(record, totalLimit, spend)
             } catch (error: SpendAllowanceReached) {
                 emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
                 emit(ProviderEvent.Completed)
@@ -196,17 +216,19 @@ class InvocationLedger @Inject constructor(database: ChatDatabaseV2, private val
                     val recordedOutput = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${output == null}", if (status == "COMPLETED") "I" else "W")
                     try {
-                        dao.save(
-                            record.copy(
-                                inputTokens = input ?: record.inputTokens,
-                                outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                                estimated = input == null || output == null,
-                                status = status,
-                                costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
-                                durationMs = (System.nanoTime() - started) / 1_000_000,
-                                firstTokenMs = first
+                        if (retainAccounting) {
+                            dao.save(
+                                record.copy(
+                                    inputTokens = input ?: record.inputTokens,
+                                    outputTokens = output ?: ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                                    estimated = input == null || output == null,
+                                    status = status,
+                                    costMicros = if (status == "COMPLETED" && input != null && output != null) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
+                                    durationMs = (System.nanoTime() - started) / 1_000_000,
+                                    firstTokenMs = first
+                                )
                             )
-                        )
+                        }
                     } finally {
                         liveRequests.update { it - record.id }
                     }

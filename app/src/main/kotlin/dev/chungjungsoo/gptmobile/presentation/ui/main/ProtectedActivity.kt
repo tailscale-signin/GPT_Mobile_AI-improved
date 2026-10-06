@@ -3,17 +3,31 @@ package dev.chungjungsoo.gptmobile.presentation.ui.main
 import android.app.KeyguardManager
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
+import android.os.Build
+import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.SystemClock
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.security.AndroidAppLock
 
 /** UI privacy only: background generation follows the separate background-work setting. */
 open class ProtectedActivity : ComponentActivity() {
     private var unlocking = false
     private var cancellation: CancellationSignal? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 34) overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, R.anim.back_fade_in, R.anim.back_fade_out)
+    }
+
+    @Suppress("DEPRECATION")
+    override fun finish() {
+        super.finish()
+        if (Build.VERSION.SDK_INT < 34) overridePendingTransition(R.anim.back_fade_in, R.anim.back_fade_out)
+    }
 
     override fun onResume() {
         super.onResume()

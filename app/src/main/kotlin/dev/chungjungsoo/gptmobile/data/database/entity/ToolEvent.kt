@@ -81,6 +81,7 @@ object ToolEventStatus {
 }
 
 object ToolEventResultType {
+    const val CHECKPOINT = "CHECKPOINT_V1"
     const val TEXT = "TEXT"
     const val JSON = "JSON"
     const val RESOURCE_LINKS = "RESOURCE_LINKS"

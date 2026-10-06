@@ -129,6 +129,9 @@ data class GatewayProgress(
     @SerialName("tool_args")
     val toolArgs: JsonObject? = null,
 
+    @SerialName("tool_result")
+    val toolResult: String? = null,
+
     @SerialName("result_quality")
     val resultQuality: String? = null,
 

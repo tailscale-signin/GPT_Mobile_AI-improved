@@ -2,7 +2,6 @@ package dev.chungjungsoo.gptmobile.data.repository
 
 import android.content.Context
 import android.os.BatteryManager
-import com.example.gptmobileai.debug.ToolMetricsCollector
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
@@ -39,6 +38,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.primaryDelegationTools
 import dev.chungjungsoo.gptmobile.data.agent.tool.selectionId
 import dev.chungjungsoo.gptmobile.data.agent.tool.synthesisSafeTools
 import dev.chungjungsoo.gptmobile.data.agent.withDeviceLocation
+import dev.chungjungsoo.gptmobile.data.agent.withProgressWatchdog
 import dev.chungjungsoo.gptmobile.data.agent.withRunContext
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
@@ -192,7 +192,6 @@ class ChatRepositoryImpl(
     private val deviceSocModel: String,
     private val titleSummarizer: ConversationTitleSummarizer? = null,
     private val factVault: FactVaultRepository? = null,
-    private val toolMetricsCollector: ToolMetricsCollector? = null,
     private val knowledge: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository? = null,
     private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null,
     private val invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
@@ -1105,14 +1104,28 @@ class ChatRepositoryImpl(
                 }
             }
             val exclusions = workspace?.exclusions(userMessages.lastOrNull()?.chatId ?: 0) ?: dev.chungjungsoo.gptmobile.data.workspace.ContextExclusions()
-            val contextTurns = withContext(Dispatchers.Default) {
+            val recovery = if (runId.startsWith("combined-synthesis:")) {
+                null
+            } else {
+                userMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
+                    val userIds = userMessages.takeLast(2).map { it.id }.filter { it > 0 }
+                    val runs = agentPersistenceDao.getIncompleteRuns(latest.chatId, userIds).filter { it.runId != runId }
+                    if (runs.isEmpty()) {
+                        null
+                    } else {
+                        dev.chungjungsoo.gptmobile.data.agent.ResponseRecoveryContext(
+                            runs,
+                            agentPersistenceDao.getMessages(latest.chatId),
+                            agentPersistenceDao.getToolEvents(runs.map { it.runId })
+                        )
+                    }
+                }
+            }
+            var contextTurns = withContext(Dispatchers.Default) {
                 buildContextTurns(userMessages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) }, assistantMessages.map { row -> row.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in exclusions.attachments }) } }, platform).also { turns ->
                     validateInlineBudgetIfNeeded(turns, platform)
                 }
             }
-            val diagnosticsEnabled = runCatching {
-                settingRepository.getFeatureSettings().diagnosticsCollection
-            }.getOrDefault(false)
             // Use the profile/chat Max tools allowance as the source of truth for both
             // tool-call capacity and model/tool work rounds. This keeps the profile option
             // intuitive: raising Max tools also allows the agent enough rounds to use them.
@@ -1173,60 +1186,58 @@ class ChatRepositoryImpl(
             }
             val memoryBoundary = userMessages.lastOrNull()?.let { factVault?.scopeForChat(it.chatId) }
             val privateConversation = memoryBoundary?.isTemporary == true
-            val resolvedTools = if (platform.disableAllTools || !supportsTools) {
-                emptyList()
-            } else {
-                val sharingEnabled = runCatching {
-                    settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
-                }.getOrDefault(true)
-                val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
-                agentToolResolver.resolve(platform.uid, chatToolConfig, userMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
-                    privateConversation &&
-                        (
-                            resolved.connectionUid in factVault?.state?.value?.settings?.externalMemoryConnections.orEmpty() ||
-                                resolved.realToolName in setOf("memory", "create_entities", "create_relations", "add_observations", "search_nodes", "read_graph", "open_nodes") ||
-                                Regex("(?i)memory|memories|remember").containsMatchIn(resolved.realToolName + " " + resolved.tool.definition.description)
+            val resolvedTools = (
+                if (platform.disableAllTools || !supportsTools) {
+                    emptyList()
+                } else {
+                    val sharingEnabled = runCatching {
+                        settingRepository.getFeatureSettings().sharedReadOnlyToolCalls
+                    }.getOrDefault(true)
+                    val shareScope = buildSharedToolScope(contextTurns).takeIf { sharingEnabled }
+                    agentToolResolver.resolve(platform.uid, chatToolConfig, userMessages.lastOrNull(), { target, task, cap -> localDelegation.delegate(target, task, cap, delegatedTools, "$runId:delegate") }, onConnectionError = { unavailableConnections += it }).filterNot { resolved ->
+                        privateConversation &&
+                            (
+                                resolved.connectionUid in factVault?.state?.value?.settings?.externalMemoryConnections.orEmpty() ||
+                                    resolved.realToolName in setOf("memory", "create_entities", "create_relations", "add_observations", "search_nodes", "read_graph", "open_nodes") ||
+                                    Regex("(?i)memory|memories|remember").containsMatchIn(resolved.realToolName + " " + resolved.tool.definition.description)
+                                )
+                    }.map { resolved ->
+                        resolved.copy(
+                            tool = MeasuredAgentTool(
+                                sharedToolCallBroker.wrap(
+                                    scopeId = shareScope,
+                                    toolIdentity = buildSharedToolIdentity(resolved),
+                                    shareableReadOnly = sharingEnabled && resolved.shareableReadOnly,
+                                    tool = recovery?.reuseCompletedTool(resolved.tool, resolved.realToolName, resolved.connectionUid) ?: resolved.tool
+                                )
                             )
-                }.map { resolved ->
-                    resolved.copy(
-                        tool = MeasuredAgentTool(
-                            sharedToolCallBroker.wrap(
-                                scopeId = shareScope,
-                                toolIdentity = buildSharedToolIdentity(resolved),
-                                shareableReadOnly = sharingEnabled && resolved.shareableReadOnly,
-                                tool = resolved.tool
-                            ),
-                            onMeasured = { result ->
-                                val metrics = result.measurement
-                                if (diagnosticsEnabled && metrics != null && !result.sharedResult) {
-                                    toolMetricsCollector?.onToolExecuted(
-                                        toolId = resolved.modelToolName,
-                                        tokensUsed = metrics.estimatedResultTokens ?: 0,
-                                        executionTimeMs = metrics.durationMs ?: 0,
-                                        success = !result.isError,
-                                        errorType = if (result.isError) "tool_error" else null
-                                    )
-                                }
-                            }
                         )
-                    )
+                    }
                 }
-            }
+                ) + listOfNotNull(
+                recovery?.takeIf { it.content.isNotBlank() && supportsTools }?.tool()?.let {
+                    ResolvedAgentTool(it, null, "Saved response", it.definition.name, it.definition.name, shareableReadOnly = true)
+                }
+            )
             unavailableConnections.forEach { emit(ApiState.Notice(it, persistent = true)) }
             val latestUser = userMessages.lastOrNull()
             val synthesisRun = runId.startsWith("combined-synthesis:")
+            val routingTask = dev.chungjungsoo.gptmobile.data.agent.tool.repositoryRoutingTask(
+                latestUser?.content.orEmpty(),
+                userMessages.dropLast(1).map { it.content }
+            )
             val taskRoutedTools = synthesisSafeTools(
                 preferNativeGitHubForTask(
                     resolvedTools,
-                    latestUser?.content.orEmpty()
+                    routingTask
                 ),
                 runId
             )
             if (taskRoutedTools.size != resolvedTools.size) {
                 AppLogRecorder.record(
                     "GitHub",
-                    "Native GitHub task routing suppressed ${resolvedTools.size - taskRoutedTools.size} shell/terminal fallback tools · task=${latestUser?.content?.take(120).orEmpty()}",
-                    "W"
+                    "Task routing · omitted=${resolvedTools.size - taskRoutedTools.size} · repositoryTask=${isGitHubTask(routingTask)}",
+                    "I"
                 )
             }
             val recalled = try {
@@ -1284,8 +1295,29 @@ class ChatRepositoryImpl(
                     .let { primaryDelegationTools(it, localResearch, processingOwnership) }
                     .sortedBy { it.realToolName != "delegate_to_model" }
             }
+            if (recovery != null && recovery.content.isNotBlank()) {
+                val inlineCharacters = if (limits.contextTokens == Int.MAX_VALUE) {
+                    24000
+                } else {
+                    (limits.contextTokens / 8).coerceAtLeast(64) * 3
+                }
+                val prefix = recovery.prefix(if (supportsTools) inlineCharacters else recovery.content.length)
+                contextTurns = contextTurns.map { turn ->
+                    if (turn.isCurrentTurn) turn.copy(userMessage = turn.userMessage.copy(content = turn.userMessage.content + "\n\n" + prefix)) else turn
+                }
+                // Local saved-work reads stay available even when new research is disabled.
+                val recoveryTool = taskRoutedTools.firstOrNull { it.realToolName == "read_recovery_context" }
+                if (recoveryTool != null && exposedTools.none { it.realToolName == recoveryTool.realToolName }) {
+                    exposedTools = listOf(recoveryTool) + exposedTools
+                }
+                AppLogRecorder.record("Recovery", "Saved response reused · chat=${latestUser?.chatId} · resourceChars=${recovery.content.length} · inlineChars=${minOf(inlineCharacters, recovery.content.length)}")
+                emit(ApiState.Notice("Continuing from the saved partial response and tool results.", persistent = false))
+            }
             val projectInstructions = latestUser?.let { knowledge?.scopeForChat(it.chatId) }
                 ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
+            val responseFeatures = settingRepository.getFeatureSettings()
+            val quickRepliesEnabled = responseFeatures.smartSuggestions
+            val subjectInstruction = if (responseFeatures.automaticConversationTitles && userMessages.size == 1) dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.INSTRUCTION else ""
             fun baseSystemPrompt(): String {
                 val progressInstruction = if (resolvedTools.isNotEmpty()) {
                     "\nBefore the first tool call and after every 10 completed tool calls, " +
@@ -1315,7 +1347,7 @@ class ChatRepositoryImpl(
                     platform.systemPrompt,
                     exposedTools.map { it.modelToolName },
                     compact = localResearch || limits.contextTokens < 4096
-                ) + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction + synthesisInstruction +
+                ) + subjectInstruction + (if (quickRepliesEnabled) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + progressInstruction + delegationInstruction + synthesisInstruction +
                     if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
             }
             val memorySettings = factVault?.state?.value
@@ -1517,6 +1549,13 @@ class ChatRepositoryImpl(
                 )
                 contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
             }
+            // Preparation can narrow tools, but original saved evidence must remain readable.
+            taskRoutedTools.firstOrNull { it.realToolName == "read_recovery_context" }?.let { recoveryTool ->
+                if (exposedTools.none { it.realToolName == recoveryTool.realToolName }) {
+                    exposedTools = listOf(recoveryTool) + exposedTools
+                    contextPlan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(preparedTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools.map { it.tool.definition }, limits)
+                }
+            }
             val effectiveTools = aggregatedTools
                 .filter { resolved -> contextPlan.tools.any { it.name == resolved.modelToolName } }
                 .map { if (taskRoutedTools.any { tool -> tool.realToolName == "delegate_to_model" }) localDelegation.processToolResults(it, latestUser?.content.orEmpty()) else it }
@@ -1602,12 +1641,13 @@ class ChatRepositoryImpl(
                     fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true)
                 )
             }
+            val guarded = if (platform.compatibleType == ClientType.LLAMA) raw.withProgressWatchdog() else raw
             return invocationLedger?.wrap(
-                raw, runId, turnKey, platform.compatibleType.name, platform.model, kind,
+                guarded, runId, turnKey, platform.compatibleType.name, platform.model, kind,
                 dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(requestPlatform.systemPrompt.orEmpty() + turns.joinToString { it.userMessage.content + it.assistantMessage?.content.orEmpty() }) + contextPlan.tools.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.inputSchema.toString()) },
                 requestConstraints.outputLimit(platform.maxTokens) ?: 0, budgetSettings.totalRunTokens,
                 profileUid = platform.uid
-            ) ?: raw
+            ) ?: guarded
         }
         val initialSession = openPrimarySession(contextPlan.turns)
         val session = if (followUps != null && latestUser != null) {
@@ -1973,12 +2013,33 @@ class ChatRepositoryImpl(
         return updatedMessages
     }
 
+    override suspend fun newestAssistantMessageId(chatId: Int): Int? = messageV2Dao.newestAssistantMessageId(chatId)
+
     override suspend fun fetchChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getChatRooms()
 
-    override suspend fun fetchArchivedChatListV2(): List<ChatRoomV2> = chatRoomV2Dao.getArchivedChatRooms()
+    private val compactedArchives = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+    private val archiveCompactionScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+
+    override suspend fun fetchArchivedChatListV2(): List<ChatRoomV2> = withContext(Dispatchers.IO) {
+        chatRoomV2Dao.getArchivedChatRooms().also { rooms ->
+            archiveCompactionScope.launch {
+                rooms.filter { compactedArchives.add(it.id) }.forEach { room ->
+                    try {
+                        agentPersistenceDao.compactArchivedConversation(room.id)
+                    } catch (error: CancellationException) {
+                        compactedArchives.remove(room.id)
+                        throw error
+                    } catch (error: Exception) {
+                        compactedArchives.remove(room.id)
+                        AppLogRecorder.record("Archive", "Could not compact conversation ${room.id}: ${error.javaClass.simpleName}", "W")
+                    }
+                }
+            }
+        }
+    }
 
     override suspend fun setChatArchived(chatId: Int, isArchived: Boolean) {
-        chatRoomV2Dao.updateArchived(chatId, isArchived)
+        withContext(Dispatchers.IO) { agentPersistenceDao.setArchivedWithCompression(chatId, isArchived) }
     }
 
     override suspend fun setChatFavorite(chatId: Int, isFavorite: Boolean) {
@@ -2251,7 +2312,7 @@ internal fun validateResponseInputPartsOrThrow(messageContent: String, partCount
     }
 }
 
-private class ToolTraceSession(
+internal class ToolTraceSession(
     private val runId: String,
     tools: List<ResolvedAgentTool>,
     private val recorder: ToolEventRecorder,
@@ -2288,9 +2349,9 @@ private class ToolTraceSession(
 
         val callId = progress.toolCallId?.takeIf { it.isNotBlank() } ?: return null
         val eventName = progress.event?.lowercase().orEmpty()
-        val toolName = progress.ui?.title?.takeIf { it.isNotBlank() }
+        val toolName = progress.toolName?.takeIf { it.isNotBlank() }
+            ?: progress.ui?.title?.takeIf { it.isNotBlank() }
             ?: progress.displayTitle?.takeIf { it.isNotBlank() }
-            ?: progress.toolName?.takeIf { it.isNotBlank() }
             ?: "gateway_tool"
         val server = progress.server?.takeIf { it.isNotBlank() } ?: "gateway"
 
@@ -2321,11 +2382,23 @@ private class ToolTraceSession(
                 )
             }
 
-            "tool_completed", "tool_failed", "tool_blocked" -> {
-                val startedEvent = gatewayEventIds.remove(callId) ?: return null
+            "tool_completed", "tool_failed", "tool_blocked", "prefetch_completed", "prefetch_failed" -> {
+                // A resumed stream may begin after the start event. Preserve its checkpoint anyway.
+                val startedEvent = gatewayEventIds.remove(callId) ?: recorder.startTool(
+                    runId = runId,
+                    sequence = sequence.getAndIncrement(),
+                    callId = callId,
+                    toolName = toolName,
+                    modelToolName = toolName,
+                    arguments = progress.toolArgs ?: JsonObject(emptyMap()),
+                    connectionUid = "gateway:$server",
+                    connectionName = "GATEWAY • $server",
+                    startedAt = progress.timestampEpochSeconds()
+                )
                 val eventId = startedEvent.eventId
                 val isError =
                     eventName == "tool_failed" ||
+                        eventName == "prefetch_failed" ||
                         eventName == "tool_blocked" ||
                         progress.status.equals("failed", ignoreCase = true) ||
                         progress.status.equals("blocked", ignoreCase = true)
@@ -2336,7 +2409,7 @@ private class ToolTraceSession(
                             progress.status.equals("no_useful_result", ignoreCase = true)
                         )
 
-                val resultText = buildString {
+                val resultText = progress.toolResult ?: buildString {
                     if (isEmptyResult) {
                         append(progress.message ?: "Completed — No results")
                     } else {
@@ -2359,18 +2432,19 @@ private class ToolTraceSession(
                         callId = callId,
                         content = ToolResultContent.Text(resultText),
                         isError = isError,
-                        traceContent = if (isEmptyResult) ToolResultContent.Text("") else null
+                        traceContent = if (isEmptyResult && progress.toolResult == null) ToolResultContent.Text("") else null
                     ),
                     completedAt = currentEpochSeconds(),
                     error = if (isError) resultText else null
                 )
 
-                // Gateway progress contains a summary, not the actual response payload.
                 ApiState.ToolCall(
                     startedEvent.sequence,
                     ToolPayloadMetrics(
                         argumentsCharacters = startedEvent.arguments.length,
                         argumentsBytes = startedEvent.arguments.toByteArray(Charsets.UTF_8).size,
+                        resultBytes = progress.toolResult?.toByteArray(Charsets.UTF_8)?.size,
+                        estimatedResultTokens = progress.toolResult?.let { (it.length + 3) / 4 },
                         durationMs = progress.durationMs?.toLong()?.coerceAtLeast(0),
                         timingSource = "gateway"
                     )

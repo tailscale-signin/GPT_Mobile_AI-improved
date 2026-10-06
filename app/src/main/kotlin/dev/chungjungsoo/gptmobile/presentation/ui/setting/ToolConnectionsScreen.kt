@@ -50,7 +50,6 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -108,6 +107,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.RadioItem
 import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -130,7 +130,7 @@ fun ToolConnectionsScreen(
     var search by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var memorySettingsOpen by remember { mutableStateOf(false) }
     if (memorySettingsOpen) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { memorySettingsOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingDialog(onDismissRequest = { memorySettingsOpen = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
             FactVaultScreen(hiltViewModel(), onBack = { memorySettingsOpen = false })
         }
     }
@@ -936,16 +936,15 @@ fun ToolConnectionEditorScreen(
     }
     val hasPreviousStep = setupFlow.step == ToolConnectionSetupStep.AUTHENTICATION ||
         (!isEditing && setupFlow.step != ToolConnectionSetupStep.CONNECTION_TYPE)
-    val navigateBack = {
+    val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
+    val navigateBack: () -> Unit = {
         if (hasPreviousStep) {
-            setupFlow = setupFlow.back()
+            backFade.fade { setupFlow = setupFlow.back() }
         } else {
             onNavigationClick()
         }
     }
-    BackHandler(enabled = hasPreviousStep) {
-        setupFlow = setupFlow.back()
-    }
+    BackHandler(enabled = hasPreviousStep, onBack = navigateBack)
     val save = {
         provider?.let { selectedProvider ->
             viewModel.saveConnection(
@@ -965,7 +964,7 @@ fun ToolConnectionEditorScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.then(backFade.modifier),
         topBar = {
             ToolConnectionEditorTopBar(
                 title = title,

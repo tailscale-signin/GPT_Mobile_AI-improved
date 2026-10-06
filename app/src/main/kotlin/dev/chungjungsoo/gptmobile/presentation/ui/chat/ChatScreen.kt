@@ -56,7 +56,6 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -64,7 +63,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
@@ -135,6 +133,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveThoughts
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
+import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet as ModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
@@ -247,7 +247,7 @@ fun ChatScreen(
     }
     val hiddenTurnCount = firstVisibleTurn
     val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
-    val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0)
+    val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0) + (if (hasTargetAssistant) 1 else 0)
     val listState = rememberChatListState(
         messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
@@ -343,10 +343,13 @@ fun ChatScreen(
             keyboardController?.hide()
         }
     }
+    val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
     val onBackFromChat: () -> Unit = {
         if (inspectingCombinedSource) {
-            inspectedCombinedTurn = null
-            inspectedCombinedProfileUid = null
+            backFade.fade {
+                inspectedCombinedTurn = null
+                inspectedCombinedProfileUid = null
+            }
         } else {
             chatViewModel.leaveConversation(onBackAction)
         }
@@ -422,7 +425,7 @@ fun ChatScreen(
             listState.scrollToConversationEntry(itemIndex)
             if (targetIndex >= 0) {
                 val responseOffset = snapshotFlow { targetResponseOffset }.filterNotNull().first()
-                listState.scrollToConversationEntry(itemIndex, responseOffset - if (featureSettings.centerUnread) listState.layoutInfo.viewportSize.height / 2 else 0)
+                listState.scrollToConversationEntry(itemIndex, responseOffset, centerResponse = true)
             }
         } else {
             // Explicitly override a restored list position on each conversation entry.
@@ -472,7 +475,7 @@ fun ChatScreen(
     }
 
     Scaffold(
-        modifier = Modifier
+        modifier = Modifier.then(backFade.modifier)
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
@@ -502,25 +505,27 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(bottom = innerPadding.calculateBottomPadding())
                 .imePadding()
         ) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .chatViewportEdgeFade(
-                        // The list begins exactly below the title bar, so this mask starts
-                        // transparency at the bottom edge of the subject/title rather than
-                        // placing an opaque foreground scrim over rendered text.
-                        topFade = if (featureSettings.edgeFades) 52.dp else 0.dp,
+                        // Scrolling text passes behind the transparent header and reaches
+                        // full opacity at the midpoint of its title and action icons.
+                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() - 32.dp).coerceAtLeast(0.dp) else 0.dp,
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades) composerHeight else 0.dp,
                         bottomFadeEndFromBottom = if (featureSettings.edgeFades) composerHeight * 0.5f else 0.dp
                     ),
                 state = listState,
-                contentPadding = PaddingValues(bottom = composerHeight + 16.dp)
+                contentPadding = PaddingValues(top = innerPadding.calculateTopPadding(), bottom = composerHeight + 16.dp)
             ) {
+                if (hasTargetAssistant) {
+                    item(key = "response-entry-space") { Spacer(Modifier.fillParentMaxHeight(0.5f)) }
+                }
                 if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier messages") } }
                 if (hiddenTurnCount > 0) {
                     item(key = "archived-history-header") {
@@ -890,7 +895,7 @@ private fun ChatMessagePair(
         isCombinedConversation && !synthesisStarted && combinedStatus == CombinedResponseStatus.FAILED -> stringResource(R.string.combined_all_profiles_failed)
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
-        else -> selectedAssistantMessage?.effectiveContent().orEmpty()
+        else -> dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
     }
     val assistantThoughts = if (isCombinedConversation && !synthesisStarted) {
         ""
@@ -1043,6 +1048,10 @@ private fun ChatMessagePair(
                     timeline = assistantTimeline,
                     attachments = selectedAssistantMessage?.attachments.orEmpty().map { it.filePathForDisplay },
                     agentRun = agentRun,
+                    generationTiming = responseGenerationTiming(
+                        agentRun,
+                        if (isCombinedConversation) combinedProfiles.mapNotNull { it.message?.effectiveRunId()?.let(agentRunsById::get) } else emptyList()
+                    ),
                     runNotices = selectedRunId?.let(runNoticesById::get).orEmpty(),
                     toolEvents = toolEvents,
                     locationToolEvents = locationEventsForResponse(
@@ -1176,10 +1185,11 @@ internal fun ChatBottomAutoScroller(
     }
 }
 
-internal suspend fun LazyListState.scrollToConversationEntry(targetItem: Int? = null, responseOffset: Int = 0) {
-    snapshotFlow { layoutInfo.totalItemsCount }.first { it > (targetItem ?: 0) }
+internal suspend fun LazyListState.scrollToConversationEntry(targetItem: Int? = null, responseOffset: Int = 0, centerResponse: Boolean = false) {
+    snapshotFlow { layoutInfo }.first { it.totalItemsCount > (targetItem ?: 0) && it.viewportSize.height > 0 }
     val index = targetItem ?: (layoutInfo.totalItemsCount - 1)
-    if (index >= 0) scrollToItem(index, if (targetItem == null) 0 else responseOffset)
+    val offset = if (centerResponse) responseOffset - layoutInfo.viewportSize.height / 2 - layoutInfo.viewportStartOffset else responseOffset
+    if (index >= 0) scrollToItem(index, if (targetItem == null) 0 else offset)
 }
 
 internal suspend fun LazyListState.animateScrollToLatestChatMessage() {
@@ -1367,7 +1377,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         withContext(Dispatchers.IO) { file.writeText(fileContent) }
         val uri = getUriForFile(context, "${context.packageName}.fileprovider", file)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = if (format == ChatExportFormat.PLAIN_TEXT) "text/plain" else "text/markdown"
+            type = format.mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

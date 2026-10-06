@@ -47,6 +47,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -137,16 +138,16 @@ class ChatPromptQueueTest {
         assertTrue(starts.isEmpty())
 
         synthesisGate.complete(Unit)
-        runCurrent()
+        for (attempt in 0 until 100) {
+            runCurrent()
+            if (submissions.isNotEmpty()) break
+            kotlinx.coroutines.withContext(Dispatchers.Default) { kotlinx.coroutines.delay(10) }
+        }
         assertEquals(1, starts.size)
-        assertTrue(starts.single().single().runId.startsWith("combined-"))
-        assertTrue(submissions.isEmpty())
-
-        completePersistedRuns()
-        runCurrent()
-        activeRuns.value = emptyMap()
-        runCurrent()
+        assertTrue(starts.single().isNotEmpty())
+        assertFalse(starts.single().any { it.runId.startsWith("combined-") })
         assertEquals(listOf("Follow up"), submissions.map { it.userMessage.content })
+        assertTrue(runs.value.any { it.runId.startsWith("combined-") && it.status == AgentRunStatus.COMPLETED })
     }
 
     private fun send(model: ChatViewModel, text: String) {
@@ -342,6 +343,15 @@ class ChatPromptQueueTest {
             messages.value = messages.value.map { if (it.id == assistant.id) assistant else it }
             runs.value = runs.value + run
             PersistAgentRetryResult(assistant, run)
+        }
+        coEvery { repository.updateAgentMessage(any()) } coAnswers {
+            val updated = firstArg<MessageV2>()
+            messages.value = messages.value.map { if (it.id == updated.id) updated else it }
+        }
+        coEvery { repository.finishQueuedAgentRun(any(), any(), any(), any()) } coAnswers {
+            val id = firstArg<String>()
+            runs.value = runs.value.map { if (it.runId == id) it.copy(status = AgentRunStatus.COMPLETED) else it }
+            true
         }
         val settings = mockk<SettingRepository>(relaxed = true)
         coEvery { settings.fetchPlatformV2s() } returns profiles

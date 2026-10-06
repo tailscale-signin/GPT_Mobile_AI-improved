@@ -6,14 +6,17 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 
-enum class ChatExportFormat { MARKDOWN, PLAIN_TEXT }
+enum class ChatExportFormat(val extension: String, val mimeType: String) {
+    MARKDOWN("md", "text/markdown"),
+    PLAIN_TEXT("txt", "text/plain")
+}
 
 /** Only the selected AI response revision is exported. Activity and prompts are separate data. */
 internal fun assistantExportText(message: MessageV2, format: ChatExportFormat): String {
     val text = message.effectiveContent().ifBlank {
         message.effectiveTimeline().filter { it.type == AssistantTimelineItemType.TEXT }.joinToString("") { it.content }
     }
-    val response = ThinkingParser.extractThinking(text).response.trim()
+    val response = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(ThinkingParser.extractThinking(text).response).trim()
     if (format == ChatExportFormat.MARKDOWN) return response
     return response
         .replace(Regex("(?m)^\\s*```[^\\n]*$"), "")

@@ -21,7 +21,6 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.List
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -65,6 +64,7 @@ import dev.chungjungsoo.gptmobile.data.network.ApiCredentialRotator
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
 import dev.chungjungsoo.gptmobile.presentation.common.DestinationCard
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.FreeProviderPicker
 import dev.chungjungsoo.gptmobile.presentation.common.ProfileLabelEditorDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -125,11 +125,14 @@ fun AddPlatformScreen(
         } else {
             model.isNotBlank() && hasProviderConnection
         }
-    val navigateBack = { if (step == AddPlatformStep.DETAILS) step = AddPlatformStep.API_TYPE else onNavigationClick() }
-    BackHandler(enabled = step == AddPlatformStep.DETAILS) { step = AddPlatformStep.API_TYPE }
+    val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
+    val navigateBack: () -> Unit = {
+        if (step == AddPlatformStep.DETAILS) backFade.fade { step = AddPlatformStep.API_TYPE } else onNavigationClick()
+    }
+    BackHandler(enabled = step == AddPlatformStep.DETAILS, onBack = navigateBack)
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.then(backFade.modifier),
         topBar = {
             AddPlatformTopBar(
                 title = title,

@@ -21,7 +21,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Label
 import androidx.compose.material.icons.rounded.Tag
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import dev.chungjungsoo.gptmobile.data.label.PREDEFINED_LABEL_COLORS
 import dev.chungjungsoo.gptmobile.data.label.PlatformLabel
 import dev.chungjungsoo.gptmobile.data.label.PlatformLabelManager
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 /**

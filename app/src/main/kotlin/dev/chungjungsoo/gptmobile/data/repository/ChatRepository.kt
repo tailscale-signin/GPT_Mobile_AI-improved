@@ -58,6 +58,9 @@ interface ChatRepository {
     suspend fun updateDraft(chatId: Int, draftText: String?, timestamp: Long?)
     suspend fun saveComposerDraft(chatId: Int, text: String?, attachments: String, timestamp: Long?) = updateDraft(chatId, text, timestamp)
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
+    suspend fun newestAssistantMessageId(chatId: Int): Int? = fetchMessagesV2(chatId)
+        .filter { it.platformType != null && it.content.isNotBlank() }
+        .maxWithOrNull(compareBy<MessageV2> { it.createdAt }.thenBy { it.combinedSources.isNotEmpty() }.thenBy { it.id })?.id
     suspend fun fetchChatPlatformModels(chatId: Int): Map<String, String>
     suspend fun saveChatPlatformModels(chatId: Int, models: Map<String, String>)
     suspend fun persistAgentTurn(request: PersistAgentTurnRequest): PersistAgentTurnResult

@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
@@ -49,12 +50,32 @@ class InvocationLedgerTest {
                     }
                 }
             }
-            val result = runCatching { ledger.wrap(session, "parent", "turn", "provider", "model", "delegate", 10, 100, Int.MAX_VALUE, "profile").streamRound(emptyList(), emptyList()).toList() }
+            val result = runCatching { ledger.wrap(session, "parent", "turn", "provider", "model", "delegate", 10, 100, 1000, "profile").streamRound(emptyList(), emptyList()).toList() }
             if (outcome == "CANCELED") assertTrue(result.exceptionOrNull() is CancellationException) else assertTrue(result.isSuccess)
             assertEquals(outcome, saved.single().status)
             assertEquals("profile", saved.single().profileUid)
             assertTrue(saved.single().outputTokens < 100)
             assertTrue(ledger.active.value.isEmpty())
         }
+    }
+
+    @Test fun `ordinary requests do not collect or persist diagnostic history`() = runTest {
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val ledger = InvocationLedger(database)
+        val events = listOf(ProviderEvent.TextDelta("Response"), ProviderEvent.Completed)
+        val session = object : AgentProviderSession {
+            override val handlesToolsInternally = false
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(*events.toTypedArray())
+        }
+        assertEquals(events, ledger.wrap(session, "parent", "turn", "provider", "model", "primary", 10, 100, Int.MAX_VALUE).streamRound(emptyList(), emptyList()).toList())
+        assertTrue(ledger.active.value.isEmpty())
+        coVerify(exactly = 0) { dao.reserve(any(), any(), any()) }
+        coVerify(exactly = 0) { dao.save(any()) }
+        ledger.recover()
+        coVerify(exactly = 1) { dao.clear() }
     }
 }

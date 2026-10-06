@@ -92,6 +92,9 @@ data class GatewayProgress(
     val server: String? = null,
     val route: String? = null,
 
+    @SerialName("tool_result")
+    val toolResult: String? = null,
+
     @SerialName("result_quality")
     val resultQuality: String? = null,
 

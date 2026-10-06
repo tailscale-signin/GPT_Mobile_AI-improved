@@ -17,6 +17,32 @@ import org.junit.Test
 class ProviderEventAssemblerTest {
 
     @Test
+    fun `all terminal output limit formats preserve partial text and report failure`() {
+        val responses = OpenAIResponsesEventAssembler()
+        val incomplete = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(
+            """{"type":"response.incomplete","response":{"id":"saved","status":"incomplete","usage":{"output_tokens":100}}}"""
+        )
+        val responseEvents = responses.accept(incomplete)
+        assertTrue(responseEvents.last() is ProviderEvent.Failed)
+        assertTrue(responseEvents.none { it is ProviderEvent.Completed })
+        assertEquals(100, responseEvents.filterIsInstance<ProviderEvent.Usage>().single().outputTokens)
+
+        val anthropic = AnthropicEventAssembler().accept(
+            NetworkClient.json.decodeFromString<MessageResponseChunk>(
+                """{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":100}}"""
+            )
+        )
+        assertTrue(anthropic.last() is ProviderEvent.Failed)
+        val gemini = GeminiEventMapper.accept(
+            NetworkClient.json.decodeFromString<GenerateContentResponse>(
+                """{"candidates":[{"content":{"role":"model","parts":[{"text":"Partial research."}]},"finishReason":"MAX_TOKENS"}]}"""
+            )
+        )
+        assertEquals("Partial research.", gemini.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertTrue(gemini.last() is ProviderEvent.Failed)
+    }
+
+    @Test
     fun `compatible stop completes location call and assigns a replayable id when omitted`() {
         val assembler = ChatCompletionsEventAssembler()
         val events = assembler.accept(

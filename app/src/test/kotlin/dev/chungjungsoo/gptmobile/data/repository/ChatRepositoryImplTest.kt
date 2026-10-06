@@ -524,7 +524,7 @@ class ChatRepositoryImplTest {
         assertTrue(completedMetrics?.resultBytes != null)
         assertEquals(1, runtime.sendMessageCalls.size)
         assertEquals(
-            listOf("calculate_expression", "current_date", "github", "read_file_slice", "read_url", "web_search"),
+            listOf("calculate_expression", "current_date", "read_file_slice", "read_url", "web_search"),
             runtime.createConversationCalls.single().tools.map { it.name }.sorted()
         )
         assertTrue(runtime.createConversationCalls.single().isConstrainedDecodingEnabled)
@@ -1067,7 +1067,7 @@ class ChatRepositoryImplTest {
     private inline fun <reified T> proxy(): T {
         val handler = InvocationHandler { _, method, _ ->
             when {
-                method.name == "fetchPlatformV2s" -> emptyList<PlatformV2>()
+                method.name in setOf("fetchPlatformV2s", "getIncompleteRuns") -> emptyList<PlatformV2>()
                 method.name == "getFeatureSettings" -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
                 else -> when (method.returnType) {
                     Boolean::class.javaPrimitiveType -> false

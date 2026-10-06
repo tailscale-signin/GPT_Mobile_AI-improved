@@ -14,7 +14,7 @@ class AssistantTimelineListConverter {
 
     @TypeConverter
     fun fromString(value: String): List<AssistantTimelineItem> {
-        val trimmed = value.trim()
+        val trimmed = dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec.decode(value).trim()
         if (trimmed.isEmpty() || trimmed == "[]") {
             return emptyList()
         }

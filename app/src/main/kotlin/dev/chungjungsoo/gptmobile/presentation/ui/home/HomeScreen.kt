@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -19,7 +20,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,7 +50,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
@@ -62,12 +65,11 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -97,23 +99,32 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
@@ -127,8 +138,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -142,6 +153,9 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
 import dev.chungjungsoo.gptmobile.presentation.common.BeveledProfileLabel
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.PlatformCheckBoxItem
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.archive.ArchivedConversationsBar
@@ -193,15 +207,26 @@ fun HomeScreen(
     var selectedDetailMessage by remember { mutableStateOf<MessageV2?>(null) }
     var showAddGroupDialog by remember { mutableStateOf(false) }
     var chatPendingDelete by remember { mutableStateOf<ChatRoomV2?>(null) }
+    val conversationBounds = remember { mutableStateMapOf<Int, Rect>() }
+    val currentChats by rememberUpdatedState(chatListState.chats)
+    val windowHeight = LocalWindowInfo.current.containerSize.height
+    val pinTargetHeight = with(LocalDensity.current) { 40.dp.toPx() }
 
-    BackHandler {
-        when {
-            chatListState.isSelectionMode -> homeViewModel.disableSelectionMode()
-            chatListState.isSearchMode -> homeViewModel.disableSearchMode()
-            currentTab != HomeTab.CHATS -> homeViewModel.selectTab(HomeTab.CHATS)
-            else -> Unit
+    val backFade = dev.chungjungsoo.gptmobile.presentation.common.rememberBackFade()
+    val backFromHome: () -> Unit = {
+        backFade.fade {
+            when {
+                chatListState.isSelectionMode -> homeViewModel.disableSelectionMode()
+                chatListState.isSearchMode -> homeViewModel.disableSearchMode()
+                currentTab != HomeTab.CHATS -> homeViewModel.selectTab(HomeTab.CHATS)
+            }
         }
     }
+    BackHandler(enabled = chatListState.isSelectionMode || chatListState.isSearchMode || currentTab != HomeTab.CHATS, onBack = backFromHome)
+
+    /* State changes reached by the toolbar use the same back transition. */
+    val closeSelection: () -> Unit = { backFade.fade(homeViewModel::disableSelectionMode) }
+    val closeSearch: () -> Unit = { backFade.fade(homeViewModel::disableSearchMode) }
 
     LaunchedEffect(lifecycleState) {
         if (lifecycleState == Lifecycle.State.RESUMED && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
@@ -211,7 +236,7 @@ fun HomeScreen(
     }
 
     Scaffold(
-        modifier = modifier
+        modifier = modifier.then(backFade.modifier)
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -220,7 +245,7 @@ fun HomeScreen(
                 scrollBehavior = scrollBehavior,
                 selectedChatCount = selectedChatCount,
                 canDuplicate = selectedChat != null && !activeChatIds.contains(selectedChat.id),
-                onCloseSelectionMode = homeViewModel::disableSelectionMode,
+                onCloseSelectionMode = closeSelection,
                 onDuplicateClick = {
                     homeViewModel.duplicateSelectedChat()
                     Toast.makeText(context, duplicatedChatMessage, Toast.LENGTH_SHORT).show()
@@ -229,7 +254,7 @@ fun HomeScreen(
                 onSettingClick = settingOnClick,
                 onSearchToggle = {
                     if (chatListState.isSearchMode) {
-                        homeViewModel.disableSearchMode()
+                        closeSearch()
                     } else {
                         homeViewModel.enableSearchMode()
                     }
@@ -271,23 +296,6 @@ fun HomeScreen(
                         }
                     })
                 }
-            }
-        },
-        bottomBar = {
-            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                ArchivedConversationsBar(
-                    archivedChats = archivedChats,
-                    onUnarchiveChat = { room ->
-                        homeViewModel.unarchiveChat(room)
-                        Toast.makeText(context, R.string.chat_unarchived, Toast.LENGTH_SHORT).show()
-                    },
-                    onDeleteChat = { room ->
-                        homeViewModel.deleteArchivedChat(room)
-                    },
-                    onChatClick = { room ->
-                        onExistingChatClick(room, null)
-                    }
-                )
             }
         }
     ) { innerPadding ->
@@ -372,6 +380,9 @@ fun HomeScreen(
                                     chatRoom.enabledPlatform.joinToString(", ") { uid -> platformState.getPlatformName(uid) }
                                 }
                             val chatProfileLabels = collectReusableProfileLabels(chatProfiles.map { it.labels })
+                            DisposableEffect(chatRoom.id) {
+                                onDispose { conversationBounds.remove(chatRoom.id) }
+                            }
                             val isGenerating = activeChatIds.contains(chatRoom.id)
                             val hasUnreadResponse = unreadChatIds.contains(chatRoom.id)
                             var hasTriggeredHaptic by remember { mutableStateOf(false) }
@@ -424,8 +435,7 @@ fun HomeScreen(
                                         if (chatListState.isSelectionMode) {
                                             homeViewModel.selectChat(idx)
                                         } else {
-                                            homeViewModel.markChatViewed(chatRoom.id)
-                                            onExistingChatClick(chatRoom, null)
+                                            homeViewModel.openConversation(chatRoom, onExistingChatClick)
                                         }
                                     },
                                     onItemLongClick = {
@@ -436,6 +446,9 @@ fun HomeScreen(
                                     }
                                 )
                             } else {
+                                var dragging by remember(chatRoom.id) { mutableStateOf(false) }
+                                var dragOffset by remember(chatRoom.id) { mutableStateOf(Offset.Zero) }
+                                var pointerY by remember(chatRoom.id) { mutableFloatStateOf(0f) }
                                 FancySwipeChatCard(
                                     dismissState = dismissState,
                                     chatRoom = chatRoom,
@@ -447,18 +460,76 @@ fun HomeScreen(
                                     profileLabels = chatProfileLabels,
                                     isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
                                     onItemClick = {
-                                        homeViewModel.markChatViewed(chatRoom.id)
-                                        onExistingChatClick(chatRoom, null)
+                                        homeViewModel.openConversation(chatRoom, onExistingChatClick)
                                     },
-                                    onItemLongClick = {
-                                        val newFavorite = !chatRoom.isFavorite
-                                        homeViewModel.toggleChatFavorite(chatRoom.id, newFavorite)
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        val messageRes = if (newFavorite) R.string.chat_pinned else R.string.chat_unpinned
-                                        Toast.makeText(context, messageRes, Toast.LENGTH_SHORT).show()
-                                    }
+                                    onItemLongClick = {},
+                                    revealingLabels = dragging,
+                                    modifier = Modifier
+                                        .onGloballyPositioned { coordinates ->
+                                            if (!dragging) conversationBounds[chatRoom.id] = coordinates.boundsInRoot()
+                                        }
+                                        .zIndex(if (dragging) 1f else 0f)
+                                        .graphicsLayer {
+                                            translationX = dragOffset.x
+                                            translationY = dragOffset.y
+                                            scaleX = if (dragging) 1.03f else 1f
+                                            scaleY = if (dragging) 1.03f else 1f
+                                        }
+                                        .pointerInput(chatRoom.id, windowHeight) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { position ->
+                                                    dragging = true
+                                                    pointerY = (conversationBounds[chatRoom.id]?.top ?: 0f) + position.y
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                },
+                                                onDrag = { change, amount ->
+                                                    change.consume()
+                                                    dragOffset += amount
+                                                    pointerY += amount.y
+                                                },
+                                                onDragCancel = {
+                                                    dragging = false
+                                                    dragOffset = Offset.Zero
+                                                },
+                                                onDragEnd = {
+                                                    val pins = currentChats.filter { it.isFavorite && it.id != chatRoom.id }
+                                                    val centers = pins.mapNotNull { pin -> conversationBounds[pin.id]?.let { pin.id to it.center.y } }
+                                                    val target = conversationPinDrop(
+                                                        chatRoom.isFavorite,
+                                                        pointerY,
+                                                        windowHeight,
+                                                        conversationBounds.values.minOfOrNull { it.top } ?: 0f,
+                                                        pinTargetHeight,
+                                                        centers
+                                                    )
+                                                    if (target != null) {
+                                                        val firstTop = conversationBounds.values.minOfOrNull { it.top } ?: 0f
+                                                        val globalTarget = when {
+                                                            target < 0 -> -1
+                                                            pointerY <= firstTop + pinTargetHeight -> 0
+                                                            else -> centers.sortedBy { it.second }.firstOrNull { it.second >= pointerY }
+                                                                ?.let { next -> pins.indexOfFirst { it.id == next.first } }
+                                                                ?: centers.maxByOrNull { it.second }?.let { previous -> pins.indexOfFirst { it.id == previous.first } + 1 }
+                                                                ?: 0
+                                                        }
+                                                        homeViewModel.moveConversationPin(chatRoom.id, globalTarget)
+                                                    }
+                                                    dragging = false
+                                                    dragOffset = Offset.Zero
+                                                }
+                                            )
+                                        }
                                 )
                             }
+                        }
+                        item(key = "home-archive", contentType = "archive-entry") {
+                            ArchivedConversationsBar(
+                                archivedChats = archivedChats,
+                                platformState = platformState,
+                                onUnarchiveChat = { room -> homeViewModel.unarchiveChat(room) },
+                                onDeleteChat = { room -> homeViewModel.deleteArchivedChat(room) },
+                                onChatClick = { room -> homeViewModel.openConversation(room, onExistingChatClick) }
+                            )
                         }
                     }
                 }
@@ -700,6 +771,8 @@ fun FancySwipeChatCard(
     isServerChat: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
+    revealingLabels: Boolean = false,
+    isArchived: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val progress = dismissState.progress
@@ -709,17 +782,19 @@ fun FancySwipeChatCard(
     val isSwipingEndToStart = swipeDirection == SwipeToDismissBoxValue.EndToStart ||
         dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
 
-    // Pulse animation spec for revealed swipe icons
-    val infiniteTransition = rememberInfiniteTransition(label = "icon_pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 1.22f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_scale"
-    )
+    // Only visible swipe affordances need an animation clock.
+    val pulseScale = if (swipeDirection != SwipeToDismissBoxValue.Settled || dismissState.targetValue != SwipeToDismissBoxValue.Settled) {
+        val infiniteTransition = rememberInfiniteTransition(label = "icon_pulse")
+        val scale by infiniteTransition.animateFloat(
+            initialValue = 1.0f,
+            targetValue = 1.22f,
+            animationSpec = infiniteRepeatable(animation = tween(300, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+            label = "pulse_scale"
+        )
+        scale
+    } else {
+        1f
+    }
 
     // Full-color swipe backgrounds
     val archiveColor = MaterialTheme.colorScheme.primary
@@ -780,14 +855,14 @@ fun FancySwipeChatCard(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.Archive,
-                                contentDescription = stringResource(R.string.archive_chat),
+                                imageVector = if (isArchived) Icons.Rounded.Unarchive else Icons.Rounded.Archive,
+                                contentDescription = stringResource(if (isArchived) R.string.unarchive_chat else R.string.archive_chat),
                                 tint = swipeContentColor,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
                         Text(
-                            text = stringResource(R.string.archive_chat),
+                            text = stringResource(if (isArchived) R.string.unarchive_chat else R.string.archive_chat),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = swipeContentColor
@@ -847,7 +922,8 @@ fun FancySwipeChatCard(
                 profileLabels = profileLabels,
                 isServerChat = isServerChat,
                 onItemClick = onItemClick,
-                onItemLongClick = onItemLongClick
+                onItemLongClick = onItemLongClick,
+                revealingLabels = revealingLabels
             )
         }
     }
@@ -865,14 +941,23 @@ private fun ChatListItem(
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
     isServerChat: Boolean = false,
     onItemClick: () -> Unit,
-    onItemLongClick: () -> Unit
+    onItemLongClick: () -> Unit,
+    revealingLabels: Boolean = false
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val showLabels = revealingLabels || pressed
+    // Release first fades labels away, then brings the model names back.
+    val modelAlpha by animateFloatAsState(if (showLabels) 0f else 1f, tween(250, delayMillis = if (showLabels) 0 else 250), label = "Conversation profile names")
+    val labelAlpha by animateFloatAsState(if (showLabels) 1f else 0f, tween(250, delayMillis = if (showLabels) 250 else 0), label = "Conversation labels")
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onLongClick = onItemLongClick,
+                interactionSource = interaction,
+                indication = null,
+                onLongClick = if (chatListState.isSelectionMode || chatListState.isSearchMode) onItemLongClick else null,
                 onClick = onItemClick
             )
             .padding(start = 8.dp, end = 8.dp),
@@ -949,21 +1034,20 @@ private fun ChatListItem(
                     )
                 }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Box(Modifier.fillMaxWidth().heightIn(min = 24.dp), contentAlignment = Alignment.CenterStart) {
                     Text(
                         text = usingPlatform,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f)
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                        modifier = Modifier.graphicsLayer { alpha = modelAlpha }
                     )
-                    if (profileLabels.isNotEmpty()) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            profileLabels.take(4).forEach { label ->
-                                BeveledProfileLabel(label = label, compact = true)
-                            }
-                        }
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()).graphicsLayer { alpha = labelAlpha },
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (profileLabels.isEmpty()) Text("No labels", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        profileLabels.forEach { label -> BeveledProfileLabel(label = label, compact = true) }
                     }
                 }
             }
@@ -1386,8 +1470,12 @@ fun SelectPlatformDialog(
     LaunchedEffect(canCombine) {
         if (!canCombine) combinedMode = false
     }
-    val indexedPlatforms = remember(platforms) {
-        orderedChatProfiles(platforms)
+    var selectedLabel by rememberSaveable { mutableStateOf<String?>(null) }
+    val reusableLabels = remember(platforms) { collectReusableProfileLabels(platforms.map { it.labels }) }
+    val indexedPlatforms = remember(platforms, selectedLabel) {
+        orderedChatProfiles(platforms).filter { (_, profile) ->
+            selectedLabel == null || dev.chungjungsoo.gptmobile.data.model.parseProfileLabels(profile.labels).any { it.key == selectedLabel }
+        }
     }
 
     AlertDialog(
@@ -1437,6 +1525,14 @@ fun SelectPlatformDialog(
         text = {
             HorizontalDivider()
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (reusableLabels.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = selectedLabel == null, onClick = { selectedLabel = null }, label = { Text("All Labels") })
+                        reusableLabels.forEach { label ->
+                            FilterChip(selected = selectedLabel == label.key, onClick = { selectedLabel = label.key }, label = { BeveledProfileLabel(label, compact = true) })
+                        }
+                    }
+                }
                 if (platforms.any { it.enabled }) {
                     indexedPlatforms.forEach { (originalIndex, platform) ->
                         PlatformCheckBoxItem(
@@ -1535,7 +1631,12 @@ fun NewChatButton(expanded: Boolean, onClick: () -> Unit) {
     ExtendedFloatingActionButton(
         onClick = onClick,
         expanded = expanded,
-        icon = { Icon(Icons.Rounded.AddComment, stringResource(R.string.new_chat)) },
+        icon = {
+            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.ChatBubbleOutline, stringResource(R.string.new_chat), modifier = Modifier.size(28.dp))
+                Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp).padding(bottom = 2.dp))
+            }
+        },
         shape = RoundedCornerShape(24.dp),
         containerColor = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1560,7 +1661,7 @@ fun HomeTopBar(
 ) {
     if (chatListState.isSelectionMode) {
         TopAppBar(
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, scrolledContainerColor = MaterialTheme.colorScheme.primary, titleContentColor = MaterialTheme.colorScheme.onPrimary, navigationIconContentColor = MaterialTheme.colorScheme.onPrimary, actionIconContentColor = MaterialTheme.colorScheme.onPrimary),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background, titleContentColor = MaterialTheme.colorScheme.onBackground, navigationIconContentColor = MaterialTheme.colorScheme.primary, actionIconContentColor = MaterialTheme.colorScheme.primary),
             title = { Text(stringResource(R.string.chats_selected, selectedChatCount)) },
             navigationIcon = {
                 IconButton(onClick = onCloseSelectionMode) {
@@ -1580,7 +1681,7 @@ fun HomeTopBar(
         )
     } else if (chatListState.isSearchMode) {
         TopAppBar(
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, scrolledContainerColor = MaterialTheme.colorScheme.primary, titleContentColor = MaterialTheme.colorScheme.onPrimary, navigationIconContentColor = MaterialTheme.colorScheme.onPrimary, actionIconContentColor = MaterialTheme.colorScheme.onPrimary),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background, titleContentColor = MaterialTheme.colorScheme.onBackground, navigationIconContentColor = MaterialTheme.colorScheme.primary, actionIconContentColor = MaterialTheme.colorScheme.primary),
             title = {
                 TextField(
                     value = searchQuery,
@@ -1601,13 +1702,13 @@ fun HomeTopBar(
         )
     } else {
         TopAppBar(
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, scrolledContainerColor = MaterialTheme.colorScheme.primary, titleContentColor = MaterialTheme.colorScheme.onPrimary, navigationIconContentColor = MaterialTheme.colorScheme.onPrimary, actionIconContentColor = MaterialTheme.colorScheme.onPrimary),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background, titleContentColor = MaterialTheme.colorScheme.onBackground, navigationIconContentColor = MaterialTheme.colorScheme.primary, actionIconContentColor = MaterialTheme.colorScheme.primary),
             title = { },
             actions = {
-                IconButton(onClick = onSearchToggle, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)) {
+                IconButton(onClick = onSearchToggle, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary)) {
                     Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.search))
                 }
-                IconButton(onClick = onSettingClick, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)) {
+                IconButton(onClick = onSettingClick, colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary)) {
                     Icon(Icons.Rounded.Settings, contentDescription = stringResource(R.string.settings))
                 }
             },

@@ -18,6 +18,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpToolMapperTest {
+    @Test fun `MCP recovery retains research beyond the model-visible limit`() {
+        val evidence = "Evidence 😀 ".repeat(12000) + "unique final fact"
+        val result = mapMcpToolResult("search", CallToolResult(content = listOf(TextContent(evidence))))
+        assertTrue((result.content as ToolResultContent.Text).text.length < evidence.length)
+        val retained = (result.retainedContent as ToolResultContent.Json).value.jsonObject
+        assertEquals(evidence, retained.getValue("content").jsonArray.single().jsonObject.getValue("text").jsonPrimitive.content)
+    }
+
     @Test
     fun `model tool names are stable bounded and collision resistant`() {
         assertEquals("mcp__docs__read", namespaceMcpToolName("docs", "read"))

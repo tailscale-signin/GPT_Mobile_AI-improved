@@ -130,40 +130,8 @@ private fun AppNavHost(
                     )
                 )
         },
-        popEnterTransition = {
-            slideInHorizontally(
-                animationSpec = tween(
-                    durationMillis = PAGE_EXIT_DURATION_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                initialOffsetX = { width -> -width / 28 }
-            ) +
-                fadeIn(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
-                scaleIn(
-                    initialScale = 0.996f,
-                    animationSpec = tween(
-                        durationMillis = PAGE_EXIT_DURATION_MS,
-                        easing = FastOutSlowInEasing
-                    )
-                )
-        },
-        popExitTransition = {
-            slideOutHorizontally(
-                animationSpec = tween(
-                    durationMillis = PAGE_ENTER_DURATION_MS,
-                    easing = FastOutSlowInEasing
-                ),
-                targetOffsetX = { width -> width / 9 }
-            ) +
-                fadeOut(animationSpec = tween(durationMillis = PAGE_FADE_DURATION_MS)) +
-                scaleOut(
-                    targetScale = 0.992f,
-                    animationSpec = tween(
-                        durationMillis = PAGE_ENTER_DURATION_MS,
-                        easing = FastOutSlowInEasing
-                    )
-                )
-        }
+        popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = 500)) },
+        popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 500)) }
     ) {
         homeScreenNavigation(navController)
         migrationScreenNavigation(navController)
@@ -606,7 +574,7 @@ fun NavGraphBuilder.settingNavigation(
                 }
             )
             installedName?.let { name ->
-                androidx.compose.material3.AlertDialog(
+                dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
                     onDismissRequest = { installedName = null },
                     title = { androidx.compose.material3.Text("$name saved") },
                     text = {
@@ -631,7 +599,7 @@ fun NavGraphBuilder.settingNavigation(
                 )
             }
             uiState.errorMessage?.let { message ->
-                androidx.compose.material3.AlertDialog(
+                dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
                     onDismissRequest = toolConnectionsViewModel::clearError,
                     title = { androidx.compose.material3.Text("Could not install") },
                     text = { androidx.compose.material3.Text(message) },

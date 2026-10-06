@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.di
 
 import android.content.Context
-import com.example.gptmobileai.debug.ToolMetricsCollector
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -71,7 +70,6 @@ object ChatRepositoryModule {
         @DeviceSocModel deviceSocModel: String,
         titleSummarizer: ConversationTitleSummarizer,
         factVault: FactVaultRepository,
-        toolMetricsCollector: ToolMetricsCollector,
         knowledge: dev.chungjungsoo.gptmobile.data.knowledge.MemoryDocumentRepository,
         toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager,
         invocationLedger: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger,
@@ -102,7 +100,6 @@ object ChatRepositoryModule {
         deviceSocModel = deviceSocModel,
         titleSummarizer = titleSummarizer,
         factVault = factVault,
-        toolMetricsCollector = toolMetricsCollector,
         knowledge = knowledge,
         toolApprovals = toolApprovals,
         invocationLedger = invocationLedger,

@@ -452,6 +452,11 @@
     <string name="chat_mode_standard_description">Each selected AI keeps its own response tab.</string>
     <string name="chat_mode_combined_description">All selected AIs answer together. The first selected AI creates one final merged response.</string>
     <string name="combined_models_label">Combined · %1$d models</string>
+    <string name="combined_profile_generating">Generating</string>
+    <string name="combined_profile_completed">Completed</string>
+    <string name="combined_profile_failed">Failed</string>
+    <string name="combined_profile_no_response">This AI profile could not finish its response.</string>
+    <string name="combined_all_profiles_failed">The AI profiles could not finish their responses. Start a new message to try again.</string>
     <string name="combined_model_responses">Model responses</string>
     <string name="combined_waiting">Waiting for all model responses…</string>
     <string name="combined_synthesizing">Lead AI is combining the responses…</string>

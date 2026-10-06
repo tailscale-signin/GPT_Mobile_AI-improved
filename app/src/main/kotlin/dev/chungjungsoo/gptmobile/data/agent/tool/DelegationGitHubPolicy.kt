@@ -75,7 +75,7 @@ internal fun reviewedSynthesisTools(tools: List<ResolvedAgentTool>, processingOw
     } else {
         tools.filterNot {
             it.realToolName == "delegate_to_model" ||
-                (!followUpsEnabled && (it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search"))
+                (!followUpsEnabled && (it.isWebSearchEngine() || it.isResearchPageReader() || it.realToolName == "web_search" || it.realToolName == "read_url"))
         }
     }
 

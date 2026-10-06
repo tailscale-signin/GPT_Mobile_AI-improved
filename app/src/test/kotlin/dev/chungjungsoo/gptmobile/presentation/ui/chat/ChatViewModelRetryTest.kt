@@ -315,7 +315,7 @@ class ChatViewModelRetryTest {
     }
 
     @Test
-    fun `assistant export includes only the selected revision trace`() {
+    fun `assistant export includes only the selected revision answer`() {
         val message = MessageV2(
             content = "Latest",
             revisions = listOf(AssistantRevision(content = "Previous", createdAt = 100L, runId = "run-old")),
@@ -330,10 +330,7 @@ class ChatViewModelRetryTest {
 
         val markdown = formatAssistantExport("OpenAI", message, traces)
 
-        assertTrue(markdown.contains("Previous"))
-        assertTrue(markdown.contains("old result"))
-        assertFalse(markdown.contains("Latest"))
-        assertFalse(markdown.contains("new result"))
+        assertEquals("Previous", markdown)
     }
 
     @Test
@@ -352,7 +349,7 @@ class ChatViewModelRetryTest {
     }
 
     @Test
-    fun `assistant export preserves interleaved text thinking and tool order`() {
+    fun `assistant export excludes interleaved thinking and tool results`() {
         val message = MessageV2(
             content = "BeforeBetweenAfter",
             thoughts = "Checking",
@@ -376,12 +373,11 @@ class ChatViewModelRetryTest {
 
         val markdown = formatAssistantExport("OpenAI", message, traces)
 
-        val orderedMarkers = listOf("Before", "first result", "Checking", "Between", "second result", "After")
-        assertTrue(orderedMarkers.zipWithNext().all { (first, second) -> markdown.indexOf(first) < markdown.indexOf(second) })
+        assertEquals("BeforeBetweenAfter", markdown)
     }
 
     @Test
-    fun `legacy assistant export preserves data while declaring unknown event order`() {
+    fun `legacy assistant export contains only the answer`() {
         val message = MessageV2(
             content = "Legacy answer",
             thoughts = "Legacy reasoning",
@@ -392,14 +388,11 @@ class ChatViewModelRetryTest {
 
         val markdown = formatAssistantExport("OpenAI", message, traces)
 
-        assertTrue(markdown.contains("Original event order is unavailable"))
-        assertTrue(markdown.contains("Legacy reasoning"))
-        assertTrue(markdown.contains("Legacy answer"))
-        assertTrue(markdown.contains("legacy tool result"))
+        assertEquals("Legacy answer", markdown)
     }
 
     @Test
-    fun `edited assistant export uses rebuilt state and preserves tool trace without stale text`() {
+    fun `edited assistant export contains the edited answer without stale text or tools`() {
         val originalTimeline = listOf(
             AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = "Old before"),
             AssistantTimelineItem(AssistantTimelineItemType.TOOL, toolSequence = 0),
@@ -423,12 +416,7 @@ class ChatViewModelRetryTest {
             mapOf("run-new" to listOf(toolEvent("new-event", "preserved tool result")))
         )
 
-        assertTrue(markdown.contains("Original event order is unavailable"))
-        assertTrue(markdown.contains("Edited reasoning"))
-        assertTrue(markdown.contains("Edited answer"))
-        assertTrue(markdown.contains("preserved tool result"))
-        assertFalse(markdown.contains("Old before"))
-        assertFalse(markdown.contains("Old after"))
+        assertEquals("Edited answer", markdown)
     }
 
     private fun toolEvent(eventId: String, result: String) = ToolEvent(

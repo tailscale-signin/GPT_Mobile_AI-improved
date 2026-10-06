@@ -44,13 +44,14 @@ internal fun synthesisSafeTools(
         tools
     }
 
-/** Keep repository actions callable even when the primary delegates its research. */
+/** Partial delegation keeps recovery tools; maximum delegation reserves work for the helper. */
 internal fun primaryDelegationTools(
     tools: List<ResolvedAgentTool>,
     localResearch: Boolean,
     processingOwnership: Int
 ): List<ResolvedAgentTool> = tools.filter { tool ->
     when {
+        localResearch && processingOwnership == 0 -> tool.realToolName == "delegate_to_model"
         !localResearch || tool.isGitHubTool() -> true
         tool.realToolName == "delegate_to_model" -> true
         tool.realToolName == "web_search" && tool.modelToolName == "web_search" -> true

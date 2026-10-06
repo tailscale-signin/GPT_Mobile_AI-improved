@@ -911,7 +911,7 @@ private fun FavoriteIcon(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorderBorder,
+            if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
             stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite),
             tint = MaterialTheme.colorScheme.primary.copy(alpha = if (isFavorite) 1f else 0.7f)
         )

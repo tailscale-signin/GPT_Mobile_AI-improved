@@ -265,12 +265,6 @@ fun ChatScreen(
     var targetResponseOffset by remember { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showExportOptions by remember { mutableStateOf(false) }
-    if (showExportOptions) {
-        ChatExportDialog(onDismiss = { showExportOptions = false }) { format ->
-            showExportOptions = false
-            scope.launch { exportChat(context, chatViewModel, format) }
-        }
-    }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
@@ -354,6 +348,12 @@ fun ChatScreen(
     }
 
     val scope = rememberCoroutineScope()
+    if (showExportOptions) {
+        ChatExportDialog(onDismiss = { showExportOptions = false }) { format ->
+            showExportOptions = false
+            scope.launch { exportChat(context, chatViewModel, format) }
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         chatViewModel.refreshLocalNetworkRequirement()
